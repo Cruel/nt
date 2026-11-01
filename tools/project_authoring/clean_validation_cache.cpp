@@ -54,6 +54,7 @@ std::optional<std::string> read_exact_file(const fs::path& path)
         stream.peek() != std::char_traits<char>::eof() || fs::file_size(path, error) != size ||
         error)
         return std::nullopt;
+    count_validation_work<WorkCounter::FileBytesRead>(bytes.size());
     return bytes;
 }
 
@@ -141,6 +142,8 @@ exact_proof(const fs::path& root, const std::map<std::string, std::string>* obse
         const auto bytes = read_exact_file(path);
         if (!bytes)
             return std::nullopt;
+        count_validation_work<WorkCounter::ContentHashes>();
+        count_validation_work<WorkCounter::ContentBytesHashed>(bytes->size());
         revision = noveltea::core::xxh3_128_revision(*bytes);
         trace_exact_asset_proof(phase, relative, bytes->size());
     }

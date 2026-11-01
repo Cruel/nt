@@ -919,6 +919,66 @@ original semantic-only #577 measurements had materially understated reused
 physical work. The Feature Lab median remains far above #576's optimization
 target; the counters expose work but do not themselves eliminate it.
 
+### #577 reviewer follow-up: broker, byte volume and publication stages
+
+The broker's source-authority observations run in a separate process, so
+`validationWork.brokerAuthority` reports **the two observations bracketing
+each profiled owner validation** separately from native `endToEnd` counters.
+It includes `brokerAuthorityObservations`, `brokerAuthorityMicros`,
+directory enumerations, stat/readlink checks, read and hash operations,
+and bytes. This is per-request evidence, not a delta of global broker counters;
+concurrent owners cannot contaminate it. Profiled requests still bypass the
+broker exact-result shortcut; normal unprofiled shortcuts are unchanged.
+
+`fileBytesRead` and `contentBytesHashed` measure successfully consumed
+bytes at instrumented native read/hash sites alongside their existing
+operation counts. `fontBytesRead`/`fontBytesHashed`,
+`shaderBytesRead`/`shaderBytesHashed`, and
+`generationAssetBytesRead`/`generationAssetBytesHashed` disaggregate
+physical proof volume. These are **not** OS syscall counts or a guarantee of
+complete third-party I/O coverage; broker byte counts are separate.
+
+The added timing fields `completeProjectPreparationMicros`,
+`portableInputPreparationMicros`, `portableSourceValidationMicros`,
+`noticeInputPreparationMicros`, `noticeValidationMicros`,
+`stageLedgerConstructionMicros`, `stageLedgerJsonSerializationMicros`,
+and `deferredPublicationMicros` separately measure preparation,
+serialization, and actual deferred-publication attempts
+(`deferredPublications`). `stageLedgerMicros` remains for compatibility.
+`validationResponseSerializationMicros` measures the first complete JSON
+serialization; instrumentation needs a second pass to include that elapsed
+measurement within its own response. Durations can overlap and are not timing
+thresholds. No cache-authority or diagnostic behavior depends on these values.
+
+The Release benchmark at
+`build/reports/validation-2026-11-01-577-broker-and-bytes.json` uses the
+existing reproducible `tests/native_cli/validation_performance.py` harness.
+The matched dev-lawdeep Release run (AMD Ryzen 7 5700G, 16 logical CPUs;
+`e62929fa` plus this uncommitted follow-up) recorded:
+
+| Project | Warm saved-label median | Broker observations (sample) | Native bytes read (sample) | Native bytes hashed (sample) |
+|---|---:|---:|---:|---:|
+| Feature Lab | 208.28 ms | 2 / 16.46 ms | 32,203,785 | 32,295,275 |
+| 1 Room | 11.10 ms | 2 / 0.63 ms | 280,102 | 284,000 |
+| 101 Rooms | 27.16 ms | 2 / 3.85 ms | 280,102 | 311,560 |
+| 501 Rooms | 93.89 ms | 2 / 16.27 ms | 280,102 | 423,560 |
+
+For a representative Feature Lab saved-label sample, the measured native
+stages include roughly 9.6 ms complete-Project preparation, 14.7 ms ledger
+construction, 6.8 ms ledger JSON serialization, and 0.6 ms deferred
+publication. In that sample, approximately 14.27 MB were font bytes and
+8.90 MB were binary Asset generation proofs; no glyph coverage or shader
+compilations ran. These values illustrate physical work even on semantic
+cache hits, **not** a measured performance improvement attributable to the
+instrumentation.
+
+The improved `tests/native_cli/validation_counter_modes.py` certifies Release
+ON/OFF CLI and native addon behavior for valid/invalid Projects, cold/direct
+and warm daemon calls, broker measurement, public JSON/exit parity, editor
+working validation, and optimized no-op OFF codegen. It reports timings but
+never asserts machine-specific speed thresholds. Feature Lab and the
+1/101/501-record fixtures remain the acceptance workloads.
+
 ### Authoritative pre-optimization baseline: Linux Release (#577)
 
 Future #576 optimization tickets should compare against the **complete, machine-readable**

@@ -150,11 +150,20 @@ shader_inventory(const std::map<std::string, std::string>& revisions)
     noveltea::authoring::count_validation_work<
         noveltea::authoring::WorkCounter::FileByteReads>();
     noveltea::authoring::count_validation_work<
+        noveltea::authoring::WorkCounter::FileBytesRead>(bytes.size());
+    noveltea::authoring::count_validation_work<
+        noveltea::authoring::WorkCounter::ShaderBytesRead>(bytes.size());
+    if (input.bad() || bytes.size() != output.at("byteSize").get<std::uint64_t>())
+        return false;
+    noveltea::authoring::count_validation_work<
         noveltea::authoring::WorkCounter::ShaderProofHashes>();
     noveltea::authoring::count_validation_work<
         noveltea::authoring::WorkCounter::ContentHashes>();
-    return !input.bad() && bytes.size() == output.at("byteSize").get<std::uint64_t>() &&
-           "sha256:" + core::sha256_hex(std::as_bytes(std::span(bytes.data(), bytes.size()))) ==
+    noveltea::authoring::count_validation_work<
+        noveltea::authoring::WorkCounter::ContentBytesHashed>(bytes.size());
+    noveltea::authoring::count_validation_work<
+        noveltea::authoring::WorkCounter::ShaderBytesHashed>(bytes.size());
+    return "sha256:" + core::sha256_hex(std::as_bytes(std::span(bytes.data(), bytes.size()))) ==
                output.at("byteHash").get<std::string>();
 }
 
@@ -190,11 +199,20 @@ shader_inventory(const std::map<std::string, std::string>& revisions)
     noveltea::authoring::count_validation_work<
         noveltea::authoring::WorkCounter::FileByteReads>();
     noveltea::authoring::count_validation_work<
+        noveltea::authoring::WorkCounter::FileBytesRead>(contents.size());
+    noveltea::authoring::count_validation_work<
+        noveltea::authoring::WorkCounter::ShaderBytesRead>(contents.size());
+    if (input.bad())
+        return false;
+    noveltea::authoring::count_validation_work<
         noveltea::authoring::WorkCounter::ShaderProofHashes>();
     noveltea::authoring::count_validation_work<
         noveltea::authoring::WorkCounter::ContentHashes>();
-    return !input.bad() &&
-           "sha256:" +
+    noveltea::authoring::count_validation_work<
+        noveltea::authoring::WorkCounter::ContentBytesHashed>(contents.size());
+    noveltea::authoring::count_validation_work<
+        noveltea::authoring::WorkCounter::ShaderBytesHashed>(contents.size());
+    return "sha256:" +
                    core::sha256_hex(std::as_bytes(std::span(contents.data(), contents.size()))) ==
                expected;
 }

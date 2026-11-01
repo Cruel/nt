@@ -97,8 +97,8 @@ Json stage_ledger(const OwnerValidation& state, const Json& result)
 {
     noveltea::authoring::ScopedValidationStageTime<
         noveltea::authoring::WorkCounter::StageLedgerMicros> timed;
-    noveltea::authoring::count_validation_work<
-        noveltea::authoring::WorkCounter::StageLedgerSerializations>();
+    noveltea::authoring::ScopedValidationStageTime<
+        noveltea::authoring::WorkCounter::StageLedgerConstructionMicros> construction;
     if (!state.portable_check || !state.notice_check || !state.font_inputs ||
         !state.material_records || !state.material_assets ||
         result.contains("portableFailure") || result.contains("noticeValidationFailure"))
@@ -360,6 +360,10 @@ std::optional<std::string> native_distribution_notice_error(const std::filesyste
         std::string bytes(static_cast<std::size_t>(length), '\0');
         if (!source.read(bytes.data(), static_cast<std::streamsize>(bytes.size())))
             return "Distribution notice '" + relative + "' is missing, unsafe, or invalid UTF-8.";
+        noveltea::authoring::count_validation_work<
+            noveltea::authoring::WorkCounter::FileByteReads>();
+        noveltea::authoring::count_validation_work<
+            noveltea::authoring::WorkCounter::FileBytesRead>(bytes.size());
         bool prohibited_controls = false;
         if (!valid_notice_utf8(bytes, prohibited_controls))
             return "Distribution notice '" + relative + "' is missing, unsafe, or invalid UTF-8.";
@@ -888,8 +892,12 @@ Json validate(std::string_view request_text)
             effective.contains("entrypoint") && !effective.at("entrypoint").is_null();
         if (request.value("includeFontCoverageInputs", false) &&
             !restore_stages(state, validated.stages_json, result)) {
-            const auto prepared = state.session->prepare_complete_working(
-                state.session->working_revision(), {}, true, true);
+            const auto prepared = [&] {
+                noveltea::authoring::ScopedValidationStageTime<
+                    noveltea::authoring::WorkCounter::CompleteProjectPreparationMicros> timed;
+                return state.session->prepare_complete_working(
+                    state.session->working_revision(), {}, true, true);
+            }();
             if (!prepared.accepted)
                 throw std::runtime_error("Native font coverage Project preparation failed: " +
                                          prepared.error);
@@ -899,7 +907,11 @@ Json validate(std::string_view request_text)
             result["work"]["completeProjectSnapshotReads"] =
                 state.session->complete_project_snapshot_reads();
             const auto admitted = Json::parse(prepared.complete_project_json);
-            const auto portable_key = portable_inputs(admitted);
+            const auto portable_key = [&] {
+                noveltea::authoring::ScopedValidationStageTime<
+                    noveltea::authoring::WorkCounter::PortableInputPreparationMicros> timed;
+                return portable_inputs(admitted);
+            }();
             const bool portable_reuse = external_watcher_cache_supported && state.portable_check &&
                                         state.portable_check->inputs == portable_key;
             result["work"]["portableSourceReuses"] = portable_reuse ? 1 : 0;
@@ -907,9 +919,13 @@ Json validate(std::string_view request_text)
                 state.portable_check.reset();
                 noveltea::authoring::count_validation_work<
                     noveltea::authoring::WorkCounter::PortableSourceChecks>();
-                const auto portable = native_project_bundle(
-                    {{"action", "validation-source-check"}, {"admittedProject", admitted}},
-                    state.session.get(), root);
+                const auto portable = [&] {
+                    noveltea::authoring::ScopedValidationStageTime<
+                        noveltea::authoring::WorkCounter::PortableSourceValidationMicros> timed;
+                    return native_project_bundle(
+                        {{"action", "validation-source-check"}, {"admittedProject", admitted}},
+                        state.session.get(), root);
+                }();
                 if (!portable.value("ok", false)) {
                     result["portableFailure"] = portable.value(
                         "error", std::string("Native Project source preparation failed."));
@@ -923,14 +939,23 @@ Json validate(std::string_view request_text)
                         observed_external_paths(portable.at("sourcePaths"), *state.session))
                     state.portable_check = OwnerValidation::ExternalCheck{portable_key, *watched};
             }
-            const auto notice_key = notice_inputs(admitted);
+            const auto notice_key = [&] {
+                noveltea::authoring::ScopedValidationStageTime<
+                    noveltea::authoring::WorkCounter::NoticeInputPreparationMicros> timed;
+                return notice_inputs(admitted);
+            }();
             const bool notice_reuse = external_watcher_cache_supported && state.notice_check &&
                                       state.notice_check->inputs == notice_key;
             result["work"]["noticeValidationReuses"] = notice_reuse ? 1 : 0;
             if (!notice_reuse) {
                 state.notice_check.reset();
                 result["work"]["noticeValidationRuns"] = 1;
-                if (const auto notice_error = native_distribution_notice_error(root, admitted)) {
+                const auto notice_error = [&] {
+                    noveltea::authoring::ScopedValidationStageTime<
+                        noveltea::authoring::WorkCounter::NoticeValidationMicros> timed;
+                    return native_distribution_notice_error(root, admitted);
+                }();
+                if (notice_error) {
                     result["noticeValidationFailure"] = *notice_error;
                 } else {
                     Json paths = Json::array();
@@ -1161,7 +1186,22 @@ Json validate(std::string_view request_text)
                     {"error", "Project sources changed during validation preparation."}};
         const auto stages = request.value("includeFontCoverageInputs", false)
                                 ? stage_ledger(state, result) : Json(nullptr);
-        if (!state.session->publish_deferred_clean_validation(validated, post_revisions, stages.dump()))
+        const auto serialized_stages = [&] {
+            noveltea::authoring::ScopedValidationStageTime<
+                noveltea::authoring::WorkCounter::StageLedgerJsonSerializationMicros> timed;
+            noveltea::authoring::count_validation_work<
+                noveltea::authoring::WorkCounter::StageLedgerSerializations>();
+            return stages.dump();
+        }();
+        const bool published = [&] {
+            noveltea::authoring::ScopedValidationStageTime<
+                noveltea::authoring::WorkCounter::DeferredPublicationMicros> timed;
+            noveltea::authoring::count_validation_work<
+                noveltea::authoring::WorkCounter::DeferredPublications>();
+            return state.session->publish_deferred_clean_validation(
+                validated, post_revisions, serialized_stages);
+        }();
+        if (!published)
             return {{"ok", false},
                     {"kind", "conflict"},
                     {"error", "Project sources changed during validation preparation."}};
@@ -1220,9 +1260,23 @@ extern "C" std::uint64_t noveltea_tooling_native_disk_project_validation_json(
     try {
         if (!request && request_size != 0)
             throw std::runtime_error("Native disk validation request is absent.");
-        serialized = validate(std::string_view(reinterpret_cast<const char*>(request),
-                                               static_cast<std::size_t>(request_size)))
-                         .dump();
+        auto result = validate(std::string_view(reinterpret_cast<const char*>(request),
+                                                static_cast<std::size_t>(request_size)));
+#if NOVELTEA_ENABLE_VALIDATION_COUNTERS
+        // Reporting the cost of serializing a JSON response inside that very
+        // response requires a second pass. Measure the first complete pass,
+        // then append its duration without altering any semantic fields.
+        const auto started = std::chrono::steady_clock::now();
+        serialized = result.dump();
+        if (result.contains("work") && result["work"].contains("endToEnd")) {
+            result["work"]["endToEnd"]["validationResponseSerializationMicros"] =
+                std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::steady_clock::now() - started).count();
+            serialized = result.dump();
+        }
+#else
+        serialized = result.dump();
+#endif
     } catch (const std::exception& error) {
         serialized = Json{{"ok", false}, {"error", error.what()}}.dump();
     }

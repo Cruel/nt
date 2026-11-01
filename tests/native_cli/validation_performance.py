@@ -172,6 +172,10 @@ with tempfile.TemporaryDirectory(prefix='nt-validation-performance-') as tempora
                     key[:-6] + 'Ms': round(work[key] / 1000, 3)
                     for key in ('nativeRequestMicros', 'finalProofRequestMicros')
                     if key in work
+                } | {
+                    'brokerAuthorityMs': round(
+                        work['brokerAuthority']['brokerAuthorityMicros'] / 1000, 3)
+                    for _ in [0] if 'brokerAuthorityMicros' in work.get('brokerAuthority', {})
                 },
                 'diagnosticDigest': signature}
 

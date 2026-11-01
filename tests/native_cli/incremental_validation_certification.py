@@ -171,8 +171,25 @@ with tempfile.TemporaryDirectory(prefix="noveltea-incremental-certify-") as dire
                 assert physical["fontProofReads"] > 0, (size, physical)
                 assert physical["fontProofHashes"] > 0, (size, physical)
                 assert physical["fontProofReads"] == physical["fontProofHashes"], physical
+                assert physical["fontBytesRead"] > 0, (size, physical)
+                assert physical["fontBytesHashed"] > 0, (size, physical)
+                assert physical["fileBytesRead"] >= physical["fontBytesRead"], physical
+                assert physical["contentBytesHashed"] >= physical["fontBytesHashed"], physical
                 assert physical["sourceGenerationFences"] > 0, (size, physical)
                 assert physical["validationResponseSerializations"] > 0, (size, physical)
+                assert physical["deferredPublications"] == 1, (size, physical)
+                assert physical["stageLedgerSerializations"] == 1, (size, physical)
+                for timed in ("completeProjectPreparationMicros",
+                              "portableInputPreparationMicros",
+                              "noticeInputPreparationMicros",
+                              "stageLedgerConstructionMicros",
+                              "stageLedgerJsonSerializationMicros",
+                              "deferredPublicationMicros",
+                              "validationResponseSerializationMicros"):
+                    assert timed in physical and physical[timed] >= 0, (size, timed, physical)
+                broker = saved["validationWork"].get("brokerAuthority", {})
+                assert broker.get("brokerAuthorityObservations", 0) == 2, (size, broker)
+                assert broker.get("brokerAuthorityMicros", 0) > 0, (size, broker)
                 if sys.platform.startswith("linux"):
                     assert saved["validationWork"]["endToEnd"]["portableSourceChecks"] == 0
                     assert saved["validationWork"]["endToEnd"]["directoryEnumerations"] == 0

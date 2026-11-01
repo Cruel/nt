@@ -1,6 +1,7 @@
 #include "tooling_daemon_broker.hpp"
 #include "tooling_native_c.h"
 #include "tooling_project_authority.hpp"
+#include "../project_authoring/validation_work_instrumentation.hpp"
 
 #include <noveltea/core/player_bootstrap.hpp>
 
@@ -3694,9 +3695,28 @@ private:
                     continue;
                 }
                 try {
+                    const bool profile = message_payload.value("profileWork", false) &&
+                                         noveltea::authoring::validation_counters_enabled;
+                    noveltea::authoring::ValidationWorkCounters observed_work;
+                    // This scope belongs to the broker thread, not the owner process.
+                    // It captures only this authority request; concurrent owners stay separate.
+                    const auto started = std::chrono::steady_clock::now();
+                    std::optional<noveltea::authoring::ScopedValidationWork> measure;
+                    if (profile)
+                        measure.emplace(observed_work);
                     const auto observation = observe_owner_project(
                         message_payload["ownerWorkerId"].get<std::uint64_t>(), *authority_request);
-                    const auto result = project_observation_json(observation);
+                    auto result = project_observation_json(observation);
+                    if (profile) {
+                        Json counts = Json::object();
+                        for (const auto& [name, value] : observed_work.fields())
+                            counts[std::string(name)] = value;
+                        counts["brokerAuthorityObservations"] = 1;
+                        counts["brokerAuthorityMicros"] =
+                            std::chrono::duration_cast<std::chrono::microseconds>(
+                                std::chrono::steady_clock::now() - started).count();
+                        result["work"] = std::move(counts);
+                    }
                     client->send(result_event_json(request_id, true, result.dump()));
                 } catch (const std::exception& error) {
                     client->send(result_event_json(request_id, false, "null", error.what()));

@@ -200,6 +200,10 @@ noveltea::text::FontAssetReadResult read_font_asset(const void* context,
         noveltea::authoring::WorkCounter::FileByteReads>();
     if (bytes.empty())
         return {.bytes = {}, .error = "font file is empty"};
+    noveltea::authoring::count_validation_work<
+        noveltea::authoring::WorkCounter::FileBytesRead>(bytes.size());
+    noveltea::authoring::count_validation_work<
+        noveltea::authoring::WorkCounter::FontBytesRead>(bytes.size());
     return {.bytes = std::move(bytes), .error = {}};
 }
 
@@ -304,6 +308,10 @@ FontCoverageFingerprint font_coverage_fingerprint(const FontCoverageFileSource& 
         noveltea::authoring::WorkCounter::FontProofReads>();
     noveltea::authoring::count_validation_work<
         noveltea::authoring::WorkCounter::FileByteReads>();
+    noveltea::authoring::count_validation_work<
+        noveltea::authoring::WorkCounter::FileBytesRead>(bytes.size());
+    noveltea::authoring::count_validation_work<
+        noveltea::authoring::WorkCounter::FontBytesRead>(bytes.size());
     if (input.bad() || bytes.size() != fingerprint.byte_size) {
         fingerprint.error = "font source changed during content verification";
         return fingerprint;
@@ -312,6 +320,10 @@ FontCoverageFingerprint font_coverage_fingerprint(const FontCoverageFileSource& 
         noveltea::authoring::WorkCounter::FontProofHashes>();
     noveltea::authoring::count_validation_work<
         noveltea::authoring::WorkCounter::ContentHashes>();
+    noveltea::authoring::count_validation_work<
+        noveltea::authoring::WorkCounter::ContentBytesHashed>(bytes.size());
+    noveltea::authoring::count_validation_work<
+        noveltea::authoring::WorkCounter::FontBytesHashed>(bytes.size());
     fingerprint.exact_content_revision = noveltea::core::xxh3_128_revision(bytes);
     return fingerprint;
 }

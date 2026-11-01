@@ -1,4 +1,5 @@
 #include "tooling_project_authority.hpp"
+#include "../project_authoring/validation_work_instrumentation.hpp"
 
 #include <noveltea/core/player_bootstrap.hpp>
 
@@ -309,6 +310,14 @@ std::string content_hash(const fs::path& path, std::uint64_t expected_size)
     char extra = '\0';
     if (input.read(&extra, 1))
         throw std::runtime_error("Project source changed while fallback hashing");
+    noveltea::authoring::count_validation_work<
+        noveltea::authoring::WorkCounter::FileByteReads>();
+    noveltea::authoring::count_validation_work<
+        noveltea::authoring::WorkCounter::FileBytesRead>(bytes.size());
+    noveltea::authoring::count_validation_work<
+        noveltea::authoring::WorkCounter::ContentHashes>();
+    noveltea::authoring::count_validation_work<
+        noveltea::authoring::WorkCounter::ContentBytesHashed>(bytes.size());
     return noveltea::core::sha256_hex(bytes);
 }
 
@@ -318,6 +327,8 @@ std::optional<ProjectSourceManifestEntry> capture_regular_file(
 {
     const auto absolute = canonical_root / path_from_utf8(relative);
     std::error_code error;
+    noveltea::authoring::count_validation_work<
+        noveltea::authoring::WorkCounter::StatReadlinkCalls>();
     const auto link_status = fs::symlink_status(absolute, error);
     if (error) {
         if (error == std::errc::no_such_file_or_directory || error == std::errc::not_a_directory)
@@ -364,6 +375,8 @@ void discover_scope(const fs::path& canonical_root, const ProjectSourceDiscovery
             return;
         const auto absolute_directory = canonical_root / path_from_utf8(relative_directory);
         std::error_code error;
+        noveltea::authoring::count_validation_work<
+            noveltea::authoring::WorkCounter::StatReadlinkCalls>();
         const auto directory_status = fs::symlink_status(absolute_directory, error);
         if (error) {
             if (error == std::errc::no_such_file_or_directory ||
@@ -382,6 +395,8 @@ void discover_scope(const fs::path& canonical_root, const ProjectSourceDiscovery
                                      relative_directory);
 
         std::vector<std::string> names;
+        noveltea::authoring::count_validation_work<
+            noveltea::authoring::WorkCounter::DirectoryEnumerations>();
         fs::directory_iterator iterator(absolute_directory, error);
         if (error)
             throw std::runtime_error("Cannot read Project discovery directory: " +
@@ -403,6 +418,8 @@ void discover_scope(const fs::path& canonical_root, const ProjectSourceDiscovery
             if (scope_excludes(scope, relative))
                 continue;
             const auto absolute = canonical_root / path_from_utf8(relative);
+            noveltea::authoring::count_validation_work<
+                noveltea::authoring::WorkCounter::StatReadlinkCalls>();
             const auto entry_status = fs::symlink_status(absolute, error);
             if (error)
                 throw std::runtime_error("Cannot inspect Project discovery candidate: " + relative);

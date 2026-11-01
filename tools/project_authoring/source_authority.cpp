@@ -118,6 +118,7 @@ std::string read_exact_bytes(const std::filesystem::path& path,
         std::filesystem::last_write_time(path) != before_time)
         throw std::runtime_error("Project source changed during physical observation: " +
                                  path.string());
+    count_validation_work<WorkCounter::FileBytesRead>(bytes.size());
     if (observed_time)
         *observed_time = before_time;
     return bytes;

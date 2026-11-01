@@ -87,6 +87,7 @@ std::string bytes_at(const std::filesystem::path& path)
                             std::istreambuf_iterator<char>{}};
     if (input.bad())
         throw std::runtime_error("Cannot finish preview source: " + path.string());
+    count_validation_work<WorkCounter::FileBytesRead>(bytes.size());
     return bytes;
 }
 

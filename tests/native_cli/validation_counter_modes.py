@@ -30,17 +30,28 @@ with tempfile.TemporaryDirectory(prefix='nt-counter-modes-') as temporary:
     env['NOVELTEA_CLI_CERTIFICATION'] = '1'
     env['NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT'] = str(base / 'daemon')
 
-    def invoke(binary, target, profile=False):
+    def invoke(binary, target, profile=False, daemon=False):
         run_env = dict(env)
+        run_env['NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT'] = str(
+            base / ('daemon-on' if binary == on_cli else 'daemon-off'))
         if profile:
             run_env['NOVELTEA_VALIDATION_WORK_PROFILE'] = '1'
         started = time.perf_counter()
         result = subprocess.run(
-            [str(binary), '--json', '--no-daemon', '--project', str(target), 'validate'],
+            [str(binary), '--json', *([] if daemon else ['--no-daemon']),
+             '--project', str(target), 'validate'],
             env=run_env, capture_output=True, text=True, timeout=180)
         payload = json.loads(result.stdout)
         assert payload['exitCode'] == result.returncode, (result, payload)
         return payload, round((time.perf_counter() - started) * 1000, 2)
+
+    def stop(binary):
+        run_env = dict(env)
+        run_env['NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT'] = str(
+            base / ('daemon-on' if binary == on_cli else 'daemon-off'))
+        result = subprocess.run([str(binary), '--json', 'daemon', 'stop'],
+                                env=run_env, capture_output=True, text=True, timeout=40)
+        assert result.returncode == 0, (result.stdout, result.stderr)
 
     create = subprocess.run(
         [str(on_cli), '--json', '--no-daemon', 'project', 'create', str(project),
@@ -69,6 +80,7 @@ with tempfile.TemporaryDirectory(prefix='nt-counter-modes-') as temporary:
                 assert 'validationWork' in observed and 'endToEnd' in observed['validationWork']
                 measured = observed['validationWork']['endToEnd']
                 assert measured['fileByteReads'] > 0 and measured['contentHashes'] > 0
+                assert measured['fileBytesRead'] > 0 and measured['contentBytesHashed'] > 0
                 assert measured['validationResponseSerializations'] > 0
             else:
                 assert not observed['success'] and observed['exitCode'] == 70, observed
@@ -76,6 +88,18 @@ with tempfile.TemporaryDirectory(prefix='nt-counter-modes-') as temporary:
                 assert 'validationWork' not in observed
             print(json.dumps({'mode': mode, 'state': state,
                               'normalMs': elapsed, 'profiledMs': profiled_ms}), flush=True)
+            stop(binary)
+            warm, _ = invoke(binary, copy, daemon=True)
+            repeated, _ = invoke(binary, copy, daemon=True)
+            assert warm.get('diagnostics') == public.get('diagnostics'), (mode, state, warm)
+            assert repeated.get('diagnostics') == public.get('diagnostics'), (mode, state, repeated)
+            assert 'validationWork' not in repeated
+            if mode == 'on':
+                observed_daemon, _ = invoke(binary, copy, profile=True, daemon=True)
+                broker = observed_daemon['validationWork'].get('brokerAuthority', {})
+                assert broker.get('brokerAuthorityObservations') == 2, (mode, state, broker)
+                assert broker.get('brokerAuthorityMicros', 0) > 0, broker
+            stop(binary)
         a, b = actual['on'][0], actual['off'][0]
         for field in ('success', 'exitCode', 'diagnostics'):
             assert a.get(field) == b.get(field), (state, field, a.get(field), b.get(field))

@@ -52,6 +52,7 @@ std::string read_bytes(const std::filesystem::path& path)
     if (!input.read(result.data(), static_cast<std::streamsize>(result.size())) ||
         input.peek() != std::char_traits<char>::eof())
         throw std::runtime_error("Cannot finish reading Room source: " + path.string());
+    count_validation_work<WorkCounter::FileBytesRead>(result.size());
     return result;
 }
 
@@ -318,6 +319,7 @@ std::string source_revision_for(std::string_view bytes, SourceRevisionAlgorithm 
     switch (algorithm) {
     case SourceRevisionAlgorithm::Xxh3_128:
         count_validation_work<WorkCounter::ContentHashes>();
+        count_validation_work<WorkCounter::ContentBytesHashed>(bytes.size());
         return noveltea::core::xxh3_128_revision(bytes);
     case SourceRevisionAlgorithm::Absent:
     case SourceRevisionAlgorithm::Invalid:

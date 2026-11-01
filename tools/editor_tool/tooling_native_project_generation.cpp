@@ -103,9 +103,17 @@ native_project_source_generation(const ProjectSession& session, const std::files
                 noveltea::authoring::count_validation_work<
                     noveltea::authoring::WorkCounter::FileByteReads>();
                 noveltea::authoring::count_validation_work<
+                    noveltea::authoring::WorkCounter::FileBytesRead>(size);
+                noveltea::authoring::count_validation_work<
+                    noveltea::authoring::WorkCounter::GenerationAssetBytesRead>(size);
+                noveltea::authoring::count_validation_work<
                     noveltea::authoring::WorkCounter::GenerationAssetProofHashes>();
                 noveltea::authoring::count_validation_work<
                     noveltea::authoring::WorkCounter::ContentHashes>();
+                noveltea::authoring::count_validation_work<
+                    noveltea::authoring::WorkCounter::ContentBytesHashed>(size);
+                noveltea::authoring::count_validation_work<
+                    noveltea::authoring::WorkCounter::GenerationAssetBytesHashed>(size);
                 digest = hasher.finish();
             } else {
                 // Fresh non-admission text proofs retain the native XXH3-128
@@ -119,7 +127,11 @@ native_project_source_generation(const ProjectSession& session, const std::files
                 noveltea::authoring::count_validation_work<
                     noveltea::authoring::WorkCounter::FileByteReads>();
                 noveltea::authoring::count_validation_work<
+                    noveltea::authoring::WorkCounter::FileBytesRead>(bytes.size());
+                noveltea::authoring::count_validation_work<
                     noveltea::authoring::WorkCounter::ContentHashes>();
+                noveltea::authoring::count_validation_work<
+                    noveltea::authoring::WorkCounter::ContentBytesHashed>(bytes.size());
                 digest = exact_source_revision(bytes);
             }
             if (input.peek() != std::char_traits<char>::eof() ||
@@ -137,6 +149,8 @@ native_project_source_generation(const ProjectSession& session, const std::files
         noveltea::authoring::trace_source_proof_event(proof_phase, "text-reuse", text_reuse_hits);
     noveltea::authoring::count_validation_work<
         noveltea::authoring::WorkCounter::ContentHashes>();
+    noveltea::authoring::count_validation_work<
+        noveltea::authoring::WorkCounter::ContentBytesHashed>(identity.size());
     return exact_source_revision(identity);
 }
 

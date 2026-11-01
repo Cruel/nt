@@ -5,6 +5,7 @@
 #include "tooling_daemon_broker.hpp"
 #include "tooling_native_c.h"
 #include "tooling_native_project_asset.hpp"
+#include "../project_authoring/validation_work_instrumentation.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -547,7 +548,7 @@ int owner_process(const Json& context, std::uint64_t worker_id,
     const auto session_epoch = descriptor.at("coldSessionEpoch").get<std::uint64_t>();
     std::optional<Json> last_manifest;
     std::uint64_t generation = 0;
-    const auto observe = [&]() -> std::optional<Json> {
+    const auto observe = [&](bool profile_work = false) -> std::optional<Json> {
         Json request;
         try {
             request = owner_authority_configuration(native_path_from_utf8(canonical_root));
@@ -556,6 +557,8 @@ int owner_process(const Json& context, std::uint64_t worker_id,
         }
         request["ownerWorkerId"] = worker_id;
         request["projectRoot"] = canonical_root;
+        if (profile_work)
+            request["profileWork"] = true;
         const auto observed = broker_call(context, "owner-project-observe", request);
         if (!observed.value("ok", false))
             return std::nullopt; // The native command still diagnoses source errors.
@@ -635,9 +638,14 @@ int owner_process(const Json& context, std::uint64_t worker_id,
             }
             if (next.value("method", "") != "invoke")
                 throw std::runtime_error("Native owner received an unsupported method.");
-            const auto before = observe();
             const auto& payload = next.at("payload");
             const bool validation = native_validation_argv(payload);
+            const bool profile_work =
+                validation && payload.at("environment").is_object() &&
+                payload.at("environment")
+                        .value("NOVELTEA_VALIDATION_WORK_PROFILE", std::string{}) != "" &&
+                noveltea::authoring::validation_counters_enabled;
+            const auto before = observe(profile_work);
             const auto cancelled = [&] {
                 const auto status = broker_call(context, "owner-cancelled",
                                                 {{"ownerWorkerId", worker_id}, {"token", token}});
@@ -672,7 +680,30 @@ int owner_process(const Json& context, std::uint64_t worker_id,
                 throw std::runtime_error(
                     "Native Project request cancelled during execution; its disk outcome must be "
                     "verified before retrying.");
-            const auto after = observe();
+            const auto after = observe(profile_work);
+            // Broker authority observations run in another process. Fold the
+            // exact before/after observations for this owner request into the
+            // profiled CLI result, never into shared process-global counters.
+            if (profile_work && completion.contains("result") && completion["result"].is_array() &&
+                completion["result"].size() == 3) {
+                auto output =
+                    Json::parse(completion["result"][1].get<std::string>(), nullptr, false);
+                if (output.is_object() && output.contains("validationWork") &&
+                    output["validationWork"].is_object()) {
+                    Json broker = Json::object();
+                    for (const auto* observation :
+                         {before ? &*before : nullptr, after ? &*after : nullptr}) {
+                        if (!observation || !observation->contains("work"))
+                            continue;
+                        for (const auto& [field, value] : observation->at("work").items())
+                            if (value.is_number_integer())
+                                broker[field] = broker.value(field, std::uint64_t{0}) +
+                                                value.get<std::uint64_t>();
+                    }
+                    output["validationWork"]["brokerAuthority"] = std::move(broker);
+                    completion["result"][1] = output.dump();
+                }
+            }
             // The broker only retains a result when two authoritative observations
             // bracket the validated source generation with no physical changes.
             if (validation && before && after && before->at("manifest") == after->at("manifest")) {
