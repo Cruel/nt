@@ -31,12 +31,12 @@ validation measure:
 
 | Scenario | Feature Lab | 1 Room | 101 Rooms | 501 Rooms |
 | --- | ---: | ---: | ---: | ---: |
-| Editor unsaved in-memory edit | 94.38 → 1.57 | 1.23 → 0.17 | 7.53 → 0.91 | 34.08 → 4.03 |
-| Warm saved Room-label edit | 323.31 → 205.82 | 13.17 → 10.01 | 45.22 → 25.62 | 167.99 → 102.84 |
-| Unchanged warm daemon | 328.37 → 199.57 | 13.05 → 9.19 | 38.86 → 24.37 | 152.07 → 97.19 |
-| Cold cached daemon startup | 2,930.01 → 563.64 | 104.34 → 98.47 | 197.95 → 126.51 | 587.69 → 251.40 |
-| Cold uncached daemon startup | 3,440.47 → 3,084.27 | 86.09 → 100.30 | 205.17 → 185.33 | 595.43 → 605.32 |
-| Cached direct `--no-daemon` | 2,631.72 → 643.88 | 82.60 → 77.55 | 168.62 → 104.42 | 626.95 → 215.32 |
+| Editor unsaved in-memory edit | 94.38 → 1.66 | 1.23 → 0.18 | 7.53 → 0.84 | 34.08 → 4.46 |
+| Warm saved Room-label edit | 323.31 → 207.89 | 13.17 → 10.47 | 45.22 → 26.11 | 167.99 → 89.74 |
+| Unchanged warm daemon | 328.37 → 199.75 | 13.05 → 9.14 | 38.86 → 25.55 | 152.07 → 107.82 |
+| Cold cached daemon startup | 2,930.01 → 579.44 | 104.34 → 100.20 | 197.95 → 125.07 | 587.69 → 246.80 |
+| Cold uncached daemon startup | 3,440.47 → 3,090.07 | 86.09 → 101.67 | 205.17 → 187.43 | 595.43 → 531.76 |
+| Cached direct `--no-daemon` | 2,631.72 → 635.65 | 82.60 → 78.27 | 168.62 → 102.93 | 626.95 → 215.16 |
 
 The complete diagnostic fingerprints match #577 for **all comparable sampled
 states**, across all four Project sizes; the profile harness also checks
@@ -93,11 +93,11 @@ Cold cached 501-Room admission still parses 507 YAML documents and performs
 1,025 content hashes, despite zero rechecked semantic records.
 
 **Feasibility, not CI pass/fail budgets:** The ~1–2 ms editor in-memory goal
-is met on Feature Lab and up to 101 Rooms, but the 501-Room median is 4.03 ms.
+is met on Feature Lab and up to 101 Rooms, but the 501-Room median is 4.46 ms.
 The ≤20 ms warm saved-file goal is met only on the one-Room fixture; the
-101-Room median is 25.62 ms, 501 Rooms 102.84 ms, and Feature Lab 205.82 ms.
+101-Room median is 26.11 ms, 501 Rooms 89.74 ms, and Feature Lab 207.89 ms.
 The sub-500 ms cached cold CLI goal is met on the three synthetic sizes but
-**not** Feature Lab (564 ms daemon, 644 ms direct). Public CLI process/broker
+**not** Feature Lab (579 ms daemon, 636 ms direct). Public CLI process/broker
 dispatch and persistent physical integrity checks remain material even when
 semantic stages are reused. Full uncached validation continues to pay for
 real Project preparation and shader/font work. These are remaining measurable
@@ -113,9 +113,12 @@ python3 tests/native_cli/validation_performance.py \
   build/linux-authoring-release/tools/editor_tool/native-cli/noveltea "$PWD" \
   --issue 594 --machine reference-linux \
   --output docs/editor/performance/baselines/validation-2026-11-01-certification.json
-ctest --test-dir build/linux-authoring-release \
-  -R 'native_cli_incremental_validation_certification|native_cli_portable_validation_cache|native_cli_shader_validation_cache' \
-  --output-on-failure
+python3 tests/native_cli/incremental_validation_certification.py \
+  build/linux-authoring-release/tools/editor_tool/native-cli/noveltea "$PWD"
+python3 tests/native_cli/portable_validation_cache.py \
+  build/linux-authoring-release/tools/editor_tool/native-cli/noveltea "$PWD/tests/projects/feature-lab"
+python3 tests/native_cli/shader_validation_cache.py \
+  build/linux-authoring-release/tools/editor_tool/native-cli/noveltea "$PWD/tests/projects/feature-lab"
 ctest --test-dir build/native-authoring-host \
   -R 'native_authoring_(project_validation|source_watcher_races|clean_cache_(recovery|correctness|offline)|cache_writer_processes)' \
   --output-on-failure
@@ -135,6 +138,17 @@ and `native_cli_portable_validation_cache`; the optional bind-mount namespace
 test requires user/mount namespaces. Windows/macOS native and real CLI/editor
 interop certification remains required on their release hosts; Linux results
 do not substitute for those platform runs.
+
+One real CLI/editor writer-election run, executed concurrently with the full
+41-test native host suite, failed its Feature Lab shutdown-ledger assertion.
+The same cross-process test passed in isolation and an independent large-Project
+graceful-stop reproduction published correctly; this intermittent result is
+not evidence of a diagnostic mismatch, but remains a shutdown-load regression
+to watch in CI. The full native host suite passed 41/41, source-race and
+bind-mount containment tests passed, and source C++/format checks passed. The
+Release `cxx-dependency-policy` target could not complete on this host because
+its runtime link graph lacks the configured NovelTea policy triplet; this is
+not a validator test failure.
 
 ### #593: cross-process clean-ledger writer and quiet publication
 
