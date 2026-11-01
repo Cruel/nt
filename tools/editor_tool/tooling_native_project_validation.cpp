@@ -143,9 +143,11 @@ bool restore_stages(OwnerValidation& state, std::string_view serialized, Json& r
         };
         const auto portable = check(ledger.at("portable"));
         const auto notices = check(ledger.at("notices"));
-        if (!state.shader_cache.restore_ledger(state.root, ledger.at("shaders")) ||
+        noveltea::tooling::MaterialShaderValidationCache restored_shaders;
+        if (!restored_shaders.restore_ledger(state.root, ledger.at("shaders")) ||
             !noveltea::tooling::restore_font_coverage_ledger(ledger.at("fonts").dump()))
             throw std::runtime_error("Malformed font or shader validation evidence.");
+        state.shader_cache = std::move(restored_shaders);
         state.portable_check = portable;
         state.notice_check = notices;
         state.material_records = ledger.at("materials");
@@ -155,7 +157,9 @@ bool restore_stages(OwnerValidation& state, std::string_view serialized, Json& r
         state.font_inputs = projection.at("fontCoverageInputs");
         result.update(projection);
     } catch (...) {
-        state.clear_preparations();
+        // An optional, stale or malformed persisted stage cannot revoke
+        // otherwise proven resident Material/shader candidates. The fallback
+        // below rechecks every candidate against its exact current inputs.
         return false;
     }
     result["work"]["portableSourceReuses"] = 1;
@@ -211,9 +215,16 @@ void restore_independent_stage_evidence(OwnerValidation& state, std::string_view
     }
 }
 
+OwnerValidation*& resident_slot()
+{
+    static OwnerValidation* owner = nullptr;
+    return owner;
+}
+
 OwnerValidation& resident()
 {
     static OwnerValidation value;
+    resident_slot() = &value;
     return value;
 }
 
@@ -1132,6 +1143,29 @@ Json validate(std::string_view request_text)
 }
 
 } // namespace
+
+namespace noveltea::tooling {
+
+void release_native_disk_validation_owner() noexcept
+{
+    auto* owner = resident_slot();
+    if (!owner)
+        return;
+    try {
+        std::scoped_lock lock(owner->mutex);
+        // Shutdown flush must run while record contracts, cached source
+        // analyses and other function-local validation statics are alive.
+        // Waiting for the OwnerValidation static destructor is too late.
+        owner->session.reset();
+        owner->clear_preparations();
+        owner->root.clear();
+        owner->pending_generation.clear();
+    } catch (...) {
+        // The optional ledger must not prevent a CLI process from exiting.
+    }
+}
+
+} // namespace noveltea::tooling
 
 extern "C" std::uint64_t noveltea_tooling_native_disk_project_validation_json(
     const std::uint8_t* request, std::uint64_t request_size, std::uint8_t* response,

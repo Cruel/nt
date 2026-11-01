@@ -59,6 +59,13 @@ with TemporaryDirectory(prefix="noveltea-portable-validation-") as temporary:
 
     initial = validate()
     diagnostics = initial["diagnostics"]
+    # The elected daemon writer debounces disk publication for five seconds.
+    # A direct client must not expect an immediate cold ledger while that
+    # resident still owns the lease. Graceful stop flushes its validated
+    # generation and makes cold-stage restoration deterministic.
+    stop = subprocess.run([str(cli), "--json", "daemon", "stop"], env=env,
+                          capture_output=True, text=True, timeout=30)
+    assert stop.returncode == 0, (stop.stdout, stop.stderr)
     restarted = validate(direct=True)
     assert_public_parity(initial, restarted)
     for counter in ("globalStageExecutions", "fontCoverageRuns", "shaderCompileRuns",

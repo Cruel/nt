@@ -13,6 +13,129 @@ records baseline evidence from `4e0dcdfc`, not performance guarantees. See
 The problem is **repeated whole-Project work around an incremental validator**, not an
 unoptimized compiler build or failure to retain the primary validation session.
 
+### #594: end-to-end parity and scale certification (November 1, 2026)
+
+The final certification uses the unchanged #577 83-sample Release workload and
+[separate #594 result](performance/baselines/validation-2026-11-01-certification.json).
+Both runs were on the same 16-logical-CPU Ryzen 7 5700G Debian reference host,
+using GCC `-O3 -DNDEBUG` Release CLI **and** Release Node-API addon,
+three repetitions per applicable state, identical Feature Lab and synthetic
+1/101/501-Room fixtures, and the same profiling flag and cache states. Both
+build identities, binary hashes, fixture protocol, source revision and host
+metadata are in the JSON artifacts. This is a cumulative comparison against
+the fixed pre-optimization baseline, **not** the isolated effect of #594.
+
+Medians (ms) below are **#577 baseline → #594**, including process startup for
+public CLI requests and excluding editor patch application from the in-memory
+validation measure:
+
+| Scenario | Feature Lab | 1 Room | 101 Rooms | 501 Rooms |
+| --- | ---: | ---: | ---: | ---: |
+| Editor unsaved in-memory edit | 94.38 → 1.57 | 1.23 → 0.17 | 7.53 → 0.91 | 34.08 → 4.03 |
+| Warm saved Room-label edit | 323.31 → 205.82 | 13.17 → 10.01 | 45.22 → 25.62 | 167.99 → 102.84 |
+| Unchanged warm daemon | 328.37 → 199.57 | 13.05 → 9.19 | 38.86 → 24.37 | 152.07 → 97.19 |
+| Cold cached daemon startup | 2,930.01 → 563.64 | 104.34 → 98.47 | 197.95 → 126.51 | 587.69 → 251.40 |
+| Cold uncached daemon startup | 3,440.47 → 3,084.27 | 86.09 → 100.30 | 205.17 → 185.33 | 595.43 → 605.32 |
+| Cached direct `--no-daemon` | 2,631.72 → 643.88 | 82.60 → 77.55 | 168.62 → 104.42 | 626.95 → 215.32 |
+
+The complete diagnostic fingerprints match #577 for **all comparable sampled
+states**, across all four Project sizes; the profile harness also checks
+unchanged/resident, saved edits and cold/direct equivalence within each run.
+The independent public [incremental certification](../../tests/native_cli/incremental_validation_certification.py)
+compares *entire* ordered diagnostics, exit codes and statuses against fresh
+cache-free direct validation, including deterministic invalid YAML and recovery,
+renamed/deleted/reintroduced records, escaping symlinks, negative record lookups,
+corrupt-ledger fallback, deterministic portable export byte parity, and warm/cold
+Project residence. It asserts **zero
+validation-stage executions** for unchanged warm requests and cold cached
+hits, and one record/contribution rechecked for an unrelated Room-label edit.
+It does not assert elapsed-time budgets. Together with the existing editor
+working-session, writer-election, daemon/editor, shader, portable, watcher,
+source-race, and native source-transaction certifications, this exercises the
+real public production seams rather than a second synthetic validator.
+
+The direct cold Feature Lab path also exposed a Release-only shutdown crash:
+the short-lived CLI's `OwnerValidation` function-local static could destroy
+its `ProjectSession` *after* the function-local record-contract table had
+already been destroyed. Its best-effort shutdown cache flush then read that
+table during validation. The CLI now explicitly releases its resident Project
+before leaving `main`, while the validation statics are alive. A fresh
+`--no-daemon` validation with an empty ledger is covered by the independent
+certification, so a destructor-time crash cannot silently pass as successful
+JSON output.
+
+The retained shader-cache certification also caught an offline stage import
+that could wipe valid resident shader/Material evidence after a missing-include
+recovery. A failed optional stage import now leaves previously verified
+resident candidates in place; their exact dependencies are still checked on
+reuse. The repaired include recompiles only its affected shader program.
+
+Key **end-to-end** work medians (same #577 → #594 comparison):
+
+| Counter | Feature Lab warm label | Feature Lab unchanged | Feature Lab cached cold | 501 Rooms warm label |
+| --- | ---: | ---: | ---: | ---: |
+| Complete source captures | 5 → 1 | 4 → 1 | 5 → 1 | 5 → 1 |
+| Directory enumerations | 205 → 0 | 164 → 0 | 205 → 41 | 30 → 0 |
+| File byte reads | 2,268 → 137 | 1,847 → 135 | 2,813 → 725 | 2,559 → 3 |
+| Content hashes | 3,813 → 65 | 3,337 → 62 | 4,515 → 713 | 2,561 → 6 |
+| Record/dependency contributions | 1 → 1 | 0 → 0 | 0 → 0 | 1 → 1 |
+| Font preparations | 1 → 0 | 1 → 0 | 1 → 0 | 1 → 0 |
+| Material/shader preparations | 13 → 0 | 13 → 0 | 13 → 0 | 0 → 0 |
+| Portable source checks | 1 → 0 | 1 → 0 | 1 → 0 | 1 → 0 |
+
+For Feature Lab in-memory editor edits, directory enumerations, file byte
+reads, content hashes and source captures all fall to zero; one record and
+one dependency contribution are recomputed. Warm unchanged still performs
+**one source capture, 135 byte reads and 62 hashes** on Feature Lab: zero
+*validation stages* is not zero physical authority/proof work. Cold cached
+Feature Lab still scans 41 directories, reads 725 files and hashes 713 inputs.
+Cold cached 501-Room admission still parses 507 YAML documents and performs
+1,025 content hashes, despite zero rechecked semantic records.
+
+**Feasibility, not CI pass/fail budgets:** The ~1–2 ms editor in-memory goal
+is met on Feature Lab and up to 101 Rooms, but the 501-Room median is 4.03 ms.
+The ≤20 ms warm saved-file goal is met only on the one-Room fixture; the
+101-Room median is 25.62 ms, 501 Rooms 102.84 ms, and Feature Lab 205.82 ms.
+The sub-500 ms cached cold CLI goal is met on the three synthetic sizes but
+**not** Feature Lab (564 ms daemon, 644 ms direct). Public CLI process/broker
+dispatch and persistent physical integrity checks remain material even when
+semantic stages are reused. Full uncached validation continues to pay for
+real Project preparation and shader/font work. These are remaining measurable
+bottlenecks, not reasons to weaken source proofs or reject fast CI tests.
+
+**Reproduction (from the repository root):** build both `noveltea` in
+`build/linux-authoring-release` and `noveltea-authoring-node` in
+`build/native-authoring-host` in Release configuration, without overlapping
+CMake builds, then run:
+
+```sh
+python3 tests/native_cli/validation_performance.py \
+  build/linux-authoring-release/tools/editor_tool/native-cli/noveltea "$PWD" \
+  --issue 594 --machine reference-linux \
+  --output docs/editor/performance/baselines/validation-2026-11-01-certification.json
+ctest --test-dir build/linux-authoring-release \
+  -R 'native_cli_incremental_validation_certification|native_cli_portable_validation_cache|native_cli_shader_validation_cache' \
+  --output-on-failure
+ctest --test-dir build/native-authoring-host \
+  -R 'native_authoring_(project_validation|source_watcher_races|clean_cache_(recovery|correctness|offline)|cache_writer_processes)' \
+  --output-on-failure
+python3 tests/native_cli/cache_writer_cli_editor.py \
+  build/linux-authoring-release/tools/editor_tool/native-cli/noveltea \
+  build/native-authoring-host/noveltea-authoring-node.node "$PWD"
+```
+
+Use the same host, Release build flags and profiling mode for numerical
+comparisons; other hosts and builds can certify correctness but cannot be
+presented as a matched latency comparison. CI's source/watcher, CAS,
+metadata-restoration, symlink/containment, invalid/negative, transactional
+race, and writer-election tests deliberately use work/output assertions, not
+wall-clock thresholds. Linux watcher coverage loss and restored metadata are
+exercised through `native_authoring_source_watcher_races`, clean-cache recovery
+and `native_cli_portable_validation_cache`; the optional bind-mount namespace
+test requires user/mount namespaces. Windows/macOS native and real CLI/editor
+interop certification remains required on their release hosts; Linux results
+do not substitute for those platform runs.
+
 ### #593: cross-process clean-ledger writer and quiet publication
 
 Native Project sessions now attempt a nonblocking exclusive OS lock at

@@ -14,6 +14,7 @@
 #include "native_runtime_artifact.hpp"
 #include "native_runtime_physical.hpp"
 #include "tooling_native_c.h"
+#include "tooling_native.hpp"
 #include "../project_authoring/material_semantics.hpp"
 
 #include <noveltea/core/player_bootstrap.hpp>
@@ -3310,6 +3311,9 @@ int run_editor_native_operation(std::string_view operation)
 
 int main(int argc, char** argv)
 {
+    struct ReleaseNativeResident {
+        ~ReleaseNativeResident() { noveltea::tooling::release_native_disk_validation_owner(); }
+    } release_resident;
     const std::vector<std::string> args(argv + 1, argv + argc);
     try {
         if (args.size() == 2 && args[0] == "__editor-native")
