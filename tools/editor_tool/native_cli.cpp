@@ -16,6 +16,7 @@
 #include "tooling_native_c.h"
 #include "tooling_native.hpp"
 #include "../project_authoring/material_semantics.hpp"
+#include "../project_authoring/validation_work_instrumentation.hpp"
 
 #include <noveltea/core/player_bootstrap.hpp>
 #include <noveltea/core/shader_binary_integrity.hpp>
@@ -1775,10 +1776,25 @@ int project_read(const Arguments& args, std::string action)
         return missing_project(args);
     const auto root_text = path_text(root);
     request["projectRoot"] = root_text;
+    const bool profile_work =
+        action == "project-validate" && std::getenv("NOVELTEA_VALIDATION_WORK_PROFILE") != nullptr;
+    if (profile_work && !noveltea::authoring::validation_counters_enabled)
+        return failure(args.json, 70, "VALIDATION_PROFILE_UNAVAILABLE", "/",
+                       "This NovelTea binary was built without validation work counters.",
+                       "Validation work profiling is unavailable in this build.");
+#if NOVELTEA_ENABLE_VALIDATION_COUNTERS
+    const auto native_started = std::chrono::steady_clock::now();
+#endif
     const auto response = native_request(request);
     if (action == "project-validate") {
-        const bool profile_work = std::getenv("NOVELTEA_VALIDATION_WORK_PROFILE") != nullptr;
         Json work_profile = response.value("work", Json::object());
+#if NOVELTEA_ENABLE_VALIDATION_COUNTERS
+        if (profile_work)
+            work_profile["nativeRequestMicros"] =
+                std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::steady_clock::now() - native_started)
+                    .count();
+#endif
         if (!response.value("ok", false) && response.value("kind", std::string{}) == "conflict") {
             const auto message =
                 response.value("error", std::string("Project sources changed during validation."));
@@ -1940,6 +1956,9 @@ int project_read(const Arguments& args, std::string action)
                     }
                 }
             }
+#if NOVELTEA_ENABLE_VALIDATION_COUNTERS
+            const auto proof_started = std::chrono::steady_clock::now();
+#endif
             const auto proof =
                 native_request({{"action", "validation-source-generation-proof"},
                                 {"projectRoot", root_text},
@@ -1958,6 +1977,13 @@ int project_read(const Arguments& args, std::string action)
                             value.get<std::size_t>() + proof.at("work").at(key).get<std::size_t>();
                 work_profile["finalGenerationProofs"] = 1;
             }
+#if NOVELTEA_ENABLE_VALIDATION_COUNTERS
+            if (profile_work)
+                work_profile["finalProofRequestMicros"] =
+                    std::chrono::duration_cast<std::chrono::microseconds>(
+                        std::chrono::steady_clock::now() - proof_started)
+                        .count();
+#endif
             Json paths = Json::array();
             std::vector<std::size_t> indices;
             for (std::size_t i = 0; i < diagnostics.size(); ++i) {

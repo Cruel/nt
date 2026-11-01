@@ -95,6 +95,10 @@ struct OwnerValidation {
 
 Json stage_ledger(const OwnerValidation& state, const Json& result)
 {
+    noveltea::authoring::ScopedValidationStageTime<
+        noveltea::authoring::WorkCounter::StageLedgerMicros> timed;
+    noveltea::authoring::count_validation_work<
+        noveltea::authoring::WorkCounter::StageLedgerSerializations>();
     if (!state.portable_check || !state.notice_check || !state.font_inputs ||
         !state.material_records || !state.material_assets ||
         result.contains("portableFailure") || result.contains("noticeValidationFailure"))
@@ -168,8 +172,12 @@ bool restore_stages(OwnerValidation& state, std::string_view serialized, Json& r
     result["work"]["fontInputReuses"] = 1;
     result["work"]["materialInputReuses"] = 1;
     if (result.at("entrypointConfigured").get<bool>()) {
-        const auto coverage = noveltea::tooling::validate_font_coverage(
-            Json{{"projectRoot", state.root.string()}, {"locales", *state.font_inputs}}.dump());
+        const auto coverage = [&] {
+            noveltea::authoring::ScopedValidationStageTime<
+                noveltea::authoring::WorkCounter::FontCoverageMicros> timed;
+            return noveltea::tooling::validate_font_coverage(
+                Json{{"projectRoot", state.root.string()}, {"locales", *state.font_inputs}}.dump());
+        }();
         result["fontCoverageResult"] = Json::parse(coverage.response_json);
         const auto& font = result.at("fontCoverageResult");
         const auto work = font.value("work", Json::object());
@@ -181,9 +189,13 @@ bool restore_stages(OwnerValidation& state, std::string_view serialized, Json& r
                          [](const Json& item) { return item.value("severity", "error") == "error"; });
         if (coverage_valid && !state.material_programs.empty()) {
             noveltea::tooling::MaterialShaderValidationCache::Work shader_work;
-            result["materialCompilerResult"] = state.shader_cache.validate(
-                state.root, state.material_programs, *state.session->verified_source_revisions_view(),
-                shader_work);
+            result["materialCompilerResult"] = [&] {
+                noveltea::authoring::ScopedValidationStageTime<
+                    noveltea::authoring::WorkCounter::ShaderValidationMicros> timed;
+                return state.shader_cache.validate(
+                    state.root, state.material_programs,
+                    *state.session->verified_source_revisions_view(), shader_work);
+            }();
             const auto& compiled = result.at("materialCompilerResult");
             if (compiled.value("ok", false) && compiled.value("success", false))
                 result["materialReflectionDiagnostics"] = state.shader_cache.reflected_materials(
@@ -230,6 +242,8 @@ OwnerValidation& resident()
 
 bool fence_resident_sources(ProjectSession& session)
 {
+    noveltea::authoring::count_validation_work<
+        noveltea::authoring::WorkCounter::SourceGenerationFences>();
 #ifdef __linux__
     return session.fence_observed_sources();
 #else
@@ -564,10 +578,15 @@ Json native_font_coverage_inputs(noveltea::authoring::ProjectSession& session, c
 
 Json work_counts_json(const noveltea::authoring::ValidationWorkCounters& counts)
 {
+#if NOVELTEA_ENABLE_VALIDATION_COUNTERS
     Json result = Json::object();
     for (const auto& [field, value] : counts.fields())
         result[std::string(field)] = value;
     return result;
+#else
+    (void)counts;
+    return Json::object();
+#endif
 }
 
 Json response_for(const noveltea::authoring::RoomSessionSnapshot& snapshot, bool warm,
@@ -710,6 +729,10 @@ Json validate(std::string_view request_text)
             request.at("expectedSourceGeneration").get<std::string>() != state.pending_generation)
             return conflict();
         const auto unchanged = [&]() {
+            noveltea::authoring::count_validation_work<
+                noveltea::authoring::WorkCounter::DiskSafetyChecks>();
+            noveltea::authoring::ScopedValidationStageTime<
+                noveltea::authoring::WorkCounter::DiskSafetyMicros> timed;
             if (!native_project_disk_safety(root).value("ok", false))
                 return false;
             return fence_resident_sources(*state.session);
@@ -718,11 +741,13 @@ Json validate(std::string_view request_text)
         // fences. This does not rescan or rehash the full authoring inventory.
         bool matching = false;
         try {
-            matching = unchanged() &&
-                       native_project_source_generation(*state.session, root, true,
+            matching = unchanged() && [&] {
+                noveltea::authoring::ScopedValidationStageTime<
+                    noveltea::authoring::WorkCounter::SourceGenerationMicros> timed;
+                return native_project_source_generation(*state.session, root, true,
                                                         "validation-final-generation") ==
-                           request.at("expectedSourceGeneration").get<std::string>() &&
-                       unchanged();
+                       request.at("expectedSourceGeneration").get<std::string>();
+            }() && unchanged();
         } catch (const std::exception&) {
             matching = false;
         }
@@ -814,11 +839,19 @@ Json validate(std::string_view request_text)
         if (!cold)
             return {{"ok", false}, {"error", error}};
         auto result = response_for(*cold, false, {});
+#if NOVELTEA_ENABLE_VALIDATION_COUNTERS
+        noveltea::authoring::count_validation_work<
+            noveltea::authoring::WorkCounter::ValidationResponseSerializations>();
         result["work"]["endToEnd"] = work_counts_json(work_counts);
+#endif
         return result;
     }
     trace_native_validation("starting resident Project validation");
-    const auto validated = state.session->validate_clean_project(true, true);
+    const auto validated = [&] {
+        noveltea::authoring::ScopedValidationStageTime<
+            noveltea::authoring::WorkCounter::SessionValidationMicros> timed;
+        return state.session->validate_clean_project(true, true);
+    }();
     trace_native_validation("resident Project validation returned");
     // A request that did not ask for font inputs can still advance the
     // resident localization source generation. Invalidate its dependent
@@ -872,8 +905,8 @@ Json validate(std::string_view request_text)
             result["work"]["portableSourceReuses"] = portable_reuse ? 1 : 0;
             if (!portable_reuse) {
                 state.portable_check.reset();
-                noveltea::authoring::count_validation_work(
-                    &noveltea::authoring::ValidationWorkCounters::portable_source_checks);
+                noveltea::authoring::count_validation_work<
+                    noveltea::authoring::WorkCounter::PortableSourceChecks>();
                 const auto portable = native_project_bundle(
                     {{"action", "validation-source-check"}, {"admittedProject", admitted}},
                     state.session.get(), root);
@@ -927,8 +960,8 @@ Json validate(std::string_view request_text)
                 result["fontCoverageInputs"] = *state.font_inputs;
                 result["work"]["fontInputReuses"] = 1;
             } else {
-                noveltea::authoring::count_validation_work(
-                    &noveltea::authoring::ValidationWorkCounters::font_preparations);
+                noveltea::authoring::count_validation_work<
+                    noveltea::authoring::WorkCounter::FontPreparations>();
                 result["fontCoverageInputs"] =
                     native_font_coverage_inputs(*state.session, admitted);
                 state.font_inputs = result["fontCoverageInputs"];
@@ -941,8 +974,11 @@ Json validate(std::string_view request_text)
                 !result.contains("noticeValidationFailure")) {
                 const auto font_request =
                     Json{{"projectRoot", root.string()}, {"locales", result["fontCoverageInputs"]}};
-                const auto coverage =
-                    noveltea::tooling::validate_font_coverage(font_request.dump());
+                const auto coverage = [&] {
+                    noveltea::authoring::ScopedValidationStageTime<
+                        noveltea::authoring::WorkCounter::FontCoverageMicros> timed;
+                    return noveltea::tooling::validate_font_coverage(font_request.dump());
+                }();
                 result["fontCoverageResult"] = Json::parse(coverage.response_json);
                 if (result["fontCoverageResult"].contains("work")) {
                     const auto& font_work = result["fontCoverageResult"].at("work");
@@ -1016,8 +1052,8 @@ Json validate(std::string_view request_text)
                     continue;
                 }
                 {
-                    noveltea::authoring::count_validation_work(
-                        &noveltea::authoring::ValidationWorkCounters::material_shader_preparations);
+                    noveltea::authoring::count_validation_work<
+                        noveltea::authoring::WorkCounter::MaterialShaderPreparations>();
                     const auto resolved = state.session->validated_material_compiler_effective(id);
                     if (!resolved)
                         throw std::runtime_error("Native validated Material resolution failed: " +
@@ -1073,8 +1109,12 @@ Json validate(std::string_view request_text)
                             {"kind", "conflict"},
                             {"error", "Shader compiler source evidence is unavailable."}};
                 noveltea::tooling::MaterialShaderValidationCache::Work shader_work;
-                result["materialCompilerResult"] = state.shader_cache.validate(
-                    root, material_programs, *source_revisions, shader_work);
+                result["materialCompilerResult"] = [&] {
+                    noveltea::authoring::ScopedValidationStageTime<
+                        noveltea::authoring::WorkCounter::ShaderValidationMicros> timed;
+                    return state.shader_cache.validate(root, material_programs, *source_revisions,
+                                                       shader_work);
+                }();
                 const auto& compiled = result["materialCompilerResult"];
                 if (compiled.value("ok", false) && compiled.value("success", false))
                     result["materialReflectionDiagnostics"] =
@@ -1104,6 +1144,8 @@ Json validate(std::string_view request_text)
                     {"error", "Project sources changed during validation preparation."}};
         std::map<std::string, std::string> post_revisions;
         try {
+            noveltea::authoring::ScopedValidationStageTime<
+                noveltea::authoring::WorkCounter::SourceGenerationMicros> timed;
             result["sourceGeneration"] = native_project_source_generation(
                 *state.session, root, true, "validation-preparation-generation", &post_revisions,
                 &*validated.deferred_exact_revisions);
@@ -1129,11 +1171,14 @@ Json validate(std::string_view request_text)
                 {"kind", "conflict"},
                 {"error", "Project sources changed during validation."}};
     }
-    work_counts.record_contributions = state.session->validation_work().rechecked_contributions;
-    work_counts.dependency_contributions =
-        state.session->validation_work().reference_indexed_records;
-    work_counts.localization_checks = state.session->validation_work().localization_rebuilds;
+    work_counts.setSemanticWork(state.session->validation_work().rechecked_contributions,
+                                state.session->validation_work().reference_indexed_records,
+                                state.session->validation_work().localization_rebuilds);
+#if NOVELTEA_ENABLE_VALIDATION_COUNTERS
+    noveltea::authoring::count_validation_work<
+        noveltea::authoring::WorkCounter::ValidationResponseSerializations>();
     result["work"]["endToEnd"] = work_counts_json(work_counts);
+#endif
     result["work"]["sourceCaptures"] = state.session->source_capture_count() - captures_before;
     result["work"]["localizationRecordsReused"] =
         state.session->localization_record_cache_hits() - record_hits_before;

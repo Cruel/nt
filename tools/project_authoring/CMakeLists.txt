@@ -7,6 +7,12 @@ if(CMAKE_CROSSCOMPILING OR EMSCRIPTEN OR CMAKE_SYSTEM_NAME STREQUAL "Android")
     message(FATAL_ERROR "Project authoring contracts are host-only")
 endif()
 include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/NovelTeaXxhash.cmake")
+option(NOVELTEA_ENABLE_VALIDATION_COUNTERS "Compile observational native validation work counters" ON)
+if(NOVELTEA_ENABLE_VALIDATION_COUNTERS)
+    set(NOVELTEA_VALIDATION_COUNTERS_VALUE 1)
+else()
+    set(NOVELTEA_VALIDATION_COUNTERS_VALUE 0)
+endif()
 
 include(FetchContent)
 FetchContent_Declare(noveltea_jsoncons
@@ -106,6 +112,8 @@ target_compile_features(noveltea_project_authoring_yaml PUBLIC cxx_std_20)
 target_include_directories(noveltea_project_authoring_yaml PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_include_directories(noveltea_project_authoring_yaml SYSTEM PRIVATE "${noveltea_jsoncons_SOURCE_DIR}/include")
 target_link_libraries(noveltea_project_authoring_yaml PRIVATE fyaml_static)
+target_compile_definitions(noveltea_project_authoring_yaml PUBLIC
+    NOVELTEA_ENABLE_VALIDATION_COUNTERS=${NOVELTEA_VALIDATION_COUNTERS_VALUE})
 # Native Room session remains independent of editor, CLI daemon, and runtime linkage.
 add_library(noveltea_project_authoring_session STATIC room_session.cpp clean_validation_cache.cpp preview_preparation.cpp semantic_graph.cpp property_semantics.cpp character_archetype_semantics.cpp interactable_inventory_semantics.cpp dialogue_scene_semantics.cpp verb_interaction_semantics.cpp test_semantics.cpp asset_animation_semantics.cpp material_semantics.cpp localization_semantics.cpp source_analysis.cpp source_authority.cpp yaml_transaction.cpp)
 set_target_properties(noveltea_project_authoring_session PROPERTIES POSITION_INDEPENDENT_CODE ON)
@@ -115,6 +123,8 @@ target_include_directories(noveltea_project_authoring_session PRIVATE "${CMAKE_C
 target_include_directories(noveltea_project_authoring_session PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../engine/include")
 target_include_directories(noveltea_project_authoring_session SYSTEM PRIVATE "${noveltea_jsoncons_SOURCE_DIR}/include")
 target_link_libraries(noveltea_project_authoring_session PUBLIC noveltea_project_authoring_yaml noveltea_project_authoring_contracts noveltea_xxhash)
+target_compile_definitions(noveltea_project_authoring_session PUBLIC
+    NOVELTEA_ENABLE_VALIDATION_COUNTERS=${NOVELTEA_VALIDATION_COUNTERS_VALUE})
 # One deterministic semantic fingerprint for all host binaries, irrespective
 # of whether the session is linked into the daemon or the Node-API addon.
 # Tracked content changes force reconfiguration; old exact-result caches miss.

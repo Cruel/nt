@@ -62,6 +62,7 @@ def build_config(executable):
             return {
                 'buildDirectory': str(directory),
                 'buildType': fields.get('CMAKE_BUILD_TYPE', 'unknown'),
+                'validationCounters': fields.get('NOVELTEA_ENABLE_VALIDATION_COUNTERS', 'unknown'),
                 'cxxCompiler': fields.get('CMAKE_CXX_COMPILER', 'unknown'),
                 'cxxFlags': fields.get('CMAKE_CXX_FLAGS', ''),
                 'cxxFlagsRelease': fields.get('CMAKE_CXX_FLAGS_RELEASE', ''),
@@ -164,6 +165,14 @@ with tempfile.TemporaryDirectory(prefix='nt-validation-performance-') as tempora
         signature = hashlib.sha256(json.dumps(
             response['diagnostics'], sort_keys=True).encode()).hexdigest()
         return {'state': state, 'ms': duration, 'work': work,
+                'stageTimingsMs': {
+                    key[:-6] + 'Ms': round(value / 1000, 3)
+                    for key, value in work['endToEnd'].items() if key.endswith('Micros')
+                } | {
+                    key[:-6] + 'Ms': round(work[key] / 1000, 3)
+                    for key in ('nativeRequestMicros', 'finalProofRequestMicros')
+                    if key in work
+                },
                 'diagnosticDigest': signature}
 
     def print_result(size, samples):

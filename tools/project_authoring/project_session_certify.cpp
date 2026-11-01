@@ -1415,7 +1415,9 @@ void source_analysis_roundtrip(const std::filesystem::path& fixture)
         css_edit = editor->stage_text_source(editor->snapshot().working_revision, shared_rcss,
                                              saved_rcss + "\n/* stylesheet-only change */\n");
     }
-    require(css_edit.accepted && css_work.parsed_rcss >= 1 && css_work.parsed_rml == 0 &&
+    require(css_edit.accepted &&
+                (!validation_counters_enabled || css_work.get<WorkCounter::ParsedRcss>() >= 1) &&
+                css_work.get<WorkCounter::ParsedRml>() == 0 &&
                 editor->source_analyses().at(shared_rcss).source_revision != before_rcss &&
                 editor->source_analyses().at("assets/ui/counter.rml").source_revision ==
                     before_parent_rml,
@@ -1844,9 +1846,12 @@ void project_validation_roundtrip(const std::filesystem::path& fixture)
         require(quiet.authoritative && quiet.unchanged &&
                     authority.verified_source("records/rooms/room-lifecycle-roundtrip.yaml") ==
                         initial &&
-                    quiet_work.source_captures == 1 && quiet_work.directory_enumerations == 0 &&
-                    quiet_work.file_byte_reads == 0 && quiet_work.content_hashes == 0 &&
-                    quiet_work.parsed_yaml == 0,
+                    (!validation_counters_enabled ||
+                     (quiet_work.get<WorkCounter::SourceCaptures>() == 1 &&
+                      quiet_work.get<WorkCounter::DirectoryEnumerations>() == 0 &&
+                      quiet_work.get<WorkCounter::FileByteReads>() == 0 &&
+                      quiet_work.get<WorkCounter::ContentHashes>() == 0 &&
+                      quiet_work.get<WorkCounter::ParsedYaml>() == 0)),
                 "Healthy watcher reuses unchanged directory and source evidence without IO");
         require(authority.fence(), "Quiet resident generation has an unchanged watcher epoch");
         authority.hint("records/rooms/room-lifecycle-roundtrip.yaml");
@@ -1968,7 +1973,7 @@ void project_validation_roundtrip(const std::filesystem::path& fixture)
         ScopedValidationWork measure(repeated_work);
         repeated = project->validate_project();
     }
-    require(repeated_work.source_captures > 0,
+    require(!validation_counters_enabled || repeated_work.get<WorkCounter::SourceCaptures>() > 0,
             "Warm native validation still invokes source observation");
     require(repeated.valid && project->validation_work().rechecked_records == 0 &&
                 project->validation_work().retained_records > 0,
@@ -2033,8 +2038,9 @@ void project_validation_roundtrip(const std::filesystem::path& fixture)
     }
     // Hashing the saved contributor bytes is necessary to bind their contents
     // to the exact source proof; it is not semantic revalidation or hydration.
-    require(restored_work.parsed_lua == 0 && restored_work.parsed_rml == 0 &&
-                restored_work.parsed_rcss == 0 &&
+    require(restored_work.get<WorkCounter::ParsedLua>() == 0 &&
+                restored_work.get<WorkCounter::ParsedRml>() == 0 &&
+                restored_work.get<WorkCounter::ParsedRcss>() == 0 &&
                 editor->validation_work().rechecked_contributions == 0,
             "Cold ledger restoration must not hydrate and analyze unchanged record contents");
     require(editor_hit.cache_hit && signature(editor_hit.snapshot) == signature(cold),
@@ -2180,7 +2186,7 @@ void project_validation_roundtrip(const std::filesystem::path& fixture)
                     read(cached_path) == cache_bytes,
                 "Unsaved Room label is validated without publishing disk cache");
 #ifdef __linux__
-        require(counts.source_captures == 0,
+        require(counts.get<WorkCounter::SourceCaptures>() == 0,
                 "Unchanged working generation validates without disk source recapture");
 #endif
     }

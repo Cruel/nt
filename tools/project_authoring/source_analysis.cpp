@@ -1037,13 +1037,13 @@ SourceAnalysis analyze_project_text(std::string_view relative_path, std::string_
     result.source_revision = exact_source_revision(text);
     result.source_text = std::string(text);
     if (relative_path.ends_with(".lua")) {
-        count_validation_work(&ValidationWorkCounters::parsed_lua);
+        count_validation_work<WorkCounter::ParsedLua>();
         analyze_lua(result, text, 1, 1, 0, collect_lexical_literals);
     } else if (relative_path.ends_with(".rml")) {
-        count_validation_work(&ValidationWorkCounters::parsed_rml);
+        count_validation_work<WorkCounter::ParsedRml>();
         analyze_rml(result, text, collect_lexical_literals);
     } else if (relative_path.ends_with(".rcss")) {
-        count_validation_work(&ValidationWorkCounters::parsed_rcss);
+        count_validation_work<WorkCounter::ParsedRcss>();
         analyze_cursor_css(result, text, 1, 1);
     }
     return result;

@@ -26,10 +26,15 @@ using noveltea::authoring::SourceObservation;
 
 Json validation_work_json(const noveltea::authoring::ValidationWorkCounters& counts)
 {
+#if NOVELTEA_ENABLE_VALIDATION_COUNTERS
     Json result = Json::object();
     for (const auto& [field, value] : counts.fields())
         result[std::string(field)] = value;
     return result;
+#else
+    (void)counts;
+    return Json::object();
+#endif
 }
 
 struct Session {
@@ -364,12 +369,12 @@ napi_value call(napi_env env, napi_callback_info info)
             }
             Json result = Json::object();
             result["workingRevision"] = static_cast<std::uint64_t>(revision);
-            counts.record_contributions =
-                session.project->validation_work().rechecked_contributions;
-            counts.dependency_contributions =
-                session.project->validation_work().reference_indexed_records;
-            counts.localization_checks = session.project->validation_work().localization_rebuilds;
+            counts.setSemanticWork(session.project->validation_work().rechecked_contributions,
+                                   session.project->validation_work().reference_indexed_records,
+                                   session.project->validation_work().localization_rebuilds);
+#if NOVELTEA_ENABLE_VALIDATION_COUNTERS
             result["work"] = validation_work_json(counts);
+#endif
             result["valid"] = valid;
             result["diagnostics"] =
                 Json::parse(noveltea::authoring::validation_result_json(
@@ -392,11 +397,12 @@ napi_value call(napi_env env, napi_callback_info info)
                                     validated.snapshot.valid, "", validated.snapshot.diagnostics}))
                     .at("diagnostics");
             const auto work = session.project->validation_work();
-            counts.record_contributions = work.rechecked_contributions;
-            counts.dependency_contributions = work.reference_indexed_records;
-            counts.localization_checks = work.localization_rebuilds;
+            counts.setSemanticWork(work.rechecked_contributions, work.reference_indexed_records,
+                                   work.localization_rebuilds);
             result["work"] = Json::object();
+#if NOVELTEA_ENABLE_VALIDATION_COUNTERS
             result["work"]["endToEnd"] = validation_work_json(counts);
+#endif
             result["work"]["recheckedRecords"] = work.rechecked_records;
             result["work"]["retainedRecords"] = work.retained_records;
             result["work"]["recheckedContributions"] = work.rechecked_contributions;

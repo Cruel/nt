@@ -335,6 +335,8 @@ if(WIN32)
     target_link_libraries(noveltea-native-cli PRIVATE winhttp)
 endif()
 target_compile_definitions(noveltea-native-cli PRIVATE ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
+target_compile_definitions(noveltea-native-cli PRIVATE
+    NOVELTEA_ENABLE_VALIDATION_COUNTERS=$<BOOL:${NOVELTEA_ENABLE_VALIDATION_COUNTERS}>)
 noveltea_apply_policy_warnings(noveltea-native-cli)
 # Native font coverage resolves the same trusted system fonts as the installed
 # production CLI, without a launcher or source-tree absolute path dependency.

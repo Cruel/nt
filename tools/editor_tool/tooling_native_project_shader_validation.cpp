@@ -3,6 +3,7 @@
 #include "tooling_native.hpp"
 
 #include "../project_authoring/material_semantics.hpp"
+#include "../project_authoring/validation_work_instrumentation.hpp"
 
 #include <noveltea/core/player_bootstrap.hpp>
 
@@ -144,6 +145,14 @@ shader_inventory(const std::map<std::string, std::string>& revisions)
         return false;
     const std::string bytes{std::istreambuf_iterator<char>{input},
                             std::istreambuf_iterator<char>{}};
+    noveltea::authoring::count_validation_work<
+        noveltea::authoring::WorkCounter::ShaderProofReads>();
+    noveltea::authoring::count_validation_work<
+        noveltea::authoring::WorkCounter::FileByteReads>();
+    noveltea::authoring::count_validation_work<
+        noveltea::authoring::WorkCounter::ShaderProofHashes>();
+    noveltea::authoring::count_validation_work<
+        noveltea::authoring::WorkCounter::ContentHashes>();
     return !input.bad() && bytes.size() == output.at("byteSize").get<std::uint64_t>() &&
            "sha256:" + core::sha256_hex(std::as_bytes(std::span(bytes.data(), bytes.size()))) ==
                output.at("byteHash").get<std::string>();
@@ -176,6 +185,14 @@ shader_inventory(const std::map<std::string, std::string>& revisions)
         return false;
     const std::string contents{std::istreambuf_iterator<char>{input},
                                std::istreambuf_iterator<char>{}};
+    noveltea::authoring::count_validation_work<
+        noveltea::authoring::WorkCounter::ShaderProofReads>();
+    noveltea::authoring::count_validation_work<
+        noveltea::authoring::WorkCounter::FileByteReads>();
+    noveltea::authoring::count_validation_work<
+        noveltea::authoring::WorkCounter::ShaderProofHashes>();
+    noveltea::authoring::count_validation_work<
+        noveltea::authoring::WorkCounter::ContentHashes>();
     return !input.bad() &&
            "sha256:" +
                    core::sha256_hex(std::as_bytes(std::span(contents.data(), contents.size()))) ==

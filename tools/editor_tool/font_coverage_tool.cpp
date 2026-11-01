@@ -1,4 +1,5 @@
 #include "tooling_native.hpp"
+#include "../project_authoring/validation_work_instrumentation.hpp"
 
 #include "text/text_engine.hpp"
 
@@ -193,6 +194,10 @@ noveltea::text::FontAssetReadResult read_font_asset(const void* context,
     if (!input)
         return {.bytes = {}, .error = "font file could not be opened"};
     std::vector<std::uint8_t> bytes((std::istreambuf_iterator<char>(input)), {});
+    noveltea::authoring::count_validation_work<
+        noveltea::authoring::WorkCounter::FontAssetReads>();
+    noveltea::authoring::count_validation_work<
+        noveltea::authoring::WorkCounter::FileByteReads>();
     if (bytes.empty())
         return {.bytes = {}, .error = "font file is empty"};
     return {.bytes = std::move(bytes), .error = {}};
@@ -295,10 +300,18 @@ FontCoverageFingerprint font_coverage_fingerprint(const FontCoverageFileSource& 
     }
     const std::string bytes{std::istreambuf_iterator<char>{input},
                             std::istreambuf_iterator<char>{}};
+    noveltea::authoring::count_validation_work<
+        noveltea::authoring::WorkCounter::FontProofReads>();
+    noveltea::authoring::count_validation_work<
+        noveltea::authoring::WorkCounter::FileByteReads>();
     if (input.bad() || bytes.size() != fingerprint.byte_size) {
         fingerprint.error = "font source changed during content verification";
         return fingerprint;
     }
+    noveltea::authoring::count_validation_work<
+        noveltea::authoring::WorkCounter::FontProofHashes>();
+    noveltea::authoring::count_validation_work<
+        noveltea::authoring::WorkCounter::ContentHashes>();
     fingerprint.exact_content_revision = noveltea::core::xxh3_128_revision(bytes);
     return fingerprint;
 }

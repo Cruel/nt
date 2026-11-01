@@ -983,7 +983,7 @@ YamlSourceResult open_yaml_source(std::string_view source)
         if (found != active_decode_cache->results.end())
             return found->second;
     }
-    count_validation_work(&ValidationWorkCounters::parsed_yaml);
+    count_validation_work<WorkCounter::ParsedYaml>();
     YamlSourceResult result;
     try {
         Parsed parsed(source);

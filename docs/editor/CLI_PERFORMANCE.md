@@ -854,6 +854,71 @@ returns `work.endToEnd`, retaining their existing semantic work fields.
 Counters are request-scoped and thread-local, so they cannot accumulate across
 successive requests or cause a saved/working Project to share cache authority.
 
+The reopened #577 adds physical font fingerprint reads/hashes
+(`fontProofReads` / `fontProofHashes`), font asset reads (`fontAssetReads`),
+shader output and engine dependency proof reads/hashes
+(`shaderProofReads` / `shaderProofHashes`), native
+`generationAssetProofReads` / `generationAssetProofHashes` and
+`generationTextProofReads` for final-generation bytes,
+`sourceGenerationFences`, `diskSafetyChecks`, stage ledger construction and validation response
+serialization counts. These can be nonzero with zero font coverage runs or
+shader compiler runs: reuse still performs physical source integrity proofs.
+They count operations, not bytes, elapsed time or every syscall. In particular,
+the native source-generation fences are **not** broker exact-result proofs;
+profiled public requests bypass the broker's exact-result shortcut entirely.
+
+The end-to-end counters also include `sessionValidationMicros`,
+`fontCoverageMicros`, `shaderValidationMicros`, `sourceGenerationMicros`,
+`diskSafetyMicros` and `stageLedgerMicros`. CLI profiling adds `nativeRequestMicros` and
+`finalProofRequestMicros` around the two daemon requests. These overlapping
+durations are diagnostic observations, not additive accounting or CI timing
+gates. The benchmark harness writes the stage times as milliseconds alongside
+the existing per-sample workload and diagnostic fingerprints.
+
+Build with `NOVELTEA_ENABLE_VALIDATION_COUNTERS=ON` (default) to include
+private, enum-indexed instrumentation in the native session, public CLI/daemon
+and editor Node-API addon. With `OFF`, recording methods, TLS activation and
+instrumentation-specific JSON are compiled out, not merely runtime-disabled.
+Semantic work accounting and all cache/authorization checks are unaffected.
+The public `NOVELTEA_VALIDATION_WORK_PROFILE=1` runtime request reports
+`VALIDATION_PROFILE_UNAVAILABLE` when the build disables counters; unprofiled
+CLI diagnostics and exit behavior remain unchanged regardless of build mode.
+
+### Reopened #577: measured physical work (November 1, 2026)
+
+Reproduced on **dev-lawdeep** (AMD Ryzen 7 5700G, 16 logical CPUs, Linux
+6.1.0-35-amd64), Release `-O3` CLI and Release Node-API addon, against
+`33c51b0` plus the in-progress #577 instrumentation changes. The complete
+disposable-fixture run (per-sample counter payloads, digest parity, compiler and
+machine identity) was saved to the local build artifact
+`build/reports/validation-2026-11-01-577-complete.json`; the harness source is
+`tests/native_cli/validation_performance.py`. Regenerate with:
+
+```sh
+python3 tests/native_cli/validation_performance.py \
+  build/linux-authoring-release/tools/editor_tool/native-cli/noveltea . \
+  --machine dev-lawdeep-release \
+  --output build/reports/validation-2026-11-01-577-complete.json
+```
+
+| Disposable Project | Warm saved-label median | Font coverage stage | Session validation stage | Stage ledger stage |
+|---|---:|---:|---:|---:|
+| Feature Lab | 203.70 ms | 41.58 ms | 24.87 ms | 15.08 ms |
+| 1 Room | 10.42 ms | 0.79 ms | 0.77 ms | 0.03 ms |
+| 101 Rooms | 26.42 ms | 1.02 ms | 2.07 ms | 0.32 ms |
+| 501 Rooms | 91.47 ms | 2.69 ms | 9.69 ms | 1.41 ms |
+
+The stage values above are from a representative saved-label sample, whereas
+the wall times are medians of all saved-label samples. They should not be
+summed or interpreted as an exclusive cost breakdown. The Feature Lab sample
+counted **238 instrumented byte reads, 168 hashes, six font proof reads, 70
+shader proof reads, 25 binary Asset generation proof reads, 48 shader output
+proofs, four native source fences, and two physical disk-safety checks**.
+Font locale executions and shader compilations were both **zero**. Thus the
+original semantic-only #577 measurements had materially understated reused
+physical work. The Feature Lab median remains far above #576's optimization
+target; the counters expose work but do not themselves eliminate it.
+
 ### Authoritative pre-optimization baseline: Linux Release (#577)
 
 Future #576 optimization tickets should compare against the **complete, machine-readable**

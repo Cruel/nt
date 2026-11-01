@@ -209,8 +209,9 @@ int main(int argc, char** argv)
             require(query(*project, 0).to_string() == base.to_string(),
                     "Warm graph evidence must retain exact native occurrences.");
         }
-        require(graph_work.parsed_lua == 0 && graph_work.parsed_rml == 0 &&
-                    graph_work.parsed_rcss == 0,
+        require(graph_work.get<noveltea::authoring::WorkCounter::ParsedLua>() == 0 &&
+                    graph_work.get<noveltea::authoring::WorkCounter::ParsedRml>() == 0 &&
+                    graph_work.get<noveltea::authoring::WorkCounter::ParsedRcss>() == 0,
                 "Graph requests reuse source-recognizer tokens instead of a second analysis pass.");
         const auto edit = project->patch(
             0, {{RoomPatch::Operation::Replace, "/project/name", R"("Graph certification")"}});

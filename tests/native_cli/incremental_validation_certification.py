@@ -166,6 +166,13 @@ with tempfile.TemporaryDirectory(prefix="noveltea-incremental-certify-") as dire
                 for stage in ("fontPreparations", "materialShaderPreparations",
                               "localizationChecks"):
                     assert saved["validationWork"]["endToEnd"][stage] == 0, (size, stage)
+                # Semantic reuse must not hide the physical font proof work.
+                physical = saved["validationWork"]["endToEnd"]
+                assert physical["fontProofReads"] > 0, (size, physical)
+                assert physical["fontProofHashes"] > 0, (size, physical)
+                assert physical["fontProofReads"] == physical["fontProofHashes"], physical
+                assert physical["sourceGenerationFences"] > 0, (size, physical)
+                assert physical["validationResponseSerializations"] > 0, (size, physical)
                 if sys.platform.startswith("linux"):
                     assert saved["validationWork"]["endToEnd"]["portableSourceChecks"] == 0
                     assert saved["validationWork"]["endToEnd"]["directoryEnumerations"] == 0

@@ -101,7 +101,7 @@ bool is_source_extension(const std::filesystem::path& path)
 std::string read_exact_bytes(const std::filesystem::path& path,
                              std::filesystem::file_time_type* observed_time = nullptr)
 {
-    count_validation_work(&ValidationWorkCounters::file_byte_reads);
+    count_validation_work<WorkCounter::FileByteReads>();
     const auto before_size = std::filesystem::file_size(path);
     const auto before_time = std::filesystem::last_write_time(path);
     std::ifstream input(path, std::ios::binary);
@@ -275,7 +275,7 @@ SourceAuthority::~SourceAuthority() = default;
 SourceAuthority::Capture SourceAuthority::capture(const std::set<std::string>* hints) const
 {
     ++source_capture_count_;
-    count_validation_work(&ValidationWorkCounters::source_captures);
+    count_validation_work<WorkCounter::SourceCaptures>();
     Capture result;
     result.directories.insert(".");
     if (hints) {
@@ -297,7 +297,7 @@ SourceAuthority::Capture SourceAuthority::capture(const std::set<std::string>* h
             if (directory == result.members.end() && !was_directory)
                 continue; // Fixed sources and referenced media need no directory inventory.
             std::error_code error;
-            count_validation_work(&ValidationWorkCounters::stat_readlink_calls);
+            count_validation_work<WorkCounter::StatReadlinkCalls>();
             const auto status = std::filesystem::symlink_status(root_ / relative, error);
             if (error && error != std::errc::no_such_file_or_directory)
                 throw std::filesystem::filesystem_error("Cannot inspect changed Project path",
@@ -347,7 +347,7 @@ SourceAuthority::Capture SourceAuthority::capture(const std::set<std::string>* h
         [[maybe_unused]] const auto& resolved_parent =
             parent.empty() ? canonical_root_ : self(self, parent, evidence).resolved;
         std::error_code error;
-        count_validation_work(&ValidationWorkCounters::stat_readlink_calls);
+        count_validation_work<WorkCounter::StatReadlinkCalls>();
         const auto type = std::filesystem::symlink_status(root_ / prefix, error).type();
         if (error && error != std::errc::no_such_file_or_directory)
             throw std::filesystem::filesystem_error("Cannot inspect Project source directory",
@@ -379,7 +379,7 @@ SourceAuthority::Capture SourceAuthority::capture(const std::set<std::string>* h
         if (!parent.empty())
             resolve_parent(resolve_parent, parent, verified_parents);
         const auto absolute = root_ / relative;
-        count_validation_work(&ValidationWorkCounters::stat_readlink_calls);
+        count_validation_work<WorkCounter::StatReadlinkCalls>();
         const auto status = std::filesystem::symlink_status(absolute);
         if (status.type() == std::filesystem::file_type::symlink &&
             !contained(canonical_root_, absolute))
@@ -433,7 +433,7 @@ SourceAuthority::Capture SourceAuthority::capture(const std::set<std::string>* h
         // symlink_status already proves ordinary leaf type. Only a contained
         // symlink needs a second, following status lookup.
         if (leaf.type() == std::filesystem::file_type::symlink)
-            count_validation_work(&ValidationWorkCounters::stat_readlink_calls);
+            count_validation_work<WorkCounter::StatReadlinkCalls>();
         const auto status = leaf.type() == std::filesystem::file_type::symlink
                                 ? std::filesystem::status(absolute, ec)
                                 : leaf;
@@ -522,7 +522,7 @@ SourceAuthority::Capture SourceAuthority::capture(const std::set<std::string>* h
                 throw std::runtime_error("Replaced Project source directory: " + directory);
             if (!native_->watch(root_, directory))
                 throw std::runtime_error("Cannot watch Project source directory: " + directory);
-            count_validation_work(&ValidationWorkCounters::directory_enumerations);
+            count_validation_work<WorkCounter::DirectoryEnumerations>();
             auto& membership = result.members[directory];
             for (const auto& entry : std::filesystem::directory_iterator(absolute)) {
                 const auto relative = entry.path().lexically_relative(root_).generic_string();
@@ -861,7 +861,7 @@ bool SourceAuthority::acknowledge_own_write(std::string_view relative_path,
             return false;
         const auto absolute = root_ / relative;
         std::error_code error;
-        count_validation_work(&ValidationWorkCounters::stat_readlink_calls);
+        count_validation_work<WorkCounter::StatReadlinkCalls>();
         const auto status = std::filesystem::symlink_status(absolute, error);
         std::string resident_revision;
         if (revision == "absent") {

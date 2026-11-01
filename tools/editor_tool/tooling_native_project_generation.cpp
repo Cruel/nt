@@ -3,6 +3,7 @@
 #include "../project_authoring/room_session.hpp"
 #include <noveltea/core/fingerprint.hpp>
 #include "../project_authoring/source_authority.hpp"
+#include "../project_authoring/validation_work_instrumentation.hpp"
 
 #include <algorithm>
 #include <array>
@@ -76,6 +77,8 @@ native_project_source_generation(const ProjectSession& session, const std::files
                     exact_revisions->emplace(relative, pinned->second);
                 continue;
             }
+            noveltea::authoring::count_validation_work<
+                noveltea::authoring::WorkCounter::StatReadlinkCalls>();
             std::ifstream input(path, std::ios::binary);
             if (!input)
                 throw std::runtime_error("Cannot read tracked localization source.");
@@ -95,6 +98,14 @@ native_project_source_generation(const ProjectSession& session, const std::files
                     hasher.update(std::string_view(buffer.data(), static_cast<std::size_t>(chunk)));
                     remaining -= static_cast<std::uintmax_t>(chunk);
                 }
+                noveltea::authoring::count_validation_work<
+                    noveltea::authoring::WorkCounter::GenerationAssetProofReads>();
+                noveltea::authoring::count_validation_work<
+                    noveltea::authoring::WorkCounter::FileByteReads>();
+                noveltea::authoring::count_validation_work<
+                    noveltea::authoring::WorkCounter::GenerationAssetProofHashes>();
+                noveltea::authoring::count_validation_work<
+                    noveltea::authoring::WorkCounter::ContentHashes>();
                 digest = hasher.finish();
             } else {
                 // Fresh non-admission text proofs retain the native XXH3-128
@@ -103,6 +114,12 @@ native_project_source_generation(const ProjectSession& session, const std::files
                 if (!bytes.empty() &&
                     !input.read(bytes.data(), static_cast<std::streamsize>(bytes.size())))
                     throw std::runtime_error("Cannot finish localization source read.");
+                noveltea::authoring::count_validation_work<
+                    noveltea::authoring::WorkCounter::GenerationTextProofReads>();
+                noveltea::authoring::count_validation_work<
+                    noveltea::authoring::WorkCounter::FileByteReads>();
+                noveltea::authoring::count_validation_work<
+                    noveltea::authoring::WorkCounter::ContentHashes>();
                 digest = exact_source_revision(bytes);
             }
             if (input.peek() != std::char_traits<char>::eof() ||
@@ -118,6 +135,8 @@ native_project_source_generation(const ProjectSession& session, const std::files
     }
     if (text_reuse_hits)
         noveltea::authoring::trace_source_proof_event(proof_phase, "text-reuse", text_reuse_hits);
+    noveltea::authoring::count_validation_work<
+        noveltea::authoring::WorkCounter::ContentHashes>();
     return exact_source_revision(identity);
 }
 

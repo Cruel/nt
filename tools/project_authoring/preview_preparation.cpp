@@ -79,7 +79,7 @@ void collect_runtime_asset_references(const Json& value, const std::string& path
 
 std::string bytes_at(const std::filesystem::path& path)
 {
-    count_validation_work(&ValidationWorkCounters::file_byte_reads);
+    count_validation_work<WorkCounter::FileByteReads>();
     std::ifstream input(path, std::ios::binary);
     if (!input)
         throw std::runtime_error("Cannot read preview source: " + path.string());
@@ -508,7 +508,7 @@ ProjectSession::prepare_complete_working(std::uint64_t expected_revision, std::s
         std::set<std::string> runtime_assets;
         collect_runtime_asset_references(complete, "", runtime_assets);
         prepared.referenced_asset_ids = std::move(runtime_assets);
-        count_validation_work(&ValidationWorkCounters::full_result_assemblies);
+        count_validation_work<WorkCounter::FullResultAssemblies>();
         prepared.complete_project_json = complete.to_string();
         cache->validation_generation = validation_generation_;
         complete_project_cache_ = std::move(cache);

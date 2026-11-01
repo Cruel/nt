@@ -41,7 +41,7 @@ std::string pointer_token(std::string_view token);
 
 std::string read_bytes(const std::filesystem::path& path)
 {
-    count_validation_work(&ValidationWorkCounters::file_byte_reads);
+    count_validation_work<WorkCounter::FileByteReads>();
     std::ifstream input(path, std::ios::binary);
     if (!input)
         throw std::runtime_error("Cannot read Room source: " + path.string());
@@ -317,7 +317,7 @@ std::string source_revision_for(std::string_view bytes, SourceRevisionAlgorithm 
 {
     switch (algorithm) {
     case SourceRevisionAlgorithm::Xxh3_128:
-        count_validation_work(&ValidationWorkCounters::content_hashes);
+        count_validation_work<WorkCounter::ContentHashes>();
         return noveltea::core::xxh3_128_revision(bytes);
     case SourceRevisionAlgorithm::Absent:
     case SourceRevisionAlgorithm::Invalid:
