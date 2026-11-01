@@ -196,13 +196,27 @@ read_clean_cache(const fs::path& root, const std::map<std::string, std::string>&
             return std::nullopt;
         std::ifstream input(path, std::ios::binary);
         const auto value = Json::parse(input);
-        if (!value.is_object() || value.size() != 10 || value.at("contract") != kContract ||
+        if (!value.is_object() || value.size() != 12 || value.at("contract") != kContract ||
             value.at("semanticKey") != kSemanticKey ||
             value.at("semanticFingerprint") != kSemanticFingerprint ||
             value.at("sourceRevisionAlgorithm") != kSourceRevisionAlgorithm ||
             value.at("assetProofAlgorithm") != kAssetProofAlgorithm ||
             value.at("projectRoot") != cache_project_root(root) ||
             value.at("sources") != source_metadata(root, revisions))
+            return std::nullopt;
+        // A matching physical source generation alone does not establish that
+        // the persisted *derived* diagnostics and normalized records survived
+        // intact. Bind the semantic payload without coupling it to optional
+        // external stages, which may independently fall back on corruption.
+        // This is a corruption check, not
+        // an authentication mechanism for hostile same-user cache writers.
+        if (!value.at("payloadRevision").is_string())
+            return std::nullopt;
+        auto payload = value;
+        payload.erase("payloadRevision");
+        payload.erase("stageRevision");
+        payload.erase("stages");
+        if (value.at("payloadRevision") != noveltea::core::xxh3_128_revision(payload.to_string()))
             return std::nullopt;
         const auto& result = value.at("result");
         if (!result.is_object() || result.size() != 2 || !result.at("valid").is_bool() ||
@@ -267,6 +281,7 @@ read_clean_cache(const fs::path& root, const std::map<std::string, std::string>&
             return std::nullopt;
         if (resident.is_object())
             for (const auto& entry : resident.at("contributions").object_range()) {
+                const auto owner = std::string(entry.key());
                 const auto& contribution = entry.value();
                 if (!contribution.is_object() || contribution.size() != 4 ||
                     !contribution.at("dependencies").is_array() ||
@@ -278,6 +293,21 @@ read_clean_cache(const fs::path& root, const std::map<std::string, std::string>&
                     !record.at("source").is_string() || !record.at("normalized").is_string() ||
                     !record.at("valid").is_bool() || !record.at("contract").is_string() ||
                     !valid_diagnostics(record.at("diagnostics")))
+                    return std::nullopt;
+                // A cold hit is allowed to defer creating RoomSessions, not
+                // to accept contributor bytes different from its proved YAML
+                // generation. Otherwise a well-shaped corrupted ledger would
+                // yield cached diagnostics until the first later mutation.
+                std::string source_path;
+                if (owner == "traits" || owner == "editor" || owner.starts_with("i18n/"))
+                    source_path = owner == "traits" || owner == "editor" ? owner + ".yaml" : owner;
+                else if (owner.starts_with("layouts/"))
+                    source_path = "records/" + owner + "/layout.yaml";
+                else if (owner.find('/') != std::string::npos)
+                    source_path = "records/" + owner + ".yaml";
+                if (source_path.empty() || !revisions.contains(source_path) ||
+                    exact_source_revision(record.at("bytes").as<std::string>()) !=
+                        revisions.at(source_path))
                     return std::nullopt;
                 for (const auto& dependency : contribution.at("dependencies").array_range()) {
                     if (!dependency.is_object() || dependency.size() != 2 ||
@@ -300,9 +330,13 @@ read_clean_cache(const fs::path& root, const std::map<std::string, std::string>&
                  !valid_diagnostics(global.at("diagnostics"))))
                 return std::nullopt;
         }
-        const auto& stages = value.at("stages");
-        if (!stages.is_null() && !stages.is_object())
-            return std::nullopt;
+        Json stages = Json::null();
+        const auto& stored_stages = value.at("stages");
+        if (value.at("stageRevision").is_string() &&
+            (stored_stages.is_null() || stored_stages.is_object()) &&
+            value.at("stageRevision") ==
+                noveltea::core::xxh3_128_revision(stored_stages.to_string()))
+            stages = stored_stages;
         return CachedValidation{std::move(snapshot), resident, stages};
     } catch (...) {
         return std::nullopt; // Optional acceleration; malformed or old formats always miss.
@@ -333,6 +367,11 @@ void publish_clean_cache(const fs::path& root, const std::map<std::string, std::
         value["result"]["diagnostics"] = diagnostics_json(snapshot.diagnostics);
         value["resident"] = resident;
         value["stages"] = stages;
+        value["stageRevision"] = noveltea::core::xxh3_128_revision(stages.to_string());
+        auto semantic_payload = value;
+        semantic_payload.erase("stages");
+        semantic_payload.erase("stageRevision");
+        value["payloadRevision"] = noveltea::core::xxh3_128_revision(semantic_payload.to_string());
         static std::atomic<std::uint64_t> sequence{0};
         const auto staged = fs::path(
             path.string() + "." +

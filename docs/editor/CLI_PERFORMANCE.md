@@ -26,6 +26,17 @@ reverse index; malformed entries or source uncertainty fall back to authoritativ
 validation. Unsaved editor patches and shader/text overlays never enter the disk
 cache.
 
+Cold admission also hashes each embedded record's saved YAML bytes against its
+already-proved exact source revision, without re-reading or semantically parsing
+those source files. This rejects internally inconsistent, well-shaped contributor
+payloads before returning cached diagnostics; these in-memory integrity hashes
+are not semantic stage executions. Optional storage failures remain harmless.
+Independent payload checksums reject corruption of derived normalized records
+or diagnostics while allowing malformed optional font/shader/portable evidence
+to be discarded without invalidating otherwise proven semantic contributors.
+These checksums detect accidental corruption; they do not authenticate cache
+files against a malicious writer with access to the same Project directory.
+
 Successful public validation also persists already-certified portable source,
 distribution notice, localization/font-input and Material projections, per-locale
 font evidence, and dependency-keyed shader/compiler/reflection evidence. The
@@ -36,6 +47,9 @@ and SHA-256-proves output bytes. Invalid optional stages fall back to ordinary
 preparation, without turning malformed cache data into validation failures.
 This slice implements one-process restoration/publication, not cross-process
 writer election or periodic publication.
+On hosts without Linux inotify, external-stage evidence may be recorded and
+used on a **cold byte-exact admission**; subsequent warm validations still rerun
+portable-source and notice checks because they lack watcher event evidence.
 
 The build fingerprint covers native authoring and tooling sources, embedded
 engine shader `.sc` inputs, relevant CMake configuration, generated contracts,
@@ -53,17 +67,17 @@ uses the unchanged #577 harness, reference Ryzen 7 5700G machine, GCC Release
 `-O3 -DNDEBUG` CLI and Node-API addon, four fixture sizes and all 83 sample
 states. All comparable CLI diagnostic fingerprints agree with the committed
 October 31 baseline. Feature Lab median cold cached daemon restart is
-**2,930.01 → 615.67 ms**, cold direct `--no-daemon` **2,631.72 → 584.18 ms**,
-and warm saved Room-label validation **323.31 → 256.72 ms**. Cold cached
+**2,930.01 → 655.33 ms**, cold direct `--no-daemon` **2,631.72 → 643.91 ms**,
+and warm saved Room-label validation **323.31 → 278.53 ms**. Cold cached
 restart medians across 1, 101 and 501 Rooms are respectively **104.34 →
-98.88 ms**, **197.95 → 133.19 ms**, and **587.69 → 260.78 ms**. The separate
-editor in-memory Room-label median for Feature Lab is **94.38 → 1.63 ms**;
+98.53 ms**, **197.95 → 134.50 ms**, and **587.69 → 273.77 ms**. The separate
+editor in-memory Room-label median for Feature Lab is **94.38 → 1.74 ms**;
 this cumulative change largely reflects the preceding #590 working-generation
 optimization, not the #591 disk ledger alone.
 
 For the Feature Lab cached-restart scenario, the end-to-end profile changes
 from **5 → 1 source captures**, **205 → 41 directory enumerations**,
-**2,813 → 725 file byte reads**, **4,515 → 407 content hashes**,
+**2,813 → 725 file byte reads**, **4,515 → 713 content hashes**,
 **153 → 4 Lua parses**, **38 → 2 RML parses**, **1 → 0 font preparations**,
 **13 → 0 Material preparations**, and **1 → 0 portable source checks**.
 This stage still performs physical source and binary-output integrity proofs,

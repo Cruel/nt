@@ -2031,8 +2031,11 @@ void project_validation_roundtrip(const std::filesystem::path& fixture)
         ScopedValidationWork measured(restored_work);
         editor_hit = editor->validate_clean_project();
     }
-    require(restored_work.content_hashes == 0 && restored_work.parsed_lua == 0 &&
-                restored_work.parsed_rml == 0 && restored_work.parsed_rcss == 0,
+    // Hashing the saved contributor bytes is necessary to bind their contents
+    // to the exact source proof; it is not semantic revalidation or hydration.
+    require(restored_work.parsed_lua == 0 && restored_work.parsed_rml == 0 &&
+                restored_work.parsed_rcss == 0 &&
+                editor->validation_work().rechecked_contributions == 0,
             "Cold ledger restoration must not hydrate and analyze unchanged record contents");
     require(editor_hit.cache_hit && signature(editor_hit.snapshot) == signature(cold),
             "Independently opened editor session consumes the native CLI generation");
@@ -2067,6 +2070,31 @@ void project_validation_roundtrip(const std::filesystem::path& fixture)
             "Eviction and fresh daemon owner admission recheck physical cache proof");
     const auto cache_bytes = read(cached_path);
     const auto cache_value = Json::parse(cache_bytes);
+    {
+        auto inconsistent = cache_value;
+        auto& contributors = inconsistent.at("resident").at("contributions");
+        require(!contributors.empty(), "Cold cache fixture contains contributor records");
+        auto& first = contributors.object_range().begin()->value();
+        first.at("record").at("bytes") = "id: substituted-on-disk\n";
+        write(cached_path, inconsistent.to_string());
+        auto reopened = ProjectSession::open(temp.root, error);
+        require(
+            reopened && !reopened->validate_clean_project().cache_hit,
+            "Cold cache rejects saved record bytes inconsistent with the proved source revision");
+        write(cached_path, cache_bytes);
+    }
+    {
+        auto inconsistent = cache_value;
+        auto& contributors = inconsistent.at("resident").at("contributions");
+        require(!contributors.empty(), "Cold cache fixture contains normalized contributors");
+        contributors.object_range().begin()->value().at("record").at("normalized") = "null";
+        write(cached_path, inconsistent.to_string());
+        auto reopened = ProjectSession::open(temp.root, error);
+        require(
+            reopened && !reopened->validate_clean_project().cache_hit,
+            "Cold cache rejects altered derived normalized data even with unchanged source bytes");
+        write(cached_path, cache_bytes);
+    }
     for (const auto& malformed :
          {cache_bytes.substr(0, cache_bytes.size() / 2), std::string("{\"contract\":null}")}) {
         write(cached_path, malformed);
@@ -2589,6 +2617,14 @@ void clean_cache_recovery_roundtrip(const std::filesystem::path& fixture)
     auto restarted_daemon = ProjectSession::open(temp.root, error);
     require(restarted_daemon && restarted_daemon->validate_clean_project().cache_hit,
             "Fresh daemon owner reuses the newly certified physical generation");
+    // The cache is optional: an unwritable authoring cache directory must not
+    // turn otherwise valid source and diagnostics into a validation failure.
+    restarted_daemon.reset();
+    std::filesystem::remove_all(temp.root / ".noveltea/cache/authoring");
+    write(temp.root / ".noveltea/cache/authoring", "blocked cache directory\n");
+    auto unavailable_cache = ProjectSession::open(temp.root, error);
+    require(unavailable_cache && unavailable_cache->validate_clean_project().snapshot.valid,
+            "Unavailable optional cache storage does not prevent authoritative validation");
 }
 
 void clean_cache_correctness_roundtrip(const std::filesystem::path& fixture)

@@ -830,11 +830,13 @@ Json validate(std::string_view request_text)
                         "error", std::string("Native Project source preparation failed."));
                     return result;
                 }
-                if (external_watcher_cache_supported)
-                    if (const auto watched =
-                            observed_external_paths(portable.at("sourcePaths"), *state.session))
-                        state.portable_check =
-                            OwnerValidation::ExternalCheck{portable_key, *watched};
+                // Persist the proved source set on every host. Non-Linux
+                // readers may restore it only at cold exact-byte admission;
+                // their subsequent resident requests still rerun the stage
+                // because they have no inotify-style change evidence.
+                if (const auto watched =
+                        observed_external_paths(portable.at("sourcePaths"), *state.session))
+                    state.portable_check = OwnerValidation::ExternalCheck{portable_key, *watched};
             }
             const auto notice_key = notice_inputs(admitted);
             const bool notice_reuse = external_watcher_cache_supported && state.notice_check &&
@@ -852,10 +854,8 @@ Json validate(std::string_view request_text)
                     for (const auto& [_, entries] : notice_key.at("assets").items())
                         for (const auto& notice : entries)
                             paths.push_back(notice.at("path"));
-                    if (external_watcher_cache_supported)
-                        if (const auto watched = observed_external_paths(paths, *state.session))
-                            state.notice_check =
-                                OwnerValidation::ExternalCheck{notice_key, *watched};
+                    if (const auto watched = observed_external_paths(paths, *state.session))
+                        state.notice_check = OwnerValidation::ExternalCheck{notice_key, *watched};
                 }
             } else {
                 result["work"]["noticeValidationRuns"] = 0;
