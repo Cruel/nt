@@ -93,6 +93,107 @@ struct OwnerValidation {
     }
 };
 
+Json stage_ledger(const OwnerValidation& state, const Json& result)
+{
+    if (!state.portable_check || !state.notice_check || !state.font_inputs ||
+        !state.material_records || !state.material_assets ||
+        result.contains("portableFailure") || result.contains("noticeValidationFailure"))
+        return nullptr;
+    Json projection = Json::object();
+    for (const auto* key : {"fontCoverageInputs", "materialCompilerPrograms", "materialEffectiveInputs"})
+        if (result.contains(key))
+            projection[key] = result.at(key);
+    return {{"projection", projection},
+            {"portable", {{"inputs", state.portable_check->inputs},
+                           {"paths", state.portable_check->watched_paths}}},
+            {"notices", {{"inputs", state.notice_check->inputs},
+                          {"paths", state.notice_check->watched_paths}}},
+            {"materials", *state.material_records}, {"assets", *state.material_assets},
+            {"fonts", Json::parse(noveltea::tooling::font_coverage_ledger())},
+            {"shaders", state.shader_cache.ledger()}};
+}
+
+bool restore_stages(OwnerValidation& state, std::string_view serialized, Json& result)
+{
+    if (serialized.empty())
+        return false;
+    try {
+        const auto ledger = Json::parse(serialized);
+        if (!ledger.is_object() || ledger.size() != 7 ||
+            !ledger.at("projection").is_object() || ledger.at("projection").size() != 3 ||
+            !ledger.at("materials").is_object() || !ledger.at("assets").is_object())
+            throw std::runtime_error("Malformed external validation ledger.");
+        const auto& projection = ledger.at("projection");
+        if (!projection.at("fontCoverageInputs").is_array() ||
+            !projection.at("materialCompilerPrograms").is_object() ||
+            !projection.at("materialEffectiveInputs").is_object())
+            throw std::runtime_error("Malformed external validation projection.");
+        const auto* revisions = state.session->verified_source_revisions_view();
+        if (!revisions)
+            throw std::runtime_error("No verified external validation source revision.");
+        const auto check = [&](const Json& value) -> OwnerValidation::ExternalCheck {
+            if (!value.is_object() || value.size() != 2 || !value.at("inputs").is_object() ||
+                !value.at("paths").is_array())
+                throw std::runtime_error("Malformed external validation ledger.");
+            auto paths = value.at("paths").get<std::set<std::string>>();
+            for (const auto& path : paths)
+                if (!revisions->contains(path))
+                    throw std::runtime_error("Unproven external ledger source.");
+            return {value.at("inputs"), std::move(paths)};
+        };
+        const auto portable = check(ledger.at("portable"));
+        const auto notices = check(ledger.at("notices"));
+        if (!state.shader_cache.restore_ledger(state.root, ledger.at("shaders")) ||
+            !noveltea::tooling::restore_font_coverage_ledger(ledger.at("fonts").dump()))
+            throw std::runtime_error("Malformed font or shader validation evidence.");
+        state.portable_check = portable;
+        state.notice_check = notices;
+        state.material_records = ledger.at("materials");
+        state.material_assets = ledger.at("assets");
+        state.material_programs = projection.at("materialCompilerPrograms");
+        state.material_effective = projection.at("materialEffectiveInputs");
+        state.font_inputs = projection.at("fontCoverageInputs");
+        result.update(projection);
+    } catch (...) {
+        state.clear_preparations();
+        return false;
+    }
+    result["work"]["portableSourceReuses"] = 1;
+    result["work"]["noticeValidationReuses"] = 1;
+    result["work"]["noticeValidationRuns"] = 0;
+    result["work"]["fontInputReuses"] = 1;
+    result["work"]["materialInputReuses"] = 1;
+    if (result.at("entrypointConfigured").get<bool>()) {
+        const auto coverage = noveltea::tooling::validate_font_coverage(
+            Json{{"projectRoot", state.root.string()}, {"locales", *state.font_inputs}}.dump());
+        result["fontCoverageResult"] = Json::parse(coverage.response_json);
+        const auto& font = result.at("fontCoverageResult");
+        const auto work = font.value("work", Json::object());
+        result["work"]["fontCoverageRuns"] = work.value("executedLocales", 0);
+        result["work"]["fontCoverageReusedLocales"] = work.value("reusedLocales", 0);
+        const auto font_diagnostics = font.value("diagnostics", Json::array());
+        const bool coverage_valid = font.value("ok", false) && font.value("success", false) &&
+            std::none_of(font_diagnostics.begin(), font_diagnostics.end(),
+                         [](const Json& item) { return item.value("severity", "error") == "error"; });
+        if (coverage_valid && !state.material_programs.empty()) {
+            noveltea::tooling::MaterialShaderValidationCache::Work shader_work;
+            result["materialCompilerResult"] = state.shader_cache.validate(
+                state.root, state.material_programs, *state.session->verified_source_revisions_view(),
+                shader_work);
+            const auto& compiled = result.at("materialCompilerResult");
+            if (compiled.value("ok", false) && compiled.value("success", false))
+                result["materialReflectionDiagnostics"] = state.shader_cache.reflected_materials(
+                    compiled, state.material_effective, shader_work);
+            result["work"]["shaderCompileRuns"] = shader_work.compiler_runs;
+            result["work"]["shaderProgramsReused"] = shader_work.reused_programs;
+            result["work"]["shaderOutputProofs"] = shader_work.output_proofs;
+            result["work"]["materialInterfaceValidations"] = shader_work.interface_validations;
+            result["work"]["materialInterfaceReuses"] = shader_work.interface_reuses;
+        }
+    }
+    return true;
+}
+
 OwnerValidation& resident()
 {
     static OwnerValidation value;
@@ -700,7 +801,8 @@ Json validate(std::string_view request_text)
         // Do not force a second complete shader/runtime preparation for it.
         result["entrypointConfigured"] =
             effective.contains("entrypoint") && !effective.at("entrypoint").is_null();
-        if (request.value("includeFontCoverageInputs", false)) {
+        if (request.value("includeFontCoverageInputs", false) &&
+            !restore_stages(state, validated.stages_json, result)) {
             const auto prepared = state.session->prepare_complete_working(
                 state.session->working_revision(), {}, true, true);
             if (!prepared.accepted)
@@ -963,7 +1065,9 @@ Json validate(std::string_view request_text)
             return {{"ok", false},
                     {"kind", "conflict"},
                     {"error", "Project sources changed during validation preparation."}};
-        if (!state.session->publish_deferred_clean_validation(validated, post_revisions))
+        const auto stages = request.value("includeFontCoverageInputs", false)
+                                ? stage_ledger(state, result) : Json(nullptr);
+        if (!state.session->publish_deferred_clean_validation(validated, post_revisions, stages.dump()))
             return {{"ok", false},
                     {"kind", "conflict"},
                     {"error", "Project sources changed during validation preparation."}};

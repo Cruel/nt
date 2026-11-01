@@ -310,6 +310,7 @@ ProjectSession::prepare_complete_working(std::uint64_t expected_revision, std::s
         prepared.error = "Stale working Project preparation revision.";
         return prepared;
     }
+    hydrate_clean_validation();
     // Full validation supplies native normalized disk contributors for every
     // tracked record. It does not make uninspected owners editable or writable.
     RoomSessionSnapshot validated;

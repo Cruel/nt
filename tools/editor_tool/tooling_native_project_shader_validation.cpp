@@ -363,6 +363,75 @@ Json MaterialShaderValidationCache::validate(
     return result;
 }
 
+Json MaterialShaderValidationCache::ledger() const
+{
+    Json entries = Json::object(), reflections = Json::object();
+    for (const auto& [key, entry] : entries_) {
+        Json engine = Json::object();
+        for (const auto& [path, revision] : entry.engine_revisions)
+            engine[path.generic_string()] = revision;
+        entries[key] = {{"response", entry.response}, {"sources", entry.source_revisions},
+                        {"engine", engine}, {"failed", entry.failed}};
+    }
+    for (const auto& [key, entry] : reflection_entries_)
+        reflections[key] = {{"identity", entry.identity}, {"diagnostics", entry.diagnostics}};
+    return {{"programs", entries}, {"reflections", reflections}};
+}
+
+bool MaterialShaderValidationCache::restore_ledger(const fs::path& root, const Json& snapshot)
+{
+    try {
+        if (!snapshot.is_object() || snapshot.size() != 2 ||
+            !snapshot.at("programs").is_object() || !snapshot.at("reflections").is_object() ||
+            snapshot.at("programs").size() > 256 || snapshot.at("reflections").size() > 256)
+            return false;
+        std::map<std::string, Entry> entries;
+        std::map<std::string, ReflectionEntry> reflections;
+        for (const auto& [key, item] : snapshot.at("programs").items()) {
+            if (!item.is_object() || item.size() != 4 || !item.at("response").is_object() ||
+                !item.at("sources").is_object() || !item.at("engine").is_object() ||
+                !item.at("failed").is_boolean())
+                return false;
+            Entry entry;
+            entry.response = item.at("response");
+            entry.failed = item.at("failed").get<bool>();
+            if (!entry.response.at("outputs").is_array() ||
+                !entry.response.at("diagnostics").is_array() ||
+                (entry.failed && !deterministic_failure(entry.response)))
+                return false;
+            entry.source_revisions = item.at("sources").get<std::map<std::string, std::string>>();
+            for (const auto& [path, revision] : item.at("engine").items()) {
+                const auto relative = fs::path(path).lexically_relative(
+                    root / ".noveltea/cache/toolchain/noveltea-shaders");
+                if (relative.empty() || relative.is_absolute() || *relative.begin() == ".." ||
+                    relative != relative.lexically_normal() || !revision.is_string())
+                    return false;
+                entry.engine_revisions.emplace(path, revision.get<std::string>());
+            }
+            entries.emplace(key, std::move(entry));
+        }
+        for (const auto& [key, item] : snapshot.at("reflections").items()) {
+            if (!item.is_object() || item.size() != 2 || !item.at("identity").is_string() ||
+                !item.at("diagnostics").is_array())
+                return false;
+            for (const auto& diagnostic : item.at("diagnostics"))
+                if (!diagnostic.is_object() || diagnostic.size() != 4 ||
+                    !diagnostic.at("code").is_string() ||
+                    !diagnostic.at("severity").is_string() ||
+                    !diagnostic.at("path").is_string() ||
+                    !diagnostic.at("message").is_string())
+                    return false;
+            reflections.emplace(key, ReflectionEntry{item.at("identity").get<std::string>(),
+                                                     item.at("diagnostics")});
+        }
+        entries_ = std::move(entries);
+        reflection_entries_ = std::move(reflections);
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
 Json material_reflection_diagnostics(const Json& compiled, const Json& effective_materials)
 {
     Json diagnostics = Json::array();

@@ -2025,7 +2025,15 @@ void project_validation_roundtrip(const std::filesystem::path& fixture)
             "Native resident validation publishes its exact clean generation");
     auto editor = ProjectSession::open(temp.root, error);
     require(editor != nullptr, "Clean editor Project can open: " + error);
-    const auto editor_hit = editor->validate_clean_project();
+    ValidationWorkCounters restored_work;
+    ProjectSession::CleanValidation editor_hit;
+    {
+        ScopedValidationWork measured(restored_work);
+        editor_hit = editor->validate_clean_project();
+    }
+    require(restored_work.content_hashes == 0 && restored_work.parsed_lua == 0 &&
+                restored_work.parsed_rml == 0 && restored_work.parsed_rcss == 0,
+            "Cold ledger restoration must not hydrate and analyze unchanged record contents");
     require(editor_hit.cache_hit && signature(editor_hit.snapshot) == signature(cold),
             "Independently opened editor session consumes the native CLI generation");
     const std::string cache_room = "records/rooms/room-lifecycle-roundtrip.yaml";
@@ -2059,6 +2067,52 @@ void project_validation_roundtrip(const std::filesystem::path& fixture)
             "Eviction and fresh daemon owner admission recheck physical cache proof");
     const auto cache_bytes = read(cached_path);
     const auto cache_value = Json::parse(cache_bytes);
+    for (const auto& malformed :
+         {cache_bytes.substr(0, cache_bytes.size() / 2), std::string("{\"contract\":null}")}) {
+        write(cached_path, malformed);
+        auto recovered = ProjectSession::open(temp.root, error);
+        require(recovered && !recovered->validate_clean_project().cache_hit &&
+                    signature(recovered->validate_project()) == signature(cold),
+                "Truncated or malformed ledgers fall back to authoritative validation");
+        write(cached_path, cache_bytes);
+    }
+    {
+        auto malformed = cache_value;
+        auto& contributors = malformed.at("resident").at("contributions");
+        require(!contributors.empty(), "Cold certification fixture contains resident contributors");
+        auto& first = contributors.object_range().begin()->value();
+        first.at("dependencies") = Json::array();
+        Json invalid_dependency = Json::object();
+        invalid_dependency["owner"] = "rooms/other";
+        invalid_dependency["paths"] = "wrong-type";
+        first.at("dependencies").push_back(std::move(invalid_dependency));
+        write(cached_path, malformed.to_string());
+        auto recovered = ProjectSession::open(temp.root, error);
+        require(recovered && !recovered->validate_clean_project().cache_hit &&
+                    signature(recovered->validate_project()) == signature(cold),
+                "Malformed semantic dependencies must reject the optional ledger before admission");
+        write(cached_path, cache_bytes);
+    }
+    {
+        auto publishing = ProjectSession::open(temp.root, error);
+        require(publishing != nullptr, "Deferred-publisher fixture can open");
+        const auto stale = publishing->validate_clean_project(false, true);
+        require(stale.cache_hit && stale.deferred_exact_revisions.has_value(),
+                "Cold publication returns a deferred generation token");
+        publishing->source_watch_coverage_lost();
+        auto refreshed = publishing->validate_clean_project(false, true);
+        if (!refreshed.deferred_exact_revisions)
+            refreshed = publishing->validate_clean_project(false, true);
+        require(refreshed.deferred_exact_revisions.has_value() &&
+                    refreshed.validation_generation != stale.validation_generation,
+                "A new validated generation gets a distinct publication token");
+        require(
+            !publishing->publish_deferred_clean_validation(stale, *stale.deferred_exact_revisions),
+            "A stale deferred result must not publish over a newer verified generation");
+        require(publishing->publish_deferred_clean_validation(refreshed,
+                                                              *refreshed.deferred_exact_revisions),
+                "Rejecting a stale publication does not revoke the newer verified generation");
+    }
     require(cache_value.at("sourceRevisionAlgorithm") == "xxh3-128" &&
                 cache_value.at("assetProofAlgorithm") == "xxh3-128",
             "Native cache explicitly records both local hash algorithms");
@@ -2581,9 +2635,10 @@ void clean_cache_correctness_roundtrip(const std::filesystem::path& fixture)
     require(has_width_error(first.snapshot), "First invalid disk revision is diagnosed");
     const auto imported_change = imported->validate_clean_project();
     require(has_width_error(imported_change.snapshot) &&
-                imported->validation_work().rechecked_records == 1 &&
+                imported->validation_work().rechecked_records == 2 &&
                 imported->validation_work().retained_records > 0,
-            "Imported substantive Room edits recheck only the changed record");
+            "Lazy imported contributors recheck the changed Room and the Asset whose physical "
+            "source was replaced, retaining unrelated records");
     const auto repeated = project->validate_clean_project();
     require(has_width_error(repeated.snapshot) &&
                 project->validation_work().rechecked_records == 0 &&
@@ -2598,6 +2653,19 @@ void clean_cache_correctness_roundtrip(const std::filesystem::path& fixture)
     auto other_host = ProjectSession::open(temp.root, error);
     require(other_host != nullptr, "Another host can open the invalid-record Project");
     const auto shared = other_host->validate_clean_project();
+    require(shared.cache_hit && other_host->validation_work().rechecked_contributions == 0 &&
+                shared.snapshot.diagnostics.size() == first.snapshot.diagnostics.size(),
+            "Deterministic invalid diagnostics survive a cold ledger restart without execution");
+    for (std::size_t i = 0; i < shared.snapshot.diagnostics.size(); ++i) {
+        const auto& restored = shared.snapshot.diagnostics[i];
+        const auto& original = first.snapshot.diagnostics[i];
+        require(restored.path == original.path && restored.code == original.code &&
+                    restored.message == original.message &&
+                    restored.severity == original.severity &&
+                    restored.source_path == original.source_path &&
+                    restored.line == original.line && restored.column == original.column,
+                "Restored invalid diagnostics preserve exact ordering and source locations");
+    }
     require(has_width_error(shared.snapshot),
             "Shared cache must never publish a false-success validation result");
     write(room_path, original);

@@ -128,7 +128,25 @@ file(REAL_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../../VERSION" _noveltea_repository_
 list(APPEND NOVELTEA_NATIVE_VALIDATION_SOURCES
     "${NOVELTEA_NATIVE_SCHEMA_DIRECTORY}/contracts.json" "${NOVELTEA_MATERIAL_REGISTRY}"
     "${_noveltea_repository_version}")
-set(NOVELTEA_NATIVE_VALIDATION_SOURCE_IDENTITIES "")
+# The ledger also carries external-stage evidence. Bind it to the shipped
+# native validators, shader/font implementations, and pinned dependency configuration.
+file(GLOB_RECURSE _ledger_native_inputs CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../engine/src/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../engine/include/*.hpp")
+file(GLOB _ledger_tool_inputs CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/../editor_tool/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../editor_tool/*.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/*.cmake")
+file(GLOB _ledger_embedded_shader_inputs CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../engine/shaders/bgfx/*.sc")
+foreach(input IN LISTS _ledger_native_inputs _ledger_tool_inputs _ledger_embedded_shader_inputs)
+    file(REAL_PATH "${input}" canonical_input)
+    list(APPEND NOVELTEA_NATIVE_VALIDATION_SOURCES "${canonical_input}")
+endforeach()
+list(REMOVE_DUPLICATES NOVELTEA_NATIVE_VALIDATION_SOURCES)
+list(SORT NOVELTEA_NATIVE_VALIDATION_SOURCES)
+set(NOVELTEA_NATIVE_VALIDATION_SOURCE_IDENTITIES
+    "${CMAKE_SYSTEM_NAME};${CMAKE_SYSTEM_PROCESSOR};${CMAKE_CXX_COMPILER_ID};${CMAKE_CXX_COMPILER_VERSION};")
 foreach(input IN LISTS NOVELTEA_NATIVE_VALIDATION_SOURCES)
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${input}")
     file(SHA256 "${input}" digest)
@@ -142,6 +160,13 @@ foreach(input IN LISTS NOVELTEA_NATIVE_VALIDATION_SOURCES)
         file(RELATIVE_PATH relative_input "${CMAKE_CURRENT_SOURCE_DIR}" "${input}")
     endif()
     string(APPEND NOVELTEA_NATIVE_VALIDATION_SOURCE_IDENTITIES "${relative_input}:${digest};")
+endforeach()
+# Hash pinned package/toolchain configuration without placing vcpkg's own
+# manifest inputs in directory-level CONFIGURE_DEPENDS: the vcpkg toolchain
+# already owns those dependencies and duplicates produce invalid Ninja rules.
+foreach(input IN ITEMS "vcpkg.json" "vcpkg-configuration.json" "CMakePresets.json")
+    file(SHA256 "${CMAKE_CURRENT_SOURCE_DIR}/../../${input}" digest)
+    string(APPEND NOVELTEA_NATIVE_VALIDATION_SOURCE_IDENTITIES "${input}:${digest};")
 endforeach()
 string(SHA256 NOVELTEA_NATIVE_VALIDATION_FINGERPRINT "${NOVELTEA_NATIVE_VALIDATION_SOURCE_IDENTITIES}")
 set_source_files_properties(clean_validation_cache.cpp PROPERTIES COMPILE_DEFINITIONS

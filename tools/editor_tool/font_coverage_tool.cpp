@@ -457,6 +457,78 @@ nlohmann::json validate_font_coverage_request(const nlohmann::json& request)
 
 namespace noveltea::tooling {
 
+std::string font_coverage_ledger()
+{
+    std::lock_guard lock(font_coverage_cache_mutex);
+    nlohmann::json result = nlohmann::json::array();
+    for (const auto* entries : {&font_coverage_cache, &font_coverage_failures})
+        for (const auto& entry : *entries) {
+            nlohmann::json fingerprints = nlohmann::json::array();
+            for (const auto& fingerprint : entry.fingerprints)
+                fingerprints.push_back({{"path", fingerprint.logical_path},
+                                        {"revision", fingerprint.exact_content_revision},
+                                        {"error", fingerprint.error}});
+            result.push_back({{"request", entry.request}, {"fingerprints", fingerprints},
+                              {"exitCode", entry.exit_code}, {"response", entry.response_json},
+                              {"failure", entries == &font_coverage_failures}});
+        }
+    return result.dump();
+}
+
+bool restore_font_coverage_ledger(std::string_view snapshot)
+{
+    try {
+        const auto value = nlohmann::json::parse(snapshot);
+        if (!value.is_array() || value.size() > 72)
+            return false;
+        std::vector<FontCoverageCacheEntry> successes, failures;
+        for (const auto& item : value) {
+            if (!item.is_object() || item.size() != 5 || !item.at("request").is_string() ||
+                !item.at("fingerprints").is_array() || !item.at("exitCode").is_number_integer() ||
+                !item.at("response").is_string() || !item.at("failure").is_boolean())
+                return false;
+            FontCoverageCacheEntry entry;
+            entry.request = item.at("request").get<std::string>();
+            entry.exit_code = item.at("exitCode").get<int>();
+            entry.response_json = item.at("response").get<std::string>();
+            const auto response = nlohmann::json::parse(entry.response_json);
+            const bool failure = item.at("failure").get<bool>();
+            const auto& diagnostics = failure ? response.at("diagnostics") : response;
+            if ((failure && (!response.is_object() || !response.at("ok").is_boolean() ||
+                             entry.exit_code == 0)) ||
+                (!failure && entry.exit_code != 0) || !diagnostics.is_array() ||
+                diagnostics.size() > 10000)
+                return false;
+            for (const auto& diagnostic : diagnostics) {
+                if (!diagnostic.is_object() ||
+                    !diagnostic.value("code", nlohmann::json()).is_string() ||
+                    !diagnostic.value("severity", nlohmann::json()).is_string() ||
+                    !diagnostic.value("message", nlohmann::json()).is_string() ||
+                    !diagnostic.value("path", nlohmann::json()).is_string())
+                    return false;
+            }
+            for (const auto& fingerprint : item.at("fingerprints")) {
+                if (!fingerprint.is_object() || fingerprint.size() != 3 ||
+                    !fingerprint.at("path").is_string() || !fingerprint.at("revision").is_string() ||
+                    !fingerprint.at("error").is_string())
+                    return false;
+                FontCoverageFingerprint restored;
+                restored.logical_path = fingerprint.at("path").get<std::string>();
+                restored.exact_content_revision = fingerprint.at("revision").get<std::string>();
+                restored.error = fingerprint.at("error").get<std::string>();
+                entry.fingerprints.push_back(std::move(restored));
+            }
+            (item.at("failure").get<bool>() ? failures : successes).push_back(std::move(entry));
+        }
+        std::lock_guard lock(font_coverage_cache_mutex);
+        font_coverage_cache = std::move(successes);
+        font_coverage_failures = std::move(failures);
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
 NativeOperationResult validate_font_coverage(std::string_view request_json)
 {
     const auto request = request_json.empty() ? nlohmann::json::object()

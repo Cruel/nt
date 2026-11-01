@@ -9,9 +9,9 @@
 
 namespace noveltea::tooling {
 
-// Resident-only shader preflight evidence. The Project owner must supply its
+// Dependency-keyed shader preflight evidence. The Project owner must supply its
 // independently verified source inventory, never a caller-provided revision.
-// No results are serialized to the disk validation cache.
+// Restored evidence passes the same exact input/output proofs as resident hits.
 class MaterialShaderValidationCache {
 public:
     struct Work {
@@ -27,6 +27,8 @@ public:
                             const std::map<std::string, std::string>& source_revisions, Work& work);
     nlohmann::json reflected_materials(const nlohmann::json& compiled,
                                        const nlohmann::json& effective_materials, Work& work);
+    nlohmann::json ledger() const;
+    bool restore_ledger(const std::filesystem::path& root, const nlohmann::json& snapshot);
     void clear()
     {
         entries_.clear();

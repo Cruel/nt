@@ -59,7 +59,53 @@ with TemporaryDirectory(prefix="noveltea-portable-validation-") as temporary:
 
     initial = validate()
     diagnostics = initial["diagnostics"]
+    restarted = validate(direct=True)
+    assert_public_parity(initial, restarted)
+    for counter in ("globalStageExecutions", "fontCoverageRuns", "shaderCompileRuns",
+                    "materialInterfaceValidations", "completeProjectProjected"):
+        assert work(restarted, counter) == 0, (counter, restarted["validationWork"])
+    for counter in ("recordContributions", "dependencyContributions", "localizationChecks",
+                    "fontPreparations", "materialShaderPreparations", "portableSourceChecks"):
+        assert restarted["validationWork"]["endToEnd"][counter] == 0, (
+            counter, restarted["validationWork"])
     assert initial["validationWork"]["endToEnd"]["portableSourceChecks"] == 1
+    cache_file = project / ".noveltea/cache/authoring/native-clean-current.json"
+    saved_ledger = cache_file.read_text()
+    malformed_ledger = json.loads(saved_ledger)
+    malformed_ledger["stages"]["projection"]["fontCoverageInputs"] = "invalid"
+    cache_file.write_text(json.dumps(malformed_ledger))
+    recovered = validate(direct=True)
+    assert_public_parity(initial, recovered)
+    assert work(recovered, "globalStageExecutions") == 0
+    assert recovered["validationWork"]["endToEnd"]["fontPreparations"] > 0
+    cache_file.write_text(saved_ledger)
+    malformed_fonts = json.loads(saved_ledger)
+    for entry in malformed_fonts["stages"]["fonts"]:
+        if not entry["failure"]:
+            entry["response"] = "[1]"
+            cache_file.write_text(json.dumps(malformed_fonts))
+            assert_public_parity(initial, validate(direct=True))
+            cache_file.write_text(saved_ledger)
+            break
+    malformed_reflections = json.loads(saved_ledger)
+    reflections = malformed_reflections["stages"]["shaders"]["reflections"]
+    if reflections:
+        first = next(iter(reflections.values()))
+        first["diagnostics"] = [1]
+        cache_file.write_text(json.dumps(malformed_reflections))
+        assert_public_parity(initial, validate(direct=True))
+        cache_file.write_text(saved_ledger)
+
+    # The daemon must also load the ledger in a new process rather than
+    # inheriting process-local fonts, shaders, or source projections.
+    stop = subprocess.run([str(cli), "--json", "daemon", "stop"], env=env,
+                          capture_output=True, text=True, timeout=30)
+    assert stop.returncode == 0, (stop.stdout, stop.stderr)
+    daemon_cold = validate()
+    assert_public_parity(initial, daemon_cold)
+    for counter in ("globalStageExecutions", "fontCoverageRuns", "shaderCompileRuns",
+                    "materialInterfaceValidations", "completeProjectProjected"):
+        assert work(daemon_cold, counter) == 0, (counter, daemon_cold["validationWork"])
     unchanged = validate()
     assert work(unchanged, "portableSourceReuses") == int(watcher_cache)
     assert work(unchanged, "noticeValidationReuses") == int(watcher_cache)

@@ -13,6 +13,65 @@ records baseline evidence from `4e0dcdfc`, not performance guarantees. See
 The problem is **repeated whole-Project work around an incremental validator**, not an
 unoptimized compiler build or failure to retain the primary validation session.
 
+### #591: cold dependency-keyed validation ledger
+
+The optional `native-clean-current.json` v1 ledger now records the exact clean
+diagnostic result, saved record contributors, local and global diagnostic
+contributions, semantic dependency keys, spatial findings, and per-source
+revisions/physical metadata. On a compatible cold hit the native Project session
+can return exact stable diagnostics (including invalid findings and source
+coordinates) without constructing all record sessions or reverse graph indexes.
+The first subsequent mutation hydrates admitted saved bytes and restores the
+reverse index; malformed entries or source uncertainty fall back to authoritative
+validation. Unsaved editor patches and shader/text overlays never enter the disk
+cache.
+
+Successful public validation also persists already-certified portable source,
+distribution notice, localization/font-input and Material projections, per-locale
+font evidence, and dependency-keyed shader/compiler/reflection evidence. The
+cold direct CLI or restarted daemon can restore these projections without
+reassembling the complete Project. The canonical font validator still proves
+physical font revisions; the shader validator still checks engine dependencies
+and SHA-256-proves output bytes. Invalid optional stages fall back to ordinary
+preparation, without turning malformed cache data into validation failures.
+This slice implements one-process restoration/publication, not cross-process
+writer election or periodic publication.
+
+The build fingerprint covers native authoring and tooling sources, embedded
+engine shader `.sc` inputs, relevant CMake configuration, generated contracts,
+compiler identity and platform. Source admission compares complete exact source
+membership/revisions and metadata and **still reads binary Asset bytes** to
+prove their exact hashes: cold admission is not metadata-only. Atomic replacement
+is guarded by validation generation and a final source metadata recheck; storage
+failures are optional cache misses. The native Project-session and public CLI
+tests cover corrupted ledgers, deterministic invalid diagnostics, deferred
+publication fencing, and cold direct/daemon parity. Feature Lab is the input
+fixture rather than a newly authored runtime feature.
+
+The matched [#591 Release result](performance/baselines/validation-2026-11-01-ledger.json)
+uses the unchanged #577 harness, reference Ryzen 7 5700G machine, GCC Release
+`-O3 -DNDEBUG` CLI and Node-API addon, four fixture sizes and all 83 sample
+states. All comparable CLI diagnostic fingerprints agree with the committed
+October 31 baseline. Feature Lab median cold cached daemon restart is
+**2,930.01 → 615.67 ms**, cold direct `--no-daemon` **2,631.72 → 584.18 ms**,
+and warm saved Room-label validation **323.31 → 256.72 ms**. Cold cached
+restart medians across 1, 101 and 501 Rooms are respectively **104.34 →
+98.88 ms**, **197.95 → 133.19 ms**, and **587.69 → 260.78 ms**. The separate
+editor in-memory Room-label median for Feature Lab is **94.38 → 1.63 ms**;
+this cumulative change largely reflects the preceding #590 working-generation
+optimization, not the #591 disk ledger alone.
+
+For the Feature Lab cached-restart scenario, the end-to-end profile changes
+from **5 → 1 source captures**, **205 → 41 directory enumerations**,
+**2,813 → 725 file byte reads**, **4,515 → 407 content hashes**,
+**153 → 4 Lua parses**, **38 → 2 RML parses**, **1 → 0 font preparations**,
+**13 → 0 Material preparations**, and **1 → 0 portable source checks**.
+This stage still performs physical source and binary-output integrity proofs,
+and instrumentation does not count every direct core fingerprint operation.
+The elapsed-time differences against the #577 reference include all intervening
+#582–#590 optimizations; no latency improvement is attributed exclusively to
+#591. Elapsed-time targets are informational, not CI thresholds.
+
 ### #588: resident Material projection and transitive shader validation
 
 Public `noveltea validate` now asks the existing resident native Project owner
@@ -226,9 +285,11 @@ The post-record contribution retains diagnostics before YAML navigation is
 attached. Per-owner YAML location indexes are keyed by exact saved revision;
 changing one YAML source never reparses unrelated YAML solely for navigation.
 Unchanged resident validation returns the complete pinned result without
-running a diagnostic stage or rebuilding its locations. A portable clean-cache
-import retains the exact complete result and record contributors, but rebuilds
-its RAM-only global-stage and location indexes when subsequently invalidated.
+running a diagnostic stage or rebuilding its locations. The original #586
+portable import retained the complete result and record contributors but
+rebuilt the global stage on invalidation. The subsequent #591 ledger also
+restores the global contribution and dependency keys; YAML location indexes
+remain RAM-only and are rebuilt lazily when needed.
 Source uncertainty cannot authorize use of retained results, and final
 publication still requires the independent physical generation proof.
 

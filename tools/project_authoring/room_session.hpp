@@ -8,6 +8,7 @@
 #include "yaml_transaction.hpp"
 
 #include <cstdint>
+#include <functional>
 #include <filesystem>
 #include <memory>
 #include <map>
@@ -213,6 +214,8 @@ public:
         // generation proof. Standalone/editor cache hits verify immediately.
         std::optional<std::map<std::string, std::string>> deferred_exact_revisions;
         std::string deferred_resident_json;
+        std::string stages_json;
+        std::uint64_t validation_generation = 0;
     };
     // The native disk owner may have just observed the same source authority
     // before entering this serialized validation call.
@@ -220,9 +223,9 @@ public:
                                            bool defer_valid_publication = false);
     // Accept only the same byte-exact path set as validation's pre-proof.
     // The caller must obtain post-proof evidence after complete preparation.
-    bool
-    publish_deferred_clean_validation(const CleanValidation& validated,
-                                      const std::map<std::string, std::string>& post_revisions);
+    bool publish_deferred_clean_validation(const CleanValidation& validated,
+                                           const std::map<std::string, std::string>& post_revisions,
+                                           std::string_view stages_json = "null");
     struct ValidationWork {
         std::size_t rechecked_records = 0;
         std::size_t retained_records = 0;
@@ -483,11 +486,10 @@ private:
     // Increases only when a new verified disk-validation contributor generation
     // is published; repeated preparation of the same generation is unchanged.
     std::uint64_t validation_generation_ = 0;
-    // RAM-only source evidence for a verified imported exact-result generation.
-    // The disk cache never persists parsed records or semantic contributions.
-    std::optional<RoomSessionSnapshot> imported_clean_validation_;
-    std::map<std::string, std::string> imported_clean_sources_;
-    std::map<std::string, std::string> imported_clean_revisions_;
+    // Cold diagnostics stay usable without materializing record sessions or graph contents.
+    void hydrate_clean_validation();
+    std::function<bool()> pending_clean_hydration_;
+    std::string pending_clean_resident_json_;
     mutable ValidationWork validation_work_;
     mutable bool validation_view_active_ = false;
     struct ValidationContribution {

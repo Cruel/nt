@@ -1558,6 +1558,14 @@ RoomSessionSnapshot ProjectSession::validate_project(bool observed_at_entry,
         validation_snapshot_.reset();
         return result;
     }
+    if (pending_clean_hydration_) {
+        if (validation_snapshot_ && observation.authoritative && !validation_pending_uncertain_ &&
+            validation_pending_source_revisions_.empty() &&
+            validation_snapshot_->working_revision == working_revision_ &&
+            shader_overlays_.empty() && text_source_overlays_.empty())
+            return *validation_snapshot_;
+        hydrate_clean_validation();
+    }
     if (validation_source_paths_.empty()) {
         for (const auto& file : file_inventory())
             if (file.kind == ProjectFileKind::TrackedSource && file.path.ends_with(".yaml") &&
