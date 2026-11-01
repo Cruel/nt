@@ -13,6 +13,46 @@ records baseline evidence from `4e0dcdfc`, not performance guarantees. See
 The problem is **repeated whole-Project work around an incremental validator**, not an
 unoptimized compiler build or failure to retain the primary validation session.
 
+### #592: cold offline-change reconciliation
+
+The native clean ledger now admits a **partial** restoration when the global
+validator/build identity and Project manifest agree but source membership or
+metadata changed during downtime. Admission first proves the current physical
+source generation, validates the saved ledger checksum and each saved YAML
+contributor against its *saved* exact revision, then compares saved/current
+source metadata including added and deleted members. The source watcher is
+already registered during Project admission, and a second physical generation
+proof fences the import. There is no cached-result hit for an offline change.
+
+Only unchanged record contributors are restored as usable results. Old
+normalized identities and reference edges of changed/deleted records are
+retained **solely as before-state dependency evidence** so missing-to-present,
+present-to-missing and rewired references reach the correct consumers; the
+existing resident validator rebuilds changed owners and their dependent
+closure. Binary Asset changes also invalidate their owning record even when
+its YAML is unchanged. The new generation is published only after the normal
+end-to-end validation and source-generation fence. Cached external projections
+are not accepted across a changed generation: independently keyed font and
+shader evidence may be imported and must pass their ordinary new-input and
+output-byte proofs before reuse.
+
+A changed Project manifest or global validator fingerprint is a full miss.
+Incomplete, corrupted or semantically unsafe contributor/dependency evidence
+also falls back to full authoritative validation; uncertainty, interrupted
+transactions and failed source proofs never authorize partial cached success.
+Optional cache I/O errors do not make Project validation fail. In particular,
+restored diagnostics from an old generation are *never* returned after an
+offline edit: the new diagnostic assembly retains full order, severity and
+source coordinates, even for deterministic invalid results.
+
+The Feature Lab Project-session certification covers three offline Room label
+edits, unaffected contributor and global-stage retention, removed/re-added
+reference targets, a physical rename, unresolved-to-resolved references, and
+an invalid diagnostic ledger followed by another offline edit. Every resulting
+snapshot is checked for ordered diagnostic/source-coordinate parity against a
+separate uncached native validation. It exercises the existing public
+Project-session seam, rather than a separate cache validator.
+
 ### #591: cold dependency-keyed validation ledger
 
 The optional `native-clean-current.json` v1 ledger now records the exact clean

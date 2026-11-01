@@ -488,6 +488,7 @@ private:
     std::uint64_t validation_generation_ = 0;
     // Cold diagnostics stay usable without materializing record sessions or graph contents.
     void hydrate_clean_validation();
+    void revoke_clean_validation();
     std::function<bool()> pending_clean_hydration_;
     std::string pending_clean_resident_json_;
     mutable ValidationWork validation_work_;

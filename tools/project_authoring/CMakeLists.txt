@@ -319,6 +319,8 @@ if(BUILD_TESTING)
         --clean-cache-recovery "${NOVELTEA_AUTHORING_SMALL_PROJECT}")
     add_test(NAME native_authoring_clean_cache_correctness COMMAND noveltea-project-session-certify
         --clean-cache-correctness "${NOVELTEA_AUTHORING_SMALL_PROJECT}")
+    add_test(NAME native_authoring_clean_cache_offline COMMAND noveltea-project-session-certify
+        --clean-cache-offline "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
     add_test(NAME native_authoring_invalid_manifest COMMAND noveltea-project-session-certify
         --invalid-manifest "${NOVELTEA_AUTHORING_SMALL_PROJECT}")
     if(NOVELTEA_AUTHORING_TEST_NODE)
@@ -409,6 +411,7 @@ if(BUILD_TESTING)
         native_authoring_project_validation
         native_authoring_malformed_sibling_scoped_read
         native_authoring_clean_cache_correctness
+        native_authoring_clean_cache_offline
         native_authoring_invalid_manifest
         native_authoring_working_preparation
         native_authoring_asset_animation

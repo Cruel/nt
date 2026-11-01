@@ -178,10 +178,25 @@ Json diagnostics_json(const std::vector<Diagnostic>& diagnostics)
     return result;
 }
 
+std::string source_path_for_owner(std::string_view owner)
+{
+    if (owner == "traits" || owner == "editor")
+        return std::string(owner) + ".yaml";
+    if (owner.starts_with("i18n/"))
+        return std::string(owner);
+    if (owner.starts_with("layouts/"))
+        return "records/" + std::string(owner) + "/layout.yaml";
+    if (owner.find('/') != std::string_view::npos)
+        return "records/" + std::string(owner) + ".yaml";
+    return {};
+}
+
 struct CachedValidation {
     RoomSessionSnapshot snapshot;
     Json resident;
     Json stages;
+    std::map<std::string, std::string> saved_revisions;
+    std::map<std::string, std::string> changed_revisions;
 };
 
 std::optional<CachedValidation>
@@ -201,8 +216,32 @@ read_clean_cache(const fs::path& root, const std::map<std::string, std::string>&
             value.at("semanticFingerprint") != kSemanticFingerprint ||
             value.at("sourceRevisionAlgorithm") != kSourceRevisionAlgorithm ||
             value.at("assetProofAlgorithm") != kAssetProofAlgorithm ||
-            value.at("projectRoot") != cache_project_root(root) ||
-            value.at("sources") != source_metadata(root, revisions))
+            value.at("projectRoot") != cache_project_root(root) || !value.at("sources").is_object())
+            return std::nullopt;
+        std::map<std::string, std::string> saved_revisions;
+        for (const auto& entry : value.at("sources").object_range()) {
+            const auto& metadata = entry.value();
+            if (!metadata.is_object() || metadata.size() != 4 ||
+                !metadata.at("revision").is_string() || !metadata.at("type").is_integer<int>() ||
+                !metadata.at("size").is_number() || !metadata.at("modified").is_string())
+                return std::nullopt;
+            saved_revisions.emplace(std::string(entry.key()),
+                                    metadata.at("revision").as<std::string>());
+        }
+        const auto current_metadata = source_metadata(root, revisions);
+        std::map<std::string, std::string> changed_revisions;
+        for (const auto& entry : value.at("sources").object_range()) {
+            const std::string path(entry.key());
+            if (!current_metadata.contains(path) || current_metadata.at(path) != entry.value())
+                changed_revisions.emplace(path,
+                                          revisions.contains(path) ? revisions.at(path) : "absent");
+        }
+        for (const auto& [path, revision] : revisions)
+            if (!saved_revisions.contains(path))
+                changed_revisions.emplace(path, revision);
+        // A different Manifest changes the interpretation of every owner.
+        // There is no defensible partial graph under a different root contract.
+        if (changed_revisions.contains("project.yaml"))
             return std::nullopt;
         // A matching physical source generation alone does not establish that
         // the persisted *derived* diagnostics and normalized records survived
@@ -298,16 +337,10 @@ read_clean_cache(const fs::path& root, const std::map<std::string, std::string>&
                 // to accept contributor bytes different from its proved YAML
                 // generation. Otherwise a well-shaped corrupted ledger would
                 // yield cached diagnostics until the first later mutation.
-                std::string source_path;
-                if (owner == "traits" || owner == "editor" || owner.starts_with("i18n/"))
-                    source_path = owner == "traits" || owner == "editor" ? owner + ".yaml" : owner;
-                else if (owner.starts_with("layouts/"))
-                    source_path = "records/" + owner + "/layout.yaml";
-                else if (owner.find('/') != std::string::npos)
-                    source_path = "records/" + owner + ".yaml";
-                if (source_path.empty() || !revisions.contains(source_path) ||
+                const auto source_path = source_path_for_owner(owner);
+                if (source_path.empty() || !saved_revisions.contains(source_path) ||
                     exact_source_revision(record.at("bytes").as<std::string>()) !=
-                        revisions.at(source_path))
+                        saved_revisions.at(source_path))
                     return std::nullopt;
                 for (const auto& dependency : contribution.at("dependencies").array_range()) {
                     if (!dependency.is_object() || dependency.size() != 2 ||
@@ -337,7 +370,8 @@ read_clean_cache(const fs::path& root, const std::map<std::string, std::string>&
             value.at("stageRevision") ==
                 noveltea::core::xxh3_128_revision(stored_stages.to_string()))
             stages = stored_stages;
-        return CachedValidation{std::move(snapshot), resident, stages};
+        return CachedValidation{std::move(snapshot), resident, stages, std::move(saved_revisions),
+                                std::move(changed_revisions)};
     } catch (...) {
         return std::nullopt; // Optional acceleration; malformed or old formats always miss.
     }
@@ -417,6 +451,22 @@ void publish_clean_cache(const fs::path& root, const std::map<std::string, std::
 }
 } // namespace
 
+void ProjectSession::revoke_clean_validation()
+{
+    validation_snapshot_.reset();
+    validation_records_.clear();
+    validation_source_revisions_.clear();
+    validation_source_paths_.clear();
+    validation_source_errors_.clear();
+    validation_contributions_.clear();
+    validation_normalized_records_.clear();
+    validation_reference_consumers_.clear();
+    validation_global_contribution_.reset();
+    validation_source_locations_.clear();
+    validation_room_map_cache_.reset();
+    validation_pending_uncertain_ = true;
+}
+
 void ProjectSession::hydrate_clean_validation()
 {
     if (!pending_clean_hydration_)
@@ -424,20 +474,8 @@ void ProjectSession::hydrate_clean_validation()
     auto hydrate = std::move(pending_clean_hydration_);
     pending_clean_hydration_ = {};
     pending_clean_resident_json_.clear();
-    if (!hydrate()) {
-        validation_snapshot_.reset();
-        validation_records_.clear();
-        validation_source_revisions_.clear();
-        validation_source_paths_.clear();
-        validation_source_errors_.clear();
-        validation_contributions_.clear();
-        validation_normalized_records_.clear();
-        validation_reference_consumers_.clear();
-        validation_global_contribution_.reset();
-        validation_source_locations_.clear();
-        validation_room_map_cache_.reset();
-        validation_pending_uncertain_ = true;
-    }
+    if (!hydrate())
+        revoke_clean_validation();
 }
 
 ProjectSession::CleanValidation ProjectSession::validate_clean_project(bool initially_observed,
@@ -500,6 +538,7 @@ ProjectSession::CleanValidation ProjectSession::validate_clean_project(bool init
 
     const auto hydrate_resident = [this](const Json& payload,
                                          const std::map<std::string, std::string>& revisions,
+                                         const std::map<std::string, std::string>& changed,
                                          const RoomSessionSnapshot& cached) {
         if (!payload.is_object())
             return false;
@@ -509,6 +548,11 @@ ProjectSession::CleanValidation ProjectSession::validate_clean_project(bool init
         // A final proof below still rejects any intervening physical change.
         ScopedVerifiedProjectSources observed(*source_authority_);
         ScopedYamlDecodeCache decoding(*yaml_decode_cache_);
+        // Project admission already validated localization against the *new*
+        // physical source generation. Reindexing unchanged ledger owners can
+        // transiently invalidate that exact current result. Retain it rather
+        // than treating cold graph materialization as a source edit.
+        const auto admitted_localization = localization_cache_;
         try {
             const auto& contributions = payload.at("contributions");
             const auto& spatial = payload.at("spatial");
@@ -539,6 +583,9 @@ ProjectSession::CleanValidation ProjectSession::validate_clean_project(bool init
             };
             std::map<std::string, ValidationContribution> prepared_contributions;
             for (const auto& entry : contributions.object_range()) {
+                const std::string owner(entry.key());
+                if (changed.contains(source_path_for_owner(owner)))
+                    continue;
                 const auto& source = entry.value();
                 if (!source.is_object() || source.size() != 4 || !source.at("valid").is_bool() ||
                     !source.at("record").is_object())
@@ -587,6 +634,8 @@ ProjectSession::CleanValidation ProjectSession::validate_clean_project(bool init
                     }
                 } else
                     continue;
+                if (changed.contains(path))
+                    continue;
                 if (!revisions.contains(path) || !prepared_contributions.contains(owner))
                     return false;
                 const auto& saved = contributions.at(owner).at("record");
@@ -624,11 +673,23 @@ ProjectSession::CleanValidation ProjectSession::validate_clean_project(bool init
             std::map<std::string, IndexedNormalizedRecord> prepared_normalized;
             std::map<std::string, std::map<std::string, std::vector<std::string>>>
                 prepared_consumers;
-            for (const auto& [owner, record] : prepared_records) {
+            for (const auto& entry : contributions.object_range()) {
+                const std::string owner(entry.key());
+                // Changed and deleted owners are *not* valid contributors, but
+                // their old normalized identity and outgoing edges are needed
+                // for the existing reverse-closure diff. Without the old
+                // identity a deletion looks like absent -> absent and misses
+                // surviving consumers of the deleted target.
+                if (!prepared_records.contains(owner)) {
+                    if (!changed.contains(source_path_for_owner(owner)))
+                        return false;
+                }
                 IndexedNormalizedRecord indexed;
-                indexed.normalized_json = record->snapshot().normalized_json;
-                for (const auto& dependency :
-                     contributions.at(owner).at("dependencies").array_range()) {
+                indexed.normalized_json =
+                    prepared_records.contains(owner)
+                        ? prepared_records.at(owner)->snapshot().normalized_json
+                        : entry.value().at("record").at("normalized").as<std::string>();
+                for (const auto& dependency : entry.value().at("dependencies").array_range()) {
                     if (!dependency.is_object() || dependency.size() != 2 ||
                         !dependency.at("owner").is_string() || !dependency.at("paths").is_array())
                         return false;
@@ -667,6 +728,7 @@ ProjectSession::CleanValidation ProjectSession::validate_clean_project(bool init
             validation_source_errors_.clear();
             for (const auto& [owner, record] : validation_records_)
                 index_text_owner(owner, record->snapshot().source_json);
+            localization_cache_ = admitted_localization;
             validation_snapshot_ = cached;
             validation_source_locations_.clear();
             return true;
@@ -720,6 +782,7 @@ ProjectSession::CleanValidation ProjectSession::validate_clean_project(bool init
     }
 
     std::optional<std::map<std::string, std::string>> cache_admission_evidence;
+    std::string offline_stage_evidence;
     if (clean() && !validation_pending_uncertain_ && !validation_snapshot_ &&
         validation_pending_source_revisions_.empty()) {
         if (const auto revisions = proof(initially_observed)) {
@@ -734,24 +797,70 @@ ProjectSession::CleanValidation ProjectSession::validate_clean_project(bool init
                     // check must compare every digest against cache admission
                     // before the cached result can be published to the CLI.
                     // Standalone/editor consumers still prove immediately.
-                    if ((defer_valid_publication && cached->snapshot.valid) ||
+                    const bool unchanged = cached->changed_revisions.empty();
+                    if ((unchanged && defer_valid_publication && cached->snapshot.valid) ||
                         proof(false, "cache-final") == revisions) {
-                        pending_clean_hydration_ = [hydrate_resident, payload = cached->resident,
-                                                    revisions = *revisions,
-                                                    snapshot = cached->snapshot]() {
-                            return hydrate_resident(payload, revisions, snapshot);
-                        };
-                        pending_clean_resident_json_ = cached->resident.to_string();
-                        validation_snapshot_ = cached->snapshot;
-                        ++validation_generation_;
-                        validation_work_ = {};
-                        if (defer_valid_publication && cached->snapshot.valid)
-                            return {std::move(cached->snapshot), true,
-                                    std::move(revisions),        cached->resident.to_string(),
-                                    cached->stages.to_string(),  validation_generation_};
-                        return {std::move(cached->snapshot), true};
+                        if (unchanged) {
+                            pending_clean_hydration_ =
+                                [hydrate_resident, payload = cached->resident,
+                                 revisions = *revisions, snapshot = cached->snapshot]() {
+                                    return hydrate_resident(payload, revisions, {}, snapshot);
+                                };
+                            pending_clean_resident_json_ = cached->resident.to_string();
+                            validation_snapshot_ = cached->snapshot;
+                            ++validation_generation_;
+                            validation_work_ = {};
+                            if (defer_valid_publication && cached->snapshot.valid)
+                                return {std::move(cached->snapshot), true,
+                                        std::move(revisions),        cached->resident.to_string(),
+                                        cached->stages.to_string(),  validation_generation_};
+                            return {std::move(cached->snapshot), true};
+                        }
+                        // Offline differences are not a result hit. Admit only
+                        // the old, exact-byte-proved *unaffected* contributors
+                        // and let the normal resident dependency walker rebuild
+                        // the changed owners and their consumer closure.
+                        if (hydrate_resident(cached->resident, cached->saved_revisions,
+                                             cached->changed_revisions, cached->snapshot)) {
+                            if (cached->stages.is_object())
+                                offline_stage_evidence = cached->stages.to_string();
+                            SourceDelta offline;
+                            for (const auto& [path, revision] : cached->changed_revisions) {
+                                validation_pending_source_revisions_[path] = revision;
+                                if (revision == "absent")
+                                    offline.removed.push_back(path);
+                                else if (!cached->saved_revisions.contains(path))
+                                    offline.added.push_back(path);
+                                else
+                                    offline.changed.push_back(path);
+                            }
+                            for (const auto& path :
+                                 source_authority_->affected_asset_records(offline))
+                                if (path.starts_with("records/") && path.ends_with(".yaml"))
+                                    validation_pending_asset_owners_.insert(
+                                        path.substr(sizeof("records/") - 1,
+                                                    path.size() - sizeof("records/") - 4));
+                            // An unchanged ledger's raw top-level diagnostics
+                            // are never returned across an offline edit.
+                            validation_snapshot_ = cached->snapshot;
+                        } else {
+                            // An importer can reject the ledger after
+                            // preparing some of its optional indexes. Never
+                            // let a partially installed graph contaminate a
+                            // subsequent authoritative validation.
+                            revoke_clean_validation();
+                        }
+                        // The source authority is live and watching before
+                        // reconciliation. Changes during import are rejected
+                        // by the next physical generation fence.
+                        cache_admission_evidence = *revisions;
+                    } else {
+                        source_authority_->coverage_lost();
+                        validation_pending_uncertain_ = true;
+                        trace_source_proof_event("cache-final", "fallback");
                     }
-                } else if (proof(false, "cache-final") == revisions) {
+                } else if (cached->changed_revisions.empty() &&
+                           proof(false, "cache-final") == revisions) {
                     // Inadmissible local YAML can retain its exact invalid
                     // diagnostic result, but has no safe contributor bundle.
                     validation_work_ = {};
@@ -761,9 +870,11 @@ ProjectSession::CleanValidation ProjectSession::validate_clean_project(bool init
                 // snapshot before the last physical proof failed. Revoke it
                 // and force a fresh observation/rebuild on the miss path,
                 // including when an Asset changed without metadata changing.
-                source_authority_->coverage_lost();
-                validation_pending_uncertain_ = true;
-                trace_source_proof_event("cache-final", "fallback");
+                if (!cached->resident.is_object()) {
+                    source_authority_->coverage_lost();
+                    validation_pending_uncertain_ = true;
+                    trace_source_proof_event("cache-final", "fallback");
+                }
             }
         }
     }
@@ -782,8 +893,12 @@ ProjectSession::CleanValidation ProjectSession::validate_clean_project(bool init
     // Recompute exact binary Asset hashes at this boundary in every case.
     if (clean() && completed && validated_input) {
         if (defer_valid_publication && snapshot.valid)
-            return {std::move(snapshot),          false, std::move(validated_input),
-                    resident_state().to_string(), {},    validation_generation_};
+            return {std::move(snapshot),
+                    false,
+                    std::move(validated_input),
+                    resident_state().to_string(),
+                    std::move(offline_stage_evidence),
+                    validation_generation_};
         if (proof(true, "validation-publication") == validated_input)
             publish_clean_cache(root_, *validated_input, snapshot, resident_state());
     }

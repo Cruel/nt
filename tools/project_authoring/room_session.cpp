@@ -1693,9 +1693,17 @@ RoomSessionSnapshot ProjectSession::validate_project(bool observed_at_entry,
         ++validation_work_.rechecked_records;
         validation_invalidated_owners_.insert(owner);
         const auto previous_record = validation_records_.find(owner);
-        const auto previous_normalized = previous_record == validation_records_.end()
-                                             ? std::string{}
-                                             : previous_record->second->snapshot().normalized_json;
+        // An offline ledger restores the previous normalized identity without
+        // materializing a stale RoomSession for a changed owner. Use that
+        // before-state here too: a label-only offline edit should preserve
+        // independent localization/spatial/global stage results exactly as a
+        // label-only edit observed by a warm session would.
+        const auto previous_normalized =
+            previous_record != validation_records_.end()
+                ? previous_record->second->snapshot().normalized_json
+            : validation_normalized_records_.contains(owner)
+                ? validation_normalized_records_.at(owner).normalized_json
+                : std::string{};
         validation_records_.erase(owner);
         validation_source_errors_.erase(path);
         validation_source_revisions_.erase(path);

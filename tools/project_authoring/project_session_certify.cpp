@@ -2719,6 +2719,156 @@ void clean_cache_correctness_roundtrip(const std::filesystem::path& fixture)
             "An imported Lua-only edit preserves unrelated YAML semantic contributions");
 }
 
+void clean_cache_offline_roundtrip(const std::filesystem::path& fixture)
+{
+    TemporaryProject temp(fixture);
+    std::string error;
+    auto initial = ProjectSession::open(temp.root, error);
+    require(initial && initial->validate_clean_project().snapshot.valid,
+            "Offline fixture must publish an initially valid Project ledger");
+    initial.reset();
+
+    const auto exact_diagnostics = [](const RoomSessionSnapshot& result) {
+        std::vector<std::string> values;
+        for (const auto& issue : result.diagnostics)
+            values.push_back(issue.path + "|" + issue.code + "|" + issue.message + "|" +
+                             issue.severity + "|" + issue.source_path + "|" +
+                             std::to_string(issue.line.value_or(0)) + "|" +
+                             std::to_string(issue.column.value_or(0)));
+        return values;
+    };
+    const auto certify_fresh = [&temp, &error, &exact_diagnostics](
+                                   const RoomSessionSnapshot& restored, std::string_view phase) {
+        auto fresh = ProjectSession::open(temp.root, error);
+        require(fresh != nullptr, "Cold comparison must admit the physical Project");
+        const auto actual = fresh->validate_project();
+        if (restored.valid != actual.valid ||
+            exact_diagnostics(restored) != exact_diagnostics(actual)) {
+            std::cerr << "Offline parity mismatch: " << phase << " restored=" << restored.valid
+                      << " fresh=" << actual.valid << "\n";
+            for (const auto& issue : exact_diagnostics(restored))
+                std::cerr << "  restored: " << issue << '\n';
+            for (const auto& issue : exact_diagnostics(actual))
+                std::cerr << "  fresh: " << issue << '\n';
+        }
+        require(restored.valid == actual.valid &&
+                    exact_diagnostics(restored) == exact_diagnostics(actual),
+                "Offline restored validation must exactly match uncached ordered diagnostics");
+    };
+    constexpr std::array changed_rooms{"room-lifecycle-roundtrip", "director-annex",
+                                       "feature-lab-home"};
+    for (const auto* name : changed_rooms) {
+        const auto path = temp.root / "records/rooms" / (std::string(name) + ".yaml");
+        auto source = read(path);
+        const auto start = source.find("label: ");
+        require(start != std::string::npos, "Offline fixture Room has a label");
+        source.replace(start, source.find('\n', start) - start,
+                       "label: Offline changed " + std::string(name));
+        write(path, source);
+    }
+    auto restarted = ProjectSession::open(temp.root, error);
+    require(restarted != nullptr, "Offline changed Project must reopen");
+    const auto changed = restarted->validate_clean_project();
+    require(!changed.cache_hit && changed.snapshot.valid &&
+                restarted->validation_work().rechecked_records == changed_rooms.size() &&
+                restarted->validation_work().retained_records >= 200 &&
+                restarted->validation_work().rechecked_contributions < 150 &&
+                restarted->validation_work().global_stage_reuses == 1 &&
+                restarted->validation_work().global_stage_executions == 0,
+            "Three offline edits must retain hundreds of unrelated parsed records and stages: " +
+                std::to_string(restarted->validation_work().rechecked_records) + " rechecked, " +
+                std::to_string(restarted->validation_work().retained_records) + " retained, " +
+                std::to_string(restarted->validation_work().rechecked_contributions) +
+                " contributions, global reuses=" +
+                std::to_string(restarted->validation_work().global_stage_reuses) +
+                ", global runs=" +
+                std::to_string(restarted->validation_work().global_stage_executions) +
+                ", valid=" + std::to_string(changed.snapshot.valid));
+    certify_fresh(changed.snapshot, "changed");
+    restarted.reset();
+
+    // Adding and removing directory members must not leave references to an
+    // earlier generation's owner inventory, even without a watcher delta.
+    const auto source_path = temp.root / "records/rooms/director-finish.yaml";
+    const auto removed = read(source_path);
+    std::filesystem::remove(source_path);
+    auto deleted = ProjectSession::open(temp.root, error);
+    require(deleted != nullptr, "Deleted-member Project must reopen");
+    const auto after_delete = deleted->validate_clean_project();
+    require(!after_delete.cache_hit && deleted->validation_work().retained_records >= 200,
+            "Offline member deletion must preserve unrelated contributors");
+    certify_fresh(after_delete.snapshot, "deleted");
+    deleted.reset();
+    write(source_path, removed);
+    auto added = ProjectSession::open(temp.root, error);
+    require(added != nullptr, "Restored-member Project must reopen");
+    const auto after_add = added->validate_clean_project();
+    require(!after_add.cache_hit && added->validation_work().retained_records >= 200,
+            "Offline member addition must preserve unrelated contributors");
+    certify_fresh(after_add.snapshot, "added");
+    added.reset();
+
+    // A rename is a removal and an addition, not an in-place source edit.
+    // References to the old identity must become unresolved until that
+    // identity returns, while all unrelated ledger contributors remain usable.
+    const auto renamed_path = temp.root / "records/rooms/offline-director-finish.yaml";
+    auto renamed_source = removed;
+    const auto old_id = renamed_source.find("id: director-finish");
+    require(old_id != std::string::npos, "Rename fixture must expose the old identity");
+    renamed_source.replace(old_id, std::string("id: director-finish").size(),
+                           "id: offline-director-finish");
+    std::filesystem::remove(source_path);
+    write(renamed_path, renamed_source);
+    auto renamed = ProjectSession::open(temp.root, error);
+    require(renamed != nullptr, "Renamed Project can reopen");
+    const auto after_rename = renamed->validate_clean_project();
+    require(!after_rename.cache_hit && !after_rename.snapshot.valid &&
+                renamed->validation_work().retained_records >= 200,
+            "Offline rename must invalidate old references but preserve unrelated contributors");
+    certify_fresh(after_rename.snapshot, "renamed");
+    renamed.reset();
+    std::filesystem::remove(renamed_path);
+    write(source_path, removed);
+    auto resolved = ProjectSession::open(temp.root, error);
+    require(resolved != nullptr, "Resolved Project can reopen");
+    const auto after_resolve = resolved->validate_clean_project();
+    require(!after_resolve.cache_hit && after_resolve.snapshot.valid &&
+                resolved->validation_work().retained_records >= 200,
+            "Restoring a missing reference must incrementally revoke previous invalid diagnostics");
+    certify_fresh(after_resolve.snapshot, "resolved");
+    resolved.reset();
+
+    // An invalid result may have no safely restorable contributor bundle.
+    // Its deterministic diagnostics are reusable only while *all* source
+    // identities are unchanged; an unrelated offline edit must revalidate.
+    const auto invalid_path = temp.root / "records/rooms/room-lifecycle-roundtrip.yaml";
+    const auto original = read(invalid_path);
+    auto invalid_bytes = original;
+    const auto width = invalid_bytes.find("width: 1920");
+    require(width != std::string::npos, "Offline invalid fixture has presentation width");
+    invalid_bytes.replace(width, std::string("width: 1920").size(), "width: -1");
+    write(invalid_path, invalid_bytes);
+    auto invalid = ProjectSession::open(temp.root, error);
+    require(invalid != nullptr, "Invalid schema can be admitted for validation");
+    const auto invalid_result = invalid->validate_clean_project();
+    require(!invalid_result.cache_hit && !invalid_result.snapshot.valid,
+            "Offline invalid schema must revalidate and reject its changed generation");
+    certify_fresh(invalid_result.snapshot, "invalid");
+    invalid.reset();
+    auto exact_invalid = ProjectSession::open(temp.root, error);
+    require(exact_invalid && exact_invalid->validate_clean_project().cache_hit,
+            "Unchanged deterministic invalid diagnostics may be restored exactly");
+    exact_invalid.reset();
+    const auto other_path = temp.root / "records/rooms/director-annex.yaml";
+    write(other_path, read(other_path) + "\n# unrelated offline edit\n");
+    auto changed_invalid = ProjectSession::open(temp.root, error);
+    require(changed_invalid != nullptr, "Offline edited invalid Project can reopen");
+    const auto changed_invalid_result = changed_invalid->validate_clean_project();
+    require(!changed_invalid_result.cache_hit && !changed_invalid_result.snapshot.valid,
+            "A changed source must never return an old invalid result cache hit");
+    certify_fresh(changed_invalid_result.snapshot, "changed-invalid");
+}
+
 void invalid_manifest_roundtrip(const std::filesystem::path& fixture)
 {
     TemporaryProject temp(fixture);
@@ -2915,6 +3065,10 @@ int main(int argc, char** argv)
         }
         if (argc == 3 && std::string_view(argv[1]) == "--clean-cache-correctness") {
             clean_cache_correctness_roundtrip(argv[2]);
+            return 0;
+        }
+        if (argc == 3 && std::string_view(argv[1]) == "--clean-cache-offline") {
+            clean_cache_offline_roundtrip(argv[2]);
             return 0;
         }
         if (argc == 3 && std::string_view(argv[1]) == "--invalid-manifest") {

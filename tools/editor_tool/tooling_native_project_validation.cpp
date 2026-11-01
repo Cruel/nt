@@ -194,6 +194,23 @@ bool restore_stages(OwnerValidation& state, std::string_view serialized, Json& r
     return true;
 }
 
+void restore_independent_stage_evidence(OwnerValidation& state, std::string_view serialized)
+{
+    // An offline source edit invalidates the old Project-wide projections.
+    // Only the font and shader ledgers carry independent input/output keys:
+    // each validator re-proves those keys when its new inputs are submitted.
+    // Never import the old portable, notice or Material projection here.
+    try {
+        const auto ledger = Json::parse(serialized);
+        if (!ledger.is_object() || ledger.size() != 7)
+            return;
+        state.shader_cache.restore_ledger(state.root, ledger.at("shaders"));
+        noveltea::tooling::restore_font_coverage_ledger(ledger.at("fonts").dump());
+    } catch (...) {
+        // Optional acceleration only; a malformed stage is a normal miss.
+    }
+}
+
 OwnerValidation& resident()
 {
     static OwnerValidation value;
@@ -790,6 +807,8 @@ Json validate(std::string_view request_text)
     // Computing it for invalid validation turns a workspace error into an
     // internal CLI failure (and hides the actionable YAML location).
     if (validated.snapshot.valid) {
+        if (!validated.cache_hit && !validated.stages_json.empty())
+            restore_independent_stage_evidence(state, validated.stages_json);
         if (!validated.deferred_exact_revisions)
             return {{"ok", false},
                     {"kind", "conflict"},

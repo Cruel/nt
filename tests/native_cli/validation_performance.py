@@ -2,6 +2,7 @@
 
 Usage: python3 tests/native_cli/validation_performance.py <noveltea> <repo-root>
            [--output <baseline.json>] [--machine <label>] [--issue <number>]
+           [--offline-reconciliation]
 
 All projects, daemon state and source changes stay in a temporary directory.
 Each JSON line records build identity, cache state, elapsed time and actual
@@ -28,8 +29,12 @@ options = sys.argv[3:]
 output_file = None
 machine_label = None
 issue_number = 577
+offline_reconciliation = False
 while options:
     flag = options.pop(0)
+    if flag == '--offline-reconciliation':
+        offline_reconciliation = True
+        continue
     if flag not in ('--output', '--machine', '--issue') or not options:
         raise SystemExit(f'Unexpected or incomplete option: {flag}')
     value = options.pop(0)
@@ -122,6 +127,11 @@ baseline = {
     },
     'projects': [],
 }
+if offline_reconciliation:
+    baseline['conditions']['offlineReconciliation'] = (
+        'After independent daemon shutdown, edit three Room sources (one for the '
+        '1-Room fixture); compare disk-ledger restoration to deletion of that '
+        'same ledger before a separately restarted uncached validation.')
 
 with tempfile.TemporaryDirectory(prefix='nt-validation-performance-') as temporary:
     root = Path(temporary)
@@ -239,6 +249,36 @@ with tempfile.TemporaryDirectory(prefix='nt-validation-performance-') as tempora
             for _ in range(3):
                 samples.append(validate(project, 'no-daemon', local=True))
                 assert samples[-1]['diagnosticDigest'] == samples[0]['diagnosticDigest']
+
+            if offline_reconciliation:
+                # A matched before/after pair for a scenario not in the #577
+                # baseline. Both requests use the same binary, source inputs,
+                # and physical project; only the optional native ledger differs.
+                invoke('daemon', 'stop')
+                rooms = ([project / 'records/rooms' / f'{name}.yaml' for name in
+                          ('feature-lab-home', 'director-annex',
+                           'room-lifecycle-roundtrip')]
+                         if size == 'feature-lab' else
+                         [room] + [project / 'records/rooms' / f'room-{index}.yaml'
+                                   for index in range(min(2, size - 1))])
+                for index, path in enumerate(rooms):
+                    contents = path.read_text()
+                    label = re.search(r'^label: .*$', contents, re.M)
+                    replacement = f'label: Offline restart {index}'
+                    path.write_text(contents[:label.start()] + replacement +
+                                    contents[label.end():] if label else
+                                    contents + '\n' + replacement + '\n')
+                assert (project / '.noveltea/cache/authoring/native-clean-current.json').is_file()
+                cached = validate(project, 'offline-cached-restart')
+                samples.append(cached)
+                assert cached['work']['recheckedRecords'] == len(rooms), cached
+                invoke('daemon', 'stop')
+                shutil.rmtree(project / '.noveltea/cache', ignore_errors=True)
+                uncached = validate(project, 'offline-uncached-restart')
+                samples.append(uncached)
+                assert cached['diagnosticDigest'] == uncached['diagnosticDigest']
+                assert cached['work']['recheckedRecords'] < uncached['work']['recheckedRecords']
+                invoke('daemon', 'stop')
 
             if size == 'feature-lab':
                 lua = project / 'records/layouts/feature-lab-hud/layout.lua'
