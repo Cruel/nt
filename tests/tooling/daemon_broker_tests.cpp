@@ -1,6 +1,7 @@
 #include "tooling_daemon_broker.hpp"
 #include "tooling_native_c.h"
 #include "tooling_project_authority.hpp"
+#include "../../tools/project_authoring/platform_source_monitor.hpp"
 #include "../../tools/project_authoring/validation_work_instrumentation.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -502,6 +503,85 @@ TEST_CASE("Linux Project authority fences file deltas without rediscovering the 
     const auto recovered = authority.observe(request);
     CHECK(recovered.full_rescan);
     CHECK(recovered.unchanged);
+}
+#endif
+
+#if defined(_WIN32) || defined(__APPLE__)
+TEST_CASE("Native platform authority reuses unchanged inventory and reconciles one changed file")
+{
+    using namespace noveltea::tooling::daemon;
+    using noveltea::authoring::ScopedValidationWork;
+    using noveltea::authoring::ValidationWorkCounters;
+    using noveltea::authoring::WorkCounter;
+    auto root = temp_project_root("platform-fenced-delta");
+    noveltea::authoring::PlatformSourceMonitor capability(root.path);
+    if (!capability.fence().reliable)
+        SKIP("Native journal/event stream unavailable on this volume; full scans remain required");
+
+    ProjectAuthorityManager authority;
+    const auto request = project_authority_request(root.path);
+    const auto first = authority.observe(request);
+    ValidationWorkCounters quiet_work;
+    {
+        ScopedValidationWork measured(quiet_work);
+        CHECK(authority.observe(request).unchanged);
+    }
+    CHECK(quiet_work.get<WorkCounter::DirectoryEnumerations>() == 0);
+    CHECK(quiet_work.get<WorkCounter::StatReadlinkCalls>() == 0);
+
+    write_project_file(root.path / "records/room.yaml", "id: changed\n");
+    ValidationWorkCounters changed_work;
+    ProjectObservation changed;
+    {
+        ScopedValidationWork measured(changed_work);
+        changed = authority.observe(request);
+    }
+    CHECK(changed.delta.changed == std::vector<std::string>{"records/room.yaml"});
+    CHECK(changed.watcher_epoch != first.watcher_epoch);
+    CHECK(changed_work.get<WorkCounter::DirectoryEnumerations>() == 0);
+    CHECK(changed_work.get<WorkCounter::StatReadlinkCalls>() <= 4);
+
+    const auto room = root.path / "records/room.yaml";
+    const auto modified = std::filesystem::last_write_time(room);
+    write_project_file(room, "id: changed\n");
+    std::filesystem::last_write_time(room, modified);
+    const auto restored = authority.observe(request);
+    CHECK(restored.watcher_epoch != changed.watcher_epoch);
+    CHECK(restored.unchanged);
+
+    write_project_file(root.path / "records/new-folder/new.yaml", "id: new\n");
+    ValidationWorkCounters directory_work;
+    {
+        ScopedValidationWork measured(directory_work);
+        CHECK(authority.observe(request).delta.added ==
+              std::vector<std::string>{"records/new-folder/new.yaml"});
+    }
+    CHECK(directory_work.get<WorkCounter::DirectoryEnumerations>() > 0);
+}
+#endif
+
+#if defined(_WIN32)
+TEST_CASE("NTFS external hard links force exact source bytes even with restored metadata")
+{
+    using namespace noveltea::tooling::daemon;
+    auto root = temp_project_root("external-link-owner");
+    auto external = temp_project_root("external-link-alias");
+    const auto source = root.path / "records/room.yaml";
+    const auto alias = external.path / "linked-room.yaml";
+    std::error_code error;
+    std::filesystem::create_hard_link(source, alias, error);
+    if (error)
+        SKIP("Filesystem does not support unprivileged hard-link creation");
+
+    ProjectAuthorityManager authority;
+    const auto request = project_authority_request(root.path);
+    const auto first = authority.observe(request);
+    const auto modified = std::filesystem::last_write_time(source);
+    write_project_file(alias, "id: linked-room\n");
+    std::filesystem::last_write_time(source, modified);
+    const auto next = authority.observe(request);
+    CHECK(next.delta.changed == std::vector<std::string>{"records/room.yaml"});
+    CHECK(next.manifest != first.manifest);
 }
 #endif
 

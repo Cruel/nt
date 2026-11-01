@@ -1842,31 +1842,39 @@ void project_validation_roundtrip(const std::filesystem::path& fixture)
             ScopedValidationWork measure(quiet_work);
             quiet = authority.observe();
         }
-#ifdef __linux__
-        require(quiet.authoritative && quiet.unchanged &&
-                    authority.verified_source("records/rooms/room-lifecycle-roundtrip.yaml") ==
-                        initial &&
-                    (!validation_counters_enabled ||
-                     (quiet_work.get<WorkCounter::SourceCaptures>() == 1 &&
-                      quiet_work.get<WorkCounter::DirectoryEnumerations>() == 0 &&
-                      quiet_work.get<WorkCounter::FileByteReads>() == 0 &&
-                      quiet_work.get<WorkCounter::ContentHashes>() == 0 &&
-                      quiet_work.get<WorkCounter::ParsedYaml>() == 0)),
-                "Healthy watcher reuses unchanged directory and source evidence without IO");
-        require(authority.fence(), "Quiet resident generation has an unchanged watcher epoch");
-        const auto healthy_epoch = authority.watch_epoch();
-        require(authority.observe().authoritative && authority.watch_epoch() == healthy_epoch,
-                "Healthy repeated observations retain reusable watcher proof epoch");
-        authority.coverage_lost();
-        require(authority.watch_epoch() != healthy_epoch && authority.observe().authoritative &&
-                    authority.watch_epoch() != healthy_epoch,
-                "Lost watcher coverage revokes all resident binary font proofs even with "
-                "unchanged physical metadata");
-        authority.hint("records/rooms/room-lifecycle-roundtrip.yaml");
-        require(!authority.fence(),
-                "An explicitly reported source path revokes the pinned publication epoch");
-        require(authority.observe().authoritative,
-                "Revoked pinned source generation is re-admitted before further reads");
+#if defined(__linux__) || defined(_WIN32) || defined(__APPLE__)
+        // Windows journals are optional (remote/FAT volumes fall back to full scans).
+        // FSEvents and inotify provide equivalent warm source-inventory reuse when healthy.
+        const bool supports_fence = authority.fence();
+        if (supports_fence) {
+            require(quiet.authoritative && quiet.unchanged &&
+                        authority.verified_source("records/rooms/room-lifecycle-roundtrip.yaml") ==
+                            initial &&
+                        (!validation_counters_enabled ||
+                         (quiet_work.get<WorkCounter::SourceCaptures>() == 1 &&
+                          quiet_work.get<WorkCounter::DirectoryEnumerations>() == 0 &&
+                          quiet_work.get<WorkCounter::FileByteReads>() == 0 &&
+                          quiet_work.get<WorkCounter::ContentHashes>() == 0 &&
+                          quiet_work.get<WorkCounter::ParsedYaml>() == 0)),
+                    "Healthy watcher reuses unchanged directory and source evidence without IO");
+            require(authority.fence(), "Quiet resident generation has an unchanged watcher epoch");
+            const auto healthy_epoch = authority.watch_epoch();
+            require(authority.observe().authoritative && authority.watch_epoch() == healthy_epoch,
+                    "Healthy repeated observations retain reusable watcher proof epoch");
+            authority.coverage_lost();
+            require(authority.watch_epoch() != healthy_epoch && authority.observe().authoritative &&
+                        authority.watch_epoch() != healthy_epoch,
+                    "Lost watcher coverage revokes all resident binary font proofs even with "
+                    "unchanged physical metadata");
+            authority.hint("records/rooms/room-lifecycle-roundtrip.yaml");
+            require(!authority.fence(),
+                    "An explicitly reported source path revokes the pinned publication epoch");
+            require(authority.observe().authoritative,
+                    "Revoked pinned source generation is re-admitted before further reads");
+        } else {
+            require(quiet.authoritative && quiet.unchanged,
+                    "Unavailable platform watcher retains safe full source observation");
+        }
 #else
         require(quiet.authoritative && quiet.unchanged,
                 "Platform without native watchers retains conservative physical observation");

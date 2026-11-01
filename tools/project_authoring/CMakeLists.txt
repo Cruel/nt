@@ -123,6 +123,10 @@ target_include_directories(noveltea_project_authoring_session PRIVATE "${CMAKE_C
 target_include_directories(noveltea_project_authoring_session PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../engine/include")
 target_include_directories(noveltea_project_authoring_session SYSTEM PRIVATE "${noveltea_jsoncons_SOURCE_DIR}/include")
 target_link_libraries(noveltea_project_authoring_session PUBLIC noveltea_project_authoring_yaml noveltea_project_authoring_contracts noveltea_xxhash)
+if(APPLE)
+    # FSEvents is host-only and used by the resident authoring source monitor.
+    target_link_libraries(noveltea_project_authoring_session PUBLIC "-framework CoreServices")
+endif()
 target_compile_definitions(noveltea_project_authoring_session PUBLIC
     NOVELTEA_ENABLE_VALIDATION_COUNTERS=${NOVELTEA_VALIDATION_COUNTERS_VALUE})
 # One deterministic semantic fingerprint for all host binaries, irrespective

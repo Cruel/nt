@@ -115,7 +115,8 @@ struct ProjectAuthorityOptions {
  *
  * The interface deliberately exposes one batched observation operation. Watcher notifications only
  * revoke a retained proof and provide reconciliation hints; every successful observation performs
- * conservative native source discovery before declaring the returned manifest current.
+ * source discovery on cold/uncertain generations, and watcher-fenced incremental reconciliation
+ * when a platform supplies reliable notification coverage, before declaring the manifest current.
  */
 class ProjectAuthorityManager {
 public:

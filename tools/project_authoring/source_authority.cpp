@@ -1,4 +1,5 @@
 #include "source_authority.hpp"
+#include "platform_source_monitor.hpp"
 #include "validation_work_instrumentation.hpp"
 
 #include "yaml_codec.hpp"
@@ -153,6 +154,7 @@ void referenced_paths(const Json& value, std::set<std::string>& referenced)
 
 struct SourceAuthority::NativeWatch {
 #ifdef __linux__
+    explicit NativeWatch(const std::filesystem::path&) {}
     int fd = inotify_init1(IN_CLOEXEC | IN_NONBLOCK);
     std::map<std::string, int> descriptors;
     std::set<int> removed_watches;
@@ -257,17 +259,53 @@ struct SourceAuthority::NativeWatch {
         }
         return covered;
     }
+    [[nodiscard]] bool reliable() const { return fd >= 0; }
+    void protect_sources(const std::map<std::string, std::string>&,
+                         const std::set<std::string>* = nullptr)
+    {
+    }
 #else
-    bool reset() { return true; }
-    bool drain(bool&, std::set<std::string>&) { return false; }
+    explicit NativeWatch(const std::filesystem::path& root)
+        : root(root), monitor(std::make_unique<PlatformSourceMonitor>(root))
+    {
+    }
+    std::filesystem::path root;
+    std::unique_ptr<PlatformSourceMonitor> monitor;
+    bool healthy = false;
+    bool reset()
+    {
+        monitor = std::make_unique<PlatformSourceMonitor>(root);
+        healthy = false;
+        return true;
+    }
+    bool drain(bool& observed, std::set<std::string>& paths)
+    {
+        const auto changes = monitor->fence();
+        const bool coverage_was_healthy = healthy;
+        healthy = changes.reliable;
+        if (!healthy)
+            return coverage_was_healthy; // Lost coverage revokes a former proof; no monitor scans.
+        observed = !changes.paths.empty();
+        paths.insert(changes.paths.begin(), changes.paths.end());
+        return false;
+    }
     bool watch(const std::filesystem::path&, const std::string&) { return true; }
     bool refresh(const std::filesystem::path&, const std::set<std::string>&) { return true; }
+    [[nodiscard]] bool reliable() const { return healthy; }
+    void protect_sources(const std::map<std::string, std::string>& revisions,
+                         const std::set<std::string>* hints = nullptr)
+    {
+        for (const auto& [path, revision] : revisions)
+            if (revision != "absent" && (!hints || hints->contains(path)))
+                monitor->protect_source(path);
+    }
 #endif
 };
 
 SourceAuthority::SourceAuthority(std::filesystem::path root)
     : root_(std::filesystem::absolute(std::move(root))),
-      canonical_root_(std::filesystem::canonical(root_)), native_(std::make_unique<NativeWatch>())
+      canonical_root_(std::filesystem::canonical(root_)),
+      native_(std::make_unique<NativeWatch>(root_))
 {
 }
 
@@ -814,6 +852,7 @@ bool SourceAuthority::initialize(std::string& error, bool allow_invalid_sources)
         bool stable = false;
         for (int attempt = 0; attempt < 3; ++attempt) {
             captured = capture();
+            native_->protect_sources(captured.revisions);
             bool changed_during_admission = false;
             if (native_->drain(changed_during_admission, hinted_paths_))
                 throw std::runtime_error("Project watcher lost coverage during admission.");
@@ -1007,11 +1046,8 @@ bool SourceAuthority::fence()
             return false;
         }
     }
-#ifndef __linux__
-    // Without native watcher guarantees, a pinned generation cannot be
-    // certified by a cheap fence. Callers must use full physical observation.
-    return false;
-#else
+    if (!native_->reliable())
+        return false;
     // Root-level unrelated files and local editor/cache state are outside
     // source authority. An event without a path is not attributable and
     // requires conservative readmission.
@@ -1041,7 +1077,6 @@ bool SourceAuthority::fence()
         return false;
     }
     return true;
-#endif
 }
 
 SourceObservation SourceAuthority::observe()
@@ -1072,11 +1107,10 @@ SourceObservation SourceAuthority::observe()
         Capture captured;
         bool stable = false;
         for (int attempt = 0; attempt < 3; ++attempt) {
-#ifdef __linux__
-            captured = capture(uncertain_ ? nullptr : &hinted_paths_);
-#else
-            captured = capture(); // No native watcher: re-prove every physical generation.
-#endif
+            const bool complete_capture = uncertain_ || !native_->reliable();
+            captured = capture(complete_capture ? nullptr : &hinted_paths_);
+            native_->protect_sources(captured.revisions,
+                                     complete_capture ? nullptr : &hinted_paths_);
             bool during_scan = false;
             if (native_->drain(during_scan, hinted_paths_)) {
                 coverage_lost();

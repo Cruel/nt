@@ -110,6 +110,8 @@ target_link_libraries(noveltea_tooling_native PUBLIC
 target_compile_definitions(noveltea_tooling_native PRIVATE ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
 if(WIN32)
     target_link_libraries(noveltea_tooling_native PRIVATE advapi32)
+elseif(APPLE)
+    target_link_libraries(noveltea_tooling_native PRIVATE "-framework CoreServices")
 endif()
 target_include_directories(noveltea_tooling_native PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}" PRIVATE
     "${NOVELTEA_EMBEDDED_SHADERC_INCLUDE_DIR}"

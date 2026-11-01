@@ -15,6 +15,21 @@ unoptimized compiler build or failure to retain the primary validation session.
 
 ### #583: watcher-fenced broker authority (November 1, 2026)
 
+**Cross-platform follow-up (implementation pending host CI):** Both the broker and native
+`SourceAuthority` now have a shared host-only filesystem-change monitor. Linux keeps inotify;
+Windows uses the NTFS USN change journal to synchronously resolve changed paths via parent
+file IDs, alongside its existing asynchronous `ReadDirectoryChangesW` notification channel;
+macOS uses file-level FSEvents with `FSEventStreamFlushSync`. Healthy source generations on
+supported filesystems reuse cached inventory and recheck only changed paths. A directory or
+reparse-point change, dropped/coalesced FSEvent, journal discontinuity, inaccessible parent file
+ID, unsupported journal format, or missing journal/stream triggers full source discovery instead.
+Tracked Windows hard-linked sources disable journal-only reuse and are byte-hashed during
+full observation, since an external link can be modified without a Project-relative path event.
+Windows remote/non-NTFS/inaccessible-journal volumes retain the conservative full-scan path.
+This cross-platform extension has been built and run on **Linux only**; native Windows/macOS
+compilation, runtime counter checks and filesystem race certification are still required before
+claiming parity. Existing Linux performance measurements below are not Windows/macOS benchmarks.
+
 The broker's resident Project authority now uses a Linux inotify queue fence before and after
 each observation. A healthy watched generation reuses its retained directory inventory and
 source manifest: unchanged requests do no discovery or per-file metadata work, and file-only

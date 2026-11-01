@@ -1,4 +1,5 @@
 #include "tooling_project_authority.hpp"
+#include "../project_authoring/platform_source_monitor.hpp"
 #include "../project_authoring/validation_work_instrumentation.hpp"
 
 #include <noveltea/core/player_bootstrap.hpp>
@@ -268,7 +269,12 @@ std::optional<std::uint64_t> native_mtime_nanoseconds(const fs::path& path)
 #endif
 }
 
-std::string native_source_identity(const fs::path& path)
+struct NativeSourceIdentity {
+    std::string name;
+    bool multiple_links = false;
+};
+
+NativeSourceIdentity native_source_identity(const fs::path& path)
 {
 #if defined(_WIN32)
     const auto handle = CreateFileW(path.c_str(), FILE_READ_ATTRIBUTES,
@@ -283,14 +289,16 @@ std::string native_source_identity(const fs::path& path)
         throw std::runtime_error("Cannot inspect exact Project source identity");
     const auto file_index = (static_cast<std::uint64_t>(info.nFileIndexHigh) << 32U) |
                             static_cast<std::uint64_t>(info.nFileIndexLow);
-    return "win:" + std::to_string(static_cast<std::uint64_t>(info.dwVolumeSerialNumber)) + ":" +
-           std::to_string(file_index);
+    return {"win:" + std::to_string(static_cast<std::uint64_t>(info.dwVolumeSerialNumber)) +
+                ":" + std::to_string(file_index),
+            info.nNumberOfLinks > 1};
 #else
     struct stat info {};
     if (::lstat(path.c_str(), &info) != 0)
         throw std::runtime_error("Cannot inspect exact Project source identity");
-    return "posix:" + std::to_string(static_cast<unsigned long long>(info.st_dev)) + ":" +
-           std::to_string(static_cast<unsigned long long>(info.st_ino));
+    return {"posix:" + std::to_string(static_cast<unsigned long long>(info.st_dev)) + ":" +
+                std::to_string(static_cast<unsigned long long>(info.st_ino)),
+            false};
 #endif
 }
 
@@ -355,14 +363,18 @@ std::optional<ProjectSourceManifestEntry> capture_regular_file(
     if (size > kJavaScriptSafeIntegerMax)
         throw std::runtime_error("Project source byte size exceeds the exact JavaScript range");
 
+    auto identity = native_source_identity(absolute);
     ProjectSourceManifestEntry result{
         .path = std::string(relative),
-        .source_identity = native_source_identity(absolute),
+        .source_identity = std::move(identity.name),
         .byte_size = size,
         .mtime_nanoseconds = std::nullopt,
         .content_hash = std::nullopt,
     };
-    result.mtime_nanoseconds = mtime_reader(absolute);
+    // A write through an external hard link may be logged under another filename on NTFS.
+    // Unwatched aliases therefore require byte-exact proof, not metadata-only reuse.
+    if (!identity.multiple_links)
+        result.mtime_nanoseconds = mtime_reader(absolute);
     if (!result.mtime_nanoseconds)
         result.content_hash = content_hash(absolute, size);
     return result;
@@ -550,6 +562,7 @@ public:
     // A true result guarantees notifications queued before this call have been dispatched.
     // An unsupported/failed fence forces the conservative complete-tree observation.
     [[nodiscard]] virtual bool fence() { return false; }
+    virtual void protect_source(std::string_view) {}
 };
 
 #if defined(__linux__)
@@ -876,6 +889,20 @@ public:
             CloseHandle(directory_);
     }
 
+    [[nodiscard]] bool fence() override
+    {
+        // Directory notifications are asynchronous, so only the filesystem journal supplies
+        // the observation boundary. Inaccessible/non-journal volumes retain full scans.
+        auto changes = journal_.fence();
+        if (!changes.reliable)
+            return false;
+        for (const auto& path : changes.paths)
+            path_callback_(path, changes.directories.contains(path));
+        return true;
+    }
+
+    void protect_source(std::string_view path) override { journal_.protect_source(path); }
+
 private:
     void enumerate_directories()
     {
@@ -1022,6 +1049,7 @@ private:
     }
 
     fs::path root_;
+    noveltea::authoring::PlatformSourceMonitor journal_{root_};
     PathCallback path_callback_;
     UnknownCallback unknown_callback_;
     std::function<void()> before_read_;
@@ -1031,6 +1059,31 @@ private:
     HANDLE read_event_ = nullptr;
     std::set<std::string> known_directories_;
     std::thread thread_;
+};
+#elif defined(__APPLE__)
+class MacProjectWatcher final : public NativeProjectWatcher {
+public:
+    MacProjectWatcher(fs::path root, PathCallback path_callback, UnknownCallback unknown_callback)
+        : monitor_(root, std::move(path_callback)), unknown_callback_(std::move(unknown_callback))
+    {
+    }
+
+    [[nodiscard]] bool fence() override
+    {
+        const auto events = monitor_.fence();
+        if (!events.reliable) {
+            if (previously_healthy_)
+                unknown_callback_();
+            return false;
+        }
+        previously_healthy_ = true;
+        return true;
+    }
+
+private:
+    noveltea::authoring::PlatformSourceMonitor monitor_;
+    UnknownCallback unknown_callback_;
+    bool previously_healthy_ = false;
 };
 #endif
 
@@ -1049,6 +1102,11 @@ make_native_watcher(const fs::path& root, NativeProjectWatcher::PathCallback pat
     return std::make_unique<WindowsProjectWatcher>(
         root, std::move(path_callback), std::move(unknown_callback), std::move(before_read),
         std::move(stop_requested));
+#elif defined(__APPLE__)
+    (void)before_read;
+    (void)stop_requested;
+    return std::make_unique<MacProjectWatcher>(root, std::move(path_callback),
+                                               std::move(unknown_callback));
 #else
     (void)root;
     (void)path_callback;
@@ -1362,6 +1420,15 @@ ProjectObservation ProjectAuthorityManager::observe(const ProjectAuthorityReques
                                                  pending_paths, impl_->options.mtime_reader)
                             : scan_manifest(canonical_root, current_config,
                                             impl_->options.mtime_reader);
+        if (watcher) {
+            if (incremental) {
+                for (const auto& path : pending_paths)
+                    watcher->protect_source(path);
+            } else {
+                for (const auto& source : manifest.entries)
+                    watcher->protect_source(source.path);
+            }
+        }
         auto delta = calculate_delta(previous_manifest, manifest);
         const bool final_fenced = !fenced || watcher->fence();
         {
