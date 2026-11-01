@@ -2055,13 +2055,21 @@ void project_validation_roundtrip(const std::filesystem::path& fixture)
                 editor->validation_work().retained_records > 0,
             "First presentation-only disk edit after cross-host cache import rechecks one owner");
     auto independent_cli = ProjectSession::open(temp.root, error);
+    require(independent_cli && !independent_cli->validate_clean_project().cache_hit,
+            "Independent nonowner validates an edit without publishing its private ledger");
+    require(project->validate_clean_project().snapshot.valid,
+            "Original elected writer publishes the edited physical generation");
+    independent_cli.reset();
+    independent_cli = ProjectSession::open(temp.root, error);
     require(independent_cli && independent_cli->validate_clean_project().cache_hit,
-            "Presentation-only edit publishes a clean generation consumable by a new CLI owner");
+            "New CLI reader consumes the elected writer's presentation-only generation");
     write(temp.root / cache_room, cache_room_bytes);
     const auto editor_revert = editor->validate_clean_project();
     require(!editor_revert.cache_hit && signature(editor_revert.snapshot) == signature(cold) &&
                 editor->validation_work().rechecked_records == 1,
             "Reverting a cached presentation-only source retains contributor incrementality");
+    require(project->validate_clean_project().snapshot.valid,
+            "Elected writer publishes the restored physical generation");
     // The daemon's owner eviction/restart drops RAM state but the new owner
     // can still re-prove and reuse the unchanged portable exact result.
     independent_cli.reset();
