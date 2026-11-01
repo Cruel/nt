@@ -182,8 +182,31 @@ validations took **1.82, 1.65 and 1.56 ms** (validation alone), rechecking one
 record contribution with **zero source captures, file reads and hashes** each.
 Patch application was separately measured at approximately **267–431 ms**;
 the ~1–2 ms provisional target is therefore not an end-to-end editing latency
-claim. Full comparable CLI/addon evidence belongs in the separate #590 dated
-performance artifact, using the unchanged #577 driver and fixture conditions.
+claim.
+
+The complete [#590 Release benchmark](performance/baselines/validation-2026-11-01-editor-working.json)
+uses the unchanged #577 driver, same Ryzen 7 5700G host, GCC Release
+`-O3 -DNDEBUG` CLI and Node-API addon, four fixture sizes and all 83 matching
+sample states. Working Room-label validation medians (milliseconds, excluding
+patch time) compare as follows:
+
+| Fixture | #577 reference | #589 cumulative | #590 current |
+| --- | ---: | ---: | ---: |
+| Feature Lab | 94.38 | 29.23 | **1.80** |
+| 1 Room | 1.23 | 0.69 | **0.19** |
+| 101 Rooms | 7.53 | 3.57 | **0.82** |
+| 501 Rooms | 34.08 | 15.42 | **3.91** |
+
+Each #590 dirty-label sample rechecks exactly one record/dependency
+contribution and performs **0 source captures, directory enumerations, byte
+reads, and content hashes**. All comparable direct/daemon CLI diagnostic
+fingerprints agree with the reference; for Feature Lab the warm saved-label
+median is **323.31 → 161.87 ms**, with source captures **5 → 1**, directory
+enumerations **205 → 0**, byte reads **2,268 → 87** and content hashes
+**3,813 → 65**. Those CLI figures include the earlier #582–#589
+optimizations and are not an isolated #590 speedup. The 501-Room benchmark
+does not meet the provisional 1–2 ms validation target; further scaling work
+remains possible without making elapsed time a CI gate.
 
 ### #586: retained diagnostic assembly and YAML provenance
 
