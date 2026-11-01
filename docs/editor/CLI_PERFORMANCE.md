@@ -381,6 +381,16 @@ and SHA-256-proves output bytes. Invalid optional stages fall back to ordinary
 preparation, without turning malformed cache data into validation failures.
 This slice implements one-process restoration/publication, not cross-process
 writer election or periodic publication.
+With the #593 elected-writer cadence, successful foreground validations now
+retain references to their already-certified external-stage inputs rather than
+eagerly constructing or JSON-serializing the seven-part stage ledger. The
+matching generation's stage payload is materialized only by the elected owner
+at an actual quiet-window publication or orderly shutdown, after an exact
+source-proof fence. A later edit clears the pending stage builder; nonowners
+never materialize it for disk publication. The public profiling counters for
+stage-ledger construction, serialization count and serialized-byte count should
+therefore remain zero on ordinary warm saved-file edits. The disk schema and cold stage restoration
+contract are unchanged.
 On hosts without Linux inotify, external-stage evidence may be recorded and
 used on a **cold byte-exact admission**; subsequent warm validations still rerun
 portable-source and notice checks because they lack watcher event evidence.
@@ -419,6 +429,28 @@ and instrumentation does not count every direct core fingerprint operation.
 The elapsed-time differences against the #577 reference include all intervening
 #582–#590 optimizations; no latency improvement is attributed exclusively to
 #591. Elapsed-time targets are informational, not CI thresholds.
+
+The reopened #591 deferred-stage-publication follow-up is measured in
+[the 2026-11-01 Release profile](performance/baselines/validation-2026-11-01-ledger-deferred.json)
+on the same reference host with the Release CLI and Release Node-API addon.
+Its immediately preceding, matched
+[#583 watcher-fenced profile](performance/baselines/validation-2026-11-01-583-watcher-fenced.json)
+provides the more isolated comparison than the original #577 baseline:
+
+| Fixture | Warm saved Room-label median before → after | Foreground ledger construction median | Foreground ledger JSON median |
+| --- | ---: | ---: | ---: |
+| Feature Lab | 167.86 → 143.19 ms | 13.59 → 0 ms | 6.72 → 0 ms |
+| 1 Room | 9.40 → 9.63 ms | 0.03 → 0 ms | 0.01 → 0 ms |
+| 101 Rooms | 24.19 → 22.68 ms | 0.31 → 0 ms | 0.15 → 0 ms |
+| 501 Rooms | 79.45 → 78.28 ms | 1.50 → 0 ms | 0.76 → 0 ms |
+
+The foreground `stageLedgerSerializations` and new
+`stageLedgerBytesSerialized` work counters are both zero for every sampled
+saved-label request. The writer-process test separately asserts one deferred
+stage construction at idle publication, zero repeated idle constructions, and
+one replacement after a source edit; public CLI certification checks that the
+seven-part ledger survives graceful shutdown and restores exact diagnostics.
+Elapsed-time differences are observations, not CI thresholds.
 
 ### #588: resident Material projection and transitive shader validation
 

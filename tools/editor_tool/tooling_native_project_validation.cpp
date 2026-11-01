@@ -103,20 +103,18 @@ struct OwnerValidation {
     }
 };
 
-Json stage_ledger(const OwnerValidation& state, const Json& result)
+Json stage_ledger(const OwnerValidation& state)
 {
     noveltea::authoring::ScopedValidationStageTime<
         noveltea::authoring::WorkCounter::StageLedgerMicros> timed;
     noveltea::authoring::ScopedValidationStageTime<
         noveltea::authoring::WorkCounter::StageLedgerConstructionMicros> construction;
     if (!state.portable_check || !state.notice_check || !state.font_inputs ||
-        !state.material_records || !state.material_assets ||
-        result.contains("portableFailure") || result.contains("noticeValidationFailure"))
+        !state.material_records || !state.material_assets)
         return nullptr;
-    Json projection = Json::object();
-    for (const auto* key : {"fontCoverageInputs", "materialCompilerPrograms", "materialEffectiveInputs"})
-        if (result.contains(key))
-            projection[key] = result.at(key);
+    Json projection = {{"fontCoverageInputs", *state.font_inputs},
+                       {"materialCompilerPrograms", state.material_programs},
+                       {"materialEffectiveInputs", state.material_effective}};
     return {{"projection", projection},
             {"portable", {{"inputs", state.portable_check->inputs},
                            {"paths", state.portable_check->watched_paths}}},
@@ -125,6 +123,19 @@ Json stage_ledger(const OwnerValidation& state, const Json& result)
             {"materials", *state.material_records}, {"assets", *state.material_assets},
             {"fonts", Json::parse(noveltea::tooling::font_coverage_ledger())},
             {"shaders", state.shader_cache.ledger()}};
+}
+
+std::string serialize_stage_ledger(const OwnerValidation& state)
+{
+    const auto stages = stage_ledger(state);
+    noveltea::authoring::ScopedValidationStageTime<
+        noveltea::authoring::WorkCounter::StageLedgerJsonSerializationMicros> timed;
+    noveltea::authoring::count_validation_work<
+        noveltea::authoring::WorkCounter::StageLedgerSerializations>();
+    auto serialized = stages.dump();
+    noveltea::authoring::count_validation_work<
+        noveltea::authoring::WorkCounter::StageLedgerBytesSerialized>(serialized.size());
+    return serialized;
 }
 
 bool restore_stages(OwnerValidation& state, std::string_view serialized, Json& result)
@@ -1199,22 +1210,23 @@ Json validate(std::string_view request_text)
             return {{"ok", false},
                     {"kind", "conflict"},
                     {"error", "Project sources changed during validation preparation."}};
-        const auto stages = request.value("includeFontCoverageInputs", false)
-                                ? stage_ledger(state, result) : Json(nullptr);
-        const auto serialized_stages = [&] {
-            noveltea::authoring::ScopedValidationStageTime<
-                noveltea::authoring::WorkCounter::StageLedgerJsonSerializationMicros> timed;
-            noveltea::authoring::count_validation_work<
-                noveltea::authoring::WorkCounter::StageLedgerSerializations>();
-            return stages.dump();
-        }();
+        // The Project session owns the exact generation and elected quiet-window
+        // publication. Its callback references resident, already-certified stage
+        // inputs rather than building and serializing the ledger on every edit.
+        const bool stage_inputs_ready = request.value("includeFontCoverageInputs", false) &&
+            state.portable_check && state.notice_check && state.font_inputs &&
+            state.material_records && state.material_assets &&
+            !result.contains("portableFailure") && !result.contains("noticeValidationFailure");
         const bool published = [&] {
             noveltea::authoring::ScopedValidationStageTime<
                 noveltea::authoring::WorkCounter::DeferredPublicationMicros> timed;
             noveltea::authoring::count_validation_work<
                 noveltea::authoring::WorkCounter::DeferredPublications>();
             return state.session->publish_deferred_clean_validation(
-                validated, post_revisions, serialized_stages);
+                validated, post_revisions, "null",
+                stage_inputs_ready ? std::function<std::string()>([&state] {
+                    return serialize_stage_ledger(state);
+                }) : std::function<std::string()>{});
         }();
         if (!published)
             return {{"ok", false},

@@ -160,6 +160,13 @@ with tempfile.TemporaryDirectory(prefix="noveltea-incremental-certify-") as dire
             stop()
             initial = validate(project)
             assert initial["success"], (size, initial)
+            # Arming a quiet-window cache write must not construct or serialize
+            # external stage evidence on the public validation request.
+            initial_work = initial["validationWork"]["endToEnd"]
+            assert initial_work["stageLedgerSerializations"] == 0, (size, initial_work)
+            assert initial_work["stageLedgerBytesSerialized"] == 0, (size, initial_work)
+            assert initial_work["stageLedgerConstructionMicros"] == 0, (size, initial_work)
+            assert initial_work["stageLedgerJsonSerializationMicros"] == 0, (size, initial_work)
             expected_records = size if isinstance(size, int) else 2
             assert work(initial, "recheckedRecords") >= expected_records, (size, initial)
             fresh_parity(project, initial)
@@ -198,7 +205,10 @@ with tempfile.TemporaryDirectory(prefix="noveltea-incremental-certify-") as dire
                 assert physical["sourceGenerationFences"] > 0, (size, physical)
                 assert physical["validationResponseSerializations"] > 0, (size, physical)
                 assert physical["deferredPublications"] == 1, (size, physical)
-                assert physical["stageLedgerSerializations"] == 1, (size, physical)
+                assert physical["stageLedgerSerializations"] == 0, (size, physical)
+                assert physical["stageLedgerBytesSerialized"] == 0, (size, physical)
+                assert physical["stageLedgerConstructionMicros"] == 0, (size, physical)
+                assert physical["stageLedgerJsonSerializationMicros"] == 0, (size, physical)
                 for timed in ("completeProjectPreparationMicros",
                               "portableInputPreparationMicros",
                               "noticeInputPreparationMicros",
@@ -265,6 +275,12 @@ with tempfile.TemporaryDirectory(prefix="noveltea-incremental-certify-") as dire
             # A persisted ledger is exercised by a genuinely restarted owner,
             # not an unchanged request to the still-live daemon.
             stop()
+            published = json.loads((project / ".noveltea/cache/authoring/"
+                                    "native-clean-current.json").read_text())
+            assert published["stages"] is not None, (size, "Missing shutdown stage evidence")
+            assert set(published["stages"]) == {
+                "projection", "portable", "notices", "materials", "assets", "fonts", "shaders"
+            }, (size, published["stages"].keys())
             cached = validate(project)
             assert public(cached) == public(saved), size
             assert work(cached, "recheckedRecords") == 0, (size, cached["validationWork"])

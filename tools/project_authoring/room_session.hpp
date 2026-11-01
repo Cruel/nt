@@ -227,7 +227,8 @@ public:
     // The caller must obtain post-proof evidence after complete preparation.
     bool publish_deferred_clean_validation(const CleanValidation& validated,
                                            const std::map<std::string, std::string>& post_revisions,
-                                           std::string_view stages_json = "null");
+                                           std::string_view stages_json = "null",
+                                           std::function<std::string()> deferred_stages = {});
     // Resident CLI and editor hosts call this on their serialized idle loop.
     // A nonowner only attempts an OS lock at the five-second retry cadence.
     void enable_resident_cache_maintenance();
@@ -483,6 +484,9 @@ private:
     std::chrono::steady_clock::time_point cache_next_maintenance_attempt_{};
     std::optional<std::map<std::string, std::string>> cache_stage_revisions_;
     std::string cache_stage_json_;
+    // The elected writer invokes this only at actual publication/shutdown,
+    // after the same physical generation proof as the semantic snapshot.
+    std::function<std::string()> cache_stage_builder_;
     std::string traits_baseline_json_;
     std::map<std::string, std::unique_ptr<RoomSession>> records_;
     // Persisted records removed from the working Project retain their exact

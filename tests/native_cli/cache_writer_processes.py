@@ -90,10 +90,14 @@ with tempfile.TemporaryDirectory(prefix="noveltea-cache-election-") as directory
         lock_identity = (lock.stat().st_dev, lock.stat().st_ino)
         assert b.send("validate")["valid"], "Nonowner must validate independently"
         assert not ledger.exists(), "Nonowner direct validation cannot publish"
+        assert a.send("validate-deferred")["stageBuilds"] == 0, (
+            "Foreground validation must not construct pending stage evidence")
 
         # Idle owner publishes without a user request. The write is stable if
         # the same source generation is polled repeatedly.
         until(lambda: a.send("tick"), lambda _: ledger.is_file())
+        assert a.status["stageBuilds"] == 1, "Quiet publication builds stage evidence once"
+        assert json.loads(ledger.read_bytes())["stages"] == {"testStage": "certified"}
         initial = ledger.read_bytes()
         modified = ledger.stat().st_mtime_ns
         # The previously validated nonowner retains its own resident result.
@@ -105,6 +109,7 @@ with tempfile.TemporaryDirectory(prefix="noveltea-cache-election-") as directory
         for _ in range(4):
             assert a.send("tick")["writer"]
             assert not b.send("tick")["writer"]
+        assert a.status["stageBuilds"] == 1, "Idle repeats must not rebuild the stage ledger"
         assert ledger.stat().st_mtime_ns == modified and ledger.read_bytes() == initial
 
         # Source edits cannot trigger an early publication. Polls while the
@@ -117,9 +122,11 @@ with tempfile.TemporaryDirectory(prefix="noveltea-cache-election-") as directory
         a.send("observe")
         a.send("tick")
         assert ledger.read_bytes() == initial
+        assert a.send("validate-deferred")["stageBuilds"] == 1
         assert b.send("validate")["valid"]
         assert ledger.read_bytes() == initial, "A nonowner cannot race the current writer"
         until(lambda: a.send("tick"), lambda _: ledger.read_bytes() != initial)
+        assert a.status["stageBuilds"] == 2, "New generation builds one replacement stage"
         first_edit = ledger.read_bytes()
         assert json.loads(first_edit)["sources"]["records/rooms/unrelated.yaml"] != \
             json.loads(initial)["sources"]["records/rooms/unrelated.yaml"]

@@ -2956,6 +2956,7 @@ int main(int argc, char** argv)
             auto session = ProjectSession::open(argv[2], error);
             require(session != nullptr, "Cannot admit cache writer probe: " + error);
             session->enable_resident_cache_maintenance();
+            std::size_t stage_builds = 0;
             const auto report = [&](bool validated = false, bool valid = false,
                                     bool cache_hit = false) {
                 Json result = Json::object();
@@ -2963,6 +2964,7 @@ int main(int argc, char** argv)
                 result["validated"] = validated;
                 result["valid"] = valid;
                 result["cacheHit"] = cache_hit;
+                result["stageBuilds"] = stage_builds;
                 std::cout << result.to_string() << std::endl;
             };
             report();
@@ -2976,6 +2978,17 @@ int main(int argc, char** argv)
                     report();
                 } else if (command == "validate") {
                     const auto result = session->validate_clean_project();
+                    report(true, result.snapshot.valid, result.cache_hit);
+                } else if (command == "validate-deferred") {
+                    const auto result = session->validate_clean_project(false, true);
+                    require(result.deferred_exact_revisions.has_value(),
+                            "Probe must have a proven deferred generation");
+                    const bool accepted = session->publish_deferred_clean_validation(
+                        result, *result.deferred_exact_revisions, "null", [&stage_builds] {
+                            ++stage_builds;
+                            return std::string{"{\"testStage\":\"certified\"}"};
+                        });
+                    require(accepted, "Probe must accept its own exact generation");
                     report(true, result.snapshot.valid, result.cache_hit);
                 } else if (command == "dirty") {
                     const auto result = session->patch(

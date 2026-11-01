@@ -597,6 +597,7 @@ void ProjectSession::note_disk_cache_change()
     cache_next_maintenance_attempt_ = {};
     cache_stage_revisions_.reset();
     cache_stage_json_.clear();
+    cache_stage_builder_ = {};
 }
 
 void ProjectSession::enable_resident_cache_maintenance()
@@ -1020,11 +1021,14 @@ ProjectSession::CleanValidation ProjectSession::validate_clean_project(bool init
                         proof(false, "cache-final") == revisions) {
                         if (unchanged) {
                             if (cache_maintenance_active_ && owns_clean_cache_lease() &&
-                                cache_stage_revisions_ == revisions && !cache_stage_json_.empty() &&
-                                cache_stage_json_ != cached->stages.to_string()) {
+                                cache_stage_revisions_ == revisions &&
+                                (cache_stage_builder_ || !cache_stage_json_.empty())) {
                                 try {
-                                    const auto stages = Json::parse(cache_stage_json_);
-                                    if (proof(true, "cache-stage-publication") == revisions)
+                                    const auto stages =
+                                        Json::parse(cache_stage_builder_ ? cache_stage_builder_()
+                                                                         : cache_stage_json_);
+                                    if (stages != cached->stages &&
+                                        proof(true, "cache-stage-publication") == revisions)
                                         cache_maintenance_published_ =
                                             publish_clean_cache(root_, *revisions, cached->snapshot,
                                                                 cached->resident, stages);
@@ -1136,9 +1140,11 @@ ProjectSession::CleanValidation ProjectSession::validate_clean_project(bool init
              std::chrono::steady_clock::now() >= cache_quiet_until_) &&
             proof(true, "validation-publication") == validated_input) {
             Json stages = Json::null();
-            if (cache_stage_revisions_ == validated_input && !cache_stage_json_.empty()) {
+            if (cache_stage_revisions_ == validated_input &&
+                (cache_stage_builder_ || !cache_stage_json_.empty())) {
                 try {
-                    stages = Json::parse(cache_stage_json_);
+                    stages = Json::parse(cache_stage_builder_ ? cache_stage_builder_()
+                                                              : cache_stage_json_);
                 } catch (...) {
                     stages = Json::null();
                 }
@@ -1152,7 +1158,7 @@ ProjectSession::CleanValidation ProjectSession::validate_clean_project(bool init
 
 bool ProjectSession::publish_deferred_clean_validation(
     const CleanValidation& validated, const std::map<std::string, std::string>& post_revisions,
-    std::string_view stages_json)
+    std::string_view stages_json, std::function<std::string()> deferred_stages)
 {
     if (!validated.deferred_exact_revisions)
         return true; // Standalone cache hits were already independently proven.
@@ -1179,16 +1185,19 @@ bool ProjectSession::publish_deferred_clean_validation(
     if (resident_cache_maintenance_) {
         cache_maintenance_pending_ = true;
         cache_stage_revisions_ = post_revisions;
+        cache_stage_builder_ = std::move(deferred_stages);
         // A semantic-only repeat must not discard independently proved font
         // and shader stage evidence from a previously admitted cache hit.
         cache_stage_json_ = stages_json != "null" ? std::string(stages_json)
                             : validated.cache_hit ? validated.stages_json
                                                   : std::string{};
-    } else if (owns_clean_cache_lease() && (!validated.cache_hit || stages_json != "null")) {
+    } else if (owns_clean_cache_lease() &&
+               (!validated.cache_hit || stages_json != "null" || deferred_stages)) {
         try {
-            publish_clean_cache(root_, post_revisions, validated.snapshot,
-                                Json::parse(validated.deferred_resident_json),
-                                Json::parse(stages_json));
+            publish_clean_cache(
+                root_, post_revisions, validated.snapshot,
+                Json::parse(validated.deferred_resident_json),
+                Json::parse(deferred_stages ? deferred_stages() : std::string(stages_json)));
         } catch (...) {
             // A malformed optional cache must never make a validated Project fail.
         }
