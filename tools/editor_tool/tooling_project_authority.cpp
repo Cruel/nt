@@ -8,6 +8,7 @@
 #include <atomic>
 #include <cctype>
 #include <chrono>
+#include <condition_variable>
 #include <cstring>
 #include <fstream>
 #include <limits>
@@ -475,6 +476,39 @@ scan_manifest(const fs::path& canonical_root, const NormalizedConfig& config,
     return manifest;
 }
 
+ProjectSourceManifest reconcile_manifest(
+    const fs::path& canonical_root, const NormalizedConfig& config,
+    const ProjectSourceManifest& previous, const std::vector<std::string>& paths,
+    const std::function<std::optional<std::uint64_t>(const fs::path&)>& mtime_reader)
+{
+    std::map<std::string, ProjectSourceManifestEntry> entries;
+    for (const auto& entry : previous.entries)
+        entries.emplace(entry.path, entry);
+    for (const auto& path : paths) {
+        const bool authoritative =
+            std::binary_search(config.authoritative_paths.begin(),
+                               config.authoritative_paths.end(), path);
+        const bool discovered = std::any_of(
+            config.discovery_scopes.begin(), config.discovery_scopes.end(),
+            [&path](const auto& scope) {
+                return starts_with_path(path, scope.root) && matches_extension(scope, path);
+            });
+        if (!authoritative && !discovered)
+            continue;
+        if (auto source = capture_regular_file(canonical_root, path, mtime_reader))
+            entries.insert_or_assign(path, std::move(*source));
+        else
+            entries.erase(path);
+    }
+    ProjectSourceManifest manifest{.canonical_root = previous.canonical_root, .entries = {}};
+    manifest.entries.reserve(entries.size());
+    for (auto& [path, source] : entries) {
+        (void)path;
+        manifest.entries.push_back(std::move(source));
+    }
+    return manifest;
+}
+
 ProjectSourceDelta calculate_delta(const std::optional<ProjectSourceManifest>& previous,
                                    const ProjectSourceManifest& current)
 {
@@ -513,6 +547,9 @@ public:
     using UnknownCallback = std::function<void()>;
 
     virtual ~NativeProjectWatcher() = default;
+    // A true result guarantees notifications queued before this call have been dispatched.
+    // An unsupported/failed fence forces the conservative complete-tree observation.
+    [[nodiscard]] virtual bool fence() { return false; }
 };
 
 #if defined(__linux__)
@@ -532,12 +569,20 @@ public:
             descriptor_ = -1;
             throw std::runtime_error("Cannot initialize native Project watcher stop signal");
         }
+        fence_descriptor_ = ::eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
+        if (fence_descriptor_ < 0) {
+            ::close(stop_descriptor_);
+            ::close(descriptor_);
+            throw std::runtime_error("Cannot initialize native Project watcher fence signal");
+        }
         try {
             add_directory_tree(root_, "");
             thread_ = std::thread([this] { run(); });
         } catch (...) {
+            ::close(fence_descriptor_);
             ::close(stop_descriptor_);
             ::close(descriptor_);
+            fence_descriptor_ = -1;
             stop_descriptor_ = -1;
             descriptor_ = -1;
             throw;
@@ -547,6 +592,7 @@ public:
     ~InotifyProjectWatcher() override
     {
         stopping_.store(true);
+        fence_cv_.notify_all();
         if (stop_descriptor_ >= 0) {
             const std::uint64_t value = 1;
             [[maybe_unused]] const auto written =
@@ -556,8 +602,23 @@ public:
             thread_.join();
         if (stop_descriptor_ >= 0)
             ::close(stop_descriptor_);
+        if (fence_descriptor_ >= 0)
+            ::close(fence_descriptor_);
         if (descriptor_ >= 0)
             ::close(descriptor_);
+    }
+
+    [[nodiscard]] bool fence() override
+    {
+        std::unique_lock lock(fence_mutex_);
+        if (stopping_.load())
+            return false;
+        const auto ticket = ++requested_fences_;
+        const std::uint64_t signal = 1;
+        if (::write(fence_descriptor_, &signal, sizeof(signal)) != sizeof(signal))
+            return false;
+        fence_cv_.wait(lock, [&] { return completed_fences_ >= ticket || stopping_.load(); });
+        return completed_fences_ >= ticket && !stopping_.load();
     }
 
 private:
@@ -648,12 +709,13 @@ private:
         }
     }
 
-    void run()
+    void pump()
     {
         std::array<std::byte, 64 * 1024> buffer{};
         while (!stopping_.load()) {
-            std::array<pollfd, 2> descriptors = {pollfd{descriptor_, POLLIN, 0},
-                                                 pollfd{stop_descriptor_, POLLIN, 0}};
+            std::array<pollfd, 3> descriptors = {pollfd{descriptor_, POLLIN, 0},
+                                                 pollfd{stop_descriptor_, POLLIN, 0},
+                                                 pollfd{fence_descriptor_, POLLIN, 0}};
             const auto ready = ::poll(descriptors.data(), descriptors.size(), -1);
             if (ready < 0) {
                 if (errno == EINTR)
@@ -667,8 +729,22 @@ private:
                 unknown_callback_();
                 return;
             }
-            if ((descriptors[0].revents & POLLIN) == 0)
+            if ((descriptors[2].revents & (POLLERR | POLLHUP | POLLNVAL)) != 0) {
+                unknown_callback_();
+                return;
+            }
+            const bool fence_requested = (descriptors[2].revents & POLLIN) != 0;
+            if ((descriptors[0].revents & POLLIN) == 0 && !fence_requested)
                 continue;
+            std::uint64_t fence_tickets = 0;
+            if (fence_requested &&
+                ::read(fence_descriptor_, &fence_tickets, sizeof(fence_tickets)) !=
+                    sizeof(fence_tickets)) {
+                unknown_callback_();
+                return;
+            }
+            // Read the fence signal BEFORE draining notifications. Otherwise a request arriving
+            // after the first empty source read could be acknowledged without its source events.
             for (;;) {
                 const auto count = ::read(descriptor_, buffer.data(), buffer.size());
                 if (count < 0) {
@@ -689,7 +765,25 @@ private:
                     offset += sizeof(inotify_event) + event->len;
                 }
             }
+            if (fence_requested) {
+                {
+                    std::scoped_lock lock(fence_mutex_);
+                    completed_fences_ += fence_tickets;
+                }
+                fence_cv_.notify_all();
+            }
         }
+    }
+
+    void run()
+    {
+        try {
+            pump();
+        } catch (...) {
+            unknown_callback_();
+        }
+        stopping_.store(true);
+        fence_cv_.notify_all();
     }
 
     fs::path root_;
@@ -697,6 +791,11 @@ private:
     UnknownCallback unknown_callback_;
     int descriptor_ = -1;
     int stop_descriptor_ = -1;
+    int fence_descriptor_ = -1;
+    std::mutex fence_mutex_;
+    std::condition_variable fence_cv_;
+    std::uint64_t requested_fences_ = 0;
+    std::uint64_t completed_fences_ = 0;
     std::unordered_map<int, std::string> directories_;
     std::atomic<bool> stopping_{false};
     std::thread thread_;
@@ -988,13 +1087,14 @@ struct ProjectAuthorityManager::Impl {
         ProjectAuthorityState state = ProjectAuthorityState::untracked;
         std::optional<ProjectSourceManifest> manifest;
         std::set<std::string> pending_paths;
+        bool pending_directory_change = false;
         std::uint64_t watcher_epoch = 0;
         std::uint64_t manifest_revision = 0;
         bool watcher_attempted = false;
         bool watcher_rebuild_required = false;
         std::uint64_t watcher_unknown_revision = 0;
         bool released = false;
-        std::unique_ptr<NativeProjectWatcher> watcher;
+        std::shared_ptr<NativeProjectWatcher> watcher;
     };
 
     explicit Impl(ProjectAuthorityOptions requested_options) : options(std::move(requested_options))
@@ -1016,7 +1116,7 @@ struct ProjectAuthorityManager::Impl {
             entries.clear();
         }
 
-        std::vector<std::unique_ptr<NativeProjectWatcher>> watchers;
+        std::vector<std::shared_ptr<NativeProjectWatcher>> watchers;
         watchers.reserve(removed.size());
         for (const auto& entry : removed) {
             std::scoped_lock lock(entry->mutex);
@@ -1039,10 +1139,32 @@ struct ProjectAuthorityManager::Impl {
             return;
         }
         std::scoped_lock lock(entry->mutex);
-        if (entry->released || !entry->configured ||
-            !event_relevant(entry->config, relative_path, directory))
+        if (entry->released || !entry->configured)
+            return;
+        bool relevant = event_relevant(entry->config, relative_path, directory);
+        if (!relevant && !directory && event_relevant(entry->config, relative_path, true)) {
+            // A symlink to a directory arrives as a file event. Discovery rejects it even
+            // when its name does not have a source extension, so preserve that constraint.
+            const auto absolute = entry->canonical_root / path_from_utf8(relative_path);
+            std::error_code error;
+            const auto status = fs::symlink_status(absolute, error);
+            if (!error && fs::is_symlink(status)) {
+                const auto followed = fs::status(absolute, error);
+                if (!error && fs::is_directory(followed)) {
+                    relevant = true;
+                    directory = true;
+                }
+            }
+            if (error && error != std::errc::no_such_file_or_directory) {
+                entry->state = ProjectAuthorityState::unknown;
+                ++entry->watcher_epoch;
+                return;
+            }
+        }
+        if (!relevant)
             return;
         entry->pending_paths.insert(std::move(relative_path));
+        entry->pending_directory_change |= directory;
         if (entry->state != ProjectAuthorityState::unknown)
             entry->state = ProjectAuthorityState::dirty;
         ++entry->watcher_epoch;
@@ -1083,7 +1205,7 @@ struct ProjectAuthorityManager::Impl {
         if (!options.enable_native_watcher)
             return;
 
-        std::unique_ptr<NativeProjectWatcher> previous;
+        std::shared_ptr<NativeProjectWatcher> previous;
         std::uint64_t unknown_revision = 0;
         {
             std::scoped_lock lock(entry->mutex);
@@ -1100,7 +1222,7 @@ struct ProjectAuthorityManager::Impl {
         previous.reset();
 
         auto replacement = make_watcher_for_entry(entry);
-        std::unique_ptr<NativeProjectWatcher> discard;
+        std::shared_ptr<NativeProjectWatcher> discard;
         bool released = false;
         {
             std::scoped_lock lock(entry->mutex);
@@ -1150,7 +1272,7 @@ struct ProjectAuthorityManager::Impl {
         if (start_watcher) {
             try {
                 auto watcher = make_watcher_for_entry(entry);
-                std::unique_ptr<NativeProjectWatcher> discard;
+                std::shared_ptr<NativeProjectWatcher> discard;
                 {
                     std::scoped_lock lock(entry->mutex);
                     if (entry->released)
@@ -1203,10 +1325,17 @@ ProjectObservation ProjectAuthorityManager::observe(const ProjectAuthorityReques
 
     for (std::size_t attempt = 0; attempt < kObservationAttempts; ++attempt) {
         impl_->restore_watcher_coverage(entry);
+        std::shared_ptr<NativeProjectWatcher> watcher;
+        {
+            std::scoped_lock lock(entry->mutex);
+            watcher = entry->watcher;
+        }
+        const bool fenced = watcher && watcher->fence();
         ProjectAuthorityState previous_state = ProjectAuthorityState::untracked;
         std::uint64_t watcher_epoch = 0;
         std::uint64_t manifest_revision = 0;
         std::vector<std::string> pending_paths;
+        bool pending_directory_change = false;
         std::optional<ProjectSourceManifest> previous_manifest;
         NormalizedConfig current_config;
         {
@@ -1217,28 +1346,43 @@ ProjectObservation ProjectAuthorityManager::observe(const ProjectAuthorityReques
             watcher_epoch = entry->watcher_epoch;
             manifest_revision = entry->manifest_revision;
             pending_paths.assign(entry->pending_paths.begin(), entry->pending_paths.end());
+            pending_directory_change = entry->pending_directory_change;
             previous_manifest = entry->manifest;
             current_config = entry->config;
         }
 
-        auto manifest = scan_manifest(canonical_root, current_config, impl_->options.mtime_reader);
+        // A live Linux inotify barrier has delivered all notifications before the snapshot.
+        // File-only deltas need no tree discovery or unaffected-file stat. Directory changes,
+        // watcher loss, reconfiguration and other platforms retain the complete safe proof.
+        const bool incremental = fenced && previous_manifest &&
+                                 previous_state != ProjectAuthorityState::unknown &&
+                                 !pending_directory_change;
+        auto manifest = incremental
+                            ? reconcile_manifest(canonical_root, current_config, *previous_manifest,
+                                                 pending_paths, impl_->options.mtime_reader)
+                            : scan_manifest(canonical_root, current_config,
+                                            impl_->options.mtime_reader);
         auto delta = calculate_delta(previous_manifest, manifest);
+        const bool final_fenced = !fenced || watcher->fence();
         {
             std::scoped_lock lock(entry->mutex);
             if (entry->watcher_epoch != watcher_epoch ||
                 entry->manifest_revision != manifest_revision || entry->config != current_config ||
+                entry->watcher != watcher || (fenced && !final_fenced) ||
                 (impl_->options.enable_native_watcher && entry->watcher_rebuild_required))
                 continue;
             const bool full_rescan =
                 !entry->manifest || previous_state == ProjectAuthorityState::unknown;
             entry->manifest = manifest;
             entry->pending_paths.clear();
+            entry->pending_directory_change = false;
             entry->state = ProjectAuthorityState::proven;
             ++entry->manifest_revision;
             return ProjectObservation{
                 .previous_state = previous_state,
                 .unchanged = delta.empty() && previous_manifest.has_value(),
                 .full_rescan = full_rescan,
+                .watcher_epoch = watcher_epoch,
                 .watcher_paths = std::move(pending_paths),
                 .delta = std::move(delta),
                 .manifest = std::move(manifest),
@@ -1310,7 +1454,7 @@ bool ProjectAuthorityManager::restore_checkpoint_for_rehydration(
         entry = found->second;
     }
 
-    std::unique_ptr<NativeProjectWatcher> watcher;
+    std::shared_ptr<NativeProjectWatcher> watcher;
     {
         std::scoped_lock lock(entry->mutex);
         if (entry->released)
@@ -1331,6 +1475,7 @@ bool ProjectAuthorityManager::restore_checkpoint_for_rehydration(
         entry->state = ProjectAuthorityState::unknown;
         entry->manifest = checkpoint.manifest;
         entry->pending_paths.clear();
+        entry->pending_directory_change = false;
         entry->watcher_attempted = false;
         entry->watcher_rebuild_required = false;
         ++entry->watcher_epoch;
@@ -1353,7 +1498,7 @@ void ProjectAuthorityManager::notify_watcher_unknown(const std::filesystem::path
         // This is also the deterministic test seam for lost watcher coverage: drop the native
         // watcher here so recovery must actually recreate recursive watches rather than merely
         // toggling authority state.
-        std::unique_ptr<NativeProjectWatcher> watcher;
+        std::shared_ptr<NativeProjectWatcher> watcher;
         {
             std::scoped_lock lock(entry->mutex);
             watcher = std::move(entry->watcher);
@@ -1367,13 +1512,14 @@ bool ProjectAuthorityManager::suspend(const std::filesystem::path& project_root)
     const auto entry = impl_->find_entry(project_root);
     if (!entry)
         return false;
-    std::unique_ptr<NativeProjectWatcher> watcher;
+    std::shared_ptr<NativeProjectWatcher> watcher;
     {
         std::scoped_lock lock(entry->mutex);
         if (entry->released)
             return false;
         entry->state = ProjectAuthorityState::unknown;
         entry->pending_paths.clear();
+        entry->pending_directory_change = false;
         entry->watcher_rebuild_required = false;
         entry->watcher_attempted = false;
         ++entry->watcher_epoch;
@@ -1402,7 +1548,7 @@ bool ProjectAuthorityManager::release(const std::filesystem::path& project_root)
         removed = std::move(found->second);
         impl_->entries.erase(found);
     }
-    std::unique_ptr<NativeProjectWatcher> watcher;
+    std::shared_ptr<NativeProjectWatcher> watcher;
     {
         std::scoped_lock lock(removed->mutex);
         removed->released = true;

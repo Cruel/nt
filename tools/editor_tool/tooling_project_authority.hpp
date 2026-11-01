@@ -68,6 +68,9 @@ struct ProjectObservation {
     ProjectAuthorityState previous_state = ProjectAuthorityState::untracked;
     bool unchanged = false;
     bool full_rescan = true;
+    // Monotonic watcher evidence within this resident authority. Two identical manifests do not
+    // prove a stable execution bracket if an intervening source mutation was reverted.
+    std::uint64_t watcher_epoch = 0;
     std::vector<std::string> watcher_paths;
     ProjectSourceDelta delta;
     ProjectSourceManifest manifest;

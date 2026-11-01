@@ -5132,6 +5132,7 @@ Json project_observation_json(const ProjectObservation& observation)
             {"previousAuthority", project_authority_state_name(observation.previous_state)},
             {"unchanged", observation.unchanged},
             {"fullRescan", observation.full_rescan},
+            {"watcherEpoch", observation.watcher_epoch},
             {"watcherPaths", observation.watcher_paths},
             {"delta",
              {{"added", observation.delta.added},
@@ -6449,7 +6450,10 @@ ExactValidationProof prove_exact_validation_result(ProjectAuthorityManager& auth
             .authoritative_paths = retained->authority.authoritative_paths,
             .discovery_scopes = retained->authority.discovery_scopes,
         });
-        if (proof.observation->manifest != retained->authority.manifest) {
+        // A watcher-observed mutation can restore the prior size/mtime/inode. The retained
+        // manifest is then equal, but the old exact diagnostics are no longer authoritative.
+        if (proof.observation->previous_state == ProjectAuthorityState::dirty ||
+            proof.observation->manifest != retained->authority.manifest) {
             (void)store.erase_if_revision(canonical_root, retained->revision);
             if (!authority.restore_checkpoint_for_rehydration(retained->authority))
                 (void)authority.release(root);

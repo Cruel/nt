@@ -547,6 +547,7 @@ int owner_process(const Json& context, std::uint64_t worker_id,
     const std::string canonical_root = descriptor.at("canonicalRoot").get<std::string>();
     const auto session_epoch = descriptor.at("coldSessionEpoch").get<std::uint64_t>();
     std::optional<Json> last_manifest;
+    std::optional<std::uint64_t> last_watcher_epoch;
     std::uint64_t generation = 0;
     const auto observe = [&](bool profile_work = false) -> std::optional<Json> {
         Json request;
@@ -563,7 +564,9 @@ int owner_process(const Json& context, std::uint64_t worker_id,
         if (!observed.value("ok", false))
             return std::nullopt; // The native command still diagnoses source errors.
         const auto& manifest = observed.at("manifest");
-        if (!last_manifest || *last_manifest != manifest) {
+        const auto watcher_epoch = observed.at("watcherEpoch").get<std::uint64_t>();
+        if (!last_manifest || *last_manifest != manifest ||
+            (last_watcher_epoch && *last_watcher_epoch != watcher_epoch)) {
             ++generation;
             require_ok(broker_call(context, "owner-project-generation",
                                    {{"ownerWorkerId", worker_id},
@@ -571,6 +574,7 @@ int owner_process(const Json& context, std::uint64_t worker_id,
                                     {"generation", generation}}));
             last_manifest = manifest;
         }
+        last_watcher_epoch = watcher_epoch;
         return std::optional<Json>(std::in_place, observed);
     };
     for (;;) {
@@ -706,7 +710,8 @@ int owner_process(const Json& context, std::uint64_t worker_id,
             }
             // The broker only retains a result when two authoritative observations
             // bracket the validated source generation with no physical changes.
-            if (validation && before && after && before->at("manifest") == after->at("manifest")) {
+            if (validation && before && after && before->at("manifest") == after->at("manifest") &&
+                before->at("watcherEpoch") == after->at("watcherEpoch")) {
                 const auto& result = completion.at("result");
                 const auto structured =
                     Json::parse(result.at(1).get<std::string>(), nullptr, false);

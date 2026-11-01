@@ -1,6 +1,7 @@
 #include "tooling_daemon_broker.hpp"
 #include "tooling_native_c.h"
 #include "tooling_project_authority.hpp"
+#include "../../tools/project_authoring/validation_work_instrumentation.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
@@ -428,6 +429,82 @@ TEST_CASE("Project authority watcher dirtiness coalesces and unknown state force
 }
 
 #if defined(__linux__) || defined(_WIN32)
+#if defined(__linux__)
+TEST_CASE("Linux Project authority fences file deltas without rediscovering the tree")
+{
+    using namespace noveltea::tooling::daemon;
+    using noveltea::authoring::ScopedValidationWork;
+    using noveltea::authoring::ValidationWorkCounters;
+    using noveltea::authoring::WorkCounter;
+    auto root = temp_project_root("linux-fenced-delta");
+    ProjectAuthorityManager authority;
+    const auto request = project_authority_request(root.path);
+    const auto first = authority.observe(request);
+
+    ValidationWorkCounters unchanged_work;
+    {
+        ScopedValidationWork measured(unchanged_work);
+        const auto unchanged = authority.observe(request);
+        CHECK(unchanged.unchanged);
+        CHECK(unchanged.watcher_epoch == first.watcher_epoch);
+    }
+    CHECK(unchanged_work.get<WorkCounter::DirectoryEnumerations>() == 0);
+    CHECK(unchanged_work.get<WorkCounter::StatReadlinkCalls>() == 0);
+
+    // The observation must synchronously flush the watcher; no sleep or pre-poll is needed.
+    write_project_file(root.path / "records/room.yaml", "id: changed\n");
+    ValidationWorkCounters changed_work;
+    ProjectObservation changed;
+    {
+        ScopedValidationWork measured(changed_work);
+        changed = authority.observe(request);
+    }
+    CHECK(changed.delta.changed == std::vector<std::string>{"records/room.yaml"});
+    CHECK(changed.watcher_epoch != first.watcher_epoch);
+    CHECK(changed_work.get<WorkCounter::DirectoryEnumerations>() == 0);
+    CHECK(changed_work.get<WorkCounter::StatReadlinkCalls>() <= 4);
+
+    const auto room = root.path / "records/room.yaml";
+    const auto write_time = std::filesystem::last_write_time(room);
+    write_project_file(room, "id: changed\n");
+    std::filesystem::last_write_time(room, write_time);
+    const auto restored_metadata = authority.observe(request);
+    CHECK(restored_metadata.unchanged);
+    CHECK(restored_metadata.watcher_epoch != changed.watcher_epoch);
+
+    // A nested directory move cannot use the file-only fast path; discover its new members.
+    write_project_file(root.path / "records/moved/entry.yaml", "id: new\n");
+    ValidationWorkCounters moved_work;
+    ProjectObservation moved;
+    {
+        ScopedValidationWork measured(moved_work);
+        moved = authority.observe(request);
+    }
+    CHECK(moved.delta.added == std::vector<std::string>{"records/moved/entry.yaml"});
+    CHECK(moved_work.get<WorkCounter::DirectoryEnumerations>() > 0);
+
+    // An untracked, extensionless directory symlink must not escape the discovery proof
+    // just because inotify reports symlink creation without IN_ISDIR.
+    const auto link = root.path / "records/linked-directory";
+    std::filesystem::create_directory_symlink(root.path / "scripts", link);
+    for (int attempt = 0; attempt < 100; ++attempt) {
+        if (const auto status = authority.status(root.path);
+            status && status->state != ProjectAuthorityState::proven)
+            break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    REQUIRE(authority.status(root.path));
+    CHECK(authority.status(root.path)->state != ProjectAuthorityState::proven);
+    std::filesystem::remove(link);
+    CHECK(authority.observe(request).unchanged);
+
+    authority.notify_watcher_unknown(root.path);
+    const auto recovered = authority.observe(request);
+    CHECK(recovered.full_rescan);
+    CHECK(recovered.unchanged);
+}
+#endif
+
 TEST_CASE("Project authority native watcher revokes relevant proofs and ignores unrelated files")
 {
     using namespace noveltea::tooling::daemon;

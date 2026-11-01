@@ -45,6 +45,18 @@ with tempfile.TemporaryDirectory(prefix="noveltea-incremental-certify-") as dire
     def validate(project, direct=False):
         return invoke(*(["--no-daemon"] if direct else []), "--project", project, "validate")
 
+    def validate_without_profile(project):
+        # Exercise the broker's public exact-result shortcut, which profiling disables.
+        plain_env = {key: value for key, value in env.items()
+                     if key != "NOVELTEA_VALIDATION_WORK_PROFILE"}
+        result = subprocess.run([str(cli), "--json", "--project", str(project), "validate"],
+                                env=plain_env, text=True, capture_output=True, timeout=180)
+        assert not result.stderr, result.stderr
+        payload = json.loads(result.stdout)
+        assert payload["exitCode"] == result.returncode, payload
+        assert "validationWork" not in payload, payload
+        return payload
+
     def validate_after_membership_change(project):
         # A directory rename may race an inotify event and a pinned-generation
         # proof. A transient conflict is conservative, but stable bytes must
@@ -199,10 +211,33 @@ with tempfile.TemporaryDirectory(prefix="noveltea-incremental-certify-") as dire
                 assert broker.get("brokerAuthorityObservations", 0) == 2, (size, broker)
                 assert broker.get("brokerAuthorityMicros", 0) > 0, (size, broker)
                 if sys.platform.startswith("linux"):
+                    assert broker["directoryEnumerations"] == 0, (size, broker)
+                    assert broker["statReadlinkCalls"] <= 12, (size, broker)
                     assert saved["validationWork"]["endToEnd"]["portableSourceChecks"] == 0
                     assert saved["validationWork"]["endToEnd"]["directoryEnumerations"] == 0
                 no_stages(validate(project))
             fresh_parity(project, saved)
+
+            if size == 1 and sys.platform.startswith("linux"):
+                # Cached exact diagnostics cannot survive a same-inode edit whose size and
+                # mtime are restored. This exercises the broker shortcut, not only the
+                # profiled native owner path.
+                assert validate_without_profile(project)["success"]
+                original = room.read_text()
+                label = re.search(r"^label: (.*)$", original, re.M)
+                assert label and len(label.group(1)) >= 2
+                timestamp = room.stat()
+                broken = "[" + " " * (len(label.group(1)) - 1)
+                room.write_text(original[:label.start(1)] + broken + original[label.end(1):])
+                os.utime(room, ns=(timestamp.st_atime_ns, timestamp.st_mtime_ns))
+                assert room.stat().st_size == timestamp.st_size
+                invalid_shortcut = validate_without_profile(project)
+                assert not invalid_shortcut["success"] and invalid_shortcut["diagnostics"], invalid_shortcut
+                fresh_parity(project, invalid_shortcut)
+                room.write_text(original)
+                os.utime(room, ns=(timestamp.st_atime_ns, timestamp.st_mtime_ns))
+                repaired_shortcut = validate_without_profile(project)
+                assert public(repaired_shortcut) == public(saved), repaired_shortcut
 
             if size == "feature-lab" and sys.platform.startswith("linux"):
                 # A restored-mtime font mutation is still a watched physical

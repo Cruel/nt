@@ -13,6 +13,38 @@ records baseline evidence from `4e0dcdfc`, not performance guarantees. See
 The problem is **repeated whole-Project work around an incremental validator**, not an
 unoptimized compiler build or failure to retain the primary validation session.
 
+### #583: watcher-fenced broker authority (November 1, 2026)
+
+The broker's resident Project authority now uses a Linux inotify queue fence before and after
+each observation. A healthy watched generation reuses its retained directory inventory and
+source manifest: unchanged requests do no discovery or per-file metadata work, and file-only
+notifications recapture only affected source paths. Directory notifications, missing or uncertain
+watcher coverage, newly admitted Projects, and restored checkpoints still force a conservative
+complete scan. The Linux watcher fence drains notifications before acknowledging the caller;
+other platforms retain full observations until an equivalent watcher fence exists. An owner
+generation advances on any observed watcher epoch change, even when file size, modification time,
+and inode are restored. Final publication and the broker's exact-diagnostics shortcut reject
+unstable observed generations instead of publishing an obsolete result.
+
+The [separate #583 Release profile](performance/baselines/validation-2026-11-01-583-watcher-fenced.json)
+uses the same 83-sample #577 harness, reference host, fixture/cache protocol and profiling mode,
+with Release CLI and Release Node-API addon. Against the immediately preceding instrumented
+`build/reports/validation-2026-11-01-577-broker-and-bytes.json` profile, the median Feature Lab
+warm saved Room-label broker cost decreased from **16,461 to 1,744 µs**, **98 to zero** directory
+enumerations, and **1,774 to one** stat/readlink operations; native source captures remained
+**one**. At 501 Rooms the broker decreased from **16,269 to 2,307 µs**, **16 to zero** directory
+enumerations and **2,068 to one** metadata operations. The two before/after observations remain
+as independent source-change fences, but no longer traverse the complete tree on a healthy
+watcher generation. Cold startup continues to scan because resident watcher evidence does not
+survive suspension or restart.
+
+Relative to the fixed pre-optimization #577 baseline, the new cumulative median public warm
+saved-label latency is **323.31 → 167.86 ms** (Feature Lab), **13.17 → 9.40 ms** (one Room),
+**45.22 → 24.19 ms** (101 Rooms), and **167.99 → 79.45 ms** (501 Rooms). These are full process
+latencies, not isolated #583 speedups. The benchmark checks diagnostic fingerprints for all
+sampled states; the public incremental certification separately checks complete diagnostics,
+source recovery, and the watcher-fenced broker work counters. Neither timing is a CI threshold.
+
 ### #594: end-to-end parity and scale certification (November 1, 2026)
 
 The final certification uses the unchanged #577 83-sample Release workload and

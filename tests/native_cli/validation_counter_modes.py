@@ -99,6 +99,8 @@ with tempfile.TemporaryDirectory(prefix='nt-counter-modes-') as temporary:
                 broker = observed_daemon['validationWork'].get('brokerAuthority', {})
                 assert broker.get('brokerAuthorityObservations') == 2, (mode, state, broker)
                 assert broker.get('brokerAuthorityMicros', 0) > 0, broker
+                if sys.platform.startswith('linux'):
+                    assert broker.get('directoryEnumerations') == 0, (mode, state, broker)
             stop(binary)
         a, b = actual['on'][0], actual['off'][0]
         for field in ('success', 'exitCode', 'diagnostics'):
