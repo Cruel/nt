@@ -199,6 +199,10 @@ public:
     // observation and will require a fresh post-validation observation.
     RoomSessionSnapshot validate_project(bool observed_at_entry = false,
                                          bool defer_publication_proof = false);
+    // Electron's serialized worker can validate an unsaved working generation
+    // against the resident physical observation. An intact watcher fence
+    // replaces redundant scans; physical mutations still take the full path.
+    RoomSessionSnapshot validate_working_project();
     // Portable exact-result cache shared by the opt-in editor worker and the
     // existing CLI Project owner; dirty working state is never published.
     struct CleanValidation {
@@ -472,6 +476,7 @@ private:
     std::set<std::string> validation_pending_asset_owners_;
     bool validation_pending_uncertain_ = false;
     std::map<std::string, std::string> validation_shader_overlays_;
+    std::map<std::string, std::string> validation_text_source_overlays_;
     std::map<std::string, Diagnostic> validation_source_errors_;
     std::set<std::string> validation_source_paths_;
     std::optional<RoomSessionSnapshot> validation_snapshot_;

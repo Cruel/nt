@@ -440,6 +440,17 @@ describe.skipIf(!addon)('native Node-API addon through real Electron-compatible 
       expect(working.snapshot()?.recordSnapshots?.['maps/world']?.source).toMatchObject({
         label: 'Changed Map',
       });
+      const dirtyValidation = await working.validateWorking();
+      expect(dirtyValidation.workingRevision).toBe(1);
+      if (process.platform === 'linux') {
+        expect(dirtyValidation.work?.sourceCaptures).toBe(0);
+      }
+      const repeatedValidation = await working.validateWorking();
+      expect(repeatedValidation.diagnostics).toEqual(dirtyValidation.diagnostics);
+      expect(repeatedValidation.work?.recordContributions).toBe(0);
+      if (process.platform === 'linux') {
+        expect(repeatedValidation.work?.sourceCaptures).toBe(0);
+      }
       const blockedSave = await bridge.request({
         operation: 'save',
         diskRevision: initial.diskSourceRevision,

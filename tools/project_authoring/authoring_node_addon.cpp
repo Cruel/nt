@@ -331,7 +331,7 @@ napi_value call(napi_env env, napi_callback_info info)
                 throw std::runtime_error("Stale native working validation revision.");
             noveltea::authoring::ValidationWorkCounters counts;
             noveltea::authoring::ScopedValidationWork measure(counts);
-            const auto validated = session.project->validate_project();
+            const auto validated = session.project->validate_working_project();
             if (static_cast<std::uint64_t>(revision) != session.project->working_revision())
                 throw std::runtime_error("Working Project changed during native validation.");
             bool valid = validated.valid;

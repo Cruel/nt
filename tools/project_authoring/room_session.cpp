@@ -1472,6 +1472,20 @@ std::unique_ptr<ProjectSession> ProjectSession::open_impl(const std::filesystem:
     }
 }
 
+RoomSessionSnapshot ProjectSession::validate_working_project()
+{
+#ifdef __linux__
+    // Both fences are required: the first admits the resident physical
+    // generation, and validate_project's final fence rejects concurrent
+    // external writes. A lost watch or pending source event takes the normal
+    // observe/reconcile path, never an optimistic working-result cache hit.
+    const bool fenced = source_authority_->verified_revisions_view() && fence_observed_sources();
+    return validate_project(fenced, fenced);
+#else
+    return validate_project();
+#endif
+}
+
 RoomSessionSnapshot ProjectSession::validate_project(bool observed_at_entry,
                                                      bool defer_publication_proof)
 {
@@ -1481,7 +1495,8 @@ RoomSessionSnapshot ProjectSession::validate_project(bool observed_at_entry,
     // watcher can emit a usable project.yaml revision. Inspect this one
     // immutable owner first so cold and resident diagnostic readers report
     // the same concrete parse/schema error, not a generic watcher failure.
-    if (!source_->snapshot().dirty) {
+    if (!source_->snapshot().dirty &&
+        (!observed_at_entry || validation_pending_source_revisions_.contains("project.yaml"))) {
         try {
             auto issues = invalid_manifest_diagnostics(root_);
             if (!issues.empty()) {
@@ -1606,7 +1621,8 @@ RoomSessionSnapshot ProjectSession::validate_project(bool observed_at_entry,
         validation_pending_uncertain_ ||
         (validation_snapshot_ && validation_snapshot_->working_revision != working_revision_) ||
         !validation_pending_source_revisions_.empty() ||
-        validation_shader_overlays_ != shader_overlays_;
+        validation_shader_overlays_ != shader_overlays_ ||
+        validation_text_source_overlays_ != text_source_overlays_;
     for (const auto& path : validation_source_paths_) {
         std::string owner;
         if (path == "editor.yaml")
@@ -1643,10 +1659,10 @@ RoomSessionSnapshot ProjectSession::validate_project(bool observed_at_entry,
         // of a *new* watcher delta does not make its old revision current: a
         // prior validation may already have consumed that delta. In that case
         // validate the physical record, not the stale editor snapshot.
-        const bool inspected_matches_disk = working != records_.end() &&
-                                            std::filesystem::is_regular_file(root_ / path) &&
-                                            exact_source_revision(read_bytes(root_ / path)) ==
-                                                working->second->snapshot().disk_source_revision;
+        const auto* verified = source_authority_->verified_source(path);
+        const bool inspected_matches_disk =
+            working != records_.end() && verified &&
+            verified->revision == working->second->snapshot().disk_source_revision;
         const bool physically_changed =
             saved == validation_source_revisions_.end() ||
             revision != validation_pending_source_revisions_.end() ||
@@ -1682,6 +1698,20 @@ RoomSessionSnapshot ProjectSession::validate_project(bool observed_at_entry,
             (observation.authoritative || observation.scoped_authority) &&
             (revision == validation_pending_source_revisions_.end() ||
              revision->second == working->second->snapshot().disk_source_revision)) {
+            if ((owner.starts_with("rooms/") || owner.starts_with("maps/")) &&
+                !previous_normalized.empty()) {
+                const auto& current = working->second->snapshot().normalized_json;
+                if (!current.empty()) {
+                    auto before = Json::parse(previous_normalized);
+                    auto after = Json::parse(current);
+                    for (const auto* field : {"label", "description"}) {
+                        before.erase(field);
+                        after.erase(field);
+                    }
+                    if (before == after)
+                        presentation_only_updates.insert(owner);
+                }
+            }
             validation_records_.emplace(owner, working->second->clone());
             validation_source_revisions_.emplace(path,
                                                  working->second->snapshot().disk_source_revision);
@@ -1787,6 +1817,14 @@ RoomSessionSnapshot ProjectSession::validate_project(bool observed_at_entry,
     }
     for (const auto& [path, content] : validation_shader_overlays_)
         if (!shader_overlays_.contains(path))
+            changed_physical(path);
+    for (const auto& [path, content] : text_source_overlays_) {
+        const auto previous = validation_text_source_overlays_.find(path);
+        if (previous == validation_text_source_overlays_.end() || previous->second != content)
+            changed_physical(path);
+    }
+    for (const auto& [path, content] : validation_text_source_overlays_)
+        if (!text_source_overlays_.contains(path))
             changed_physical(path);
 
     // Preserve the old half of the graph until impact has been calculated.
@@ -2189,6 +2227,7 @@ RoomSessionSnapshot ProjectSession::validate_project(bool observed_at_entry,
     validation_snapshot_ = result;
     ++validation_generation_;
     validation_shader_overlays_ = shader_overlays_;
+    validation_text_source_overlays_ = text_source_overlays_;
     validation_pending_source_revisions_.clear();
     validation_pending_asset_owners_.clear();
     validation_pending_uncertain_ = false;
@@ -5542,16 +5581,35 @@ ProjectSession::patch(std::uint64_t revision, const std::vector<RoomPatch>& patc
         response.accepted = true;
         return response;
     }
+    std::set<std::string> presentation_only;
+    for (const auto& owner : affected) {
+        if (!owner.starts_with("rooms/") && !owner.starts_with("maps/"))
+            continue;
+        const auto previous = records_.find(owner);
+        const auto current = staged.find(owner);
+        if (previous == records_.end() || current == staged.end())
+            continue;
+        auto before = Json::parse(previous->second->snapshot().source_json);
+        auto after = Json::parse(current->second->snapshot().source_json);
+        for (const auto* key : {"label", "description"}) {
+            before.erase(key);
+            after.erase(key);
+        }
+        if (before == after)
+            presentation_only.insert(owner);
+    }
     const auto before = response.snapshot;
     source_ = std::move(manifest);
     records_ = std::move(staged);
     deleted_records_ = std::move(staged_deletions);
     for (const auto& owner : affected)
-        if (indexed_text_owner(owner))
+        if (indexed_text_owner(owner) && !presentation_only.contains(owner))
             index_text_owner(owner, records_.contains(owner)
                                         ? records_.at(owner)->snapshot().source_json
                                         : "{}");
-    if (std::any_of(affected.begin(), affected.end(), localization_record_owner))
+    if (std::any_of(affected.begin(), affected.end(), [&](const auto& owner) {
+            return localization_record_owner(owner) && !presentation_only.contains(owner);
+        }))
         localization_cache_.reset();
     for (const auto& owner : affected)
         if (owner.starts_with("assets/"))

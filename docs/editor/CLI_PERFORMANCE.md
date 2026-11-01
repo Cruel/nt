@@ -148,6 +148,43 @@ execution counter is **0** (previous reference: **1**), with
 `portableSourceReuses = 1` and `noticeValidationReuses = 1`; all comparable
 public CLI diagnostic fingerprints are identical to the reference baseline.
 
+### #590: retained editor working-generation validation
+
+The Node-API `validateWorking` entrypoint validates the current unsaved native
+Project generation without borrowing or publishing the persistent clean-disk
+result. On Linux, the serialized worker first fences the verified resident
+source observer. If no tracked physical change or watcher uncertainty is
+pending, validation reuses that observed source generation and finishes with
+a second watcher fence. A failed fence falls back to the normal full native
+source observation and reconciliation; other hosts retain full observation.
+This is a read-only validation fast path, not a relaxation of the exact disk
+revision checks and source transactions required by patch, Save, and recovery.
+
+Inspected YAML owner baselines now compare against the observer's verified
+exact source revisions rather than independently reopening every inspected
+file. Room/Map label and description-only working patches preserve their
+localization source indexes; validation rechecks that owner while retaining
+independent global diagnostics and saved-source navigation. Unsaved Lua/RML/RCSS
+overlays maintain a separate last-validated text generation and invalidate
+only their source consumers and the relevant shared source analysis. Restoring
+the original text withdraws its working diagnostics without changing disk
+authority or the CLI's authoritative clean result.
+
+`noveltea-cli-native-certify --validation-generation` tests dirty label,
+Lua and RML edits, unchanged working hits, no new source capture on an intact
+Linux watcher epoch, and clean-cache byte isolation. The real Node-API worker
+suite also checks the working revision, zero recaptures and unchanged diagnostic
+output across repeat requests. The runtime Feature Lab is already the input
+fixture; no new authored runtime behavior is needed for this editor-only cache.
+
+In a focused Release addon Feature Lab run, three consecutive unsaved label
+validations took **1.82, 1.65 and 1.56 ms** (validation alone), rechecking one
+record contribution with **zero source captures, file reads and hashes** each.
+Patch application was separately measured at approximately **267–431 ms**;
+the ~1–2 ms provisional target is therefore not an end-to-end editing latency
+claim. Full comparable CLI/addon evidence belongs in the separate #590 dated
+performance artifact, using the unchanged #577 driver and fixture conditions.
+
 ### #586: retained diagnostic assembly and YAML provenance
 
 The native Project session retains record-local diagnostic contributions and the

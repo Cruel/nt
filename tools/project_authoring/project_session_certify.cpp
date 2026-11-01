@@ -2078,6 +2078,82 @@ void project_validation_roundtrip(const std::filesystem::path& fixture)
     const auto private_result = editor->validate_clean_project();
     require(!private_result.cache_hit && read(cached_path) == cache_bytes,
             "Dirty editor validation remains private and does not replace clean cache bytes");
+    // Working validation is private to the editor generation. A pinned,
+    // unchanged Linux watcher epoch needs no additional physical source
+    // captures, even though the working Room label differs from disk.
+    {
+        ValidationWorkCounters counts;
+        ScopedValidationWork measured(counts);
+        const auto working = editor->validate_working_project();
+        require(working.valid && working.dirty &&
+                    working.working_revision == editor->working_revision() &&
+                    read(cached_path) == cache_bytes,
+                "Unsaved Room label is validated without publishing disk cache");
+#ifdef __linux__
+        require(counts.source_captures == 0,
+                "Unchanged working generation validates without disk source recapture");
+#endif
+    }
+    const auto changed_again =
+        editor->patch(editor->working_revision(),
+                      {{RoomPatch::Operation::Replace, "/rooms/room-lifecycle-roundtrip/label",
+                        "\"Unsaved again\""}});
+    require(changed_again.accepted, "Second unsaved Room label edit is admitted");
+    const auto working_again = editor->validate_working_project();
+    require(working_again.valid && editor->validation_work().rechecked_records == 1 &&
+                editor->validation_work().rechecked_contributions == 1 &&
+                editor->validation_work().global_stage_reuses == 1 &&
+                editor->validation_work().source_location_rebuilds == 0,
+            "Editor label edit rechecks one contribution and reuses global/source locations");
+    const auto stable_working = editor->validate_working_project();
+    require(stable_working.valid && editor->validation_work().rechecked_records == 0 &&
+                editor->validation_work().diagnostic_assemblies == 0,
+            "Unchanged working generation retains its diagnostic result");
+
+    const std::string overlay_path = "scripts/notice-board.lua";
+    const auto original_overlay = read(temp.root / overlay_path);
+    const auto staged_overlay = editor->stage_text_source(
+        editor->working_revision(), overlay_path, original_overlay + "\nText.tr(dynamic)\n");
+    require(staged_overlay.accepted, "Editor accepts private Lua source overlay");
+    const auto invalid_overlay = editor->validate_working_project();
+    require(!invalid_overlay.valid &&
+                std::any_of(invalid_overlay.diagnostics.begin(), invalid_overlay.diagnostics.end(),
+                            [](const Diagnostic& issue) {
+                                return issue.code == "authoring.localization.lua_source_literal";
+                            }) &&
+                editor->validation_work().rechecked_records == 0 &&
+                read(temp.root / overlay_path) == original_overlay &&
+                read(cached_path) == cache_bytes,
+            "Unsaved Lua errors update working diagnostics only, without scanning records or disk "
+            "writes");
+    require(editor->stage_text_source(editor->working_revision(), overlay_path, original_overlay)
+                    .accepted &&
+                editor->validate_working_project().valid,
+            "Undoing Lua overlay restores the retained working validation");
+    const std::string rml_path = "records/layouts/notice-board/layout.rml";
+    const auto original_rml = read(temp.root / rml_path);
+    require(editor
+                ->stage_text_source(
+                    editor->working_revision(), rml_path,
+                    "<rml><body><button onclick=\"Text.msg('absent.message')\">Review</button>"
+                    "<script src=\"project:/scripts/not-declared.lua\" /></body></rml>")
+                .accepted,
+            "Editor stages working RML buffer without changing its disk source");
+    const auto invalid_rml = editor->validate_working_project();
+    require(!invalid_rml.valid &&
+                std::any_of(invalid_rml.diagnostics.begin(), invalid_rml.diagnostics.end(),
+                            [&](const Diagnostic& issue) {
+                                return issue.code ==
+                                           "authoring.localization.lua_named_message_missing" &&
+                                       issue.source_path == rml_path;
+                            }) &&
+                editor->validation_work().rechecked_records == 0 &&
+                read(temp.root / rml_path) == original_rml && read(cached_path) == cache_bytes,
+            "Working RML references invalidate their analysis but not disk contributors");
+    require(
+        editor->stage_text_source(editor->working_revision(), rml_path, original_rml).accepted &&
+            editor->validate_working_project().valid,
+        "RML undo restores working validation without a disk write");
     auto cli = ProjectSession::open(temp.root, error);
     require(cli != nullptr && cli->validate_clean_project().cache_hit,
             "CLI Project still consumes the clean generation after an unsaved editor edit");
