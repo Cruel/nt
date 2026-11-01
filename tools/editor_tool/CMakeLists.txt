@@ -48,6 +48,8 @@ add_library(noveltea_tooling_native STATIC
     tooling_daemon_broker.cpp
     tooling_daemon_broker.hpp
     tooling_native_project_validation.cpp
+    tooling_native_project_shader_validation.cpp
+    tooling_native_project_shader_validation.hpp
     tooling_native_project_commands.cpp
     tooling_native_project_asset.cpp
     tooling_native_asset_media.cpp
@@ -484,6 +486,11 @@ if(BUILD_TESTING)
             "$<TARGET_FILE:noveltea-runtime-cache-publish-certify>"
             "${NOVELTEA_NATIVE_CLI_CERTIFY_FFMPEG}")
     set_tests_properties(native_cli_shader_integrity PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 600)
+    add_test(NAME native_cli_shader_validation_cache
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli/shader_validation_cache.py"
+            "$<TARGET_FILE:noveltea-native-cli>"
+            "${CMAKE_SOURCE_DIR}/tests/projects/feature-lab")
+    set_tests_properties(native_cli_shader_validation_cache PROPERTIES TIMEOUT 420)
     add_test(NAME native_compiled_project_parity
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli/compiled_project_parity.py"
             "$<TARGET_FILE:noveltea-runtime-cache-publish-certify>" "${CMAKE_SOURCE_DIR}")

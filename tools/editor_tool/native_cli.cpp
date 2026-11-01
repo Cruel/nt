@@ -9,6 +9,7 @@
 #include "native_cli_platform.hpp"
 #include "native_cli_test_catalog.hpp"
 #include "tooling_native_project_asset.hpp"
+#include "tooling_native_project_shader_validation.hpp"
 #include "native_compiled_project.hpp"
 #include "native_runtime_artifact.hpp"
 #include "native_runtime_physical.hpp"
@@ -1445,43 +1446,9 @@ int package_from_native_runtime(const Arguments& args)
 void append_material_reflection_diagnostics(Json& diagnostics, const Json& compiled,
                                             const Json& materials)
 {
-    for (const auto& [material_id, effective] : materials.items()) {
-        if (!effective.value("custom", false))
-            continue;
-        Json outputs = Json::array();
-        for (const auto& output : compiled.value("outputs", Json::array()))
-            if (output.value("program", std::string{}) == material_id)
-                outputs.push_back(output);
-        const auto reflected = noveltea::authoring::validate_material_shader_compiler_result(
-            Json{{"ok", true},
-                 {"success", true},
-                 {"diagnostics", Json::array()},
-                 {"outputs", std::move(outputs)}}
-                .dump(),
-            material_id, effective.dump());
-        for (const auto& finding : reflected.diagnostics) {
-            auto message = finding.message;
-            if (finding.code == "material.shader.orphan") {
-                const auto name = finding.path.substr(finding.path.find_last_of('/') + 1);
-                std::string unescaped;
-                for (std::size_t i = 0; i < name.size(); ++i) {
-                    if (name[i] == '~' && i + 1 < name.size() &&
-                        (name[i + 1] == '0' || name[i + 1] == '1'))
-                        unescaped += name[++i] == '0' ? '~' : '/';
-                    else
-                        unescaped += name[i];
-                }
-                const bool texture = finding.path.find("/textures/") != std::string::npos;
-                message = "Material " + std::string(texture ? "texture" : "parameter") + " '" +
-                          unescaped +
-                          "' is not present in the reflected shader interface and remains "
-                          "orphaned.";
-            }
-            Json mapped = diagnostic("shader.material_project", finding.path, message);
-            mapped["severity"] = finding.severity;
-            diagnostics.push_back(std::move(mapped));
-        }
-    }
+    for (const auto& finding :
+         noveltea::tooling::material_reflection_diagnostics(compiled, materials))
+        diagnostics.push_back(Json::parse(finding.dump()));
 }
 
 int shaders_compile(const Arguments& args)
@@ -1930,11 +1897,16 @@ int project_read(const Arguments& args, std::string action)
                     if (std::getenv("NOVELTEA_CLI_TRACE"))
                         std::cerr << "[native-cli] materials with compiler requests: "
                                   << response.at("materialCompilerPrograms").size() << '\n';
-                    if (profile_work)
-                        work_profile["shaderCompileRuns"] =
-                            work_profile.value("shaderCompileRuns", 0) + 1;
-                    const auto compiled =
-                        native_material_compile(root_text, response.at("materialCompilerPrograms"));
+                    // The resident Project owner compiles or verifies its
+                    // cached programs against the same pinned source inventory
+                    // as semantic and font validation. A separate CLI-side
+                    // compile would traverse the shader include tree again.
+                    if (!response.contains("materialCompilerResult") ||
+                        !response.at("materialCompilerResult").is_object())
+                        return failure(args.json, 70, "NATIVE_PROJECT_VALIDATION_UNAVAILABLE", "/",
+                                       "Native validation omitted its shader compiler evidence.",
+                                       "Native validation omitted its shader compiler evidence.");
+                    const auto& compiled = response.at("materialCompilerResult");
                     if (std::getenv("NOVELTEA_CLI_TRACE"))
                         std::cerr << "[native-cli] shader compile success: "
                                   << compiled.value("success", false) << " diagnostics: "
@@ -1955,11 +1927,16 @@ int project_read(const Arguments& args, std::string action)
                         diagnostics.push_back(diagnostic(
                             "native.shader.compile", "/shaders",
                             compiled.value("error", std::string("Shader compilation failed."))));
-                    if (compiled.value("ok", false) && compiled.value("success", false) &&
-                        response.contains("materialEffectiveInputs") &&
-                        response.at("materialEffectiveInputs").is_object())
-                        append_material_reflection_diagnostics(
-                            diagnostics, compiled, response.at("materialEffectiveInputs"));
+                    if (compiled.value("ok", false) && compiled.value("success", false)) {
+                        if (!response.contains("materialReflectionDiagnostics") ||
+                            !response.at("materialReflectionDiagnostics").is_array())
+                            return failure(
+                                args.json, 70, "NATIVE_PROJECT_VALIDATION_UNAVAILABLE", "/",
+                                "Native validation omitted its Material interface evidence.",
+                                "Native validation omitted its Material interface evidence.");
+                        for (const auto& finding : response.at("materialReflectionDiagnostics"))
+                            diagnostics.push_back(finding);
+                    }
                 }
             }
             const auto proof =

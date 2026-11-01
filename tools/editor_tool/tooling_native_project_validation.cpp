@@ -4,6 +4,7 @@
 #include "tooling_native_project_bundle.hpp"
 #include "tooling_native_project_localization.hpp"
 #include "tooling_native_project_sync.hpp"
+#include "tooling_native_project_shader_validation.hpp"
 
 #include "../project_authoring/room_session.hpp"
 #include "../project_authoring/validation_work_instrumentation.hpp"
@@ -54,6 +55,24 @@ struct OwnerValidation {
     // Derived only from this session's last certified localization generation.
     // A new admission cannot borrow another Project's source projection.
     std::optional<Json> font_inputs;
+    // Material resolution depends on the saved Material/Asset records and
+    // source membership; shader contents are tracked separately by the
+    // per-program compiler cache.
+    std::optional<Json> material_records;
+    std::optional<Json> material_assets;
+    Json material_programs = Json::object();
+    Json material_effective = Json::object();
+    noveltea::tooling::MaterialShaderValidationCache shader_cache;
+    void clear_preparations(bool clear_shaders = true)
+    {
+        font_inputs.reset();
+        material_records.reset();
+        material_assets.reset();
+        material_programs = Json::object();
+        material_effective = Json::object();
+        if (clear_shaders)
+            shader_cache.clear();
+    }
 };
 
 OwnerValidation& resident()
@@ -426,7 +445,7 @@ Json validate(std::string_view request_text)
     if (request.value("action", std::string("validate")) == "release") {
         if (state.root == root) {
             state.session.reset();
-            state.font_inputs.reset();
+            state.clear_preparations();
             state.root.clear();
             state.pending_generation.clear();
         }
@@ -437,6 +456,10 @@ Json validate(std::string_view request_text)
             // Observation must not consume inventory changes that the next validation
             // would otherwise use to revoke its admitted Project.
             state.session.reset();
+            // A newly added/removed shader source requires fresh Project
+            // admission, not recompilation of unrelated resident programs.
+            // The next proven inventory revokes affected compiler entries.
+            state.clear_preparations(false);
             state.pending_generation.clear();
             return {{"ok", false}, {"kind", "conflict"}, {"error", "Project sources changed."}};
         };
@@ -475,7 +498,7 @@ Json validate(std::string_view request_text)
     state.pending_generation.clear();
     if (state.root != root) {
         state.session.reset();
-        state.font_inputs.reset();
+        state.clear_preparations();
         state.root = root;
     }
     auto captures_before = state.session ? state.session->source_capture_count() : 0;
@@ -491,7 +514,7 @@ Json validate(std::string_view request_text)
         if (observed.full_rescan || !observed.authoritative || !observed.delta.added.empty() ||
             !observed.delta.removed.empty()) {
             state.session.reset();
-            state.font_inputs.reset();
+            state.clear_preparations(false);
             // The replacement authority starts its scan count at zero.
             captures_before = 0;
             record_hits_before = 0;
@@ -501,7 +524,7 @@ Json validate(std::string_view request_text)
     const bool warm = state.session != nullptr;
     std::string error;
     if (!state.session) {
-        state.font_inputs.reset();
+        state.clear_preparations(false);
         trace_native_validation("opening mutable Project session");
         ++state.session_admissions;
         state.session = ProjectSession::open(root, error);
@@ -585,19 +608,20 @@ Json validate(std::string_view request_text)
             // certified Room/Map presentation-only path can reuse the exact
             // effective Message/translation source projection. Other changes
             // must rebuild it; font face bytes are proved separately below.
-            const bool retain_inputs = state.font_inputs && work.localization_rebuilds == 0 &&
-                                       work.global_stage_executions == 0 &&
-                                       (work.global_stage_reuses == 1 ||
-                                        (work.rechecked_records == 0 &&
-                                         work.rechecked_contributions == 0 &&
-                                         work.reference_indexed_records == 0));
+            const bool retain_inputs =
+                state.font_inputs && work.localization_rebuilds == 0 &&
+                work.global_stage_executions == 0 &&
+                (work.global_stage_reuses == 1 ||
+                 (work.rechecked_records == 0 && work.rechecked_contributions == 0 &&
+                  work.reference_indexed_records == 0));
             if (retain_inputs) {
                 result["fontCoverageInputs"] = *state.font_inputs;
                 result["work"]["fontInputReuses"] = 1;
             } else {
                 noveltea::authoring::count_validation_work(
                     &noveltea::authoring::ValidationWorkCounters::font_preparations);
-                result["fontCoverageInputs"] = native_font_coverage_inputs(*state.session, admitted);
+                result["fontCoverageInputs"] =
+                    native_font_coverage_inputs(*state.session, admitted);
                 state.font_inputs = result["fontCoverageInputs"];
                 result["work"]["fontInputReuses"] = 0;
             }
@@ -608,7 +632,8 @@ Json validate(std::string_view request_text)
                 !result.contains("noticeValidationFailure")) {
                 const auto font_request =
                     Json{{"projectRoot", root.string()}, {"locales", result["fontCoverageInputs"]}};
-                const auto coverage = noveltea::tooling::validate_font_coverage(font_request.dump());
+                const auto coverage =
+                    noveltea::tooling::validate_font_coverage(font_request.dump());
                 result["fontCoverageResult"] = Json::parse(coverage.response_json);
                 if (result["fontCoverageResult"].contains("work")) {
                     const auto& font_work = result["fontCoverageResult"].at("work");
@@ -617,10 +642,16 @@ Json validate(std::string_view request_text)
                         font_work.value("reusedLocales", 0);
                 }
             }
-            Json material_programs = Json::object();
-            Json material_effective = Json::object();
-            if (admitted.contains("materials") && admitted.at("materials").is_object()) {
-                for (const auto& [id, _] : admitted.at("materials").items()) {
+            const Json materials = admitted.value("materials", Json::object());
+            const Json assets = admitted.value("assets", Json::object());
+            const bool reuse_materials = state.material_records && state.material_assets &&
+                                         *state.material_records == materials &&
+                                         *state.material_assets == assets;
+            Json material_programs = reuse_materials ? state.material_programs : Json::object();
+            Json material_effective = reuse_materials ? state.material_effective : Json::object();
+            result["work"]["materialInputReuses"] = reuse_materials ? 1 : 0;
+            if (!reuse_materials && materials.is_object()) {
+                for (const auto& [id, _] : materials.items()) {
                     const auto inspected = state.session->inspect_record("materials/" + id);
                     if (!inspected.accepted)
                         throw std::runtime_error("Native Material owner cannot be inspected: " +
@@ -659,9 +690,47 @@ Json validate(std::string_view request_text)
                         material_programs[id][key] = std::move(program);
                     }
                 }
+                state.material_records = materials;
+                state.material_assets = assets;
+                state.material_programs = material_programs;
+                state.material_effective = material_effective;
             }
-            result["materialCompilerPrograms"] = std::move(material_programs);
-            result["materialEffectiveInputs"] = std::move(material_effective);
+            result["materialCompilerPrograms"] = material_programs;
+            result["materialEffectiveInputs"] = material_effective;
+            const auto& coverage = result.value("fontCoverageResult", Json::object());
+            const auto coverage_diagnostics = coverage.value("diagnostics", Json::array());
+            const bool coverage_valid =
+                coverage.value("ok", false) && coverage.value("success", false) &&
+                std::none_of(
+                    coverage_diagnostics.begin(), coverage_diagnostics.end(),
+                    [](const Json& item) { return item.value("severity", "error") == "error"; });
+            if (coverage_valid && result["entrypointConfigured"].get<bool>() &&
+                !result.contains("noticeValidationFailure") && !material_programs.empty()) {
+                const auto* source_revisions = state.session->verified_source_revisions_view();
+                if (!source_revisions)
+                    return {{"ok", false},
+                            {"kind", "conflict"},
+                            {"error", "Shader compiler source evidence is unavailable."}};
+                noveltea::tooling::MaterialShaderValidationCache::Work shader_work;
+                result["materialCompilerResult"] = state.shader_cache.validate(
+                    root, material_programs, *source_revisions, shader_work);
+                const auto& compiled = result["materialCompilerResult"];
+                if (compiled.value("ok", false) && compiled.value("success", false))
+                    result["materialReflectionDiagnostics"] =
+                        state.shader_cache.reflected_materials(compiled, material_effective,
+                                                               shader_work);
+                result["work"]["shaderCompileRuns"] = shader_work.compiler_runs;
+                result["work"]["shaderProgramsReused"] = shader_work.reused_programs;
+                result["work"]["shaderOutputProofs"] = shader_work.output_proofs;
+                result["work"]["materialInterfaceValidations"] = shader_work.interface_validations;
+                result["work"]["materialInterfaceReuses"] = shader_work.interface_reuses;
+            } else {
+                result["work"]["shaderCompileRuns"] = 0;
+                result["work"]["shaderProgramsReused"] = 0;
+                result["work"]["shaderOutputProofs"] = 0;
+                result["work"]["materialInterfaceValidations"] = 0;
+                result["work"]["materialInterfaceReuses"] = 0;
+            }
         }
         // Bind a successful diagnostic graph to the exact physical generation
         // consumed by downstream preparation; never mix separate admissions.

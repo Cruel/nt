@@ -1,0 +1,109 @@
+{
+  "schema": "noveltea.validation-performance-comparison.v1",
+  "issue": 588,
+  "capturedAtUtc": "2026-11-01T04:23:56.681364+00:00",
+  "machine": "reference-linux",
+  "cpu": "AMD Ryzen 7 5700G with Radeon Graphics",
+  "sourceCommit": "dd56760703410fb4bd7df284aaa47f32adbbc014",
+  "workingTreeModified": true,
+  "reference": "validation-2026-10-31-release.json",
+  "priorIncrement": "validation-2026-10-31-localization-font.json",
+  "harnessSha256": "3d1d2ab06a891c2d22ac74f1ee52b9ddf9826a6dbe23dca11762633dc672a453",
+  "releaseCliSha256": "fbed611515eec226212a88a52aef075097b96feeeb64ef8ef62e4935f68909a7",
+  "releaseAddonSha256": "470e580ebd355f384a8225ef922ee99deaaaec619ec95b50e64c74473606823d",
+  "sameMachineHarnessAndBuildFlags": true,
+  "samples": 83,
+  "diagnosticFingerprintsMatching": 67,
+  "diagnosticFingerprintsCompared": 67,
+  "samplesWithoutDiagnosticFingerprint": 16,
+  "note": "Medians in milliseconds; every pair is [#577 pre-optimization baseline, #588 working tree]. Same AMD Ryzen 7 5700G, Release CLI and Release Node-API addon, fixture/cache/profiler conditions, and 3 repetitions. All 67 applicable diagnostic digests match the original baseline exactly. Cumulative improvements include prior #582-#587 work and cannot be attributed solely to #588. #587's retained Feature Lab warm-saved-label median was 212.17 ms, compared with 185.60 ms here. Cold shaderCompileRuns is per-program shaderc requests in #588 but a single batched request in the reference, so do not compare those counts as equivalent compilation workloads. Elapsed-time differences are informational, not CI thresholds.",
+  "scenarios": [
+    {
+      "project": "feature-lab",
+      "medianMs": {
+        "uncachedStart": [3440.47, 3068.68],
+        "unchangedResident": [328.37, 185.48],
+        "warmSavedLabel": [323.31, 185.60],
+        "warmSavedLua": [347.79, 286.31],
+        "noDaemon": [2631.72, 2614.01],
+        "editorInMemory": [94.38, 29.98]
+      },
+      "warmLabelWork": {
+        "sourceCaptures": [5, 1],
+        "directoryEnumerations": [205, 0],
+        "fileByteReads": [2268, 101],
+        "contentHashes": [3813, 78],
+        "recordContributions": [1, 1],
+        "dependencyContributions": [1, 1],
+        "recheckedRecords": [1, 1],
+        "materialShaderPreparations": [13, 0],
+        "shaderCompileRuns": [1, 0],
+        "materialInputReuses": 1,
+        "shaderProgramsReused": 8,
+        "shaderOutputProofs": 48,
+        "materialInterfaceValidations": 0,
+        "materialInterfaceReuses": 11
+      }
+    },
+    {
+      "project": "1-room",
+      "medianMs": {
+        "uncachedStart": [86.09, 103.06],
+        "unchangedResident": [13.05, 10.80],
+        "warmSavedLabel": [13.17, 10.86],
+        "noDaemon": [82.60, 77.64],
+        "editorInMemory": [1.23, 0.84]
+      },
+      "warmLabelWork": {
+        "sourceCaptures": [5, 1],
+        "directoryEnumerations": [30, 0],
+        "fileByteReads": [59, 4],
+        "contentHashes": [61, 6],
+        "recordContributions": [1, 1],
+        "materialShaderPreparations": [0, 0],
+        "shaderCompileRuns": 0,
+        "materialInterfaceValidations": 0
+      }
+    },
+    {
+      "project": "101-rooms",
+      "medianMs": {
+        "uncachedStart": [205.17, 183.54],
+        "unchangedResident": [38.86, 26.61],
+        "warmSavedLabel": [45.22, 27.01],
+        "noDaemon": [168.62, 173.11],
+        "editorInMemory": [7.53, 3.64]
+      },
+      "warmLabelWork": {
+        "sourceCaptures": [5, 1],
+        "directoryEnumerations": [30, 0],
+        "fileByteReads": [559, 4],
+        "contentHashes": [561, 6],
+        "recordContributions": [1, 1],
+        "materialShaderPreparations": [0, 0],
+        "shaderCompileRuns": 0,
+        "materialInterfaceValidations": 0
+      }
+    },
+    {
+      "project": "501-rooms",
+      "medianMs": {
+        "uncachedStart": [595.43, 515.50],
+        "unchangedResident": [152.07, 99.59],
+        "warmSavedLabel": [167.99, 104.11],
+        "noDaemon": [626.95, 500.53],
+        "editorInMemory": [34.08, 14.99]
+      },
+      "warmLabelWork": {
+        "sourceCaptures": [5, 1],
+        "directoryEnumerations": [30, 0],
+        "fileByteReads": [2559, 4],
+        "contentHashes": [2561, 6],
+        "recordContributions": [1, 1],
+        "materialShaderPreparations": [0, 0],
+        "shaderCompileRuns": 0,
+        "materialInterfaceValidations": 0
+      }
+    }
+  ]
+}

@@ -257,18 +257,35 @@ ProjectSession::prepare_working(std::uint64_t expected_revision, std::string_vie
             }
             prepared.source_revisions.emplace(path, baseline);
         }
-        // Saved shader sources (including shared .sh includes) are runtime
-        // compiler inputs even when there is no dirty Material or shader
-        // overlay. Hash their current physical bytes on every preparation so
-        // an external shader edit cannot reuse a stale compiled artifact.
-        const auto shader_root = root_ / "shaders";
-        if (std::filesystem::is_directory(shader_root)) {
-            for (const auto& file : std::filesystem::recursive_directory_iterator(shader_root)) {
-                if (!file.is_regular_file())
-                    continue;
-                const auto path = file.path().lexically_relative(root_).generic_string();
-                prepared.source_revisions.insert_or_assign(
-                    path, exact_source_revision(bytes_at(file.path())));
+        // For a pinned, completely verified validation generation, reuse the
+        // source watcher's exact shader inventory instead of walking and
+        // rehashing the whole include tree. This inventory covers all shader
+        // source extensions, not only .sc and .sh. The caller must still fence
+        // the observed physical generation before publishing its result.
+        const auto* verified =
+            reuse_validated_snapshot && validation_snapshot_ &&
+                    validation_snapshot_->working_revision == expected_revision &&
+                    !validation_pending_uncertain_ && validation_pending_source_revisions_.empty()
+                ? source_authority_->verified_revisions_view()
+                : nullptr;
+        if (verified) {
+            for (const auto& [path, revision] : *verified)
+                if (path.starts_with("shaders/"))
+                    prepared.source_revisions.insert_or_assign(path, revision);
+        } else {
+            // Dirty editor drafts or unpinned preview work still admit current
+            // physical shader bytes directly. They cannot borrow a previous
+            // disk-validation generation as their own authority.
+            const auto shader_root = root_ / "shaders";
+            if (std::filesystem::is_directory(shader_root)) {
+                for (const auto& file :
+                     std::filesystem::recursive_directory_iterator(shader_root)) {
+                    if (!file.is_regular_file())
+                        continue;
+                    const auto path = file.path().lexically_relative(root_).generic_string();
+                    prepared.source_revisions.insert_or_assign(
+                        path, exact_source_revision(bytes_at(file.path())));
+                }
             }
         }
         prepared.source_revisions.emplace("project.yaml", source_->snapshot().disk_source_revision);

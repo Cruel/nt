@@ -687,8 +687,7 @@ SourceAuthority::Capture SourceAuthority::capture(const std::set<std::string>* h
                 if (entry.is_directory())
                     self(self, relative, depth + 1);
                 else if ((entry.is_regular_file() || entry.is_symlink()) &&
-                         (entry.path().extension() == extension ||
-                          (directory == "shaders" && entry.path().extension() == ".sh")))
+                         (directory == "shaders" || entry.path().extension() == extension))
                     add(relative);
             });
         };

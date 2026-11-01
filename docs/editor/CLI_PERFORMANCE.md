@@ -13,6 +13,68 @@ records baseline evidence from `4e0dcdfc`, not performance guarantees. See
 The problem is **repeated whole-Project work around an incremental validator**, not an
 unoptimized compiler build or failure to retain the primary validation session.
 
+### #588: resident Material projection and transitive shader validation
+
+Public `noveltea validate` now asks the existing resident native Project owner
+to certify shader programs before publishing its pinned source generation.
+The CLI continues to apply the same compiler-diagnostic and Material reflection
+presentation policy, but no longer invokes a separate shaderc pass after
+receiving the validated generation.
+
+Unchanged saved Material/Asset records reuse their resolved Material inputs
+and generated compiler requests. The owner retains bounded per-program shaderc
+results in memory, keyed by the canonical program request within that owner
+process/compiler build. Successful results record the recursive compiler's
+Project source dependency identities against the independently verified
+SourceAuthority revisions, and recheck each emitted compiled binary's exact
+size, SHA-256, and contained non-symlink output path before reuse. A modified
+nested `.sh` include revokes only programs that consume it. Compiler failures
+with deterministic diagnostic codes and no partial outputs retain negative
+evidence against the whole shader source inventory, so additions/repairs
+revoke those findings. Compiler I/O uncertainty, partial-output failures and
+unexpected responses are never cached. Embedded shaderc resources are part of
+the immutable in-process compiler identity; materialized engine shader sources
+are independently hashed from their physical files on each resident cache hit
+without re-traversing their include tree. The compiler's original
+content-based persistent cache and include resolver still handle every miss.
+Per-Material reflected-interface findings use the existing native semantic
+checker and public diagnostic projection, now shared by the explicit shader
+command and the resident owner. Each finding is retained against the
+effective Material and its exact compiler output/interface proof, so unchanged
+Materials do not rerun interface validation, while shader edits recheck only
+their dependent Materials. The resident cache is not a second durable format or
+validation authority. Source admission, watcher coverage loss, final source
+fences, and public CLI diagnostics remain independent.
+
+Pinned disk validation also reuses the source watcher's shader-file revisions
+when preparing its complete Project, avoiding a second recursive shader
+directory scan and source-byte hash pass. The source inventory now observes
+every file under the authored `shaders/` tree so included shader sources of
+other extensions (such as `.inc` and `.glsl`) are not invisible to that proof.
+Dirty/unpinned editor preview preparation keeps its independent physical reads.
+
+The public validation profile now distinguishes `materialInputReuses`,
+`shaderCompileRuns` (per-program shaderc service invocations),
+`shaderProgramsReused`, `shaderOutputProofs` (actual output integrity
+verifications), `materialInterfaceValidations`, and
+`materialInterfaceReuses`. A warm Room metadata edit with unchanged Materials
+should report zero `materialShaderPreparations`, zero `shaderCompileRuns`,
+and zero `materialInterfaceValidations`, while
+still proving the relevant binary outputs before publishing diagnostics.
+Focused coverage is `native_cli_shader_validation_cache`.
+
+The matched 83-sample Release CLI/Release addon run on the reference Ryzen
+7 5700G is retained as
+`docs/editor/performance/baselines/validation-2026-10-31-material-shader.json`.
+All 67 comparable public diagnostic fingerprints match the committed #577
+baseline. Feature Lab's warm saved-label median changed from 323.31 ms in
+that baseline (and 212.17 ms after #587) to 185.60 ms; the matched warm work
+changed from one shader compiler call and 13 Material preparations to zero
+compiler calls, zero Material preparations, and zero Material-interface
+validations (with eight program and eleven interface results reused).
+The improvement against #577 includes previous #582–#587 work, so those
+numbers are a cumulative comparison, not an isolated #588 speedup claim.
+
 ### #586: retained diagnostic assembly and YAML provenance
 
 The native Project session retains record-local diagnostic contributions and the
