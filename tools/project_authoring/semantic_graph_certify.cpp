@@ -152,7 +152,8 @@ int main(int argc, char** argv)
                 "purposes without semantic validation dependencies");
         const auto& style_owners = base.at("sourceOwners").at("assets/ui/shared.rcss");
         require(std::find(style_owners.array_range().begin(), style_owners.array_range().end(),
-                          Json("/assets/counter-shared-style")) != style_owners.array_range().end() &&
+                          Json("/assets/counter-shared-style")) !=
+                        style_owners.array_range().end() &&
                     std::find(style_owners.array_range().begin(), style_owners.array_range().end(),
                               Json("/layouts/flow-counter")) != style_owners.array_range().end(),
                 "Native source proof must expose the Asset and dependent Layout ownership");
@@ -299,8 +300,7 @@ int main(int argc, char** argv)
                "import(\"graph-cycle-missing\")\n"
                "import(dynamic_name)\n"
                "-- import(\"graph-cycle-false\")\n";
-        std::ofstream(cycle.root / "scripts/graph-cycle-b.lua")
-            << "import(\"graph-cycle-a\")\n";
+        std::ofstream(cycle.root / "scripts/graph-cycle-b.lua") << "import(\"graph-cycle-a\")\n";
         const auto inspect_cycle = [&](const Json& evidence, bool resolved) {
             bool forward = false, backward = false, unresolved = false, dynamic = false;
             for (const auto& edge : evidence.at("edges").array_range()) {

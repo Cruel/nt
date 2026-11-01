@@ -2142,8 +2142,17 @@ void project_validation_roundtrip(const std::filesystem::path& fixture)
     require(changed_room.valid && project->validation_work().rechecked_records == 1 &&
                 project->validation_work().retained_records > 0 &&
                 project->validation_work().rechecked_contributions == 1 &&
-                project->validation_work().retained_contributions > 0,
-            "One label edit rechecks only the owning semantic contribution");
+                project->validation_work().retained_contributions > 0 &&
+                project->validation_work().global_stage_executions == 0 &&
+                project->validation_work().global_stage_reuses == 1 &&
+                project->validation_work().diagnostic_assemblies == 1,
+            "One presentation edit rechecks its contribution and reuses global diagnostics");
+    const auto unchanged_after_label = project->validate_project();
+    require(ordered_signature(unchanged_after_label) == ordered_signature(changed_room) &&
+                project->validation_work().global_stage_executions == 0 &&
+                project->validation_work().diagnostic_assemblies == 0 &&
+                project->validation_work().source_location_rebuilds == 0,
+            "Unchanged resident validation assembles no diagnostics or source locations");
     fresh = ProjectSession::open(temp.root, error);
     require(fresh && signature(fresh->validate_project()) == signature(changed_room),
             "Changed Room cold/warm semantic diagnostics agree");
@@ -2180,8 +2189,9 @@ void project_validation_roundtrip(const std::filesystem::path& fixture)
     write(asset_path, asset_label);
     const auto label_only = project->validate_project();
     require(label_only.valid && project->validation_work().rechecked_records == 1 &&
-                project->validation_work().rechecked_contributions == 1,
-            "Unconsumed Asset label changes do not invalidate typed Animation consumers");
+                project->validation_work().rechecked_contributions == 1 &&
+                project->validation_work().global_stage_executions == 1,
+            "Asset label edits recheck no typed Animation consumers but retain global scrutiny");
     auto asset_kind = asset_label;
     const auto kind_position = asset_kind.find("kind: image");
     require(kind_position != std::string::npos, "Typed Asset fixture kind exists");

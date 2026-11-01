@@ -1,0 +1,110 @@
+{
+  "schema": "noveltea.validation-performance-comparison.v1",
+  "issue": 586,
+  "capturedAtUtc": "2026-11-01T00:44:24.491142+00:00",
+  "machine": "reference-linux",
+  "cpu": "AMD Ryzen 7 5700G with Radeon Graphics",
+  "sourceCommit": "d5b25c87c034d706eeb2e7990c24066826022807",
+  "workingTreeModified": true,
+  "reference": "validation-2026-10-31-release.json",
+  "harnessSha256": "3d1d2ab06a891c2d22ac74f1ee52b9ddf9826a6dbe23dca11762633dc672a453",
+  "releaseCliSha256": "a5aa58b54fe7bf44a3f883f8d6618963849fe3d8e47a88862c5bf03f28d6a3de",
+  "releaseAddonSha256": "70dbe0b10b86557c6dabe2f95ecfc7d1713015e7a38d930d1763723c437f6321",
+  "sameMachineHarnessAndBuildFlags": true,
+  "samples": 83,
+  "diagnosticFingerprintsMatching": 67,
+  "diagnosticFingerprintsCompared": 67,
+  "samplesWithoutDiagnosticFingerprint": 16,
+  "note": "Each medianMs and paired warmLabelWork value is [#577 baseline, current]. Same fixture/cache conditions and Release CLI + Node-API addon as #577. Changes also include optimization tickets #582-#585; timings are not attributable exclusively to #586. Unpaired work counters are from the first matching scenario sample. Public font and shader preparation still execute on warm calls, with their memoization owned by later tickets.",
+  "scenarios": [
+    {
+      "project": "feature-lab",
+      "medianMs": {
+        "uncachedStart": [3440.47, 3011.50],
+        "unchangedResident": [328.37, 207.44],
+        "warmSavedLabel": [323.31, 214.75],
+        "warmSavedLua": [347.79, 292.34],
+        "noDaemon": [2631.72, 2579.10],
+        "editorInMemory": [94.38, 29.11]
+      },
+      "warmLabelWork": {
+        "sourceCaptures": [5, 1],
+        "directoryEnumerations": [205, 0],
+        "fileByteReads": [2268, 369],
+        "contentHashes": [3813, 1860],
+        "recordContributions": [1, 1],
+        "dependencyContributions": [1, 1],
+        "globalStageExecutions": 0,
+        "globalStageReuses": 1,
+        "diagnosticAssemblies": 1,
+        "sourceLocationRebuilds": 0,
+        "completeProjectProjected": 1,
+        "completeProjectReused": 305,
+        "fontPreparations": 1,
+        "materialShaderPreparations": 13
+      },
+      "unchangedResidentWork": {
+        "recordContributions": 0,
+        "dependencyContributions": 0,
+        "globalStageExecutions": 0,
+        "diagnosticAssemblies": 0,
+        "sourceLocationRebuilds": 0,
+        "completeProjectProjected": 0,
+        "completeProjectReused": 306,
+        "fontPreparations": 1,
+        "materialShaderPreparations": 13
+      }
+    },
+    {
+      "project": "1-room",
+      "medianMs": {
+        "unchangedResident": [13.05, 10.93],
+        "warmSavedLabel": [13.17, 11.66],
+        "noDaemon": [82.60, 80.04]
+      },
+      "warmLabelWork": {
+        "recordContributions": 1,
+        "dependencyContributions": 1,
+        "globalStageExecutions": 0,
+        "globalStageReuses": 1,
+        "sourceLocationRebuilds": 1,
+        "completeProjectProjected": 1,
+        "completeProjectReused": 8
+      }
+    },
+    {
+      "project": "101-rooms",
+      "medianMs": {
+        "unchangedResident": [38.86, 31.02],
+        "warmSavedLabel": [45.22, 30.37],
+        "noDaemon": [168.62, 174.94]
+      },
+      "warmLabelWork": {
+        "recordContributions": 1,
+        "dependencyContributions": 1,
+        "globalStageExecutions": 0,
+        "globalStageReuses": 1,
+        "sourceLocationRebuilds": 1,
+        "completeProjectProjected": 1,
+        "completeProjectReused": 108
+      }
+    },
+    {
+      "project": "501-rooms",
+      "medianMs": {
+        "unchangedResident": [152.07, 110.99],
+        "warmSavedLabel": [167.99, 108.81],
+        "noDaemon": [626.95, 507.26]
+      },
+      "warmLabelWork": {
+        "recordContributions": 1,
+        "dependencyContributions": 1,
+        "globalStageExecutions": 0,
+        "globalStageReuses": 1,
+        "sourceLocationRebuilds": 1,
+        "completeProjectProjected": 1,
+        "completeProjectReused": 508
+      }
+    }
+  ]
+}

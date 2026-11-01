@@ -397,6 +397,10 @@ Json response_for(const noveltea::authoring::RoomSessionSnapshot& snapshot, bool
               {"retainedContributions", work.retained_contributions},
               {"referenceIndexedRecords", work.reference_indexed_records},
               {"localizationRebuilds", work.localization_rebuilds},
+              {"globalStageExecutions", work.global_stage_executions},
+              {"globalStageReuses", work.global_stage_reuses},
+              {"diagnosticAssemblies", work.diagnostic_assemblies},
+              {"sourceLocationRebuilds", work.source_location_rebuilds},
               {"semanticFallbackReasons", work.semantic_fallback_reasons}}}};
 }
 
@@ -539,6 +543,11 @@ Json validate(std::string_view request_text)
             if (!prepared.accepted)
                 throw std::runtime_error("Native font coverage Project preparation failed: " +
                                          prepared.error);
+            const auto [reused, projected] = state.session->complete_project_assembly_work();
+            result["work"]["completeProjectReused"] = reused;
+            result["work"]["completeProjectProjected"] = projected;
+            result["work"]["completeProjectSnapshotReads"] =
+                state.session->complete_project_snapshot_reads();
             const auto admitted = Json::parse(prepared.complete_project_json);
             noveltea::authoring::count_validation_work(
                 &noveltea::authoring::ValidationWorkCounters::portable_source_checks);

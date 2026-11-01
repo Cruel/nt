@@ -1568,6 +1568,7 @@ RoomSessionSnapshot ProjectSession::validate_project(bool observed_at_entry,
             validation_source_revisions_.erase(path);
             validation_source_errors_.erase(path);
             validation_contributions_.erase(path);
+            validation_source_locations_.erase(path);
             validation_invalidated_owners_.insert(path);
         } else if (path.starts_with("records/")) {
             const auto name = path.substr(sizeof("records/") - 1);
@@ -1590,6 +1591,7 @@ RoomSessionSnapshot ProjectSession::validate_project(bool observed_at_entry,
             validation_source_revisions_.erase(path);
             validation_source_errors_.erase(path);
             validation_contributions_.erase(owner);
+            validation_source_locations_.erase(owner);
             validation_invalidated_owners_.insert(owner);
             index_text_owner(owner, "{}");
         }
@@ -1715,7 +1717,8 @@ RoomSessionSnapshot ProjectSession::validate_project(bool observed_at_entry,
                 traits_baseline_json_ = admitted.normalized_json;
             validation_source_revisions_.emplace(path, admitted.disk_source_revision);
             validation_records_.emplace(owner, std::move(record));
-            if (!previous_normalized.empty() && !admitted.normalized_json.empty()) {
+            if (owner != "traits" && !owner.starts_with("i18n/") && !previous_normalized.empty() &&
+                !admitted.normalized_json.empty()) {
                 auto before = Json::parse(previous_normalized);
                 auto after = Json::parse(admitted.normalized_json);
                 if (before.is_object() && after.is_object()) {
@@ -1945,6 +1948,7 @@ RoomSessionSnapshot ProjectSession::validate_project(bool observed_at_entry,
     if (!observation.authoritative && !observation.scoped_authority) {
         validation_work_.semantic_fallback_reasons.insert("source-authority-uncertain");
         validation_contributions_.clear();
+        validation_global_contribution_.reset();
     }
     for (auto it = validation_contributions_.begin(); it != validation_contributions_.end();) {
         if (!validation_records_.contains(it->first))
@@ -1960,7 +1964,37 @@ RoomSessionSnapshot ProjectSession::validate_project(bool observed_at_entry,
         explicit ScopedView(bool& flag) : active(flag) { active = true; }
         ~ScopedView() { active = false; }
     } view(validation_view_active_);
+    reuse_validation_global_contribution_ =
+        validation_snapshot_ && !presentation_only_updates.empty() &&
+        !validation_pending_uncertain_ &&
+        (observation.authoritative || observation.scoped_authority) &&
+        validation_invalidated_owners_ == presentation_only_updates &&
+        validation_pending_asset_owners_.empty() &&
+        validation_shader_overlays_ == shader_overlays_ && localization_cache_ &&
+        std::all_of(presentation_only_updates.begin(), presentation_only_updates.end(),
+                    [](const std::string& owner) {
+                        // Other families can feed generated localization and
+                        // message diagnostics even on a label-only edit.
+                        return owner.starts_with("rooms/") || owner.starts_with("maps/");
+                    }) &&
+        std::all_of(validation_pending_source_revisions_.begin(),
+                    validation_pending_source_revisions_.end(), [&](const auto& entry) {
+                        const auto& path = entry.first;
+                        if (!path.starts_with("records/") || !path.ends_with(".yaml"))
+                            return false;
+                        return std::any_of(presentation_only_updates.begin(),
+                                           presentation_only_updates.end(),
+                                           [&](const std::string& owner) {
+                                               const auto record = validation_records_.find(owner);
+                                               return record != validation_records_.end() &&
+                                                      record->second->source_path()
+                                                              .lexically_relative(root_)
+                                                              .generic_string() == path;
+                                           });
+                    });
+    ++validation_work_.diagnostic_assemblies;
     auto result = snapshot();
+    reuse_validation_global_contribution_ = false;
     if (!invalid_manifest.empty()) {
         try {
             auto issues = invalid_manifest_diagnostics(root_);
@@ -2054,7 +2088,6 @@ RoomSessionSnapshot ProjectSession::validate_project(bool observed_at_entry,
     // Attach navigation to the actual YAML owner, not to the last edited
     // source or an arbitrary dependency. For normalized paths, use the nearest
     // existing source ancestor (for instance /$ref/id maps to a bare YAML ID).
-    std::map<std::string, std::vector<YamlSourceLocation>> locations;
     for (auto& issue : result.diagnostics) {
         std::string owner;
         if (issue.path.starts_with("/")) {
@@ -2084,14 +2117,24 @@ RoomSessionSnapshot ProjectSession::validate_project(bool observed_at_entry,
         if (issue.source_path != source_path || issue.line || issue.column ||
             record->second->snapshot().dirty)
             continue;
-        if (!locations.contains(owner))
-            locations.emplace(owner, open_yaml_source(record->second->disk_source_).locations);
+        auto location = validation_source_locations_.find(owner);
+        if (location == validation_source_locations_.end() ||
+            location->second.revision != record->second->disk_revision_) {
+            ++validation_work_.source_location_rebuilds;
+            location =
+                validation_source_locations_
+                    .insert_or_assign(owner,
+                                      SourceLocationContribution{
+                                          record->second->disk_revision_,
+                                          open_yaml_source(record->second->disk_source_).locations})
+                    .first;
+        }
         std::string pointer = issue.path.substr(owner.size() + 1);
         for (;;) {
             const auto found = std::find_if(
-                locations.at(owner).begin(), locations.at(owner).end(),
+                location->second.locations.begin(), location->second.locations.end(),
                 [&](const YamlSourceLocation& location) { return location.path == pointer; });
-            if (found != locations.at(owner).end()) {
+            if (found != location->second.locations.end()) {
                 if (found->line) {
                     issue.line = found->line;
                     issue.column = found->column;
@@ -2471,6 +2514,20 @@ RoomSessionSnapshot ProjectSession::snapshot() const
                                         state.diagnostics.end()}});
         }
         state.valid &= preceding_valid;
+    }
+    const auto global_diagnostic_start = state.diagnostics.size();
+    const bool global_input_valid = state.valid;
+    if (validation_view_active_) {
+        if (reuse_validation_global_contribution_ && validation_global_contribution_ &&
+            validation_global_contribution_->input_valid == global_input_valid) {
+            ++validation_work_.global_stage_reuses;
+            state.diagnostics.insert(state.diagnostics.end(),
+                                     validation_global_contribution_->diagnostics.begin(),
+                                     validation_global_contribution_->diagnostics.end());
+            state.valid = validation_global_contribution_->output_valid;
+            return state;
+        }
+        ++validation_work_.global_stage_executions;
     }
     const bool traits_changed =
         trait_owner != records_.end() && trait_owner->second->snapshot().dirty;
@@ -3069,6 +3126,13 @@ RoomSessionSnapshot ProjectSession::snapshot() const
                 state.diagnostics.push_back(std::move(issue));
             }
         }
+    }
+    if (validation_view_active_) {
+        validation_global_contribution_ = GlobalValidationContribution{
+            global_input_valid,
+            state.valid,
+            {state.diagnostics.begin() + static_cast<std::ptrdiff_t>(global_diagnostic_start),
+             state.diagnostics.end()}};
     }
     return state;
 }

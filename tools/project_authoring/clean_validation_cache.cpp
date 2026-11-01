@@ -467,6 +467,11 @@ ProjectSession::CleanValidation ProjectSession::validate_clean_project(bool init
             for (const auto& [owner, record] : validation_records_)
                 index_text_owner(owner, record->snapshot().source_json);
             validation_snapshot_ = cached;
+            // A portable contributor bundle contains the full diagnostic
+            // answer, but not the RAM-only split of record/global stages or
+            // the YAML coordinate index. Rebuild both on the first mutation.
+            validation_global_contribution_.reset();
+            validation_source_locations_.clear();
             validation_pending_source_revisions_.clear();
             validation_pending_uncertain_ = false;
             validation_invalidated_owners_.clear();

@@ -226,6 +226,10 @@ public:
         std::size_t retained_contributions = 0;
         std::size_t reference_indexed_records = 0;
         std::size_t localization_rebuilds = 0;
+        std::size_t global_stage_executions = 0;
+        std::size_t global_stage_reuses = 0;
+        std::size_t diagnostic_assemblies = 0;
+        std::size_t source_location_rebuilds = 0;
         // Profile-only explanations for conservative semantic work; these do
         // not change validation diagnostics or source authority.
         std::set<std::string> semantic_fallback_reasons;
@@ -483,6 +487,23 @@ private:
         std::vector<Diagnostic> diagnostics;
     };
     mutable std::map<std::string, ValidationContribution> validation_contributions_;
+    // The post-record diagnostic stages depend on semantic content, not
+    // presentation-only record metadata. Retain their raw diagnostics so the
+    // current generation can reattach source coordinates after a YAML edit.
+    struct GlobalValidationContribution {
+        bool input_valid = false;
+        bool output_valid = false;
+        std::vector<Diagnostic> diagnostics;
+    };
+    mutable std::optional<GlobalValidationContribution> validation_global_contribution_;
+    mutable bool reuse_validation_global_contribution_ = false;
+    // Source locations belong to the exact saved YAML revision. Unaffected
+    // owners never need to be parsed again just to locate diagnostics.
+    struct SourceLocationContribution {
+        std::string revision;
+        std::vector<YamlSourceLocation> locations;
+    };
+    std::map<std::string, SourceLocationContribution> validation_source_locations_;
     // Normalized records and their reverse reference edges are reused across
     // validation generations, and invalidated by exact normalized content.
     struct IndexedNormalizedRecord {

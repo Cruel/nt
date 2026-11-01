@@ -107,6 +107,9 @@ TEST_CASE("native disk validation stays resident and proves edits without mutati
     REQUIRE(warm["cliDiagnostics"] == cold["cliDiagnostics"]);
     REQUIRE(warm["work"]["recheckedRecords"] == 0);
     REQUIRE(warm["work"]["retainedRecords"] > 0);
+    REQUIRE(warm["work"]["globalStageExecutions"] == 0);
+    REQUIRE(warm["work"]["diagnosticAssemblies"] == 0);
+    REQUIRE(warm["work"]["sourceLocationRebuilds"] == 0);
 
     // A change is observed by content revision even when no watcher event
     // is delivered to the request. The changed source cannot reuse the proof.
@@ -116,6 +119,29 @@ TEST_CASE("native disk validation stays resident and proves edits without mutati
     REQUIRE(bad_lua["valid"] == false);
     REQUIRE(bad_lua["warm"] == true);
     REQUIRE(bad_lua["work"]["recheckedRecords"] == 0);
+    const auto retained_bad_lua = disk_validate(project.root);
+    REQUIRE(retained_bad_lua["diagnostics"] == bad_lua["diagnostics"]);
+    REQUIRE(retained_bad_lua["work"]["globalStageExecutions"] == 0);
+    REQUIRE(retained_bad_lua["work"]["diagnosticAssemblies"] == 0);
+    auto relabeled = original_room;
+    const auto label = relabeled.find("label: ");
+    REQUIRE(label != std::string::npos);
+    const auto line_end = relabeled.find('\n', label);
+    relabeled.replace(label, line_end - label, "label: Retained invalid-result check");
+    write(room, relabeled);
+    const auto retained_invalid = disk_validate(project.root);
+    REQUIRE(retained_invalid["valid"] == false);
+    REQUIRE(retained_invalid["diagnostics"] == bad_lua["diagnostics"]);
+    // The named-Message/translation stage is separately invalidated here;
+    // this conservative path must still retain the same invalid answer.
+    REQUIRE(retained_invalid["work"]["recheckedRecords"] == 1);
+    REQUIRE(retained_invalid["work"]["globalStageExecutions"] == 1);
+    REQUIRE(retained_invalid["work"]["localizationRebuilds"] == 1);
+    REQUIRE(disk_validate(project.root, "release")["ok"] == true);
+    const auto independently_rebuilt = disk_validate(project.root);
+    REQUIRE(independently_rebuilt["diagnostics"] == retained_invalid["diagnostics"]);
+    REQUIRE(independently_rebuilt["cliDiagnostics"] == retained_invalid["cliDiagnostics"]);
+    write(room, original_room);
     write(source, original_script);
     REQUIRE(disk_validate(project.root)["valid"] == true);
 
@@ -130,6 +156,8 @@ TEST_CASE("native disk validation stays resident and proves edits without mutati
     const auto repeated_invalid = disk_validate(project.root);
     REQUIRE(repeated_invalid["diagnostics"] == invalid_yaml["diagnostics"]);
     REQUIRE(repeated_invalid["work"]["recheckedRecords"] == 0);
+    REQUIRE(repeated_invalid["work"]["globalStageExecutions"] == 0);
+    REQUIRE(repeated_invalid["work"]["diagnosticAssemblies"] == 0);
     write(room, original_room);
     REQUIRE(disk_validate(project.root)["valid"] == true);
     REQUIRE(read(project.root / "project.yaml") == original_manifest);
@@ -180,6 +208,11 @@ TEST_CASE("validation final proof reuses admission and rejects intervening disk 
     // normalized snapshot when just one Room's label changed.
     REQUIRE(changed["work"]["referenceIndexedRecords"] == 1);
     REQUIRE(changed["work"]["localizationRebuilds"] == 0);
+    REQUIRE(changed["work"]["globalStageExecutions"] == 0);
+    REQUIRE(changed["work"]["globalStageReuses"] == 1);
+    REQUIRE(changed["work"]["diagnosticAssemblies"] == 1);
+    REQUIRE(changed["work"]["completeProjectProjected"] == 1);
+    REQUIRE(changed["work"]["completeProjectReused"] > 0);
     REQUIRE(changed["diagnostics"] == cold["diagnostics"]);
     REQUIRE(changed["cliDiagnostics"] == cold["cliDiagnostics"]);
     // An unrelated label edit must not admit a fresh Project or recursively

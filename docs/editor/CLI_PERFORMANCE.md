@@ -13,6 +13,46 @@ records baseline evidence from `4e0dcdfc`, not performance guarantees. See
 The problem is **repeated whole-Project work around an incremental validator**, not an
 unoptimized compiler build or failure to retain the primary validation session.
 
+### #586: retained diagnostic assembly and YAML provenance
+
+The native Project session retains record-local diagnostic contributions and the
+post-record Project-wide diagnostic stage independently. For a verified Room
+or Map edit that changes only presentation metadata (`label` or `description`)
+without invalidating localization, the affected record contribution is
+rechecked while the Project-wide stage's raw diagnostics (including
+deterministic negative findings) are reused.
+Other record families can feed generated localization or Message diagnostics
+even through presentation metadata, so they conservatively run the global
+stage. Edits to semantic fields, source membership, text inputs, or an
+uncertain observation take the normal conservative validation path. This does **not**
+replace the authoritative source watcher, dependency index or CLI output.
+
+The post-record contribution retains diagnostics before YAML navigation is
+attached. Per-owner YAML location indexes are keyed by exact saved revision;
+changing one YAML source never reparses unrelated YAML solely for navigation.
+Unchanged resident validation returns the complete pinned result without
+running a diagnostic stage or rebuilding its locations. A portable clean-cache
+import retains the exact complete result and record contributors, but rebuilds
+its RAM-only global-stage and location indexes when subsequently invalidated.
+Source uncertainty cannot authorize use of retained results, and final
+publication still requires the independent physical generation proof.
+
+The public disk-validation work profile reports `globalStageExecutions`,
+`globalStageReuses`, `diagnosticAssemblies`, and `sourceLocationRebuilds`.
+`completeProjectReused`, `completeProjectProjected`, and
+`completeProjectSnapshotReads` describe the normalized Project input reused
+or updated for downstream font/material preparation. The historical
+`endToEnd.fullResultAssemblies` counts full-Project **serialization**, not
+the number of records rebuilt, so it must not be used alone as evidence of
+whole-Project recomputation.
+
+The [#586 matched Release comparison](performance/baselines/validation-2026-10-31-retained-diagnostics.json)
+records 67/67 matching diagnostic fingerprints (from 83 total samples, 16
+editor work-only) against the untouched #577 baseline, Release CLI/addon
+identities, medians, and the new stage and source
+work counters. It includes the cumulative effects of #582–#585; no latency
+gain in the combined comparison is attributed exclusively to #586.
+
 ### #582: watcher-backed native Project source inventory
 
 Linux resident `SourceAuthority` now arms inotify coverage during cold discovery,
