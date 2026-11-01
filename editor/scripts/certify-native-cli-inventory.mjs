@@ -159,8 +159,10 @@ const binary = process.argv[2] || process.env.NOVELTEA_NATIVE_CLI_BINARY;
 if (binary) {
   const probe = spawnSync(path.resolve(binary), ['--help'], { encoding: 'utf8' });
   assert.equal(probe.status, 0, probe.stderr || probe.error?.message);
+  // The Windows CRT translates native stdout LF to CRLF. Compare the
+  // documented text, not the host-specific console line endings.
   assert.equal(
-    probe.stdout.trim(),
+    probe.stdout.replace(/\r\n/g, '\n').trim(),
     help.trim(),
     'Installed native help differs from C++ contract.',
   );
