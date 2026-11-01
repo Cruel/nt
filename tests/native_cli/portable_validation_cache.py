@@ -34,7 +34,14 @@ with TemporaryDirectory(prefix="noveltea-portable-validation-") as temporary:
         assert not process.stderr, process.stderr
         response = json.loads(process.stdout)
         assert response["success"] is success, (process.returncode, response)
+        assert (process.returncode == 0) is success, (process.returncode, response)
         return response
+
+    def assert_public_parity(daemon, direct):
+        # Work counters and cache-hit metadata are expected to differ between
+        # resident and direct CLI clients; user-visible failures must not.
+        for key in ("success", "diagnostics", "error", "code"):
+            assert daemon.get(key) == direct.get(key), (key, daemon, direct)
 
     def work(response, name):
         return response["validationWork"].get(name, 0)
@@ -68,7 +75,7 @@ with TemporaryDirectory(prefix="noveltea-portable-validation-") as temporary:
     assert work(label, "portableSourceReuses") == int(watcher_cache), label["validationWork"]
     assert work(label, "noticeValidationReuses") == int(watcher_cache)
     assert label["validationWork"]["endToEnd"]["portableSourceChecks"] == int(not watcher_cache)
-    assert validate(direct=True)["diagnostics"] == diagnostics
+    assert_public_parity(label, validate(direct=True))
 
     # Workflows are portable without appearing in Asset YAML. Create, modify,
     # rename and remove a member, then ensure each membership generation is
@@ -134,6 +141,7 @@ with TemporaryDirectory(prefix="noveltea-portable-validation-") as temporary:
     invalid = validate(False)
     assert invalid["success"] is False
     assert work(invalid, "noticeValidationRuns") == 1
+    assert_public_parity(invalid, validate(False, direct=True))
     assert work(validate(False), "noticeValidationRuns") == 1
     notice.write_text("Repaired notice.\n")
     repaired = validate()
@@ -142,13 +150,24 @@ with TemporaryDirectory(prefix="noveltea-portable-validation-") as temporary:
     assert work(validate(), "noticeValidationReuses") == int(watcher_cache)
     assert validate(direct=True)["diagnostics"] == diagnostics
 
+    # A valid, same-size write with restored mtime must not reuse the old
+    # notice content proof merely because metadata happened to match.
+    if watcher_cache:
+        previous = notice.stat()
+        notice.write_bytes(notice.read_bytes().replace(b".", b"!"))
+        os.utime(notice, ns=(previous.st_atime_ns, previous.st_mtime_ns))
+        same_metadata = validate()
+        assert same_metadata["diagnostics"] == diagnostics
+        assert work(same_metadata, "noticeValidationRuns") == 1
+        assert work(validate(), "noticeValidationReuses") == 1
+
     # An escaping symlink must never inherit the previous success. Both the
     # daemon and direct CLI fail, then a repaired file is admitted again.
     other = root / "outside.json"
     other.write_text("outside\n")
     workflow.symlink_to(other)
-    validate(False)
-    validate(False, direct=True)
+    unsafe_daemon = validate(False)
+    assert_public_parity(unsafe_daemon, validate(False, direct=True))
     export("unsafe-workflow.ntproject", success=False)
     workflow.unlink()
     assert validate()["diagnostics"] == diagnostics
