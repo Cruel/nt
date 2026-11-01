@@ -47,6 +47,43 @@ correctness contract, **not** a latency claim. The #577 Release profiling
 scenarios remain the reference for reporting like-for-like performance data;
 elapsed-time thresholds are not CI acceptance criteria.
 
+The independent `cache_writer_cli_editor.py` integration also runs a real
+brokered CLI daemon alongside the editor's Node-API Project resident, in both
+opening orders. It checks nonowner validation without publication, concurrent
+debounce, direct `--no-daemon` parity, owner handoff, and a Feature Lab shutdown
+flush. The latter caught a broker-level shutdown bug: ordinary daemon stop
+previously terminated its owners before their native cache destructors ran.
+The broker now gives a retiring owner up to eight seconds to flush and exit
+before force termination, without making crash recovery depend on that path.
+CI runs the native process election test on Linux, Windows and macOS; release
+host certification runs real daemon/editor interop on those same platforms.
+
+The separate [#593 Release profile](performance/baselines/validation-2026-11-01-cache-writer.json)
+ran on the original Ryzen 7 5700G reference host using Release CLI and Release
+Node-API addon, with the same fixtures, cache states, profile counters and
+repetitions as [#577](performance/baselines/validation-2026-10-31-release.json).
+The driver validated full diagnostic-fingerprint parity for all comparable
+states (and parity of the public, non-profiled CLI output). Medians in ms:
+
+| Fixture | #577 → #593 uncached start | #577 → #593 warm saved label | #577 → #593 cached restart |
+| --- | ---: | ---: | ---: |
+| Feature Lab | 3,440.47 → 3,736.97 | 323.31 → 217.96 | 2,930.01 → 612.72 |
+| 1 Room | 86.09 → 100.86 | 13.17 → 11.36 | 104.34 → 98.29 |
+| 101 Rooms | 205.17 → 190.03 | 45.22 → 26.08 | 197.95 → 128.12 |
+| 501 Rooms | 595.43 → 534.06 | 167.99 → 89.91 | 587.69 → 242.49 |
+
+For Feature Lab's cached restart, rechecked records stay **0 → 0**, source
+captures **5 → 1**, directory enumerations **205 → 41**, byte reads
+**2,813 → 725**, and content hashes **4,515 → 713**. The single saved label
+edit still rechecks exactly **one** owner, with directory enumerations
+**205 → 0**, byte reads **2,268 → 137**, and content hashes **3,813 → 65**.
+The cold Feature Lab startup is slower than the old reference by 296.50 ms;
+the one-Room startup is also slower by 14.77 ms. As with the #592 profile,
+these are **cumulative** comparisons spanning multiple optimization tickets,
+not isolated latency improvements attributable to #593. #593 primarily adds
+correctness and deferred maintenance ownership. No elapsed-time assertions
+were introduced in CI.
+
 ### #592: cold offline-change reconciliation
 
 The native clean ledger now admits a **partial** restoration when the global

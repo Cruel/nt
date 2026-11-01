@@ -327,6 +327,7 @@ if(BUILD_TESTING)
             "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/native_cli/cache_writer_processes.py"
             "$<TARGET_FILE:noveltea-project-session-certify>"
             "${NOVELTEA_AUTHORING_SMALL_PROJECT}")
+    set_tests_properties(native_authoring_cache_writer_processes PROPERTIES TIMEOUT 120)
     add_test(NAME native_authoring_invalid_manifest COMMAND noveltea-project-session-certify
         --invalid-manifest "${NOVELTEA_AUTHORING_SMALL_PROJECT}")
     if(NOVELTEA_AUTHORING_TEST_NODE)

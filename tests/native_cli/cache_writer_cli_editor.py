@@ -53,7 +53,7 @@ class Editor:
             self.child.communicate(timeout=15)
 
 
-def until(callback, predicate, timeout=12):
+def until(callback, predicate, timeout=24):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         result = callback()

@@ -50,7 +50,7 @@ class Resident:
             self.process.communicate(timeout=15)
 
 
-def until(action, predicate, *, timeout=9):
+def until(action, predicate, *, timeout=20):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         state = action()

@@ -1823,6 +1823,12 @@ jobs:
       - name: Certify standalone native CLI disk Project validation on this host
         run: node editor/scripts/certify-native-daemon-validation.mjs "${{ github.workspace }}/${{ matrix.cli_executable }}" tests/projects/feature-lab
 
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: Certify daemon/editor cross-process clean-cache writer election
+        run: python tests/native_cli/cache_writer_cli_editor.py "${{ github.workspace }}/${{ matrix.cli_executable }}" "${{ github.workspace }}/build/native-authoring-host/noveltea-authoring-node.node" "${{ github.workspace }}"
+
       - name: Certify native CLI command inventory on this host
         run: node editor/scripts/certify-native-cli-inventory.mjs "${{ github.workspace }}/${{ matrix.cli_executable }}"
 

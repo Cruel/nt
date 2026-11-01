@@ -151,7 +151,7 @@ jobs:
       - name: Certify real native Project operations and source transactions
         run: ctest --test-dir build/native-authoring-host --output-on-failure -R '^native_authoring_(contracts|yaml|room_session|room_map|yaml_transaction)$'
       - name: Certify cross-platform source observation and clean-cache proofs
-        run: ctest --test-dir build/native-authoring-host --output-on-failure -R '^native_authoring_(project_session|clean_cache_correctness)$'
+        run: ctest --test-dir build/native-authoring-host --output-on-failure -R '^native_authoring_(project_session|clean_cache_correctness|cache_writer_processes)$'
       - name: Bundle dedicated Project worker
         run: pnpm -C editor exec vp pack
       - name: Certify native worker session / external watcher / revision / recovery
