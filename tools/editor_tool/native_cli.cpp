@@ -1888,11 +1888,17 @@ int project_read(const Arguments& args, std::string action)
                     return failure(args.json, 70, "NATIVE_PROJECT_VALIDATION_UNAVAILABLE", "/",
                                    "Native validation omitted its localization coverage inputs.",
                                    "Native validation omitted its localization coverage inputs.");
-                if (profile_work)
-                    work_profile["fontCoverageRuns"] =
-                        work_profile.value("fontCoverageRuns", 0) + 1;
+                // The disk owner has already performed/reused font coverage
+                // against the validated physical generation. Do not recreate
+                // a TextEngine in this short-lived public CLI client.
+                const bool resident_coverage = response.contains("fontCoverageResult") &&
+                                               response.at("fontCoverageResult").is_object();
                 const auto coverage =
-                    native_font_coverage(root_text, response.at("fontCoverageInputs"));
+                    resident_coverage
+                        ? response.at("fontCoverageResult")
+                        : native_font_coverage(root_text, response.at("fontCoverageInputs"));
+                if (profile_work && !resident_coverage)
+                    work_profile["fontCoverageRuns"] = 1;
                 for (const auto& item : coverage.value("diagnostics", Json::array())) {
                     std::string stack;
                     for (const auto& font : item.value("fontStack", Json::array())) {

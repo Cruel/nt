@@ -4,6 +4,8 @@
 #include <nlohmann/json.hpp>
 
 #include <filesystem>
+#include <chrono>
+#include <fstream>
 #include <string>
 
 namespace {
@@ -73,6 +75,147 @@ TEST_CASE("font coverage sharing preserves per-message and per-locale results")
     for (const auto& diagnostic : b.at("diagnostics"))
         expected.push_back(diagnostic);
     CHECK(all.at("diagnostics") == expected);
+}
+
+TEST_CASE("font coverage retains exact per-locale text, including deterministic missing glyphs")
+{
+    auto request = coverage_request();
+    request["locales"][0]["messages"][0]["text"] = "Missing ͸";
+    auto french = request["locales"][0];
+    french["locale"] = "fr";
+    french["messages"][0]["text"] = "Missing ͸";
+    request["locales"].push_back(french);
+    const auto run = [&](const nlohmann::json& value) {
+        return nlohmann::json::parse(
+            noveltea::tooling::validate_font_coverage(value.dump()).response_json);
+    };
+    const auto first = run(request);
+    CHECK(first["work"]["executedLocales"] == 2);
+    CHECK(first["work"]["reusedLocales"] == 0);
+    REQUIRE_FALSE(first.at("diagnostics").empty());
+    REQUIRE(run(request)["work"]["executedLocales"] == 0);
+
+    request["locales"][1]["messages"][0]["text"] = "Changed ΀";
+    const auto changed = run(request);
+    REQUIRE(changed["work"]["executedLocales"] == 1);
+    REQUIRE(changed["work"]["reusedLocales"] == 1);
+    auto english = request;
+    english["locales"] = nlohmann::json::array({request["locales"][0]});
+    auto only_french = request;
+    only_french["locales"] = nlohmann::json::array({request["locales"][1]});
+    const auto english_result = run(english);
+    const auto french_result = run(only_french);
+    auto expected = english_result["diagnostics"];
+    for (const auto& issue : french_result["diagnostics"])
+        expected.push_back(issue);
+    REQUIRE(changed["diagnostics"] == expected);
+}
+
+TEST_CASE("font coverage invalidates same-size restored-mtime font changes")
+{
+    const auto root = std::filesystem::temp_directory_path() /
+                      ("noveltea-font-cache-" +
+                       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    struct Cleanup {
+        std::filesystem::path root;
+        ~Cleanup()
+        {
+            std::error_code ignored;
+            std::filesystem::remove_all(root, ignored);
+        }
+    } cleanup{root};
+    std::filesystem::create_directories(root / "fonts");
+    const auto source = std::filesystem::path(NOVELTEA_SOURCE_DIR) /
+                        "engine/assets/system/fonts/LiberationSans.ttf";
+    const auto target = root / "fonts/LiberationSans.ttf";
+    std::filesystem::copy_file(source, target);
+    auto request = coverage_request();
+    request["systemRoot"] = root.string();
+    const auto run = [&]() {
+        return nlohmann::json::parse(
+            noveltea::tooling::validate_font_coverage(request.dump()).response_json);
+    };
+    REQUIRE(run()["work"]["executedLocales"] == 1);
+    REQUIRE(run()["work"]["executedLocales"] == 0);
+    std::filesystem::remove(target);
+    const auto missing = run();
+    REQUIRE(missing["ok"] == false);
+    REQUIRE(missing["work"]["executedLocales"] == 1);
+    REQUIRE(run()["work"]["executedLocales"] == 0);
+    std::filesystem::copy_file(source, target);
+    // Restoring byte-identical content admits the existing successful result
+    // even if inode and mtime differ after recreating the file.
+    REQUIRE(run()["work"]["executedLocales"] == 0);
+    const auto timestamp = std::filesystem::last_write_time(target);
+    {
+        std::fstream file(target, std::ios::binary | std::ios::in | std::ios::out);
+        REQUIRE(file.good());
+        char marker = 0;
+        file.read(&marker, 1);
+        file.seekp(0);
+        marker ^= 0x01;
+        file.write(&marker, 1);
+    }
+    std::filesystem::last_write_time(target, timestamp);
+    REQUIRE(run()["work"]["executedLocales"] == 1);
+    std::filesystem::copy_file(source, target, std::filesystem::copy_options::overwrite_existing);
+    REQUIRE(run()["work"]["executedLocales"] == 0);
+    REQUIRE(run()["work"]["executedLocales"] == 0);
+}
+
+TEST_CASE("font coverage invalidates only locales consuming an edited Project font")
+{
+    const auto root = std::filesystem::temp_directory_path() /
+                      ("noveltea-font-consumer-" +
+                       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    struct Cleanup {
+        std::filesystem::path root;
+        ~Cleanup()
+        {
+            std::error_code ignored;
+            std::filesystem::remove_all(root, ignored);
+        }
+    } cleanup{root};
+    std::filesystem::create_directories(root / "fonts");
+    const auto original = std::filesystem::path(NOVELTEA_SOURCE_DIR) /
+                          "engine/assets/system/fonts/LiberationSans.ttf";
+    const auto target = root / "fonts/custom.ttf";
+    std::filesystem::copy_file(original, target);
+
+    auto request = coverage_request();
+    request["projectRoot"] = root.string();
+    request["locales"][0]["fonts"] = {"project:/fonts/custom.ttf"};
+    auto french = request["locales"][0];
+    french["locale"] = "fr";
+    french["fonts"] = nlohmann::json::array();
+    request["locales"].push_back(french);
+    const auto run = [&] {
+        return nlohmann::json::parse(
+            noveltea::tooling::validate_font_coverage(request.dump()).response_json);
+    };
+    REQUIRE(run()["work"]["executedLocales"] == 2);
+    REQUIRE(run()["work"]["executedLocales"] == 0);
+    const auto timestamp = std::filesystem::last_write_time(target);
+    {
+        std::fstream font(target, std::ios::binary | std::ios::in | std::ios::out);
+        REQUIRE(font.good());
+        char changed = 0;
+        font.read(&changed, 1);
+        font.seekp(0);
+        changed ^= 0x01;
+        font.write(&changed, 1);
+    }
+    std::filesystem::last_write_time(target, timestamp);
+    const auto after_bytes = run();
+    REQUIRE(after_bytes["work"]["executedLocales"] == 1);
+    REQUIRE(after_bytes["work"]["reusedLocales"] == 1);
+    std::filesystem::copy_file(original, target, std::filesystem::copy_options::overwrite_existing);
+    REQUIRE(run()["work"]["reusedLocales"] == 2);
+
+    request["locales"][0]["fonts"] = nlohmann::json::array();
+    const auto after_stack = run();
+    REQUIRE(after_stack["work"]["executedLocales"] == 1);
+    REQUIRE(after_stack["work"]["reusedLocales"] == 1);
 }
 
 } // namespace

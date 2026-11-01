@@ -144,6 +144,26 @@ TEST_CASE("native disk validation stays resident and proves edits without mutati
     write(room, original_room);
     write(source, original_script);
     REQUIRE(disk_validate(project.root)["valid"] == true);
+    const auto has_code = [](const Json& snapshot, std::string_view code) {
+        return std::any_of(
+            snapshot.at("diagnostics").begin(), snapshot.at("diagnostics").end(),
+            [&](const Json& item) { return item.value("code", std::string{}) == code; });
+    };
+    write(source, original_script + "\nText.msg('missing.cache.test')\n");
+    const auto missing_message = disk_validate(project.root);
+    REQUIRE(missing_message["valid"] == false);
+    REQUIRE(has_code(missing_message, "authoring.localization.lua_named_message_missing"));
+    const auto retained_missing = disk_validate(project.root);
+    REQUIRE(retained_missing["diagnostics"] == missing_message["diagnostics"]);
+    REQUIRE(retained_missing["work"]["diagnosticAssemblies"] == 0);
+    write(source, original_script + "\nText.msg('lab.greeting')\n");
+    const auto missing_arguments = disk_validate(project.root);
+    REQUIRE(missing_arguments["valid"] == false);
+    REQUIRE(has_code(missing_arguments, "authoring.localization.lua_message_arguments_missing"));
+    REQUIRE(disk_validate(project.root, "release")["ok"] == true);
+    REQUIRE(disk_validate(project.root)["diagnostics"] == missing_arguments["diagnostics"]);
+    write(source, original_script);
+    REQUIRE(disk_validate(project.root)["valid"] == true);
 
     write(room, "not: [valid\n");
     const auto invalid_yaml = disk_validate(project.root);
@@ -213,6 +233,9 @@ TEST_CASE("validation final proof reuses admission and rejects intervening disk 
     REQUIRE(changed["work"]["diagnosticAssemblies"] == 1);
     REQUIRE(changed["work"]["completeProjectProjected"] == 1);
     REQUIRE(changed["work"]["completeProjectReused"] > 0);
+    REQUIRE(changed["work"]["fontInputReuses"] == 1);
+    REQUIRE(changed["work"]["fontCoverageRuns"] == 0);
+    REQUIRE(changed["work"]["fontCoverageReusedLocales"] > 0);
     REQUIRE(changed["diagnostics"] == cold["diagnostics"]);
     REQUIRE(changed["cliDiagnostics"] == cold["cliDiagnostics"]);
     // An unrelated label edit must not admit a fresh Project or recursively
@@ -294,6 +317,10 @@ TEST_CASE("warm font coverage matches cold recomputation after a translation edi
     const auto unchanged = validate();
     REQUIRE(unchanged.value("valid", false));
     REQUIRE(unchanged.at("fontCoverageInputs") == initial.at("fontCoverageInputs"));
+    REQUIRE(unchanged["work"]["fontInputReuses"] == 1);
+    REQUIRE(unchanged["work"]["fontCoverageRuns"] == 0);
+    REQUIRE(unchanged["fontCoverageResult"]["diagnostics"] ==
+            initial["fontCoverageResult"]["diagnostics"]);
 
     const auto locale = project.root / "i18n/locales/fr.yaml";
     auto text = read(locale);
@@ -305,6 +332,10 @@ TEST_CASE("warm font coverage matches cold recomputation after a translation edi
     const auto changed = validate();
     REQUIRE(changed.value("valid", false));
     REQUIRE(changed["work"]["localizationRebuilds"] == 1);
+    REQUIRE(changed["work"]["fontInputReuses"] == 0);
+    // fr-CA inherits fr translations, so both locales consume this change.
+    REQUIRE(changed["work"]["fontCoverageRuns"] == 2);
+    REQUIRE(changed["work"]["fontCoverageReusedLocales"] > 0);
     REQUIRE(changed.at("fontCoverageInputs") != initial.at("fontCoverageInputs"));
     REQUIRE(changed.at("fontCoverageInputs").dump().find("Salut, {name} !") != std::string::npos);
 
@@ -316,6 +347,22 @@ TEST_CASE("warm font coverage matches cold recomputation after a translation edi
          {"fontCoverageInputs", "materialCompilerPrograms", "materialEffectiveInputs",
           "diagnostics", "cliDiagnostics", "sourceGeneration"})
         REQUIRE(changed.at(field) == cold.at(field));
+    REQUIRE(changed.at("fontCoverageResult").at("diagnostics") ==
+            cold.at("fontCoverageResult").at("diagnostics"));
+
+    // Validation without font inputs still advances the same resident
+    // localization generation; a later request must not borrow the old
+    // projection just because the second request itself is unchanged.
+    const auto changed_back = text.find("Salut, {name} !");
+    REQUIRE(changed_back != std::string::npos);
+    text.replace(changed_back, std::string("Salut, {name} !").size(), "Bonjour, {name} !");
+    write(locale, text);
+    const auto without_font_inputs = disk_validate(project.root, "project-validate");
+    REQUIRE(without_font_inputs["valid"] == true);
+    REQUIRE(without_font_inputs["work"]["localizationRebuilds"] == 1);
+    const auto after_skipped_coverage = validate();
+    REQUIRE(after_skipped_coverage["fontCoverageInputs"] == initial["fontCoverageInputs"]);
+    REQUIRE(after_skipped_coverage["work"]["fontInputReuses"] == 0);
 }
 
 TEST_CASE("same-size binary Asset edits cannot reuse exact generation evidence",

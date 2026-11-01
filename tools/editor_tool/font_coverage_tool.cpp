@@ -4,10 +4,12 @@
 
 #include <noveltea/text/font.hpp>
 #include <noveltea/text/text.hpp>
+#include <noveltea/core/fingerprint.hpp>
 
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <cerrno>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -65,8 +67,26 @@ struct FontCoverageFingerprint {
     std::uint64_t byte_size = 0;
     std::uint64_t mtime_nanoseconds = 0;
     std::string error;
+    std::string exact_content_revision;
 
-    bool operator==(const FontCoverageFingerprint&) const = default;
+    bool operator==(const FontCoverageFingerprint& other) const
+    {
+        // The same bytes under the same logical font binding shape identically,
+        // even after a metadata-only touch or a same-content atomic replace.
+        // Metadata is inspected for physical admission, not cache identity.
+        return logical_path == other.logical_path &&
+               exact_content_revision == other.exact_content_revision && error == other.error;
+    }
+
+    bool same_physical_capture(const FontCoverageFingerprint& other) const
+    {
+        // Cache eligibility compares content. A mid-execution race instead
+        // needs the stronger original metadata + content proof, even if a
+        // different file happened to contain identical bytes at the end.
+        return *this == other && source_identity == other.source_identity &&
+               byte_size == other.byte_size &&
+               mtime_nanoseconds == other.mtime_nanoseconds;
+    }
 };
 
 struct FontCoverageCacheEntry {
@@ -77,7 +97,10 @@ struct FontCoverageCacheEntry {
 };
 
 std::mutex font_coverage_cache_mutex;
-std::optional<FontCoverageCacheEntry> font_coverage_cache;
+// Bounded per-locale entries, not one union of all glyphs requested so far.
+// An independently edited locale cannot evict another locale's result.
+std::vector<FontCoverageCacheEntry> font_coverage_cache;
+std::vector<FontCoverageCacheEntry> font_coverage_failures;
 
 std::filesystem::path executable_path()
 {
@@ -184,6 +207,7 @@ FontCoverageFingerprint font_coverage_fingerprint(const FontCoverageFileSource& 
         .byte_size = 0,
         .mtime_nanoseconds = 0,
         .error = {},
+        .exact_content_revision = {},
     };
     std::string error_message;
     const auto candidate = resolve_font_asset_path(source, fingerprint.logical_path, error_message);
@@ -196,6 +220,12 @@ FontCoverageFingerprint font_coverage_fingerprint(const FontCoverageFileSource& 
                                     FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
                                     OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (handle == INVALID_HANDLE_VALUE) {
+        const auto code = GetLastError();
+        if (code == ERROR_FILE_NOT_FOUND || code == ERROR_PATH_NOT_FOUND) {
+            fingerprint.source_identity = "absent";
+            fingerprint.exact_content_revision = "absent";
+            return fingerprint;
+        }
         fingerprint.error = "font file metadata could not be inspected";
         return fingerprint;
     }
@@ -224,7 +254,16 @@ FontCoverageFingerprint font_coverage_fingerprint(const FontCoverageFileSource& 
         std::to_string(file_index);
 #else
     struct stat info {};
-    if (::stat(candidate->c_str(), &info) != 0 || !S_ISREG(info.st_mode) || info.st_size < 0) {
+    if (::stat(candidate->c_str(), &info) != 0) {
+        if (errno == ENOENT) {
+            fingerprint.source_identity = "absent";
+            fingerprint.exact_content_revision = "absent";
+            return fingerprint;
+        }
+        fingerprint.error = "font file metadata could not be inspected";
+        return fingerprint;
+    }
+    if (!S_ISREG(info.st_mode) || info.st_size < 0) {
         fingerprint.error = "font file metadata could not be inspected";
         return fingerprint;
     }
@@ -246,6 +285,21 @@ FontCoverageFingerprint font_coverage_fingerprint(const FontCoverageFileSource& 
         "posix:" + std::to_string(static_cast<unsigned long long>(info.st_dev)) + ":" +
         std::to_string(static_cast<unsigned long long>(info.st_ino));
 #endif
+    // Metadata is an inexpensive hint, never proof of unchanged font bytes.
+    // In particular a same-size replacement with restored mtime must revoke
+    // both cached missing glyphs and cached successful coverage.
+    std::ifstream input(*candidate, std::ios::binary);
+    if (!input) {
+        fingerprint.error = "font source could not be opened for content verification";
+        return fingerprint;
+    }
+    const std::string bytes{std::istreambuf_iterator<char>{input},
+                            std::istreambuf_iterator<char>{}};
+    if (input.bad() || bytes.size() != fingerprint.byte_size) {
+        fingerprint.error = "font source changed during content verification";
+        return fingerprint;
+    }
+    fingerprint.exact_content_revision = noveltea::core::xxh3_128_revision(bytes);
     return fingerprint;
 }
 
@@ -410,33 +464,156 @@ NativeOperationResult validate_font_coverage(std::string_view request_json)
     if (request.is_discarded() || !request.is_object())
         return {.exit_code = 1,
                 .response_json = failure("Malformed font coverage request JSON.").dump()};
-    const auto canonical_request = request.dump();
-    auto fingerprints = font_coverage_fingerprints(request);
-    const bool exact_fingerprints = std::all_of(
-        fingerprints.begin(), fingerprints.end(), [](const auto& fingerprint) {
-            return fingerprint.error.empty() && !fingerprint.source_identity.empty();
+    if (!request.contains("locales") || !request.at("locales").is_array() ||
+        request.at("locales").empty()) {
+        auto response = validate_font_coverage_request(request);
+        return {.exit_code = response.value("ok", false) ? 0 : 1,
+                .response_json = response.dump()};
+    }
+    struct LocaleResult {
+        std::string key;
+        std::vector<FontCoverageFingerprint> fingerprints;
+        nlohmann::json diagnostics = nlohmann::json::array();
+        bool retained = false;
+        bool eligible = false;
+    };
+    std::vector<LocaleResult> results;
+    results.reserve(request.at("locales").size());
+    auto misses = nlohmann::json::array();
+    std::set<std::string> locales;
+    bool duplicate_locale = false;
+    for (const auto& locale : request.at("locales")) {
+        if (!locale.is_object() || string_value(locale, "locale").empty()) {
+            auto response = validate_font_coverage_request(request);
+            return {.exit_code = response.value("ok", false) ? 0 : 1,
+                    .response_json = response.dump()};
+        }
+        duplicate_locale |= !locales.insert(string_value(locale, "locale")).second;
+    }
+    if (duplicate_locale) {
+        auto response = validate_font_coverage_request(request);
+        return {.exit_code = response.value("ok", false) ? 0 : 1,
+                .response_json = response.dump()};
+    }
+    // Unlike a transient read failure, an absent fallback font is a stable
+    // physical fact until the next exact path check observes its creation.
+    const auto whole_fonts = font_coverage_fingerprints(request);
+    const bool whole_proven = std::all_of(
+        whole_fonts.begin(), whole_fonts.end(), [](const auto& value) {
+            return value.error.empty() && !value.source_identity.empty() &&
+                   !value.exact_content_revision.empty();
         });
-    if (exact_fingerprints) {
+    if (whole_proven) {
         std::scoped_lock lock(font_coverage_cache_mutex);
-        if (font_coverage_cache && font_coverage_cache->request == canonical_request &&
-            font_coverage_cache->fingerprints == fingerprints)
-            return {.exit_code = font_coverage_cache->exit_code,
-                    .response_json = font_coverage_cache->response_json};
+        if (!font_coverage_failures.empty()) {
+            const auto whole_key = request.dump();
+            for (const auto& cached : font_coverage_failures)
+                if (cached.request == whole_key && cached.fingerprints == whole_fonts) {
+                    auto response = nlohmann::json::parse(cached.response_json);
+                    response["work"] = {{"executedLocales", 0},
+                                        {"reusedLocales", request.at("locales").size()}};
+                    return {.exit_code = cached.exit_code, .response_json = response.dump()};
+                }
+        }
     }
-
-    auto response = validate_font_coverage_request(request);
-    NativeOperationResult result{.exit_code = response.value("ok", false) ? 0 : 1,
-                                 .response_json = response.dump()};
-    if (exact_fingerprints) {
-        std::scoped_lock lock(font_coverage_cache_mutex);
-        font_coverage_cache = FontCoverageCacheEntry{
-            .request = canonical_request,
-            .fingerprints = std::move(fingerprints),
-            .exit_code = result.exit_code,
-            .response_json = result.response_json,
-        };
+    auto request_header = nlohmann::json::object();
+    for (auto field = request.begin(); field != request.end(); ++field)
+        if (field.key() != "locales")
+            request_header[field.key()] = field.value();
+    for (const auto& locale : request.at("locales")) {
+        auto single = request_header;
+        single["locales"] = nlohmann::json::array({locale});
+        LocaleResult item;
+        item.key = single.dump();
+        // Proof all distinct font sources once for the complete request,
+        // then select only those each locale consumes. Do not repeatedly
+        // hash and canonicalize the same system fallback for every locale.
+        std::set<std::string> sources{std::string(noveltea::kSystemFontAsset)};
+        if (locale.contains("fonts") && locale.at("fonts").is_array())
+            for (const auto& font : locale.at("fonts"))
+                if (font.is_string())
+                    sources.insert(font.get<std::string>());
+        for (const auto& source : whole_fonts)
+            if (sources.contains(source.logical_path))
+                item.fingerprints.push_back(source);
+        item.eligible = std::all_of(item.fingerprints.begin(), item.fingerprints.end(),
+                                    [](const auto& font) {
+                                        return font.error.empty() && !font.source_identity.empty() &&
+                                               !font.exact_content_revision.empty();
+                                    });
+        if (item.eligible) {
+            std::scoped_lock lock(font_coverage_cache_mutex);
+            for (const auto& cached : font_coverage_cache)
+                if (cached.request == item.key && cached.fingerprints == item.fingerprints) {
+                    item.diagnostics = nlohmann::json::parse(cached.response_json);
+                    item.retained = true;
+                    break;
+                }
+        }
+        if (!item.retained)
+            misses.push_back(locale);
+        results.push_back(std::move(item));
     }
-    return result;
+    const auto executed = misses.size();
+    if (!misses.empty()) {
+        auto missing_request = request_header;
+        missing_request["locales"] = misses;
+        const auto fresh = validate_font_coverage_request(missing_request);
+        if (!fresh.value("ok", false)) {
+            auto response = fresh;
+            response["work"] = {{"executedLocales", executed},
+                                {"reusedLocales", request.at("locales").size() - executed}};
+            if (whole_proven &&
+                fresh.value("error", std::string{}).starts_with(
+                    "Font coverage could not load the safe system fallback font") &&
+                font_coverage_fingerprints(request) == whole_fonts) {
+                std::scoped_lock lock(font_coverage_cache_mutex);
+                if (font_coverage_failures.size() == 8)
+                    font_coverage_failures.erase(font_coverage_failures.begin());
+                font_coverage_failures.push_back(
+                    {request.dump(), whole_fonts, 1, fresh.dump()});
+            }
+            return {.exit_code = 1, .response_json = response.dump()};
+        }
+        for (std::size_t index = 0; index < results.size(); ++index) {
+            auto& item = results[index];
+            if (item.retained)
+                continue;
+            const auto& locale = request.at("locales")[index];
+            for (const auto& diagnostic : fresh.at("diagnostics"))
+                if (diagnostic.value("locale", std::string{}) == string_value(locale, "locale"))
+                    item.diagnostics.push_back(diagnostic);
+        }
+    }
+    auto diagnostics = nlohmann::json::array();
+    for (const auto& item : results)
+        for (const auto& diagnostic : item.diagnostics)
+            diagnostics.push_back(diagnostic);
+    // Recheck even retained entries after the complete response assembly;
+    // source generation proof at the public boundary separately protects
+    // Project-owned fonts and all other tracked physical inputs.
+    const auto after = font_coverage_fingerprints(request);
+    if (after.size() != whole_fonts.size() ||
+        !std::equal(after.begin(), after.end(), whole_fonts.begin(),
+                    [](const auto& left, const auto& right) {
+                        return left.same_physical_capture(right);
+                    }))
+        return {.exit_code = 1,
+                .response_json = failure("Font sources changed during coverage validation.").dump()};
+    for (const auto& item : results)
+        if (item.eligible && !item.retained) {
+            std::scoped_lock lock(font_coverage_cache_mutex);
+            if (font_coverage_cache.size() == 64)
+                font_coverage_cache.erase(font_coverage_cache.begin());
+            font_coverage_cache.push_back(
+                {item.key, item.fingerprints, 0, item.diagnostics.dump()});
+        }
+    nlohmann::json response{{"ok", true},
+                            {"success", diagnostics.empty()},
+                            {"diagnostics", std::move(diagnostics)},
+                            {"work", {{"executedLocales", executed},
+                                      {"reusedLocales", results.size() - executed}}}};
+    return {.exit_code = 0, .response_json = response.dump()};
 }
 
 } // namespace noveltea::tooling

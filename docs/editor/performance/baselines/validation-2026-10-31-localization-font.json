@@ -1,0 +1,117 @@
+{
+  "schema": "noveltea.validation-performance-comparison.v1",
+  "issue": 587,
+  "capturedAtUtc": "2026-11-01T01:33:03.468513+00:00",
+  "machine": "reference-linux",
+  "cpu": "AMD Ryzen 7 5700G with Radeon Graphics",
+  "sourceCommit": "8d078e2d4b1982ebad875947c2fccf704616ed53",
+  "workingTreeModified": true,
+  "reference": "validation-2026-10-31-release.json",
+  "harnessSha256": "3d1d2ab06a891c2d22ac74f1ee52b9ddf9826a6dbe23dca11762633dc672a453",
+  "releaseCliSha256": "65919847d453c53bd256592773a3a719d6cdc9afe01e2180adf934cecefe15b2",
+  "releaseAddonSha256": "470e580ebd355f384a8225ef922ee99deaaaec619ec95b50e64c74473606823d",
+  "sameMachineHarnessAndBuildFlags": true,
+  "samples": 83,
+  "diagnosticFingerprintsMatching": 67,
+  "diagnosticFingerprintsCompared": 67,
+  "samplesWithoutDiagnosticFingerprint": 16,
+  "note": "Medians in ms; all pairs [#577 pre-optimization baseline, #587 working tree]. Same Release CLI/addon machine, fixture/cache and profiling conditions. Differences include cumulative prior changes #582-#586 and cannot be attributed solely to #587. Work counters are from the first matching sample. Zero fontCoverageRuns means no shaping, not zero exact-font-byte verification. Values are informational, not CI thresholds.",
+  "scenarios": [
+    {
+      "project": "feature-lab",
+      "medianMs": {
+        "uncachedStart": [3440.47, 3042.81],
+        "unchangedResident": [328.37, 211.13],
+        "warmSavedLabel": [323.31, 212.17],
+        "warmSavedLua": [347.79, 303.69],
+        "noDaemon": [2631.72, 2632.24],
+        "editorInMemory": [94.38, 29.32]
+      },
+      "warmLabelWork": {
+        "sourceCaptures": [5, 1],
+        "directoryEnumerations": [205, 0],
+        "fileByteReads": [2268, 148],
+        "contentHashes": [3813, 1477],
+        "recordContributions": [1, 1],
+        "dependencyContributions": [1, 1],
+        "localizationChecks": 0,
+        "localizationRebuilds": 0,
+        "fontPreparations": 0,
+        "fontInputReuses": 1,
+        "fontCoverageRuns": 0,
+        "fontCoverageReusedLocales": 5
+      },
+      "unchangedResidentWork": {
+        "recordContributions": 0,
+        "dependencyContributions": 0,
+        "localizationChecks": 0,
+        "fontPreparations": 0,
+        "fontInputReuses": 1,
+        "fontCoverageRuns": 0,
+        "fontCoverageReusedLocales": 5
+      },
+      "warmSavedLuaWork": {
+        "recordContributions": 306,
+        "dependencyContributions": 306,
+        "fontPreparations": 1,
+        "fontInputReuses": 0,
+        "fontCoverageRuns": 5,
+        "fontCoverageReusedLocales": 0
+      }
+    },
+    {
+      "project": "1-room",
+      "medianMs": {
+        "uncachedStart": [86.09, 100.48],
+        "unchangedResident": [13.05, 10.10],
+        "warmSavedLabel": [13.17, 11.07],
+        "noDaemon": [82.60, 78.57]
+      },
+      "warmLabelWork": {
+        "recordContributions": 1,
+        "dependencyContributions": 1,
+        "localizationChecks": 0,
+        "fontPreparations": 0,
+        "fontInputReuses": 1,
+        "fontCoverageRuns": 0,
+        "fontCoverageReusedLocales": 1
+      }
+    },
+    {
+      "project": "101-rooms",
+      "medianMs": {
+        "uncachedStart": [205.17, 185.85],
+        "unchangedResident": [38.86, 26.96],
+        "warmSavedLabel": [45.22, 29.25],
+        "noDaemon": [168.62, 163.30]
+      },
+      "warmLabelWork": {
+        "recordContributions": 1,
+        "dependencyContributions": 1,
+        "localizationChecks": 0,
+        "fontPreparations": 0,
+        "fontInputReuses": 1,
+        "fontCoverageRuns": 0,
+        "fontCoverageReusedLocales": 1
+      }
+    },
+    {
+      "project": "501-rooms",
+      "medianMs": {
+        "uncachedStart": [595.43, 541.78],
+        "unchangedResident": [152.07, 98.33],
+        "warmSavedLabel": [167.99, 100.68],
+        "noDaemon": [626.95, 503.34]
+      },
+      "warmLabelWork": {
+        "recordContributions": 1,
+        "dependencyContributions": 1,
+        "localizationChecks": 0,
+        "fontPreparations": 0,
+        "fontInputReuses": 1,
+        "fontCoverageRuns": 0,
+        "fontCoverageReusedLocales": 1
+      }
+    }
+  ]
+}

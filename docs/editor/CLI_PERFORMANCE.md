@@ -53,6 +53,47 @@ identities, medians, and the new stage and source
 work counters. It includes the cumulative effects of #582–#585; no latency
 gain in the combined comparison is attributed exclusively to #586.
 
+### #587: independent localization and font-coverage reuse
+
+The public disk owner retains the complete native localization/Message font
+input projection only while its resident semantic contributor generation is
+unchanged, or a verified Room/Map presentation-only edit reuses the global
+diagnostic stage. It drops this projection even on validation requests that
+do **not** ask for font inputs if they advance relevant semantic inputs, so a
+later request cannot reuse a stale localization generation. The editor's
+working source projection and the cold/direct public validation authority
+remain unchanged.
+
+The native font-coverage tool retains a bounded result for each distinct
+locale, keyed by the complete effective Message text, source provenance,
+font stack, locale support policy, and exact font file identities. Project
+fonts and the system fallback are resolved under their respective contained
+roots and fingerprinted by byte content (XXH3-128), not size/mtime alone.
+Missing glyphs and an absent fallback font are deterministic negative results
+that can be reused and revoked when their input or physical font changes.
+Other I/O uncertainty is not admitted as cached proof. A single content
+verification covers all distinct font paths per request and is repeated
+after coverage to reject mid-validation changes; the independent public
+Project source-generation fence remains mandatory.
+
+The same resident native owner runs coverage once for its missed locales and
+returns the canonical diagnostics to the public CLI. The CLI applies its
+existing presentation, severity, ordering, and exit policy; it does not
+launch a second TextEngine for an already-prepared generation. Instrumentation
+distinguishes `fontInputReuses`, `fontCoverageRuns` (number of recomputed
+locales), `fontCoverageReusedLocales`, and the existing
+`endToEnd.fontPreparations` and `endToEnd.localizationChecks` counters. Zero
+coverage executions do **not** mean zero physical font-byte verification.
+
+The [#587 matched Release comparison](performance/baselines/validation-2026-10-31-localization-font.json)
+retains the original #577 baseline, records the Release CLI/addon and harness
+identities, and matches all 67/67 public diagnostic fingerprints from 83
+samples. Feature Lab warm saved-label validation is 212.17 ms versus 323.31 ms
+in #577, with no localization projection preparation or glyph coverage work;
+`fr` and its descendant `fr-CA` do still rerun coverage when their inherited
+translation text changes. The benchmark includes the cumulative changes from
+#582 onward; it does not isolate #587's individual latency contribution.
+
 ### #582: watcher-backed native Project source inventory
 
 Linux resident `SourceAuthority` now arms inotify coverage during cold discovery,

@@ -1,4 +1,5 @@
 #include "tooling_native_c.h"
+#include "tooling_native.hpp"
 #include "tooling_native_project_asset.hpp"
 #include "tooling_native_project_bundle.hpp"
 #include "tooling_native_project_localization.hpp"
@@ -50,6 +51,9 @@ struct OwnerValidation {
     // generation belongs to the resident session and is never persisted.
     std::string pending_generation;
     std::uint64_t session_admissions = 0;
+    // Derived only from this session's last certified localization generation.
+    // A new admission cannot borrow another Project's source projection.
+    std::optional<Json> font_inputs;
 };
 
 OwnerValidation& resident()
@@ -422,6 +426,7 @@ Json validate(std::string_view request_text)
     if (request.value("action", std::string("validate")) == "release") {
         if (state.root == root) {
             state.session.reset();
+            state.font_inputs.reset();
             state.root.clear();
             state.pending_generation.clear();
         }
@@ -470,6 +475,7 @@ Json validate(std::string_view request_text)
     state.pending_generation.clear();
     if (state.root != root) {
         state.session.reset();
+        state.font_inputs.reset();
         state.root = root;
     }
     auto captures_before = state.session ? state.session->source_capture_count() : 0;
@@ -485,6 +491,7 @@ Json validate(std::string_view request_text)
         if (observed.full_rescan || !observed.authoritative || !observed.delta.added.empty() ||
             !observed.delta.removed.empty()) {
             state.session.reset();
+            state.font_inputs.reset();
             // The replacement authority starts its scan count at zero.
             captures_before = 0;
             record_hits_before = 0;
@@ -494,6 +501,7 @@ Json validate(std::string_view request_text)
     const bool warm = state.session != nullptr;
     std::string error;
     if (!state.session) {
+        state.font_inputs.reset();
         trace_native_validation("opening mutable Project session");
         ++state.session_admissions;
         state.session = ProjectSession::open(root, error);
@@ -517,6 +525,17 @@ Json validate(std::string_view request_text)
     trace_native_validation("starting resident Project validation");
     const auto validated = state.session->validate_clean_project(true, true);
     trace_native_validation("resident Project validation returned");
+    // A request that did not ask for font inputs can still advance the
+    // resident localization source generation. Invalidate its dependent
+    // projection *now*, not only on the next request asking for coverage.
+    // Otherwise a later unchanged request could reuse the prior generation.
+    const auto semantic_work = state.session->validation_work();
+    if (!validated.snapshot.valid || semantic_work.localization_rebuilds != 0 ||
+        semantic_work.global_stage_executions != 0 ||
+        (semantic_work.global_stage_reuses == 0 &&
+         (semantic_work.rechecked_records != 0 || semantic_work.rechecked_contributions != 0 ||
+          semantic_work.reference_indexed_records != 0)))
+        state.font_inputs.reset();
     auto result = response_for(validated.snapshot, warm, state.session->validation_work());
     result["cacheHit"] = validated.cache_hit;
     result["work"]["sessionAdmissions"] = state.session_admissions;
@@ -561,9 +580,43 @@ Json validate(std::string_view request_text)
             }
             if (const auto notice_error = native_distribution_notice_error(root, admitted))
                 result["noticeValidationFailure"] = *notice_error;
-            noveltea::authoring::count_validation_work(
-                &noveltea::authoring::ValidationWorkCounters::font_preparations);
-            result["fontCoverageInputs"] = native_font_coverage_inputs(*state.session, admitted);
+            const auto work = state.session->validation_work();
+            // Only an unchanged validated generation or the independently
+            // certified Room/Map presentation-only path can reuse the exact
+            // effective Message/translation source projection. Other changes
+            // must rebuild it; font face bytes are proved separately below.
+            const bool retain_inputs = state.font_inputs && work.localization_rebuilds == 0 &&
+                                       work.global_stage_executions == 0 &&
+                                       (work.global_stage_reuses == 1 ||
+                                        (work.rechecked_records == 0 &&
+                                         work.rechecked_contributions == 0 &&
+                                         work.reference_indexed_records == 0));
+            if (retain_inputs) {
+                result["fontCoverageInputs"] = *state.font_inputs;
+                result["work"]["fontInputReuses"] = 1;
+            } else {
+                noveltea::authoring::count_validation_work(
+                    &noveltea::authoring::ValidationWorkCounters::font_preparations);
+                result["fontCoverageInputs"] = native_font_coverage_inputs(*state.session, admitted);
+                state.font_inputs = result["fontCoverageInputs"];
+                result["work"]["fontInputReuses"] = 0;
+            }
+            // Font shaping is executed in this same serialized resident owner,
+            // not anew in every short-lived public CLI client. The canonical
+            // font tool itself verifies exact bytes and caches per locale.
+            if (result["entrypointConfigured"].get<bool>() &&
+                !result.contains("noticeValidationFailure")) {
+                const auto font_request =
+                    Json{{"projectRoot", root.string()}, {"locales", result["fontCoverageInputs"]}};
+                const auto coverage = noveltea::tooling::validate_font_coverage(font_request.dump());
+                result["fontCoverageResult"] = Json::parse(coverage.response_json);
+                if (result["fontCoverageResult"].contains("work")) {
+                    const auto& font_work = result["fontCoverageResult"].at("work");
+                    result["work"]["fontCoverageRuns"] = font_work.value("executedLocales", 0);
+                    result["work"]["fontCoverageReusedLocales"] =
+                        font_work.value("reusedLocales", 0);
+                }
+            }
             Json material_programs = Json::object();
             Json material_effective = Json::object();
             if (admitted.contains("materials") && admitted.at("materials").is_object()) {

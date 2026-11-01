@@ -467,6 +467,12 @@ if(TARGET noveltea_tooling_native)
         Catch2::Catch2WithMain
     )
     noveltea_apply_policy_warnings(noveltea_tooling_tests)
+    # The public validation worker now executes font coverage in the owning
+    # process. Give the test executable the same system Asset mount as the CLI.
+    add_custom_command(TARGET noveltea_tooling_tests POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E copy_directory
+            "${CMAKE_SOURCE_DIR}/engine/assets/system"
+            "$<TARGET_FILE_DIR:noveltea_tooling_tests>/assets/system")
     catch_discover_tests(noveltea_tooling_tests)
 endif()
 
