@@ -176,6 +176,9 @@ export const nativeSemanticGraphSchema = z
     workingRevision: z.number().int().nonnegative(),
     sourceRevisions: z.record(z.string(), z.string()),
     textSourceRevisions: z.record(z.string(), z.string()),
+    // Native-owned physical/inline source ownership. Absence in an older DTO
+    // must cause conservative preview rebuilds, never guessed attribution.
+    sourceOwners: z.record(z.string(), z.array(z.string().startsWith('/'))).default({}),
     complete: z.boolean(),
     incompleteOwners: z.array(z.string()),
     nodes: z.array(

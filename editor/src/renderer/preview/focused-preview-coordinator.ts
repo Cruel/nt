@@ -8,7 +8,11 @@ import {
   recordNodeKey,
   serializeAuthoringDependencyNodeKey,
 } from '../../shared/authoring-graph-queries';
-import { nativeGraphImpactedOwnerPaths } from '../../main/services/native-semantic-graph-queries';
+import {
+  nativeGraphChangedSourceOwnerPaths,
+  nativeGraphImpactedOwnerPaths,
+} from '../../main/services/native-semantic-graph-queries';
+import type { NativeSemanticGraph } from '../../main/services/native-authoring-worker-contract';
 import type { NativeRendererGraphSnapshot } from '../project/native-authoring-graph-projection';
 import type {
   AppliedPreviewDocumentResult,
@@ -57,6 +61,7 @@ export class FocusedPreviewFreshnessCoordinator {
     projectInstanceId: string;
     projectRevision: number;
     graphRevision: number | null;
+    nativeGraph: NativeSemanticGraph | null;
     rootKeyText: string;
     inputRevision: string;
     activeShaderVariant: string;
@@ -126,15 +131,32 @@ export class FocusedPreviewFreshnessCoordinator {
       this.lastApplied.graphRevision === (state.graph?.graphRevision ?? null)
     )
       return false;
-    // A native observer can refresh physical Script/Shader/Asset bytes without
-    // changing the renderer's structured Project revision. Rebuild rather
-    // than trying to infer a changed JSON pointer for that source.
+    // A native observer can refresh physical sources without changing the
+    // structured Project revision or its mutation publication. Compare the
+    // source-proof revisions against the last *applied* graph, not merely the
+    // preceding graph publication (unrelated generations may have been skipped).
     if (
       state.graph &&
       'nativeGraph' in state.graph &&
       this.lastApplied.projectRevision === state.projectRevision
-    )
-      return true;
+    ) {
+      const current = (state.graph as NativeRendererGraphSnapshot).nativeGraph;
+      const previous = this.lastApplied.nativeGraph;
+      if (!previous || state.graph.projectRevision !== state.projectRevision) return true;
+      const changed = nativeGraphChangedSourceOwnerPaths(previous, current);
+      if (!changed) return true;
+      const owner = focusedPreviewAdapterFor(state.root.kind).owningPath(state.root);
+      if (changed.some((path) => path === owner || path.startsWith(`${owner}/`))) return true;
+      const facets = ['preview-visual', 'preview-ui', 'resource'] as const;
+      return facets.some((facet) =>
+        [previous, current].some((graph) =>
+          nativeGraphImpactedOwnerPaths(graph, changed, facet).some(
+            (path) =>
+              path === owner || path.startsWith(`${owner}/`) || owner.startsWith(`${path}/`),
+          ),
+        ),
+      );
+    }
     const adapter = focusedPreviewAdapterFor(state.root.kind);
     if (state.affectedPaths.length === 0) return true;
     const owner = adapter.owningPath(state.root);
@@ -358,6 +380,10 @@ export class FocusedPreviewFreshnessCoordinator {
           projectInstanceId: state.projectInstanceId,
           projectRevision: state.projectRevision,
           graphRevision: state.graph?.graphRevision ?? null,
+          nativeGraph:
+            state.graph && 'nativeGraph' in state.graph
+              ? (state.graph as NativeRendererGraphSnapshot).nativeGraph
+              : null,
           rootKeyText: this.rootKeyText(state),
           inputRevision,
           activeShaderVariant,

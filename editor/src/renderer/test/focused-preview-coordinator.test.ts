@@ -117,7 +117,12 @@ afterEach(() => {
 });
 
 describe('FocusedPreviewFreshnessCoordinator', () => {
-  function nativeRoomGraph(projectRevision: number, assetId: string, generation = 1) {
+  function nativeRoomGraph(
+    projectRevision: number,
+    assetId: string,
+    generation = 1,
+    sourceRevisions: Record<string, string> = {},
+  ) {
     const room = { kind: 'record' as const, collection: 'rooms', id: 'room-a' };
     const asset = { kind: 'record' as const, collection: 'assets', id: assetId };
     const graph = nativeSemanticGraphSchema.parse({
@@ -126,8 +131,11 @@ describe('FocusedPreviewFreshnessCoordinator', () => {
       workingRevision: projectRevision,
       complete: true,
       incompleteOwners: [],
-      sourceRevisions: { 'project.yaml': `sha256:${'a'.repeat(64)}` },
+      sourceRevisions: { 'project.yaml': `sha256:${'a'.repeat(64)}`, ...sourceRevisions },
       textSourceRevisions: {},
+      sourceOwners: Object.fromEntries(
+        Object.keys(sourceRevisions).map((path) => [path, [`/assets/${path.split('/').pop()}`]]),
+      ),
       nodes: [
         { key: room, keyText: JSON.stringify(room), owningPath: '/rooms/room-a', label: 'Room A' },
         {
@@ -214,6 +222,132 @@ describe('FocusedPreviewFreshnessCoordinator', () => {
     submit(nativeRoomGraph(1, 'old', 1));
     await runNextFrame();
     submit(nativeRoomGraph(1, 'old', 2));
+    await runNextFrame();
+    expect(adapterBuild).toHaveBeenCalledTimes(2);
+    coordinator.dispose();
+  });
+
+  it('ignores unrelated physical source generations but rebuilds on linked source edits', async () => {
+    const coordinator = new FocusedPreviewFreshnessCoordinator();
+    const lease = createLease(vi.fn().mockResolvedValue(appliedResult));
+    const project = createAuthoringProject();
+    const submit = (generation: number, revisions: Record<string, string>) =>
+      coordinator.submit({
+        project,
+        projectSessionId: '11111111-1111-4111-8111-111111111111',
+        projectInstanceId: 'project-one',
+        projectRevision: 1,
+        affectedPaths: ['/'], // Stale mutation publication, not a source change set.
+        graph: nativeRoomGraph(1, 'old', generation, revisions),
+        sourceAnalysis: [],
+        root: { kind: 'room-preview', recordId: 'room-a' },
+        inputs: { displayPreference: { mode: 'project' } },
+        lease,
+      });
+    submit(1, { old: 'v1', other: 'v1' });
+    await runNextFrame();
+    submit(2, { old: 'v1', other: 'v2' });
+    await runNextFrame();
+    expect(adapterBuild).toHaveBeenCalledTimes(1);
+    // Compare against the last applied generation (1), not skipped generation 2.
+    submit(3, { old: 'v2', other: 'v2' });
+    await runNextFrame();
+    expect(adapterBuild).toHaveBeenCalledTimes(2);
+    coordinator.dispose();
+  });
+
+  it('rebuilds conservatively when a changed physical source lacks native ownership evidence', async () => {
+    const coordinator = new FocusedPreviewFreshnessCoordinator();
+    const lease = createLease(vi.fn().mockResolvedValue(appliedResult));
+    const project = createAuthoringProject();
+    for (const [generation, revision] of [
+      [1, 'v1'],
+      [2, 'v2'],
+    ] as const) {
+      const original = nativeRoomGraph(1, 'old', generation, { unknown: revision });
+      const withoutOwnership = projectNativeGraphForRenderer(
+        nativeSemanticGraphSchema.parse({ ...original.nativeGraph, sourceOwners: {} }),
+        'project-one',
+        1,
+      );
+      coordinator.submit({
+        project,
+        projectSessionId: '11111111-1111-4111-8111-111111111111',
+        projectInstanceId: 'project-one',
+        projectRevision: 1,
+        affectedPaths: [],
+        graph: withoutOwnership,
+        sourceAnalysis: [],
+        root: { kind: 'room-preview', recordId: 'room-a' },
+        inputs: { displayPreference: { mode: 'project' } },
+        lease,
+      });
+      await runNextFrame();
+    }
+    expect(adapterBuild).toHaveBeenCalledTimes(2);
+    coordinator.dispose();
+  });
+
+  it('invalidates a focused Room through a transitive Layout stylesheet resource', async () => {
+    const coordinator = new FocusedPreviewFreshnessCoordinator();
+    const lease = createLease(vi.fn().mockResolvedValue(appliedResult));
+    const project = createAuthoringProject();
+    const layout = { kind: 'record' as const, collection: 'layouts', id: 'menu' };
+    const submit = (generation: number, revision: string) => {
+      const base = nativeRoomGraph(1, 'style', generation, { style: revision });
+      const asset = { kind: 'record' as const, collection: 'assets', id: 'style' };
+      const graph = projectNativeGraphForRenderer(
+        nativeSemanticGraphSchema.parse({
+          ...base.nativeGraph,
+          nodes: [
+            ...base.nativeGraph.nodes,
+            {
+              key: layout,
+              keyText: JSON.stringify(layout),
+              owningPath: '/layouts/menu',
+              label: 'Menu',
+            },
+          ],
+          edges: [
+            {
+              ...base.nativeGraph.edges[0],
+              id: 'room-to-layout',
+              target: layout,
+              targetPath: '/layouts/menu',
+              targetImpactPaths: ['/layouts/menu/data/rml'],
+              facets: ['preview-ui'],
+            },
+            {
+              ...base.nativeGraph.edges[0],
+              id: 'layout-to-style',
+              source: layout,
+              target: asset,
+              targetPath: '/assets/style',
+              facets: ['resource', 'preview-ui'],
+              targetImpactPaths: ['/assets/style/data/source/path'],
+            },
+          ],
+          sourceOwners: { style: ['/assets/style'] },
+        }),
+        'project-one',
+        1,
+      );
+      coordinator.submit({
+        project,
+        projectSessionId: '11111111-1111-4111-8111-111111111111',
+        projectInstanceId: 'project-one',
+        projectRevision: 1,
+        affectedPaths: [],
+        graph,
+        sourceAnalysis: [],
+        root: { kind: 'room-preview', recordId: 'room-a' },
+        inputs: { displayPreference: { mode: 'project' } },
+        lease,
+      });
+    };
+    submit(1, 'v1');
+    await runNextFrame();
+    submit(2, 'v2');
     await runNextFrame();
     expect(adapterBuild).toHaveBeenCalledTimes(2);
     coordinator.dispose();

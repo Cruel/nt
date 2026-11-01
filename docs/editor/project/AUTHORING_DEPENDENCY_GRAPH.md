@@ -32,8 +32,16 @@ Unresolvable relative paths and dynamic Lua expressions do **not** become
 invented typed targets or automatic rewrite permissions. Their existing native
 source warnings and declared-dependency checks remain authoritative. When a
 physical source changes without a structured Project revision, the focused
-preview coordinator continues its conservative full-preview fallback because
-the revision delta has no proven record field path. A stylesheet content edit
+preview coordinator now compares the current native source revisions with the
+last **applied** graph, resolves changed physical and inline paths through the
+native `sourceOwners` map, and traverses old/new preview/resource edges to
+invalidate only dependent roots. It includes ownership of declared Asset and
+Script source paths, Layout companions and shared analyzed source files.
+Unattributed changes, incomplete evidence, or a source generation without
+revision evidence still rebuild conservatively; unrelated proven source edits
+do not. Missing/reintroduced references, cycles, and recognized static import
+targets are certified without promoting dynamic imports into semantic edges.
+A stylesheet content edit
 reanalyzes that stylesheet and any affected source diagnostics, but does not
 reparse unchanged parent RML. No Lua type checking or cross-module contract
 inference is introduced.

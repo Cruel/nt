@@ -3,6 +3,7 @@
 
 #include <jsoncons/json.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -149,6 +150,12 @@ int main(int argc, char** argv)
         require(linked_stylesheet && linked_template && imported_module,
                 "Physical stylesheet/template and Lua import edges have targeted resource/preview "
                 "purposes without semantic validation dependencies");
+        const auto& style_owners = base.at("sourceOwners").at("assets/ui/shared.rcss");
+        require(std::find(style_owners.array_range().begin(), style_owners.array_range().end(),
+                          Json("/assets/counter-shared-style")) != style_owners.array_range().end() &&
+                    std::find(style_owners.array_range().begin(), style_owners.array_range().end(),
+                              Json("/layouts/flow-counter")) != style_owners.array_range().end(),
+                "Native source proof must expose the Asset and dependent Layout ownership");
         bool lexical = false, exact = false, recognized_import = false, recognized_hook = false,
              recognized_room = false, false_comment = false, recognized_cursor = false;
         for (const auto& item : base.at("occurrences").array_range()) {
@@ -276,6 +283,61 @@ int main(int argc, char** argv)
                 shared_owners.insert(occurrence.at("ownerPath").as<std::string>());
         require(shared_owners.size() == 2,
                 "Native graph must retain both owners and disallow shared source auto-rewrite.");
+
+        // Import cycles must stay finite and resource-only, while a missing
+        // target identity is still indexed for removal/restoration/rename.
+        Fixture cycle(argv[1]);
+        const auto script_record = [&](std::string_view id, std::string_view source) {
+            std::ofstream(cycle.root / ("records/scripts/" + std::string(id) + ".yaml"))
+                << "id: " << id << "\nlabel: " << id
+                << "\ndata:\n  source:\n    kind: project-file\n    path: " << source << "\n";
+        };
+        script_record("graph-cycle-a", "scripts/graph-cycle-a.lua");
+        script_record("graph-cycle-b", "scripts/graph-cycle-b.lua");
+        std::ofstream(cycle.root / "scripts/graph-cycle-a.lua")
+            << "import(\"graph-cycle-b\")\n"
+               "import(\"graph-cycle-missing\")\n"
+               "import(dynamic_name)\n"
+               "-- import(\"graph-cycle-false\")\n";
+        std::ofstream(cycle.root / "scripts/graph-cycle-b.lua")
+            << "import(\"graph-cycle-a\")\n";
+        const auto inspect_cycle = [&](const Json& evidence, bool resolved) {
+            bool forward = false, backward = false, unresolved = false, dynamic = false;
+            for (const auto& edge : evidence.at("edges").array_range()) {
+                if (edge.at("role") != "lua-recognized-reference")
+                    continue;
+                const auto from = edge.at("source").at("id");
+                const auto to = edge.at("target").at("id");
+                forward |= from == "graph-cycle-a" && to == "graph-cycle-b";
+                backward |= from == "graph-cycle-b" && to == "graph-cycle-a";
+                dynamic |= to == "dynamic_name" || to == "graph-cycle-false";
+                require(std::none_of(edge.at("facets").array_range().begin(),
+                                     edge.at("facets").array_range().end(),
+                                     [](const Json& facet) { return facet == "validation"; }),
+                        "Lua dependency cycle cannot become a semantic validation cascade");
+            }
+            for (const auto& diag : evidence.at("diagnostics").array_range())
+                unresolved |= diag.at("code") == "native.graph.missing_target" &&
+                              diag.at("path") == "/scripts/graph-cycle-a";
+            require(forward && backward && !dynamic && unresolved != resolved,
+                    "Cycle and missing/static/dynamic Script evidence must remain targeted");
+            require(evidence.at("sourceOwners").at("scripts/graph-cycle-a.lua")[0] ==
+                        "/scripts/graph-cycle-a",
+                    "Native source owner attribution must match the imported Script record");
+        };
+        auto cycle_project = ProjectSession::open(cycle.root, error);
+        require(cycle_project != nullptr, "Cyclic import fixture opens: " + error);
+        inspect_cycle(query(*cycle_project, 0), false);
+        script_record("graph-cycle-missing", "scripts/graph-cycle-missing.lua");
+        std::ofstream(cycle.root / "scripts/graph-cycle-missing.lua") << "return {}\n";
+        cycle_project = ProjectSession::open(cycle.root, error);
+        require(cycle_project != nullptr, "Restored Script fixture opens: " + error);
+        inspect_cycle(query(*cycle_project, 0), true);
+        std::filesystem::remove(cycle.root / "records/scripts/graph-cycle-missing.yaml");
+        script_record("graph-cycle-renamed", "scripts/graph-cycle-missing.lua");
+        cycle_project = ProjectSession::open(cycle.root, error);
+        require(cycle_project != nullptr, "Renamed Script fixture opens: " + error);
+        inspect_cycle(query(*cycle_project, 0), false);
         std::cout << "Native graph record/trait/nested, revision and physical proof certified\n";
         return 0;
     } catch (const std::exception& e) {

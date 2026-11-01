@@ -212,6 +212,42 @@ function overlaps(changed: string, watched: string): boolean {
   );
 }
 
+/**
+ * Attribute changed native physical/inline sources without re-parsing Project
+ * records in the renderer. Null means the native proof cannot safely identify
+ * every owner; callers must rebuild rather than guess a dependency closure.
+ */
+export function nativeGraphChangedSourceOwnerPaths(
+  previous: NativeSemanticGraph,
+  current: NativeSemanticGraph,
+): readonly string[] | null {
+  if (previous.projectSessionId !== current.projectSessionId) return null;
+  const changed = new Set<string>();
+  for (const kind of ['sourceRevisions', 'textSourceRevisions'] as const) {
+    const old = previous[kind];
+    const next = current[kind];
+    for (const path of new Set([...Object.keys(old), ...Object.keys(next)])) {
+      if (old[path] === next[path]) continue;
+      const priorOwners = previous.sourceOwners[path] ?? [];
+      const nextOwners = current.sourceOwners[path] ?? [];
+      // A source may enter or leave the admitted inventory, but an existing
+      // proof without an owner is not enough to exclude previously impacted
+      // preview roots. This also covers older DTOs without sourceOwners.
+      if (
+        (old[path] !== undefined && !priorOwners.length) ||
+        (next[path] !== undefined && !nextOwners.length)
+      )
+        return null;
+      const owners = new Set([...priorOwners, ...nextOwners]);
+      if (!owners.size) return null;
+      for (const owner of owners) changed.add(owner);
+    }
+  }
+  // A generation change without changed source evidence could be a topology
+  // or authority change; do not infer an unchanged preview from that.
+  return changed.size ? [...changed].sort() : null;
+}
+
 export function nativeGraphImpactedOwnerPaths(
   graph: NativeSemanticGraph,
   changedPaths: readonly string[],

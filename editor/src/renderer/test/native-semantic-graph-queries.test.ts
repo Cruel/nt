@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vite-plus/test';
 import {
   nativeGraphCommandPreflight,
+  nativeGraphChangedSourceOwnerPaths,
   nativeGraphImpactedOwnerPaths,
   nativeGraphReferenceSearch,
   nativeGraphUsageCounts,
@@ -86,6 +87,82 @@ const fixture: NativeSemanticGraph = nativeSemanticGraphSchema.parse({
 });
 
 describe('revision-pinned native graph presentation-only queries', () => {
+  it('walks transitive preview resource references through cycles and missing targets safely', () => {
+    const scriptA = { kind: 'record' as const, collection: 'scripts' as const, id: 'a' };
+    const scriptB = { kind: 'record' as const, collection: 'scripts' as const, id: 'b' };
+    const layout = { kind: 'record' as const, collection: 'layouts' as const, id: 'menu' };
+    const makeEdge = (
+      id: string,
+      source: typeof scriptA | typeof layout,
+      target: typeof scriptA,
+    ) => ({
+      id,
+      source,
+      target,
+      sourcePath: `/${source.collection}/${source.id}`,
+      targetPath: `/scripts/${target.id}`,
+      role: 'lua-recognized-reference',
+      facets: ['runtime-only', 'preview-ui', 'resource'],
+      targetImpactPaths: [`/scripts/${target.id}/data/source`],
+      repair: { kind: 'blocked', reason: 'Manual source edit' },
+    });
+    const graph = nativeSemanticGraphSchema.parse({
+      ...fixture,
+      nodes: [
+        { key: scriptA, keyText: JSON.stringify(scriptA), owningPath: '/scripts/a', label: 'A' },
+        { key: scriptB, keyText: JSON.stringify(scriptB), owningPath: '/scripts/b', label: 'B' },
+        {
+          key: layout,
+          keyText: JSON.stringify(layout),
+          owningPath: '/layouts/menu',
+          label: 'Menu',
+        },
+      ],
+      edges: [
+        makeEdge('a-to-b', scriptA, scriptB),
+        makeEdge('b-to-a', scriptB, scriptA),
+        makeEdge('layout-to-a', layout, scriptA),
+        makeEdge('missing-to-b', scriptA, { kind: 'record', collection: 'scripts', id: 'missing' }),
+      ],
+      occurrences: [],
+    });
+    expect(nativeGraphImpactedOwnerPaths(graph, ['/scripts/b/data/source'], 'preview-ui')).toEqual([
+      '/layouts/menu',
+      '/scripts/a',
+      '/scripts/b',
+    ]);
+    expect(nativeGraphImpactedOwnerPaths(graph, ['/scripts/missing'], 'resource')).toEqual([
+      '/layouts/menu',
+      '/scripts/a',
+      '/scripts/b',
+    ]);
+    expect(nativeGraphImpactedOwnerPaths(graph, ['/scripts/b/data/label'], 'resource')).toEqual([]);
+    const next = nativeSemanticGraphSchema.parse({
+      ...graph,
+      sourceRevisions: { ...graph.sourceRevisions, 'scripts/b.lua': 'v2' },
+      sourceOwners: { 'scripts/b.lua': ['/scripts/b'] },
+    });
+    const before = nativeSemanticGraphSchema.parse({
+      ...graph,
+      sourceRevisions: { ...graph.sourceRevisions, 'scripts/b.lua': 'v1' },
+      sourceOwners: { 'scripts/b.lua': ['/scripts/b'] },
+    });
+    expect(nativeGraphChangedSourceOwnerPaths(before, next)).toEqual(['/scripts/b']);
+    expect(nativeGraphChangedSourceOwnerPaths(before, { ...next, sourceOwners: {} })).toBeNull();
+    expect(
+      nativeGraphChangedSourceOwnerPaths(before, {
+        ...next,
+        sourceRevisions: { ...fixture.sourceRevisions },
+        sourceOwners: {},
+      }),
+    ).toEqual(['/scripts/b']);
+    expect(
+      nativeGraphChangedSourceOwnerPaths(
+        { ...before, sourceOwners: {} },
+        { ...next, sourceOwners: {} },
+      ),
+    ).toBeNull();
+  });
   it('separates source resource preview impact from unrelated target fields and duplicate usages', () => {
     const layout = { kind: 'record' as const, collection: 'layouts' as const, id: 'menu' };
     const style = { kind: 'record' as const, collection: 'assets' as const, id: 'menu-style' };

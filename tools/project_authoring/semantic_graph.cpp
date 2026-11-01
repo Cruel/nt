@@ -745,6 +745,7 @@ std::string ProjectSession::semantic_graph(std::uint64_t expected_revision)
     response["workingRevision"] = working_revision_;
     response["sourceRevisions"] = Json::object();
     response["textSourceRevisions"] = Json::object();
+    response["sourceOwners"] = Json::object();
     for (const auto& [path, revision] : *verified)
         response["sourceRevisions"][path] = revision;
     Builder graph;
@@ -1019,6 +1020,23 @@ std::string ProjectSession::semantic_graph(std::uint64_t expected_revision)
                 source_targets["records/layouts/" + id + "/layout." + ext].push_back(
                     record_key(family, id));
         }
+    }
+    std::map<std::string, std::set<std::string>> source_owners;
+    for (const auto& [path, targets] : source_targets)
+        for (const auto& target : targets)
+            source_owners[path].insert("/" + member_string(target, "collection") + "/" +
+                                       escape_pointer(member_string(target, "id")));
+    for (const auto& [path, owners] : text_source_owners_)
+        for (const auto& owner : owners) {
+            const auto slash = owner.find('/');
+            if (slash != std::string::npos && collection_known(owner.substr(0, slash)))
+                source_owners[path].insert("/" + owner.substr(0, slash) + "/" +
+                                           escape_pointer(owner.substr(slash + 1)));
+        }
+    for (const auto& [path, owners] : source_owners) {
+        response["sourceOwners"][path] = Json::array();
+        for (const auto& owner : owners)
+            response["sourceOwners"][path].push_back(owner);
     }
     for (const auto& [path, analysis] : source_analyses()) {
         const auto inlined = inline_text_sources_.find(path);
