@@ -140,6 +140,18 @@ with tempfile.TemporaryDirectory(prefix="noveltea-cache-real-hosts-") as directo
         assert validate(project, local=True)["success"]
         e.close()
         assert not run("daemon", "status")["daemon"]["running"]
+
+        # Large, real authored Projects exercise a slower shutdown flush than
+        # the minimal fixture. The broker must not terminate the owner before
+        # its native destructor publishes the disk-only ledger.
+        project = temp / "feature-lab"
+        shutil.copytree(repository / "tests/projects/feature-lab", project,
+                        ignore=shutil.ignore_patterns(".noveltea"))
+        large_ledger = project / ".noveltea/cache/authoring/native-clean-current.json"
+        validate(project)
+        run("daemon", "stop")
+        assert large_ledger.is_file(), "Large Project graceful shutdown lost its cache flush"
+        assert validate(project, local=True)["success"]
     finally:
         for e in editors:
             e.kill()

@@ -238,7 +238,9 @@ with tempfile.TemporaryDirectory(prefix='nt-validation-performance-') as tempora
             invoke('daemon', 'stop')
             for _ in range(3):
                 samples.append(validate(project, 'cached-restart'))
-                assert samples[-1]['work']['recheckedRecords'] == 0
+                assert samples[-1]['work']['recheckedRecords'] == 0, (
+                    'Expected exact disk-cache hit on restart', size, samples[-1],
+                    (project / '.noveltea/cache/authoring/native-clean-current.json').exists())
                 invoke('daemon', 'stop')
             for _ in range(3):
                 shutil.rmtree(project / '.noveltea/cache', ignore_errors=True)

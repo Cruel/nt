@@ -2822,8 +2822,20 @@ private:
 #endif
         if (process_already_dead)
             release_child_process(process);
-        else
-            terminate_child_process(process);
+        else {
+            // The resident owner is responsible for the clean disk-ledger
+            // shutdown flush. It observes 'retiring' through owner-next and
+            // releases its OS cache lock before exiting. Give that serialized
+            // path a bounded grace period; an unresponsive/crashed owner must
+            // still be forcibly reaped rather than stall daemon shutdown.
+            const auto deadline = Clock::now() + std::chrono::seconds(8);
+            while (child_process_alive(process) && Clock::now() < deadline)
+                std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            if (child_process_alive(process))
+                terminate_child_process(process);
+            else
+                release_child_process(process);
+        }
         const auto retained_snapshot = project_snapshots_.latest(canonical_root, now_millis());
         const auto exact_validation = exact_validation_results_.find(canonical_root, now_millis());
         const auto exact_validation_checkpoint =
