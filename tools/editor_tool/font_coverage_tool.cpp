@@ -16,6 +16,7 @@
 #include <fstream>
 #include <iterator>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <tuple>
 #include <optional>
@@ -32,6 +33,10 @@
 #include <mach-o/dyld.h>
 #include <sys/stat.h>
 #else
+#ifdef __linux__
+#include <sys/inotify.h>
+#include <unistd.h>
+#endif
 #include <sys/stat.h>
 #endif
 
@@ -102,6 +107,66 @@ std::mutex font_coverage_cache_mutex;
 // An independently edited locale cannot evict another locale's result.
 std::vector<FontCoverageCacheEntry> font_coverage_cache;
 std::vector<FontCoverageCacheEntry> font_coverage_failures;
+
+#ifdef __linux__
+// The system fallback is outside the Project source watcher. Monitor the file
+// inode (including writes through hard links) AND its directory (replacement).
+// On overflow, watch removal, or a stat difference, discard the byte proof.
+struct SystemFontWatch {
+    int fd = -1;
+    std::string physical_identity;
+    std::string content_revision;
+    std::uint64_t generation = 0;
+
+    ~SystemFontWatch()
+    {
+        if (fd >= 0)
+            ::close(fd);
+    }
+
+    bool healthy() const
+    {
+        if (fd < 0)
+            return false;
+        alignas(inotify_event) char buffer[4096];
+        const auto count = ::read(fd, buffer, sizeof(buffer));
+        // Any notification, coverage loss, or read failure revokes the proof.
+        return count < 0 && errno == EAGAIN;
+    }
+};
+
+std::mutex system_font_watch_mutex;
+std::map<std::string, std::unique_ptr<SystemFontWatch>> system_font_watches;
+std::uint64_t next_system_font_generation = 0;
+
+SystemFontWatch* watched_system_font(const std::filesystem::path& candidate,
+                                     std::string_view physical_identity)
+{
+    const auto key = candidate.string();
+    const auto found = system_font_watches.find(key);
+    if (found != system_font_watches.end() &&
+        found->second->physical_identity == physical_identity && found->second->healthy())
+        return found->second.get();
+    system_font_watches.erase(key);
+    auto watch = std::make_unique<SystemFontWatch>();
+    watch->fd = ::inotify_init1(IN_CLOEXEC | IN_NONBLOCK);
+    if (watch->fd < 0)
+        return nullptr;
+    constexpr auto file_events = IN_ATTRIB | IN_MODIFY | IN_CLOSE_WRITE | IN_DELETE_SELF |
+                                 IN_MOVE_SELF;
+    constexpr auto directory_events = file_events | IN_CREATE | IN_DELETE | IN_MOVED_FROM |
+                                      IN_MOVED_TO;
+    if (::inotify_add_watch(watch->fd, candidate.c_str(), file_events) < 0 ||
+        ::inotify_add_watch(watch->fd, candidate.parent_path().c_str(), directory_events) < 0)
+        return nullptr;
+    watch->physical_identity = physical_identity;
+    watch->generation = ++next_system_font_generation;
+    // A bounded number of externally supplied system roots may coexist.
+    if (system_font_watches.size() >= 32)
+        system_font_watches.erase(system_font_watches.begin());
+    return system_font_watches.emplace(key, std::move(watch)).first->second.get();
+}
+#endif
 
 std::filesystem::path executable_path()
 {
@@ -208,7 +273,9 @@ noveltea::text::FontAssetReadResult read_font_asset(const void* context,
 }
 
 FontCoverageFingerprint font_coverage_fingerprint(const FontCoverageFileSource& source,
-                                                  std::string logical_path)
+                                                  std::string logical_path,
+                                                  const std::map<std::string, std::string>* revisions,
+                                                  noveltea::tooling::FontCoverageSourceProofs* proofs)
 {
     FontCoverageFingerprint fingerprint{
         .logical_path = std::move(logical_path),
@@ -294,9 +361,60 @@ FontCoverageFingerprint font_coverage_fingerprint(const FontCoverageFileSource& 
         "posix:" + std::to_string(static_cast<unsigned long long>(info.st_dev)) + ":" +
         std::to_string(static_cast<unsigned long long>(info.st_ino));
 #endif
-    // Metadata is an inexpensive hint, never proof of unchanged font bytes.
-    // In particular a same-size replacement with restored mtime must revoke
-    // both cached missing glyphs and cached successful coverage.
+    // A resident Project's watched binary Asset has an independently fenced
+    // source epoch. Retain its *exact* previous font hash only inside that
+    // session, never from the persisted ledger or a caller-provided JSON hint.
+    std::string project_revision;
+    std::string project_key;
+#ifdef __linux__
+    if (revisions && proofs && fingerprint.logical_path.starts_with("project:/")) {
+        const auto relative = fingerprint.logical_path.substr(9);
+        const auto observed = revisions->find(relative);
+        std::error_code path_error;
+        const auto canonical_root = std::filesystem::weakly_canonical(source.project_root,
+                                                                      path_error);
+        if (!path_error && observed != revisions->end() &&
+            observed->second.starts_with("physical:") &&
+            *candidate == (canonical_root / relative).lexically_normal()) {
+            project_revision = observed->second;
+            project_key = candidate->string();
+            if (const auto prior = proofs->project_fonts.find(project_key);
+                prior != proofs->project_fonts.end() &&
+                prior->second.observed_revision == project_revision) {
+                fingerprint.exact_content_revision = prior->second.exact_content_revision;
+                return fingerprint;
+            }
+        }
+    }
+#else
+    (void)revisions;
+    (void)proofs;
+#endif
+
+#ifdef __linux__
+    // System fonts are not part of the Project watch. A separate fail-closed
+    // inotify file + parent watch permits a retained byte hash only while
+    // both watcher coverage and the independently checked stat remain intact.
+    std::unique_lock<std::mutex> system_lock;
+    SystemFontWatch* system_watch = nullptr;
+    if (fingerprint.logical_path.starts_with("system:/")) {
+        system_lock = std::unique_lock(system_font_watch_mutex);
+        const auto physical = fingerprint.source_identity + ":" +
+                              std::to_string(fingerprint.byte_size) + ":" +
+                              std::to_string(fingerprint.mtime_nanoseconds);
+        system_watch = watched_system_font(*candidate, physical);
+        if (system_watch) {
+            fingerprint.source_identity += ":watch:" +
+                                           std::to_string(system_watch->generation);
+            if (!system_watch->content_revision.empty()) {
+                fingerprint.exact_content_revision = system_watch->content_revision;
+                return fingerprint;
+            }
+        }
+    }
+#endif
+    // Without healthy watcher evidence, metadata cannot prove exact bytes.
+    // A restored-mtime mutation must still invalidate a prior locale result.
     std::ifstream input(*candidate, std::ios::binary);
     if (!input) {
         fingerprint.error = "font source could not be opened for content verification";
@@ -325,10 +443,18 @@ FontCoverageFingerprint font_coverage_fingerprint(const FontCoverageFileSource& 
     noveltea::authoring::count_validation_work<
         noveltea::authoring::WorkCounter::FontBytesHashed>(bytes.size());
     fingerprint.exact_content_revision = noveltea::core::xxh3_128_revision(bytes);
+#ifdef __linux__
+    if (system_watch)
+        system_watch->content_revision = fingerprint.exact_content_revision;
+#endif
+    if (!project_revision.empty())
+        proofs->project_fonts[project_key] = {project_revision, fingerprint.exact_content_revision};
     return fingerprint;
 }
 
-std::vector<FontCoverageFingerprint> font_coverage_fingerprints(const nlohmann::json& request)
+std::vector<FontCoverageFingerprint> font_coverage_fingerprints(
+    const nlohmann::json& request, const std::map<std::string, std::string>* revisions,
+    noveltea::tooling::FontCoverageSourceProofs* proofs)
 {
     const auto project_root = string_value(request, "projectRoot");
     const auto configured_system_root = string_value(request, "systemRoot");
@@ -350,7 +476,7 @@ std::vector<FontCoverageFingerprint> font_coverage_fingerprints(const nlohmann::
     std::vector<FontCoverageFingerprint> fingerprints;
     fingerprints.reserve(logical_paths.size());
     for (const auto& logical_path : logical_paths)
-        fingerprints.push_back(font_coverage_fingerprint(source, logical_path));
+        fingerprints.push_back(font_coverage_fingerprint(source, logical_path, revisions, proofs));
     return fingerprints;
 }
 
@@ -556,6 +682,15 @@ bool restore_font_coverage_ledger(std::string_view snapshot)
 
 NativeOperationResult validate_font_coverage(std::string_view request_json)
 {
+    FontCoverageSourceProofs no_resident_evidence;
+    return validate_font_coverage(request_json, nullptr, no_resident_evidence);
+}
+
+NativeOperationResult validate_font_coverage(
+    std::string_view request_json,
+    const std::map<std::string, std::string>* observed_project_revisions,
+    FontCoverageSourceProofs& proofs)
+{
     const auto request = request_json.empty() ? nlohmann::json::object()
                                               : nlohmann::json::parse(request_json, nullptr, false);
     if (request.is_discarded() || !request.is_object())
@@ -594,7 +729,8 @@ NativeOperationResult validate_font_coverage(std::string_view request_json)
     }
     // Unlike a transient read failure, an absent fallback font is a stable
     // physical fact until the next exact path check observes its creation.
-    const auto whole_fonts = font_coverage_fingerprints(request);
+    const auto whole_fonts =
+        font_coverage_fingerprints(request, observed_project_revisions, &proofs);
     const bool whole_proven = std::all_of(
         whole_fonts.begin(), whole_fonts.end(), [](const auto& value) {
             return value.error.empty() && !value.source_identity.empty() &&
@@ -663,7 +799,7 @@ NativeOperationResult validate_font_coverage(std::string_view request_json)
             if (whole_proven &&
                 fresh.value("error", std::string{}).starts_with(
                     "Font coverage could not load the safe system fallback font") &&
-                font_coverage_fingerprints(request) == whole_fonts) {
+                font_coverage_fingerprints(request, observed_project_revisions, &proofs) == whole_fonts) {
                 std::scoped_lock lock(font_coverage_cache_mutex);
                 if (font_coverage_failures.size() == 8)
                     font_coverage_failures.erase(font_coverage_failures.begin());
@@ -689,7 +825,7 @@ NativeOperationResult validate_font_coverage(std::string_view request_json)
     // Recheck even retained entries after the complete response assembly;
     // source generation proof at the public boundary separately protects
     // Project-owned fonts and all other tracked physical inputs.
-    const auto after = font_coverage_fingerprints(request);
+    const auto after = font_coverage_fingerprints(request, observed_project_revisions, &proofs);
     if (after.size() != whole_fonts.size() ||
         !std::equal(after.begin(), after.end(), whole_fonts.begin(),
                     [](const auto& left, const auto& right) {

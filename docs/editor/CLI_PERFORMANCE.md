@@ -628,10 +628,24 @@ fonts and the system fallback are resolved under their respective contained
 roots and fingerprinted by byte content (XXH3-128), not size/mtime alone.
 Missing glyphs and an absent fallback font are deterministic negative results
 that can be reused and revoked when their input or physical font changes.
-Other I/O uncertainty is not admitted as cached proof. A single content
-verification covers all distinct font paths per request and is repeated
-after coverage to reject mid-validation changes; the independent public
-Project source-generation fence remains mandatory.
+Other I/O uncertainty is not admitted as cached proof. On Linux, a resident
+Project session may retain a previously byte-hashed referenced font while the
+same Project watcher epoch certifies its physical Asset path. That proof is
+**session-local**, never trusted from an offline ledger or a public JSON hint.
+The first visit still establishes the exact hash; later covered visits reuse it
+without reopening the file. A source write, watcher loss, or session readmission
+revokes the proof. Untracked, aliased, and unsafe Project font paths continue
+to receive independent byte checks. On platforms without the native watcher,
+all Project fonts retain conservative physical verification.
+
+The system fallback is outside the Project watcher. On Linux it has an
+independent inotify watch on both the font inode and parent directory, with a
+fresh stat/path check for every use. File modification, replacement, lost
+watch coverage, or metadata change revokes its hash. If those watches cannot
+be installed, the tool hashes the font on each request instead. In all cases,
+the post-coverage check retains physical race detection; it does not need to
+rehash unchanged covered fonts. The independent public source-generation
+fence and pre/post Asset digest proofs are still mandatory.
 
 The same resident native owner runs coverage once for its missed locales and
 returns the canonical diagnostics to the public CLI. The CLI applies its
@@ -639,8 +653,10 @@ existing presentation, severity, ordering, and exit policy; it does not
 launch a second TextEngine for an already-prepared generation. Instrumentation
 distinguishes `fontInputReuses`, `fontCoverageRuns` (number of recomputed
 locales), `fontCoverageReusedLocales`, and the existing
-`endToEnd.fontPreparations` and `endToEnd.localizationChecks` counters. Zero
-coverage executions do **not** mean zero physical font-byte verification.
+`endToEnd.fontPreparations`, `endToEnd.localizationChecks`, and actual
+`endToEnd.fontProofReads`/`fontBytesHashed`. Zero coverage executions alone
+still do **not** prove that physical font-byte verification was avoided; the
+font proof counters and `fontCoverageMicros` must confirm it.
 
 The [#587 matched Release comparison](performance/baselines/validation-2026-10-31-localization-font.json)
 retains the original #577 baseline, records the Release CLI/addon and harness
@@ -650,6 +666,54 @@ in #577, with no localization projection preparation or glyph coverage work;
 `fr` and its descendant `fr-CA` do still rerun coverage when their inherited
 translation text changes. The benchmark includes the cumulative changes from
 #582 onward; it does not isolate #587's individual latency contribution.
+
+#### #587 reopened: watched font-byte proof correction (2026-11-01)
+
+The reopened audit measured **42,997 µs** median `fontCoverageMicros`, six
+`fontProofReads`/`fontProofHashes`, and **14,269,656 bytes** read and hashed on
+each unchanged-font Feature Lab Room-label edit, despite zero shaped locales.
+The corrected Linux resident owner instead reuses exact font-content proofs
+within the fenced Project watcher epoch, and tracks the out-of-Project system
+fallback with a separate fail-closed file-and-directory watcher. The final
+Release run shows **0 font proof reads, 0 font proof hashes, 0 font bytes read,
+and 0 font bytes hashed** on warm saved-label edits, with all five locales
+reused, zero locale shaping, and **16,340 µs** median cached
+`fontCoverageMicros`. The remaining stage cost includes source/path checks,
+request serialization, fingerprint selection, and cached-result assembly; it
+is not reported as zero latency or zero total Project Asset proof work.
+
+The independent [#587 correction comparison](performance/baselines/validation-2026-11-01-font-proof.json)
+uses the same Release CLI/Release Node-API benchmark harness and reference
+machine as the committed [#577 baseline](performance/baselines/validation-2026-10-31-release.json).
+All **67/67** comparable diagnostic fingerprints match; neither the baseline
+nor its cache fixtures were modified.
+
+| Fixture | #577 warm saved-label median | Correction median | #577 cold / correction cold | #577 cached restart / correction cached restart |
+|---|---:|---:|---:|---:|
+| Feature Lab | 323.31 ms | 185.71 ms | 3,440.47 / 3,073.54 ms | 2,930.01 / 554.88 ms |
+| 1 Room | 13.17 ms | 10.06 ms | 86.09 / 102.09 ms | 104.34 / 100.64 ms |
+| 101 Rooms | 45.22 ms | 25.80 ms | 205.17 / 183.20 ms | 197.95 / 127.68 ms |
+| 501 Rooms | 167.99 ms | 92.02 ms | 595.43 / 539.28 ms | 587.69 / 255.14 ms |
+
+Feature Lab warm work counters versus the original #577 baseline: resident
+source captures **3 → 1**, directory enumerations **205 → 0**, instrumented
+file-byte-read operations **2,268 → 232**, content-hash operations **3,813 →
+187**, semantic record rechecks **1 → 1**, `fontPreparations` **1 → 0**,
+`fontCoverageRuns` **1 → 0**, Material/shader preparations **13 → 0**, and
+shader compiler runs **1 → 0**. The older #577 baseline predates the new
+byte-size and font timing counters, so its missing metrics are *not* treated
+as measured zero. The reopened audit's instrumented six font proofs and
+14.27 MB provide the separate same-build pre-correction work reference. These
+baseline-to-current elapsed-time and aggregate-work differences include other
+#576 optimization tickets; they must not be credited solely to this correction.
+
+The updated public incremental certification additionally writes a referenced
+Feature Lab font, restores its original mtime and size, requires renewed font
+proof work and uncached/direct diagnostic parity, then restores its bytes and
+requires the original diagnostics to return. Font-coverage CTests cover system
+fallback loss/recovery, same-size/restored-mtime edits, locale-specific
+invalidation, and negative glyph results; native Project tests cover watcher
+loss and recovery. The independent final source-generation proof is unchanged.
 
 ### #582: watcher-backed native Project source inventory
 

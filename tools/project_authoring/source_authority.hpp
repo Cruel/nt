@@ -106,6 +106,9 @@ public:
     const std::map<std::string, std::string>* verified_revisions_view() const noexcept;
     // Counts physical observation captures, including warm and retry captures.
     std::uint64_t source_capture_count() const noexcept { return source_capture_count_; }
+    // Changes on any loss/recovery of watcher coverage, even when an offline
+    // byte mutation restores identical size and mtime metadata.
+    std::uint64_t watch_epoch() const noexcept { return watch_epoch_; }
     // Physical Asset media changes do not change the Asset's YAML revision.
     // Return the owning YAML records whose local membership checks must be
     // repeated after a proven physical observation.
@@ -149,6 +152,7 @@ private:
     bool initialized_ = false;
     bool uncertain_ = true;
     mutable std::uint64_t source_capture_count_ = 0;
+    std::uint64_t watch_epoch_ = 0;
 };
 
 // Temporarily makes the current verified generation available to native

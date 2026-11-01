@@ -1854,6 +1854,14 @@ void project_validation_roundtrip(const std::filesystem::path& fixture)
                       quiet_work.get<WorkCounter::ParsedYaml>() == 0)),
                 "Healthy watcher reuses unchanged directory and source evidence without IO");
         require(authority.fence(), "Quiet resident generation has an unchanged watcher epoch");
+        const auto healthy_epoch = authority.watch_epoch();
+        require(authority.observe().authoritative && authority.watch_epoch() == healthy_epoch,
+                "Healthy repeated observations retain reusable watcher proof epoch");
+        authority.coverage_lost();
+        require(authority.watch_epoch() != healthy_epoch && authority.observe().authoritative &&
+                    authority.watch_epoch() != healthy_epoch,
+                "Lost watcher coverage revokes all resident binary font proofs even with "
+                "unchanged physical metadata");
         authority.hint("records/rooms/room-lifecycle-roundtrip.yaml");
         require(!authority.fence(),
                 "An explicitly reported source path revokes the pinned publication epoch");

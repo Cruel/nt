@@ -1,4 +1,5 @@
 #include "tooling_native.hpp"
+#include "../../tools/project_authoring/validation_work_instrumentation.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
@@ -136,7 +137,15 @@ TEST_CASE("font coverage invalidates same-size restored-mtime font changes")
             noveltea::tooling::validate_font_coverage(request.dump()).response_json);
     };
     REQUIRE(run()["work"]["executedLocales"] == 1);
-    REQUIRE(run()["work"]["executedLocales"] == 0);
+    noveltea::authoring::ValidationWorkCounters retained_work;
+    {
+        noveltea::authoring::ScopedValidationWork scope(retained_work);
+        REQUIRE(run()["work"]["executedLocales"] == 0);
+    }
+#if defined(__linux__) && NOVELTEA_ENABLE_VALIDATION_COUNTERS
+    CHECK(retained_work.get<noveltea::authoring::WorkCounter::FontProofReads>() == 0);
+    CHECK(retained_work.get<noveltea::authoring::WorkCounter::FontBytesHashed>() == 0);
+#endif
     std::filesystem::remove(target);
     const auto missing = run();
     REQUIRE(missing["ok"] == false);

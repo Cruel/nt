@@ -2,6 +2,8 @@
 
 #include <string>
 #include <string_view>
+#include <map>
+#include <cstdint>
 
 namespace noveltea::tooling {
 
@@ -16,7 +18,21 @@ struct NativeOperationResult {
 [[nodiscard]] NativeOperationResult run_ui_test(std::string_view request_json);
 [[nodiscard]] NativeOperationResult export_package(std::string_view request_json);
 [[nodiscard]] NativeOperationResult validate_font_coverage(std::string_view request_json);
-// Optional same-build ledger data; imported entries still reprove physical font bytes.
+// Resident-only proof from the native Project watcher. Not exposed to the JSON
+// boundary or persisted: an offline edit must never borrow a prior watch epoch.
+struct FontCoverageSourceProofs {
+    struct Source {
+        std::string observed_revision;
+        std::string exact_content_revision;
+    };
+    std::map<std::string, Source> project_fonts;
+    std::uint64_t watch_epoch = 0;
+};
+[[nodiscard]] NativeOperationResult validate_font_coverage(
+    std::string_view request_json,
+    const std::map<std::string, std::string>* observed_project_revisions,
+    FontCoverageSourceProofs& proofs);
+// Optional same-build ledger data; imported entries must establish fresh physical authority.
 std::string font_coverage_ledger();
 bool restore_font_coverage_ledger(std::string_view snapshot);
 // Release the short-lived CLI's native Project resident before process-local

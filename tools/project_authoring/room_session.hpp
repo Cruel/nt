@@ -441,6 +441,7 @@ public:
     {
         return source_authority_->source_capture_count();
     }
+    std::uint64_t source_watch_epoch() const noexcept { return source_authority_->watch_epoch(); }
     // The observer's immutable, exactly hashed capture. Diagnostic projections
     // must consume these same bytes, not reopen files after observation.
     const VerifiedProjectSource* verified_observed_source(std::string_view path) const

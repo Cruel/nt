@@ -67,6 +67,16 @@ struct OwnerValidation {
     // Derived only from this session's last certified localization generation.
     // A new admission cannot borrow another Project's source projection.
     std::optional<Json> font_inputs;
+    noveltea::tooling::FontCoverageSourceProofs font_source_proofs;
+    noveltea::tooling::FontCoverageSourceProofs& current_font_proofs()
+    {
+        const auto epoch = session->source_watch_epoch();
+        if (font_source_proofs.watch_epoch != epoch) {
+            font_source_proofs.project_fonts.clear();
+            font_source_proofs.watch_epoch = epoch;
+        }
+        return font_source_proofs;
+    }
     // Material resolution depends on the saved Material/Asset records and
     // source membership; shader contents are tracked separately by the
     // per-program compiler cache.
@@ -176,7 +186,8 @@ bool restore_stages(OwnerValidation& state, std::string_view serialized, Json& r
             noveltea::authoring::ScopedValidationStageTime<
                 noveltea::authoring::WorkCounter::FontCoverageMicros> timed;
             return noveltea::tooling::validate_font_coverage(
-                Json{{"projectRoot", state.root.string()}, {"locales", *state.font_inputs}}.dump());
+                Json{{"projectRoot", state.root.string()}, {"locales", *state.font_inputs}}.dump(),
+                state.session->verified_source_revisions_view(), state.current_font_proofs());
         }();
         result["fontCoverageResult"] = Json::parse(coverage.response_json);
         const auto& font = result.at("fontCoverageResult");
@@ -827,6 +838,7 @@ Json validate(std::string_view request_text)
         trace_native_validation("opening mutable Project session");
         ++state.session_admissions;
         state.session = ProjectSession::open(root, error);
+        state.font_source_proofs = {};
         if (state.session)
             state.session->enable_resident_cache_maintenance();
         trace_native_validation(state.session ? "mutable Project session opened"
@@ -994,7 +1006,8 @@ Json validate(std::string_view request_text)
             }
             // Font shaping is executed in this same serialized resident owner,
             // not anew in every short-lived public CLI client. The canonical
-            // font tool itself verifies exact bytes and caches per locale.
+            // font tool retains exact byte proofs only within this watched
+            // source authority; the public boundary still fences that epoch.
             if (result["entrypointConfigured"].get<bool>() &&
                 !result.contains("noticeValidationFailure")) {
                 const auto font_request =
@@ -1002,7 +1015,9 @@ Json validate(std::string_view request_text)
                 const auto coverage = [&] {
                     noveltea::authoring::ScopedValidationStageTime<
                         noveltea::authoring::WorkCounter::FontCoverageMicros> timed;
-                    return noveltea::tooling::validate_font_coverage(font_request.dump());
+                    return noveltea::tooling::validate_font_coverage(
+                        font_request.dump(), state.session->verified_source_revisions_view(),
+                        state.current_font_proofs());
                 }();
                 result["fontCoverageResult"] = Json::parse(coverage.response_json);
                 if (result["fontCoverageResult"].contains("work")) {

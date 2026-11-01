@@ -840,6 +840,7 @@ bool SourceAuthority::initialize(std::string& error, bool allow_invalid_sources)
         arm(captured.directories);
         if (uncertain_)
             throw std::runtime_error("Project watcher could not cover all source directories.");
+        ++watch_epoch_;
         hinted_paths_.clear();
         error.clear();
         return true;
@@ -902,7 +903,11 @@ void SourceAuthority::hint(std::string_view relative_path)
     hinted_paths_.insert(relative.generic_string());
 }
 
-void SourceAuthority::coverage_lost() { uncertain_ = true; }
+void SourceAuthority::coverage_lost()
+{
+    uncertain_ = true;
+    ++watch_epoch_;
+}
 
 std::vector<std::string> SourceAuthority::invalid_source_paths() const
 {
@@ -1054,6 +1059,8 @@ SourceObservation SourceAuthority::observe()
     for (const auto& [relative, _] : symlink_revisions_)
         hinted_paths_.insert(relative);
     observation.full_rescan = uncertain_;
+    if (observation.full_rescan)
+        ++watch_epoch_;
     try {
         // Arm the replacement watcher *before* a recovery capture. Resetting
         // after the capture would leave a blind window between proof and watch.
@@ -1072,7 +1079,7 @@ SourceObservation SourceAuthority::observe()
 #endif
             bool during_scan = false;
             if (native_->drain(during_scan, hinted_paths_)) {
-                uncertain_ = true;
+                coverage_lost();
                 observation.full_rescan = true;
                 if (!native_->reset())
                     throw std::runtime_error("Cannot restore Project watcher coverage.");
@@ -1129,7 +1136,7 @@ SourceObservation SourceAuthority::observe()
         hinted_paths_.clear();
     } catch (const std::exception& e) {
         trace_source_proof_event("source-observation", "conflict");
-        uncertain_ = true;
+        coverage_lost();
         observation.full_rescan = true;
         observation.error = e.what();
     }

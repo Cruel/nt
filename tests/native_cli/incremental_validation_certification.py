@@ -166,13 +166,21 @@ with tempfile.TemporaryDirectory(prefix="noveltea-incremental-certify-") as dire
                 for stage in ("fontPreparations", "materialShaderPreparations",
                               "localizationChecks"):
                     assert saved["validationWork"]["endToEnd"][stage] == 0, (size, stage)
-                # Semantic reuse must not hide the physical font proof work.
+                # Linux's pinned Project and system-font watchers prove this
+                # stage without rereading unchanged font bytes. Other hosts
+                # deliberately retain conservative full-byte verification.
                 physical = saved["validationWork"]["endToEnd"]
-                assert physical["fontProofReads"] > 0, (size, physical)
-                assert physical["fontProofHashes"] > 0, (size, physical)
+                if sys.platform.startswith("linux"):
+                    assert physical["fontProofReads"] == 0, (size, physical)
+                    assert physical["fontProofHashes"] == 0, (size, physical)
+                    assert physical["fontBytesRead"] == 0, (size, physical)
+                    assert physical["fontBytesHashed"] == 0, (size, physical)
+                else:
+                    assert physical["fontProofReads"] > 0, (size, physical)
+                    assert physical["fontProofHashes"] > 0, (size, physical)
+                    assert physical["fontBytesRead"] > 0, (size, physical)
+                    assert physical["fontBytesHashed"] > 0, (size, physical)
                 assert physical["fontProofReads"] == physical["fontProofHashes"], physical
-                assert physical["fontBytesRead"] > 0, (size, physical)
-                assert physical["fontBytesHashed"] > 0, (size, physical)
                 assert physical["fileBytesRead"] >= physical["fontBytesRead"], physical
                 assert physical["contentBytesHashed"] >= physical["fontBytesHashed"], physical
                 assert physical["sourceGenerationFences"] > 0, (size, physical)
@@ -195,6 +203,29 @@ with tempfile.TemporaryDirectory(prefix="noveltea-incremental-certify-") as dire
                     assert saved["validationWork"]["endToEnd"]["directoryEnumerations"] == 0
                 no_stages(validate(project))
             fresh_parity(project, saved)
+
+            if size == "feature-lab" and sys.platform.startswith("linux"):
+                # A restored-mtime font mutation is still a watched physical
+                # generation change, even though unrelated Room edits should
+                # no longer hash these bytes. Recover the prior diagnostics.
+                font = project / "assets/fonts/DejaVuSans.ttf"
+                original_font = font.read_bytes()
+                timestamp = font.stat().st_mtime_ns
+                with font.open("r+b") as stream:
+                    stream.seek(128)
+                    byte = stream.read(1)
+                    assert byte
+                    stream.seek(128)
+                    stream.write(bytes([byte[0] ^ 0x01]))
+                os.utime(font, ns=(timestamp, timestamp))
+                changed_font = validate_after_membership_change(project)
+                assert changed_font["validationWork"]["endToEnd"]["fontProofReads"] > 0, changed_font
+                fresh_parity(project, changed_font)
+                font.write_bytes(original_font)
+                os.utime(font, ns=(timestamp, timestamp))
+                restored_font = validate_after_membership_change(project)
+                assert public(restored_font) == public(saved), (saved, restored_font)
+                fresh_parity(project, restored_font)
 
             # A persisted ledger is exercised by a genuinely restarted owner,
             # not an unchanged request to the still-live daemon.
