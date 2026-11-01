@@ -8,6 +8,7 @@
 #include "yaml_transaction.hpp"
 
 #include <cstdint>
+#include <chrono>
 #include <functional>
 #include <filesystem>
 #include <memory>
@@ -186,6 +187,7 @@ private:
 // use one revision and one atomic generic patch batch. Production still uses TS.
 class ProjectSession {
 public:
+    ~ProjectSession();
     static std::unique_ptr<ProjectSession> open(const std::filesystem::path& root,
                                                 std::string& error);
     // Cold diagnostics may inspect malformed saved fragments, but cannot
@@ -226,6 +228,11 @@ public:
     bool publish_deferred_clean_validation(const CleanValidation& validated,
                                            const std::map<std::string, std::string>& post_revisions,
                                            std::string_view stages_json = "null");
+    // Resident CLI and editor hosts call this on their serialized idle loop.
+    // A nonowner only attempts an OS lock at the five-second retry cadence.
+    void enable_resident_cache_maintenance();
+    void maintain_clean_cache(bool shutdown = false, bool already_observed = false);
+    bool owns_clean_cache_lease() const noexcept;
     struct ValidationWork {
         std::size_t rechecked_records = 0;
         std::size_t retained_records = 0;
@@ -444,15 +451,15 @@ public:
     void source_watch_coverage_lost() { source_authority_->coverage_lost(); }
 
 private:
+    struct CacheLease;
+    void initialize_cache_lease();
+    void note_disk_cache_change();
+    bool acquire_cache_lease_if_due();
     static std::unique_ptr<ProjectSession> open_impl(const std::filesystem::path& root,
                                                      std::string& error, bool validation_only);
     ProjectSession(std::unique_ptr<RoomSession> source,
                    std::unique_ptr<SourceAuthority> source_authority, std::filesystem::path root,
-                   std::string traits_baseline_json)
-        : source_(std::move(source)), source_authority_(std::move(source_authority)),
-          root_(std::move(root)), traits_baseline_json_(std::move(traits_baseline_json))
-    {
-    }
+                   std::string traits_baseline_json);
     std::optional<std::string> resolved_material(std::string_view material_id) const;
     void index_text_owner(std::string_view owner, std::string_view raw_json);
     std::map<std::string, std::string> staged_layout_text_sources() const;
@@ -464,6 +471,17 @@ private:
     // validation within this Project session; never a source freshness proof.
     std::shared_ptr<YamlDecodeCache> yaml_decode_cache_;
     std::filesystem::path root_;
+    std::unique_ptr<CacheLease> cache_lease_;
+    bool resident_cache_maintenance_ = false;
+    bool cache_maintenance_pending_ = true;
+    bool cache_maintenance_active_ = false;
+    bool cache_maintenance_shutdown_ = false;
+    bool cache_maintenance_published_ = false;
+    std::chrono::steady_clock::time_point cache_quiet_until_{};
+    std::chrono::steady_clock::time_point cache_next_lease_attempt_{};
+    std::chrono::steady_clock::time_point cache_next_maintenance_attempt_{};
+    std::optional<std::map<std::string, std::string>> cache_stage_revisions_;
+    std::string cache_stage_json_;
     std::string traits_baseline_json_;
     std::map<std::string, std::unique_ptr<RoomSession>> records_;
     // Persisted records removed from the working Project retain their exact

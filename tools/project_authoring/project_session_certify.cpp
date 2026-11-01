@@ -2620,6 +2620,7 @@ void clean_cache_recovery_roundtrip(const std::filesystem::path& fixture)
     // The cache is optional: an unwritable authoring cache directory must not
     // turn otherwise valid source and diagnostics into a validation failure.
     restarted_daemon.reset();
+    editor.reset(); // Release the writer before the test replaces optional storage.
     std::filesystem::remove_all(temp.root / ".noveltea/cache/authoring");
     write(temp.root / ".noveltea/cache/authoring", "blocked cache directory\n");
     auto unavailable_cache = ProjectSession::open(temp.root, error);
@@ -2920,6 +2921,48 @@ void invalid_manifest_roundtrip(const std::filesystem::path& fixture)
 int main(int argc, char** argv)
 {
     try {
+        if (argc == 3 && std::string_view(argv[1]) == "--cache-writer-probe") {
+            std::string error;
+            auto session = ProjectSession::open(argv[2], error);
+            require(session != nullptr, "Cannot admit cache writer probe: " + error);
+            session->enable_resident_cache_maintenance();
+            const auto report = [&](bool validated = false, bool valid = false,
+                                    bool cache_hit = false) {
+                Json result = Json::object();
+                result["writer"] = session->owns_clean_cache_lease();
+                result["validated"] = validated;
+                result["valid"] = valid;
+                result["cacheHit"] = cache_hit;
+                std::cout << result.to_string() << std::endl;
+            };
+            report();
+            std::string command;
+            while (std::getline(std::cin, command)) {
+                if (command == "tick") {
+                    session->maintain_clean_cache();
+                    report();
+                } else if (command == "observe") {
+                    (void)session->observe_sources();
+                    report();
+                } else if (command == "validate") {
+                    const auto result = session->validate_clean_project();
+                    report(true, result.snapshot.valid, result.cache_hit);
+                } else if (command == "dirty") {
+                    const auto result = session->patch(
+                        session->snapshot().working_revision,
+                        {{RoomPatch::Operation::Replace, "/rooms/start/label", "\"Unsaved\""}});
+                    require(result.accepted, "Cache probe must support a private unsaved edit");
+                    report();
+                } else if (command == "close") {
+                    session.reset();
+                    std::cout << "{}" << std::endl;
+                    return 0;
+                } else {
+                    throw std::runtime_error("Unsupported cache writer probe command.");
+                }
+            }
+            return 0;
+        }
         // One native process certifies the entire physical record corpus. The
         // differential driver still compares every record independently, but
         // no longer pays for hundreds of instrumented process startups.

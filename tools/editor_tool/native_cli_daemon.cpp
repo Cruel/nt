@@ -573,9 +573,21 @@ int owner_process(const Json& context, std::uint64_t worker_id,
     for (;;) {
         const auto next = broker_call(context, "owner-next", {{"ownerWorkerId", worker_id}});
         require_ok(next);
-        if (next.value("stopped", false))
+        if (next.value("stopped", false)) {
+            (void)native_call(noveltea_tooling_native_disk_project_validation_json,
+                              {{"projectRoot", canonical_root}, {"action", "release"}});
             return 0;
+        }
         if (next.value("idle", false)) {
+            const auto permit =
+                broker_call(context, "owner-maintenance-permit", {{"ownerWorkerId", worker_id}});
+            if (permit.value("ok", false) && permit.value("allowed", false)) {
+                // Native disk validation owns the only persistent Project
+                // semantic session. Its maintenance action is a no-op for
+                // nonowners until the next nonblocking OS lease attempt.
+                (void)native_call(noveltea_tooling_native_disk_project_validation_json,
+                                  {{"projectRoot", canonical_root}, {"action", "maintenance"}});
+            }
             const auto pending =
                 broker_call(context, "owner-needs-reconcile", {{"ownerWorkerId", worker_id}});
             if (pending.value("ok", false) && pending.value("needsReconcile", false)) {

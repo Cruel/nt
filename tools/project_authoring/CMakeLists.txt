@@ -245,6 +245,7 @@ if(BUILD_TESTING)
     # records when a valid, dependency-capable Project fixture already exists.
     set(NOVELTEA_AUTHORING_SMALL_PROJECT
         "${CMAKE_CURRENT_SOURCE_DIR}/../../editor/src/renderer/test/fixtures/project-compiler-cli/minimal-project")
+    find_program(NOVELTEA_AUTHORING_TEST_PYTHON NAMES python3 python REQUIRED)
     find_program(NOVELTEA_AUTHORING_TEST_NODE NAMES node)
     add_executable(noveltea-flow-certify flow_certify.cpp)
     target_include_directories(noveltea-flow-certify SYSTEM PRIVATE "${noveltea_jsoncons_SOURCE_DIR}/include")
@@ -321,6 +322,11 @@ if(BUILD_TESTING)
         --clean-cache-correctness "${NOVELTEA_AUTHORING_SMALL_PROJECT}")
     add_test(NAME native_authoring_clean_cache_offline COMMAND noveltea-project-session-certify
         --clean-cache-offline "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
+    add_test(NAME native_authoring_cache_writer_processes
+        COMMAND "${NOVELTEA_AUTHORING_TEST_PYTHON}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/native_cli/cache_writer_processes.py"
+            "$<TARGET_FILE:noveltea-project-session-certify>"
+            "${NOVELTEA_AUTHORING_SMALL_PROJECT}")
     add_test(NAME native_authoring_invalid_manifest COMMAND noveltea-project-session-certify
         --invalid-manifest "${NOVELTEA_AUTHORING_SMALL_PROJECT}")
     if(NOVELTEA_AUTHORING_TEST_NODE)

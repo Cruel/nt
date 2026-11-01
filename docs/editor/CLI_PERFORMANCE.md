@@ -13,6 +13,40 @@ records baseline evidence from `4e0dcdfc`, not performance guarantees. See
 The problem is **repeated whole-Project work around an incremental validator**, not an
 unoptimized compiler build or failure to retain the primary validation session.
 
+### #593: cross-process clean-ledger writer and quiet publication
+
+Native Project sessions now attempt a nonblocking exclusive OS lock at
+`.noveltea/cache/authoring/native-clean-writer.lock` on admission. The lock
+belongs to the canonical Project directory, is never unlinked on release, and
+is released by the operating system on process death. Unix/macOS uses `flock`;
+Windows uses `LockFileEx`. Nonowners can still validate authoritative sources
+and read the exact clean ledger, but cannot publish to it. They only retry the
+writer lease every five seconds during serialized resident maintenance. A
+missing, read-only or malformed optional cache directory must not make Project
+validation fail.
+
+The CLI daemon's existing Project owner uses its broker-approved idle turn for
+cache maintenance; Electron's existing native worker polls it on its normal
+serialized observer loop. Neither starts a separate cache daemon, thread, or
+Project reader. Only the elected writer observes sources *for maintenance*;
+every physical change delays publication until the source set has been quiet
+for five seconds. The writer then uses the same resident dependency validator,
+exact source-generation proofs and atomic ledger replacement as public
+validation. A byte-identical ledger is not rewritten. Successful foreground
+validation can make the resident result available immediately, but schedules
+its disk publication for the quiet period. On graceful owner release, pending
+clean evidence is flushed after the normal physical authority proofs; dirty
+editor overlays never enter the ledger. A new owner may publish promptly if
+the current sources are demonstrably older than the quiet window.
+
+The native process certification `native_authoring_cache_writer_processes`
+exercises competing real processes, a canonical-path alias, nonowner reads and
+validation, changed-source debounce, immutable ledger restat, orderly exit,
+crash handoff, private unsaved edits, and unavailable cache storage. This is a
+correctness contract, **not** a latency claim. The #577 Release profiling
+scenarios remain the reference for reporting like-for-like performance data;
+elapsed-time thresholds are not CI acceptance criteria.
+
 ### #592: cold offline-change reconciliation
 
 The native clean ledger now admits a **partial** restoration when the global

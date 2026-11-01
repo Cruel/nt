@@ -17,6 +17,8 @@ interface NativeBinding {
   close(handle: unknown): void;
   snapshot(handle: unknown): string;
   validateClean(handle: unknown): string;
+  startCacheMaintenance(handle: unknown): void;
+  maintainCache(handle: unknown): void;
   validateWorking(handle: unknown, revision: number): string;
   inspect(handle: unknown, owner: string): string;
   reconcile(handle: unknown, owner: string): string;
@@ -145,7 +147,10 @@ const poller =
     : setInterval(
         () => {
           try {
-            if (!stopped) observe();
+            if (!stopped) {
+              observe();
+              binding?.maintainCache(handle);
+            }
           } catch (error) {
             fail(error);
           }
@@ -156,6 +161,7 @@ const poller =
 try {
   binding = createRequire(start.addonPath)(start.addonPath) as NativeBinding;
   handle = binding.open(start.root);
+  if (start.pollIntervalMs !== 0) binding.startCacheMaintenance(handle);
   const snapshot = nativeAuthoringSnapshotSchema.parse(JSON.parse(binding.snapshot(handle)));
   send({ ...identity, type: 'snapshot', sequence: 0, snapshot });
 } catch (error) {

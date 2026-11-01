@@ -661,6 +661,26 @@ Json validate(std::string_view request_text)
         }
         return {{"ok", true}};
     }
+    if (request.value("action", std::string("validate")) == "maintenance") {
+        // The daemon owner calls this only while idle. The elected cache
+        // writer uses its own resident SourceAuthority; a nonowner performs
+        // only the five-second nonblocking OS lock retry.
+        if (state.root != root) {
+            state.session.reset();
+            state.clear_preparations();
+            state.root = root;
+        }
+        if (!state.session) {
+            std::string error;
+            state.session = ProjectSession::open(root, error);
+            if (!state.session)
+                return {{"ok", false}, {"error", error}};
+            ++state.session_admissions;
+            state.session->enable_resident_cache_maintenance();
+        }
+        state.session->maintain_clean_cache();
+        return {{"ok", true}, {"writer", state.session->owns_clean_cache_lease()}};
+    }
     if (request.value("action", std::string("validate")) == "source-generation-proof") {
         const auto conflict = [&]() -> Json {
             // Observation must not consume inventory changes that the next validation
@@ -767,6 +787,8 @@ Json validate(std::string_view request_text)
         trace_native_validation("opening mutable Project session");
         ++state.session_admissions;
         state.session = ProjectSession::open(root, error);
+        if (state.session)
+            state.session->enable_resident_cache_maintenance();
         trace_native_validation(state.session ? "mutable Project session opened"
                                               : "mutable Project session rejected");
         if (!state.session)

@@ -312,6 +312,19 @@ napi_value call(napi_env env, napi_callback_info info)
             napi_get_undefined(env, &value);
             return value;
         }
+        if (name == "startCacheMaintenance" || name == "maintainCache") {
+            if (argc != 1)
+                throw std::runtime_error("Cache maintenance requires only the session handle.");
+            if (name == "startCacheMaintenance")
+                session.project->enable_resident_cache_maintenance();
+            else
+                // Electron already polled the exact source authority on the
+                // same serialized worker turn; do not capture it twice.
+                session.project->maintain_clean_cache(false, true);
+            napi_value value = nullptr;
+            napi_get_undefined(env, &value);
+            return value;
+        }
         if (name == "snapshot") {
             if (argc != 1)
                 throw std::runtime_error("snapshot takes only the session handle.");
@@ -923,6 +936,8 @@ napi_value initialize(napi_env env, napi_value exports)
                                     "close",
                                     "snapshot",
                                     "validateClean",
+                                    "startCacheMaintenance",
+                                    "maintainCache",
                                     "validateWorking",
                                     "observe",
                                     "inspect",

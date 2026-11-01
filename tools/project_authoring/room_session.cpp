@@ -1465,6 +1465,7 @@ std::unique_ptr<ProjectSession> ProjectSession::open_impl(const std::filesystem:
                     effective.at("sourceLocaleLock").as<std::string>();
         }
         error.clear();
+        project->initialize_cache_lease();
         return project;
     } catch (const std::exception& e) {
         error = e.what();
@@ -3462,6 +3463,9 @@ void ProjectSession::reindex_asset_consumers(std::string_view asset_id)
 SourceObservation ProjectSession::observe_sources()
 {
     auto observed = source_authority_->observe();
+    if (observed.full_rescan || !observed.authoritative || !observed.delta.added.empty() ||
+        !observed.delta.changed.empty() || !observed.delta.removed.empty())
+        note_disk_cache_change();
     for (const auto& path : source_authority_->affected_asset_records(observed.delta)) {
         constexpr std::string_view prefix = "records/";
         if (path.starts_with(prefix) && path.ends_with(".yaml"))

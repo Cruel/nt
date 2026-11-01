@@ -16,11 +16,18 @@
 #include <random>
 #include <stdexcept>
 #include <string>
+#include <system_error>
 
 #ifdef _WIN32
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#else
+#include <cerrno>
+#include <fcntl.h>
+#include <sys/file.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #endif
 
 namespace noveltea::authoring {
@@ -377,17 +384,17 @@ read_clean_cache(const fs::path& root, const std::map<std::string, std::string>&
     }
 }
 
-void publish_clean_cache(const fs::path& root, const std::map<std::string, std::string>& revisions,
+bool publish_clean_cache(const fs::path& root, const std::map<std::string, std::string>& revisions,
                          const RoomSessionSnapshot& snapshot, const Json& resident,
                          const Json& stages = Json::null())
 {
     try {
         if (!safe_cache_path(root))
-            return;
+            return false;
         const fs::path path = root / kRelative;
         fs::create_directories(path.parent_path());
         if (!safe_cache_path(root))
-            return;
+            return false;
         Json value = Json::object();
         value["contract"] = std::string(kContract);
         value["semanticKey"] = std::string(kSemanticKey);
@@ -406,6 +413,15 @@ void publish_clean_cache(const fs::path& root, const std::map<std::string, std::
         semantic_payload.erase("stages");
         semantic_payload.erase("stageRevision");
         value["payloadRevision"] = noveltea::core::xxh3_128_revision(semantic_payload.to_string());
+        const auto serialized = value.to_string() + '\n';
+        // Repeated validations must not replace an already current ledger.
+        // Reusing identical bytes also avoids resetting the quiet-window clock
+        // of an unrelated resident watching Project-local private state.
+        if (fs::is_regular_file(path) && fs::file_size(path) == serialized.size()) {
+            const auto previous = read_exact_file(path);
+            if (previous && *previous == serialized)
+                return true;
+        }
         static std::atomic<std::uint64_t> sequence{0};
         const auto staged = fs::path(
             path.string() + "." +
@@ -414,14 +430,14 @@ void publish_clean_cache(const fs::path& root, const std::map<std::string, std::
         {
             std::ofstream output(staged, std::ios::binary | std::ios::trunc);
             if (!output)
-                return;
-            output << value.to_string() << '\n';
+                return false;
+            output << serialized;
             output.flush();
             if (!output) {
                 std::error_code ignored;
                 output.close();
                 fs::remove(staged, ignored);
-                return;
+                return false;
             }
         }
         // A concurrent publisher can win; both entries are admitted only by
@@ -431,7 +447,7 @@ void publish_clean_cache(const fs::path& root, const std::map<std::string, std::
                 value.at("sources") != source_metadata(root, revisions)) {
                 std::error_code ignored;
                 fs::remove(staged, ignored);
-                return;
+                return false;
             }
 #ifdef _WIN32
             if (!MoveFileExW(staged.c_str(), path.c_str(),
@@ -440,6 +456,7 @@ void publish_clean_cache(const fs::path& root, const std::map<std::string, std::
 #else
             fs::rename(staged, path);
 #endif
+            return true;
         } catch (...) {
             std::error_code ignored;
             fs::remove(staged, ignored);
@@ -448,8 +465,206 @@ void publish_clean_cache(const fs::path& root, const std::map<std::string, std::
     } catch (...) {
         // Never make validation fail due to a missing/read-only cache directory.
     }
+    return false;
 }
 } // namespace
+
+// This file is deliberately never removed: unlinking a locked inode lets a
+// second process lock its replacement while the first still owns the old one.
+// Both the CLI owner and the Node-API worker hold the same canonical-root lock.
+struct ProjectSession::CacheLease {
+#ifdef _WIN32
+    HANDLE file = INVALID_HANDLE_VALUE;
+    OVERLAPPED offset{};
+#else
+    int file = -1;
+#endif
+
+    ~CacheLease()
+    {
+#ifdef _WIN32
+        if (file != INVALID_HANDLE_VALUE) {
+            UnlockFileEx(file, 0, 1, 0, &offset);
+            CloseHandle(file);
+        }
+#else
+        if (file >= 0) {
+            (void)flock(file, LOCK_UN);
+            (void)close(file);
+        }
+#endif
+    }
+
+    bool acquire(const fs::path& root)
+    {
+        try {
+            const auto parent = root / ".noveltea/cache/authoring";
+            // Optional cache storage is not an authority to traverse symlinks.
+            if (!safe_cache_path(root))
+                return false;
+            fs::create_directories(parent);
+            if (!safe_cache_path(root))
+                return false;
+            const auto path = parent / "native-clean-writer.lock";
+            if (fs::symlink_status(path).type() == fs::file_type::symlink)
+                return false;
+#ifdef _WIN32
+            file = CreateFileW(path.c_str(), GENERIC_READ | GENERIC_WRITE,
+                               FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_ALWAYS,
+                               FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+            if (file == INVALID_HANDLE_VALUE)
+                return false;
+            BY_HANDLE_FILE_INFORMATION info{};
+            if (!GetFileInformationByHandle(file, &info) ||
+                (info.dwFileAttributes &
+                 (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY)) ||
+                !LockFileEx(file, LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY, 0, 1, 0,
+                            &offset)) {
+                CloseHandle(file);
+                file = INVALID_HANDLE_VALUE;
+                return false;
+            }
+#else
+            file = ::open(path.c_str(), O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0600);
+            if (file < 0)
+                return false;
+            struct stat info {};
+            if (fstat(file, &info) != 0 || !S_ISREG(info.st_mode) ||
+                flock(file, LOCK_EX | LOCK_NB) != 0) {
+                (void)close(file);
+                file = -1;
+                return false;
+            }
+#endif
+            return true;
+        } catch (...) {
+            return false;
+        }
+    }
+};
+
+ProjectSession::ProjectSession(std::unique_ptr<RoomSession> source,
+                               std::unique_ptr<SourceAuthority> source_authority, fs::path root,
+                               std::string traits_baseline_json)
+    : source_(std::move(source)), source_authority_(std::move(source_authority)),
+      root_(std::move(root)), traits_baseline_json_(std::move(traits_baseline_json))
+{
+}
+
+ProjectSession::~ProjectSession()
+{
+    if (resident_cache_maintenance_ && owns_clean_cache_lease()) {
+        try {
+            maintain_clean_cache(true);
+        } catch (...) {
+            // A best-effort shutdown flush cannot prevent session destruction.
+        }
+    }
+}
+
+bool ProjectSession::owns_clean_cache_lease() const noexcept { return cache_lease_ != nullptr; }
+
+bool ProjectSession::acquire_cache_lease_if_due()
+{
+    if (cache_lease_)
+        return true;
+    const auto now = std::chrono::steady_clock::now();
+    if (now < cache_next_lease_attempt_)
+        return false;
+    cache_next_lease_attempt_ = now + std::chrono::seconds(5);
+    auto candidate = std::make_unique<CacheLease>();
+    if (!candidate->acquire(root_))
+        return false;
+    cache_lease_ = std::move(candidate);
+    cache_maintenance_pending_ = true;
+    return true;
+}
+
+void ProjectSession::initialize_cache_lease()
+{
+    // Initial lease acquisition never performs semantic validation. Even if
+    // optional cache storage is unwritable, the Project remains interactive.
+    (void)acquire_cache_lease_if_due();
+}
+
+void ProjectSession::note_disk_cache_change()
+{
+    cache_maintenance_pending_ = true;
+    cache_quiet_until_ = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    cache_next_maintenance_attempt_ = {};
+    cache_stage_revisions_.reset();
+    cache_stage_json_.clear();
+}
+
+void ProjectSession::enable_resident_cache_maintenance()
+{
+    resident_cache_maintenance_ = true;
+    cache_maintenance_pending_ = true;
+    const auto now = std::chrono::steady_clock::now();
+    // An owner taking over a quiet Project need not wait a second five-second
+    // window. Any untrusted clock or more recent source conservatively delays.
+    cache_quiet_until_ = now;
+    if (!owns_clean_cache_lease())
+        return; // Nonowners do no cache-only source enumeration or stat calls.
+    if (const auto* revisions = verified_source_revisions_view()) {
+        try {
+            const auto file_now = fs::file_time_type::clock::now();
+            for (const auto& [path, revision] : *revisions) {
+                (void)revision;
+                const auto modified = fs::last_write_time(root_ / path);
+                const auto age = file_now - modified;
+                if (age < std::chrono::seconds(5)) {
+                    const auto remaining = std::chrono::seconds(5) - age;
+                    cache_quiet_until_ = std::max(
+                        cache_quiet_until_,
+                        now + std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                                  remaining));
+                }
+            }
+        } catch (...) {
+            cache_quiet_until_ = now + std::chrono::seconds(5);
+        }
+    }
+}
+
+void ProjectSession::maintain_clean_cache(bool shutdown, bool already_observed)
+{
+    if (!resident_cache_maintenance_ || !acquire_cache_lease_if_due())
+        return;
+    // Only the elected writer is allowed to poll for proactive maintenance.
+    if (!shutdown && !already_observed) {
+        try {
+            (void)observe_sources();
+        } catch (...) {
+            return; // Optional maintenance must not disrupt active sessions.
+        }
+    }
+    if (!cache_maintenance_pending_ ||
+        (!shutdown && (std::chrono::steady_clock::now() < cache_quiet_until_ ||
+                       std::chrono::steady_clock::now() < cache_next_maintenance_attempt_)))
+        return;
+    // Serialize through the same resident validator, not a second disk reader.
+    cache_maintenance_active_ = true;
+    cache_maintenance_shutdown_ = shutdown;
+    cache_maintenance_published_ = false;
+    try {
+        const auto result = validate_clean_project();
+        if ((result.cache_hit || cache_maintenance_published_) &&
+            (shutdown || std::chrono::steady_clock::now() >= cache_quiet_until_))
+            cache_maintenance_pending_ = false;
+    } catch (...) {
+        cache_maintenance_active_ = false;
+        cache_maintenance_shutdown_ = false;
+        cache_next_maintenance_attempt_ =
+            std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        return; // Cached results are optional; retry on a later idle tick.
+    }
+    cache_maintenance_active_ = false;
+    cache_maintenance_shutdown_ = false;
+    if (cache_maintenance_pending_)
+        cache_next_maintenance_attempt_ =
+            std::chrono::steady_clock::now() + std::chrono::seconds(5);
+}
 
 void ProjectSession::revoke_clean_validation()
 {
@@ -801,6 +1016,19 @@ ProjectSession::CleanValidation ProjectSession::validate_clean_project(bool init
                     if ((unchanged && defer_valid_publication && cached->snapshot.valid) ||
                         proof(false, "cache-final") == revisions) {
                         if (unchanged) {
+                            if (cache_maintenance_active_ && owns_clean_cache_lease() &&
+                                cache_stage_revisions_ == revisions && !cache_stage_json_.empty() &&
+                                cache_stage_json_ != cached->stages.to_string()) {
+                                try {
+                                    const auto stages = Json::parse(cache_stage_json_);
+                                    if (proof(true, "cache-stage-publication") == revisions)
+                                        cache_maintenance_published_ =
+                                            publish_clean_cache(root_, *revisions, cached->snapshot,
+                                                                cached->resident, stages);
+                                } catch (...) {
+                                    // Invalid optional stage evidence never revokes semantics.
+                                }
+                            }
                             pending_clean_hydration_ =
                                 [hydrate_resident, payload = cached->resident,
                                  revisions = *revisions, snapshot = cached->snapshot]() {
@@ -899,8 +1127,22 @@ ProjectSession::CleanValidation ProjectSession::validate_clean_project(bool init
                     resident_state().to_string(),
                     std::move(offline_stage_evidence),
                     validation_generation_};
-        if (proof(true, "validation-publication") == validated_input)
-            publish_clean_cache(root_, *validated_input, snapshot, resident_state());
+        if (owns_clean_cache_lease() &&
+            (!resident_cache_maintenance_ || cache_maintenance_active_) &&
+            (!resident_cache_maintenance_ || cache_maintenance_shutdown_ ||
+             std::chrono::steady_clock::now() >= cache_quiet_until_) &&
+            proof(true, "validation-publication") == validated_input) {
+            Json stages = Json::null();
+            if (cache_stage_revisions_ == validated_input && !cache_stage_json_.empty()) {
+                try {
+                    stages = Json::parse(cache_stage_json_);
+                } catch (...) {
+                    stages = Json::null();
+                }
+            }
+            cache_maintenance_published_ =
+                publish_clean_cache(root_, *validated_input, snapshot, resident_state(), stages);
+        }
     }
     return {std::move(snapshot), false};
 }
@@ -931,7 +1173,15 @@ bool ProjectSession::publish_deferred_clean_validation(
         if (record->snapshot().dirty)
             return false;
     }
-    if (!validated.cache_hit || stages_json != "null") {
+    if (resident_cache_maintenance_) {
+        cache_maintenance_pending_ = true;
+        cache_stage_revisions_ = post_revisions;
+        // A semantic-only repeat must not discard independently proved font
+        // and shader stage evidence from a previously admitted cache hit.
+        cache_stage_json_ = stages_json != "null" ? std::string(stages_json)
+                            : validated.cache_hit ? validated.stages_json
+                                                  : std::string{};
+    } else if (owns_clean_cache_lease() && (!validated.cache_hit || stages_json != "null")) {
         try {
             publish_clean_cache(root_, post_revisions, validated.snapshot,
                                 Json::parse(validated.deferred_resident_json),
