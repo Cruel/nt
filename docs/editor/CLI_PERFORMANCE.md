@@ -82,6 +82,53 @@ validations (with eight program and eleven interface results reused).
 The improvement against #577 includes previous #582–#587 work, so those
 numbers are a cumulative comparison, not an isolated #588 speedup claim.
 
+### #589: portable-source and distribution-notice stage reuse
+
+The resident public disk-validation owner now retains a successful portable
+source-path check against an explicit projection of distribution notice paths,
+Asset sources/attachments, Layout script dependencies, and authored Material
+shader source paths. A separate retained result covers validated distribution
+notice names and UTF-8/control-byte contents. Neither stage is keyed to the
+whole Project revision: a Room label edit does not rerun either stage, and the
+public `validationWork` profile reports `portableSourceReuses`,
+`noticeValidationRuns`, and `noticeValidationReuses` alongside the existing
+`endToEnd.portableSourceChecks` counter.
+
+Reuse requires an authoritative source observation and every checked external
+file to be part of its watched inventory. The source observer now watches the
+recursive portable `workflows/` inventory (respecting bundle exclusions) and
+tracks its binary members by metadata-only physical identity. Added, deleted,
+renamed, edited, and unsafe source or workflow changes revoke the affected
+result or force native Project readmission. A watcher event also revokes the
+affected result on a same-size write with restored timestamps; byte-exact
+generation publication remains an independent obligation. Failed portable
+checks, invalid notices, and unobserved external paths are never cached as
+successful or deterministic negative proofs. Package export continues to
+enumerate and hash its own source files independently of validation reuse.
+On hosts without Linux inotify, these external stages continue to run for each
+validation because their full observation alone cannot prove a same-size,
+restored-mtime binary file unchanged; the cache does not substitute for a
+cross-platform physical notification contract.
+
+`tests/native_cli/portable_validation_cache.py` exercises these boundaries
+through public direct and daemon CLI requests on a disposable Feature Lab
+copy. The runtime Feature Lab does not require a new authored gameplay case:
+this is physical-source admission and validation caching, not runtime behavior.
+
+The matching Release evidence is
+`docs/editor/performance/baselines/validation-2026-11-01-external-stages.json`
+(`tests/native_cli/validation_performance.py --issue 589`). It uses the same
+Ryzen 7 5700G Linux host, GCC Release `-O3 -DNDEBUG`, CLI and native addon
+configuration, profiler, fixture sizes and request sequences as the October 31
+reference baseline. Warm saved-label medians in milliseconds were **323.31 →
+162.03** (Feature Lab), **13.17 → 10.00** (1 Room), **45.22 → 24.89** (101
+Rooms), and **167.99 → 91.00** (501 Rooms). These are cumulative differences
+across the intervening validation optimization commits, not an isolated #589
+speedup. On every measured warm saved-label request, the portable-stage
+execution counter is **0** (previous reference: **1**), with
+`portableSourceReuses = 1` and `noticeValidationReuses = 1`; all comparable
+public CLI diagnostic fingerprints are identical to the reference baseline.
+
 ### #586: retained diagnostic assembly and YAML provenance
 
 The native Project session retains record-local diagnostic contributions and the

@@ -491,6 +491,11 @@ if(BUILD_TESTING)
             "$<TARGET_FILE:noveltea-native-cli>"
             "${CMAKE_SOURCE_DIR}/tests/projects/feature-lab")
     set_tests_properties(native_cli_shader_validation_cache PROPERTIES TIMEOUT 420)
+    add_test(NAME native_cli_portable_validation_cache
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli/portable_validation_cache.py"
+            "$<TARGET_FILE:noveltea-native-cli>"
+            "${CMAKE_SOURCE_DIR}/tests/projects/feature-lab")
+    set_tests_properties(native_cli_portable_validation_cache PROPERTIES TIMEOUT 420)
     add_test(NAME native_compiled_project_parity
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli/compiled_project_parity.py"
             "$<TARGET_FILE:noveltea-runtime-cache-publish-certify>" "${CMAKE_SOURCE_DIR}")

@@ -33,6 +33,14 @@ namespace {
 using Json = nlohmann::json;
 using noveltea::authoring::ProjectSession;
 
+#ifdef __linux__
+constexpr bool external_watcher_cache_supported = true;
+#else
+// Other hosts perform full observation but have no notification trail for a
+// same-size, restored-mtime binary change. Never reuse that negative evidence.
+constexpr bool external_watcher_cache_supported = false;
+#endif
+
 void trace_native_validation(const char* stage)
 {
     const char* trace = std::getenv("NOVELTEA_CLI_TRACE");
@@ -45,6 +53,10 @@ void trace_native_validation(const char* stage)
 // Each existing daemon Project-owner process is single-root. This native state
 // lives inside that owner, not in a parallel daemon or a persistent cache.
 struct OwnerValidation {
+    struct ExternalCheck {
+        Json inputs;
+        std::set<std::string> watched_paths;
+    };
     std::mutex mutex;
     std::filesystem::path root;
     std::unique_ptr<ProjectSession> session;
@@ -63,6 +75,8 @@ struct OwnerValidation {
     Json material_programs = Json::object();
     Json material_effective = Json::object();
     noveltea::tooling::MaterialShaderValidationCache shader_cache;
+    std::optional<ExternalCheck> portable_check;
+    std::optional<ExternalCheck> notice_check;
     void clear_preparations(bool clear_shaders = true)
     {
         font_inputs.reset();
@@ -70,6 +84,8 @@ struct OwnerValidation {
         material_assets.reset();
         material_programs = Json::object();
         material_effective = Json::object();
+        portable_check.reset();
+        notice_check.reset();
         if (clear_shaders)
             shader_cache.clear();
     }
@@ -207,6 +223,81 @@ std::optional<std::string> native_distribution_notice_error(const std::filesyste
                    "' is empty, too large, or contains prohibited controls.";
     }
     return std::nullopt;
+}
+
+// These projections describe inputs to the external stages, not semantic
+// validation's whole-Project revision. Room labels and unrelated record
+// properties deliberately do not participate.
+Json portable_inputs(const Json& project)
+{
+    Json result = Json::object();
+    const Json empty = Json::object();
+    const auto& assets = project.contains("assets") ? project.at("assets") : empty;
+    const auto& layouts = project.contains("layouts") ? project.at("layouts") : empty;
+    const auto& materials = project.contains("materials") ? project.at("materials") : empty;
+    result["notices"] = project.at("settings").value("distributionNotices", Json::array());
+    result["assets"] = Json::object();
+    for (const auto& [id, record] : assets.items()) {
+        const auto& data = record.at("data");
+        result["assets"][id] = {{"source", data.value("source", Json())},
+                                 {"attachments", data.value("attachments", Json::array())}};
+    }
+    result["layouts"] = Json::object();
+    for (const auto& [id, record] : layouts.items())
+        if (const auto& data = record.at("data"); data.contains("dependencies") &&
+                                                   data.at("dependencies").is_object())
+            result["layouts"][id] =
+                data.at("dependencies").value("scripts", Json::array());
+    result["materials"] = Json::object();
+    for (const auto& [id, record] : materials.items()) {
+        const auto& data = record.at("data");
+        if (data.contains("shader"))
+            result["materials"][id] = data.at("shader");
+    }
+    return result;
+}
+
+Json notice_inputs(const Json& project)
+{
+    Json result = Json::object();
+    const Json empty = Json::object();
+    const auto& assets = project.contains("assets") ? project.at("assets") : empty;
+    result["settings"] = project.at("settings").value("distributionNotices", Json::array());
+    result["assets"] = Json::object();
+    for (const auto& [id, record] : assets.items()) {
+        const auto& data = record.at("data");
+        if (!data.contains("attachments") || !data.at("attachments").is_array())
+            continue;
+        for (const auto& attachment : data.at("attachments"))
+            if (attachment.is_object() &&
+                attachment.value("purpose", std::string{}) == "distribution-notice")
+                result["assets"][id].push_back(attachment);
+    }
+    return result;
+}
+
+// An unobserved external input (such as an arbitrary referenced path outside
+// the watched source families) is never sufficient proof for a resident hit.
+std::optional<std::set<std::string>> observed_external_paths(
+    const Json& paths, const ProjectSession& session)
+{
+    const auto* revisions = session.verified_source_revisions_view();
+    if (!revisions)
+        return std::nullopt;
+    std::set<std::string> watched;
+    for (const auto& entry : paths) {
+        const auto path = entry.get<std::string>();
+        // Tracked YAML has its own exact native semantic/source authority.
+        // A Room YAML label edit must not revoke the external-input stage.
+        if (path == "project.yaml" || path == "editor.yaml" || path == "traits.yaml" ||
+            (path.starts_with("records/") && path.ends_with(".yaml")) ||
+            (path.starts_with("i18n/") && path.ends_with(".yaml")))
+            continue;
+        if (!revisions->contains(path) || revisions->at(path) == "absent")
+            return std::nullopt;
+        watched.insert(path);
+    }
+    return watched;
 }
 
 // Derive text inputs from the native localization source-view resolver rather
@@ -519,6 +610,31 @@ Json validate(std::string_view request_text)
             captures_before = 0;
             record_hits_before = 0;
             source_hits_before = 0;
+        } else {
+            const auto revoke = [&](std::optional<OwnerValidation::ExternalCheck>& cached) {
+                if (!cached)
+                    return;
+                const auto changed = [&](std::string_view path) {
+                    for (const auto& source : cached->watched_paths)
+                        if (source == path || source.starts_with(std::string(path) + "/"))
+                            return true;
+                    return false;
+                };
+                for (const auto& path : observed.delta.changed)
+                    if (changed(path)) {
+                        cached.reset();
+                        return;
+                    }
+                // Even a same-size write with restored timestamps is a real
+                // event; the metadata-only binary hint may compare equal.
+                for (const auto& path : observed.watch_paths)
+                    if (changed(path)) {
+                        cached.reset();
+                        return;
+                    }
+            };
+            revoke(state.portable_check);
+            revoke(state.notice_check);
         }
     }
     const bool warm = state.session != nullptr;
@@ -591,18 +707,53 @@ Json validate(std::string_view request_text)
             result["work"]["completeProjectSnapshotReads"] =
                 state.session->complete_project_snapshot_reads();
             const auto admitted = Json::parse(prepared.complete_project_json);
-            noveltea::authoring::count_validation_work(
-                &noveltea::authoring::ValidationWorkCounters::portable_source_checks);
-            const auto portable = native_project_bundle(
-                {{"action", "validation-source-check"}, {"admittedProject", admitted}},
-                state.session.get(), root);
-            if (!portable.value("ok", false)) {
-                result["portableFailure"] = portable.value(
-                    "error", std::string("Native Project source preparation failed."));
-                return result;
+            const auto portable_key = portable_inputs(admitted);
+            const bool portable_reuse = external_watcher_cache_supported &&
+                                        state.portable_check &&
+                                        state.portable_check->inputs == portable_key;
+            result["work"]["portableSourceReuses"] = portable_reuse ? 1 : 0;
+            if (!portable_reuse) {
+                state.portable_check.reset();
+                noveltea::authoring::count_validation_work(
+                    &noveltea::authoring::ValidationWorkCounters::portable_source_checks);
+                const auto portable = native_project_bundle(
+                    {{"action", "validation-source-check"}, {"admittedProject", admitted}},
+                    state.session.get(), root);
+                if (!portable.value("ok", false)) {
+                    result["portableFailure"] = portable.value(
+                        "error", std::string("Native Project source preparation failed."));
+                    return result;
+                }
+                if (external_watcher_cache_supported)
+                    if (const auto watched = observed_external_paths(
+                            portable.at("sourcePaths"), *state.session))
+                        state.portable_check =
+                            OwnerValidation::ExternalCheck{portable_key, *watched};
             }
-            if (const auto notice_error = native_distribution_notice_error(root, admitted))
-                result["noticeValidationFailure"] = *notice_error;
+            const auto notice_key = notice_inputs(admitted);
+            const bool notice_reuse = external_watcher_cache_supported && state.notice_check &&
+                                      state.notice_check->inputs == notice_key;
+            result["work"]["noticeValidationReuses"] = notice_reuse ? 1 : 0;
+            if (!notice_reuse) {
+                state.notice_check.reset();
+                result["work"]["noticeValidationRuns"] = 1;
+                if (const auto notice_error = native_distribution_notice_error(root, admitted)) {
+                    result["noticeValidationFailure"] = *notice_error;
+                } else {
+                    Json paths = Json::array();
+                    for (const auto& notice : notice_key.at("settings"))
+                        paths.push_back(notice.at("path"));
+                    for (const auto& [_, entries] : notice_key.at("assets").items())
+                        for (const auto& notice : entries)
+                            paths.push_back(notice.at("path"));
+                    if (external_watcher_cache_supported)
+                        if (const auto watched = observed_external_paths(paths, *state.session))
+                            state.notice_check =
+                                OwnerValidation::ExternalCheck{notice_key, *watched};
+                }
+            } else {
+                result["work"]["noticeValidationRuns"] = 0;
+            }
             const auto work = state.session->validation_work();
             // Only an unchanged validated generation or the independently
             // certified Room/Map presentation-only path can reuse the exact

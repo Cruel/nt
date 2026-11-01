@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cctype>
 #include <cerrno>
 #include <cstdio>
 #include <cstdlib>
@@ -455,8 +456,15 @@ SourceAuthority::Capture SourceAuthority::capture(const std::set<std::string>* h
             const auto modified_ns =
                 std::chrono::duration_cast<std::chrono::nanoseconds>(modified.time_since_epoch())
                     .count();
-            result.revisions.emplace(relative, "physical:" + std::to_string(size) + ":" +
-                                                   std::to_string(modified_ns));
+            auto physical_revision =
+                "physical:" + std::to_string(size) + ":" + std::to_string(modified_ns);
+            if (hints && dirty && baseline_.contains(relative)) {
+                // An observed write is a new physical generation even when
+                // the writer restores size and mtime. A metadata-only hint
+                // cannot otherwise distinguish it from the cached proof.
+                physical_revision += ":event:" + std::to_string(source_capture_count_);
+            }
+            result.revisions.emplace(relative, std::move(physical_revision));
             if (leaf.type() == std::filesystem::file_type::symlink)
                 result.symlink_revisions.emplace(relative,
                                                  exact_source_revision(read_exact_bytes(absolute)));
@@ -695,6 +703,45 @@ SourceAuthority::Capture SourceAuthority::capture(const std::set<std::string>* h
     };
     scan_tree("scripts", ".lua");
     scan_tree("shaders", ".sc");
+
+    // Portable workflow members are external validation inputs too. Keep their
+    // directory membership under the same watcher as Asset sources, without
+    // reading or hashing their binary contents during ordinary observation.
+    const auto excluded_workflow = [](std::string_view path) {
+        if (path.find('\\') != std::string_view::npos || path.find(':') != std::string_view::npos ||
+            path.find('\0') != std::string_view::npos)
+            return true;
+        for (std::size_t at = 0; at < path.size();) {
+            const auto end = path.find('/', at);
+            std::string segment(path.substr(at, end == std::string_view::npos ? end : end - at));
+            std::transform(segment.begin(), segment.end(), segment.begin(),
+                           [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+            if (segment == ".git" || segment == ".hg" || segment == ".svn" ||
+                segment == ".noveltea")
+                return true;
+            if (end == std::string_view::npos)
+                break;
+            at = end + 1;
+        }
+        return false;
+    };
+    const auto scan_workflows = [&](auto&& self, const std::string& parent, int depth) -> void {
+        scan(parent, [&](const auto& entry, const std::string& relative) {
+            if (excluded_workflow(relative))
+                return;
+            if (depth > 16)
+                throw std::runtime_error("Project workflow directory is too deep: " + relative);
+            // A directory symlink is not traversed by the portable bundle's
+            // default recursive_directory_iterator either.
+            if (entry.is_directory() && !entry.is_symlink())
+                self(self, relative, depth + 1);
+            else if (entry.is_regular_file())
+                add(relative, true);
+            else if (!entry.is_directory())
+                throw std::runtime_error("Portable Project workflow contains an unsafe entry.");
+        });
+    };
+    scan_workflows(scan_workflows, "workflows", 0);
 
     if (result.revisions.at("project.yaml") != "absent") {
         const auto& opened = result.sources.at("project.yaml")->yaml.value();
@@ -969,12 +1016,12 @@ bool SourceAuthority::fence()
     for (const auto& path : hinted_paths_) {
         if (path == ".noveltea" || path.starts_with(".noveltea/"))
             continue;
-        const bool tracked = baseline_.contains(path) || watched_directories_.contains(path) ||
-                             directory_members_.contains(path) || path == "records" ||
-                             path.starts_with("records/") || path == "scripts" ||
-                             path.starts_with("scripts/") || path == "shaders" ||
-                             path.starts_with("shaders/") || path == "i18n" ||
-                             path.starts_with("i18n/");
+        const bool tracked =
+            baseline_.contains(path) || watched_directories_.contains(path) ||
+            directory_members_.contains(path) || path == "records" ||
+            path.starts_with("records/") || path == "scripts" || path.starts_with("scripts/") ||
+            path == "shaders" || path.starts_with("shaders/") || path == "workflows" ||
+            path.starts_with("workflows/") || path == "i18n" || path.starts_with("i18n/");
         if (tracked) {
             coverage_lost();
             return false;

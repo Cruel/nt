@@ -1,7 +1,7 @@
 """Manual native CLI daemon work/latency baseline; no CI stopwatch budgets.
 
 Usage: python3 tests/native_cli/validation_performance.py <noveltea> <repo-root>
-           [--output <baseline.json>] [--machine <label>]
+           [--output <baseline.json>] [--machine <label>] [--issue <number>]
 
 All projects, daemon state and source changes stay in a temporary directory.
 Each JSON line records build identity, cache state, elapsed time and actual
@@ -27,13 +27,18 @@ source_root = Path(sys.argv[2]).resolve()
 options = sys.argv[3:]
 output_file = None
 machine_label = None
+issue_number = 577
 while options:
     flag = options.pop(0)
-    if flag not in ('--output', '--machine') or not options:
+    if flag not in ('--output', '--machine', '--issue') or not options:
         raise SystemExit(f'Unexpected or incomplete option: {flag}')
     value = options.pop(0)
     if flag == '--output':
         output_file = Path(value).resolve()
+    elif flag == '--issue':
+        issue_number = int(value)
+        if issue_number < 1:
+            raise SystemExit('Issue number must be positive')
     else:
         machine_label = value
 addon = source_root / "build/native-authoring-host/noveltea-authoring-node.node"
@@ -87,7 +92,7 @@ def command_version(*argv):
 
 baseline = {
     'schema': 'noveltea.validation-performance-baseline.v1',
-    'issue': 577,
+    'issue': issue_number,
     'capturedAtUtc': datetime.now(timezone.utc).isoformat(),
     'machine': {
         'label': machine_label or os.uname().nodename,

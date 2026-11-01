@@ -143,7 +143,7 @@ bool pinned_canonical_path(std::string_view path)
 
 void project_paths(const Json& effective, const ProjectSession* session,
                    const std::filesystem::path& root, std::set<std::string>& files,
-                   const Json* pinned_revisions = nullptr)
+                   const Json* pinned_revisions = nullptr, bool observed_workflows = false)
 {
     if (session) {
         for (const auto& source : session->file_inventory()) {
@@ -218,23 +218,33 @@ void project_paths(const Json& effective, const ProjectSession* session,
                 files.insert(source.at("path").get<std::string>());
         }
     }
-    const auto workflows = root / "workflows";
-    if (std::filesystem::exists(workflows)) {
-        if (!std::filesystem::is_directory(workflows))
-            throw std::runtime_error("Portable Project workflows root is not a directory.");
-        for (auto cursor = std::filesystem::recursive_directory_iterator(workflows);
-             cursor != std::filesystem::recursive_directory_iterator{}; ++cursor) {
-            const auto& entry = *cursor;
-            const auto relative = entry.path().lexically_relative(root).generic_string();
-            if (excluded(relative)) {
-                if (entry.is_directory())
-                    cursor.disable_recursion_pending();
-                continue;
+    const auto* observed_revisions =
+        observed_workflows && session ? session->verified_source_revisions_view() : nullptr;
+    if (observed_workflows && !observed_revisions)
+        throw std::runtime_error("Portable Project source observation is unavailable.");
+    if (observed_revisions) {
+        for (const auto& [path, revision] : *observed_revisions)
+            if (path.starts_with("workflows/") && revision != "absent")
+                files.insert(path);
+    } else {
+        const auto workflows = root / "workflows";
+        if (std::filesystem::exists(workflows)) {
+            if (!std::filesystem::is_directory(workflows))
+                throw std::runtime_error("Portable Project workflows root is not a directory.");
+            for (auto cursor = std::filesystem::recursive_directory_iterator(workflows);
+                 cursor != std::filesystem::recursive_directory_iterator{}; ++cursor) {
+                const auto& entry = *cursor;
+                const auto relative = entry.path().lexically_relative(root).generic_string();
+                if (excluded(relative)) {
+                    if (entry.is_directory())
+                        cursor.disable_recursion_pending();
+                    continue;
+                }
+                if (entry.is_regular_file())
+                    files.insert(relative);
+                else if (!entry.is_directory())
+                    throw std::runtime_error("Portable Project workflow contains an unsafe entry.");
             }
-            if (entry.is_regular_file())
-                files.insert(relative);
-            else if (!entry.is_directory())
-                throw std::runtime_error("Portable Project workflow contains an unsafe entry.");
         }
     }
     for (const auto& relative : files)
@@ -684,7 +694,8 @@ Json native_project_bundle(const Json& request, ProjectSession* session,
                 "Cannot prepare Runtime Package without a valid native runtime profile.");
         std::set<std::string> paths;
         try {
-            project_paths(effective, session, root, paths);
+            project_paths(effective, session, root, paths, nullptr,
+                          action == "validation-source-check");
         } catch (const std::exception& error) {
             return failure(error.what(), "invalid-project");
         }
@@ -705,7 +716,7 @@ Json native_project_bundle(const Json& request, ProjectSession* session,
                 if (input.bad())
                     return failure("Portable Project source read failed: " + source);
             }
-            return {{"ok", true}};
+            return {{"ok", true}, {"sourcePaths", paths}};
         }
         Json records = Json::array();
         Json revisions = Json::object();
