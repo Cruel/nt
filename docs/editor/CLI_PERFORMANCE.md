@@ -53,6 +53,45 @@ snapshot is checked for ordered diagnostic/source-coordinate parity against a
 separate uncached native validation. It exercises the existing public
 Project-session seam, rather than a separate cache validator.
 
+The matched [#592 Release profile](performance/baselines/validation-2026-11-01-offline-reconciliation.json)
+uses the unchanged #577 scenario definitions plus eight explicit offline
+cached/uncached restart samples (91 samples total). Both the CLI and Node-API
+addon were rebuilt as Release, the tracked tree was clean, and the machine was
+the original Ryzen 7 5700G reference host. Diagnostic fingerprints matched
+uncached validation for every corresponding state, including each offline pair.
+The new scenario measures a stopped daemon, physical edits to three Rooms
+(one for the smallest fixture), restart with the existing disk ledger, then a
+second restart with that ledger removed but the **same edited Project**.
+
+| Fixture | Offline cached / uncached median (ms) | Rechecked records | Retained records |
+| --- | ---: | ---: | ---: |
+| Feature Lab | **708.94 / 3,219.12** | 3 / 306 | 303 / 0 |
+| 1 Room | **97.21 / 82.85** | 1 / 9 | 8 / 0 |
+| 101 Rooms | **135.46 / 194.61** | 3 / 109 | 106 / 0 |
+| 501 Rooms | **310.17 / 558.58** | 3 / 509 | 506 / 0 |
+
+Feature Lab offline reconciliation retains the global diagnostic contribution
+(1 reuse / 0 executions, versus 0 / 1 uncached), avoids font preparation and
+portable-source rechecking (0 / 0, versus 1 / 1), and cuts file byte reads
+from 1,518 to 918 and content hashes from 1,546 to 1,037. Its directory
+enumerations remain **41** and full exact source captures rise from **1 to 2**
+because cold reconciliation proves both the restored and new generations.
+For 101 and 501 Rooms the extra admission hashing costs more hashes than a
+full revalidation (334 versus 228 and 1,534 versus 1,028 respectively), but
+avoids almost all semantic work. On the one-Room fixture the extra proof
+overhead makes reconciliation **14.36 ms slower**, so the improvement is not
+universal and no elapsed-time threshold is imposed in CI.
+
+The same-machine #577 comparison remains valid for its original unchanged
+states: Feature Lab cached restart **2,930.01 → 651.63 ms**, uncached startup
+**3,440.47 → 3,149.82 ms**, and warm saved-label **323.31 → 278.77 ms**;
+cached restarts for 1, 101 and 501 Rooms were **104.34 → 99.70 ms**,
+**197.95 → 131.54 ms**, and **587.69 → 273.49 ms**. These cumulative
+differences include prior #582–#591 work and must **not** be attributed solely
+to #592. In particular, the #577 baseline has no offline-change restart
+scenario, so the matched same-generation pair above is the isolated #592
+comparison.
+
 ### #591: cold dependency-keyed validation ledger
 
 The optional `native-clean-current.json` v1 ledger now records the exact clean
