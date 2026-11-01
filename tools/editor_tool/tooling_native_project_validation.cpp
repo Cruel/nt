@@ -77,13 +77,15 @@ struct OwnerValidation {
     noveltea::tooling::MaterialShaderValidationCache shader_cache;
     std::optional<ExternalCheck> portable_check;
     std::optional<ExternalCheck> notice_check;
-    void clear_preparations(bool clear_shaders = true)
+    void clear_preparations(bool clear_shaders = true, bool clear_materials = true)
     {
         font_inputs.reset();
-        material_records.reset();
-        material_assets.reset();
-        material_programs = Json::object();
-        material_effective = Json::object();
+        if (clear_materials) {
+            material_records.reset();
+            material_assets.reset();
+            material_programs = Json::object();
+            material_effective = Json::object();
+        }
         portable_check.reset();
         notice_check.reset();
         if (clear_shaders)
@@ -240,14 +242,13 @@ Json portable_inputs(const Json& project)
     for (const auto& [id, record] : assets.items()) {
         const auto& data = record.at("data");
         result["assets"][id] = {{"source", data.value("source", Json())},
-                                 {"attachments", data.value("attachments", Json::array())}};
+                                {"attachments", data.value("attachments", Json::array())}};
     }
     result["layouts"] = Json::object();
     for (const auto& [id, record] : layouts.items())
-        if (const auto& data = record.at("data"); data.contains("dependencies") &&
-                                                   data.at("dependencies").is_object())
-            result["layouts"][id] =
-                data.at("dependencies").value("scripts", Json::array());
+        if (const auto& data = record.at("data");
+            data.contains("dependencies") && data.at("dependencies").is_object())
+            result["layouts"][id] = data.at("dependencies").value("scripts", Json::array());
     result["materials"] = Json::object();
     for (const auto& [id, record] : materials.items()) {
         const auto& data = record.at("data");
@@ -278,8 +279,8 @@ Json notice_inputs(const Json& project)
 
 // An unobserved external input (such as an arbitrary referenced path outside
 // the watched source families) is never sufficient proof for a resident hit.
-std::optional<std::set<std::string>> observed_external_paths(
-    const Json& paths, const ProjectSession& session)
+std::optional<std::set<std::string>> observed_external_paths(const Json& paths,
+                                                             const ProjectSession& session)
 {
     const auto* revisions = session.verified_source_revisions_view();
     if (!revisions)
@@ -550,7 +551,7 @@ Json validate(std::string_view request_text)
             // A newly added/removed shader source requires fresh Project
             // admission, not recompilation of unrelated resident programs.
             // The next proven inventory revokes affected compiler entries.
-            state.clear_preparations(false);
+            state.clear_preparations(false, false);
             state.pending_generation.clear();
             return {{"ok", false}, {"kind", "conflict"}, {"error", "Project sources changed."}};
         };
@@ -605,7 +606,7 @@ Json validate(std::string_view request_text)
         if (observed.full_rescan || !observed.authoritative || !observed.delta.added.empty() ||
             !observed.delta.removed.empty()) {
             state.session.reset();
-            state.clear_preparations(false);
+            state.clear_preparations(false, false);
             // The replacement authority starts its scan count at zero.
             captures_before = 0;
             record_hits_before = 0;
@@ -640,7 +641,11 @@ Json validate(std::string_view request_text)
     const bool warm = state.session != nullptr;
     std::string error;
     if (!state.session) {
-        state.clear_preparations(false);
+        // Re-admission to this same canonical root certifies the new full
+        // source generation. Keep previous Material data projections as
+        // candidates and compare them to that new clean snapshot below.
+        // Compiler proof and shader dependency invalidation remain separate.
+        state.clear_preparations(false, false);
         trace_native_validation("opening mutable Project session");
         ++state.session_admissions;
         state.session = ProjectSession::open(root, error);
@@ -708,8 +713,7 @@ Json validate(std::string_view request_text)
                 state.session->complete_project_snapshot_reads();
             const auto admitted = Json::parse(prepared.complete_project_json);
             const auto portable_key = portable_inputs(admitted);
-            const bool portable_reuse = external_watcher_cache_supported &&
-                                        state.portable_check &&
+            const bool portable_reuse = external_watcher_cache_supported && state.portable_check &&
                                         state.portable_check->inputs == portable_key;
             result["work"]["portableSourceReuses"] = portable_reuse ? 1 : 0;
             if (!portable_reuse) {
@@ -725,8 +729,8 @@ Json validate(std::string_view request_text)
                     return result;
                 }
                 if (external_watcher_cache_supported)
-                    if (const auto watched = observed_external_paths(
-                            portable.at("sourcePaths"), *state.session))
+                    if (const auto watched =
+                            observed_external_paths(portable.at("sourcePaths"), *state.session))
                         state.portable_check =
                             OwnerValidation::ExternalCheck{portable_key, *watched};
             }
@@ -796,9 +800,9 @@ Json validate(std::string_view request_text)
             const Json materials = admitted.value("materials", Json::object());
             const Json assets = admitted.value("assets", Json::object());
             const bool same_assets = state.material_assets && *state.material_assets == assets;
-            // Presentation metadata never enters shader compiler inputs.
-            // Compare the saved data itself without introducing an additional
-            // per-Material cache authority into the resident owner.
+            // The clean Project snapshot owns the canonical authored inputs.
+            // Explorer labels/descriptions do not affect a Material's shader
+            // request, but its base Material is a transitive dependency.
             const auto authored_shader_inputs = [](Json records) {
                 for (auto& [id, record] : records.items()) {
                     (void)id;
@@ -809,14 +813,55 @@ Json validate(std::string_view request_text)
                 }
                 return records;
             };
-            const bool reuse_materials = same_assets && state.material_records &&
-                                         authored_shader_inputs(*state.material_records) ==
-                                             authored_shader_inputs(materials);
-            Json material_programs = reuse_materials ? state.material_programs : Json::object();
-            Json material_effective = reuse_materials ? state.material_effective : Json::object();
-            result["work"]["materialInputReuses"] = reuse_materials ? 1 : 0;
-            if (!reuse_materials && materials.is_object()) {
-                for (const auto& [id, _] : materials.items()) {
+            const Json previous_inputs = state.material_records
+                                             ? authored_shader_inputs(*state.material_records)
+                                             : Json::object();
+            const Json current_inputs = authored_shader_inputs(materials);
+            std::set<std::string> changed_materials;
+            for (const auto& [id, authored] : current_inputs.items())
+                if (!same_assets || !previous_inputs.contains(id) ||
+                    previous_inputs.at(id) != authored || !state.material_effective.contains(id))
+                    changed_materials.insert(id);
+            // If a base is modified, its inheritors must resolve their
+            // effective inputs again, even if their own YAML is unchanged.
+            bool expanded;
+            do {
+                expanded = false;
+                for (const auto& [id, authored] : current_inputs.items()) {
+                    if (changed_materials.contains(id) || !authored.is_object())
+                        continue;
+                    const auto& data = authored.value("data", Json::object());
+                    if (!data.is_object())
+                        continue;
+                    const auto& base = data.value("base", Json::object());
+                    if (!base.is_object() || base.value("kind", std::string{}) != "material")
+                        continue;
+                    // Normalized native references are {$ref: {id: ...}},
+                    // unlike the shorthand stored in authored YAML.
+                    const auto reference = base.value("material", Json::object());
+                    if (!reference.is_object())
+                        continue;
+                    const auto target = reference.value("$ref", Json::object());
+                    if (target.is_object() &&
+                        changed_materials.contains(target.value("id", std::string{})))
+                        expanded = changed_materials.insert(id).second || expanded;
+                }
+            } while (expanded);
+
+            // Retain the old verified results only for unchanged owners.
+            // Stage the replacement locally so failures never leave a half-
+            // updated resident Material cache.
+            Json material_programs = Json::object();
+            Json material_effective = Json::object();
+            result["work"]["materialInputReuses"] = changed_materials.empty() ? 1 : 0;
+            for (const auto& [id, _] : materials.items()) {
+                if (!changed_materials.contains(id)) {
+                    material_effective[id] = state.material_effective.at(id);
+                    if (state.material_programs.contains(id))
+                        material_programs[id] = state.material_programs.at(id);
+                    continue;
+                }
+                {
                     noveltea::authoring::count_validation_work(
                         &noveltea::authoring::ValidationWorkCounters::material_shader_preparations);
                     const auto resolved = state.session->validated_material_compiler_effective(id);
@@ -852,11 +897,11 @@ Json validate(std::string_view request_text)
                         material_programs[id][key] = std::move(program);
                     }
                 }
-                state.material_records = materials;
-                state.material_assets = assets;
-                state.material_programs = material_programs;
-                state.material_effective = material_effective;
             }
+            state.material_records = materials;
+            state.material_assets = assets;
+            state.material_programs = material_programs;
+            state.material_effective = material_effective;
             result["materialCompilerPrograms"] = material_programs;
             result["materialEffectiveInputs"] = material_effective;
             const auto& coverage = result.value("fontCoverageResult", Json::object());

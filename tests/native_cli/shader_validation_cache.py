@@ -132,8 +132,8 @@ with TemporaryDirectory(prefix="noveltea-shader-validation-") as temporary:
     material_parameter = validate()
     assert work(material_parameter, "shaderCompileRuns") == 0, material_parameter["validationWork"]
     assert work(material_parameter, "shaderProgramsReused") > 0
-    assert material_parameter["validationWork"]["endToEnd"]["materialShaderPreparations"] > 0
-    # Only the parent and inheriting child require refreshed interface checks.
+    # The parent and both of its inheriting children are recomputed.
+    assert material_parameter["validationWork"]["endToEnd"]["materialShaderPreparations"] == 3, material_parameter["validationWork"]
     assert work(material_parameter, "materialInterfaceValidations") == 2, material_parameter["validationWork"]
     assert signature(material_parameter) == initial_diagnostics
 
@@ -146,7 +146,7 @@ with TemporaryDirectory(prefix="noveltea-shader-validation-") as temporary:
     invert.write_text(original_invert.replace(original_fragment, "shaders/lab-grade.fs.sc"))
     shared_program = validate()
     assert work(shared_program, "shaderCompileRuns") == 0, shared_program["validationWork"]
-    assert shared_program["validationWork"]["endToEnd"]["materialShaderPreparations"] > 0
+    assert shared_program["validationWork"]["endToEnd"]["materialShaderPreparations"] == 1, shared_program["validationWork"]
     assert signature(shared_program) == initial_diagnostics
 
     # A new, valid Material shader choice invalidates only its program. Other
@@ -157,7 +157,7 @@ with TemporaryDirectory(prefix="noveltea-shader-validation-") as temporary:
                                                "shaders/material-alternative.fs.sc"))
     selected = validate()
     assert work(selected, "shaderCompileRuns") == 1, selected["validationWork"]
-    assert selected["validationWork"]["endToEnd"]["materialShaderPreparations"] > 0
+    assert selected["validationWork"]["endToEnd"]["materialShaderPreparations"] == 1, selected["validationWork"]
     assert work(selected, "shaderProgramsReused") > 0
     assert work(selected, "materialInterfaceReuses") > 0
     assert signature(selected) == initial_diagnostics
@@ -175,6 +175,74 @@ with TemporaryDirectory(prefix="noveltea-shader-validation-") as temporary:
     material_repaired = validate()
     assert signature(material_repaired) == initial_diagnostics
     assert work(material_repaired, "shaderCompileRuns") == 0, material_repaired["validationWork"]
+    assert signature(validate(local=True)) == initial_diagnostics
+
+    # Introduce a second inheritance level after the first admission. New
+    # record membership forces a clean Project re-admission, but does not
+    # invalidate Material input projections for unchanged existing owners.
+    deep = project / "records/materials/lab-deep-inherited.yaml"
+    deep.write_text(
+        "id: lab-deep-inherited\n"
+        "label: Deep Material inheritance\n"
+        "data:\n"
+        "  base:\n"
+        "    kind: material\n"
+        "    material: lab-inherited\n"
+        "  displayName: Deep Material inheritance\n"
+        "  parameters: {}\n"
+        "  textures: {}\n"
+    )
+    admitted_child = validate()
+    assert admitted_child["validationWork"]["endToEnd"]["materialShaderPreparations"] == 1, admitted_child["validationWork"]
+    assert work(admitted_child, "shaderCompileRuns") == 0
+    assert signature(admitted_child) == initial_diagnostics
+    assert work(validate(), "shaderCompileRuns") == 0
+
+    # A parent edit re-resolves itself, two direct inheritors and the
+    # grandchild. The unrelated nine Materials remain projected from cache.
+    parent.write_text(original_parent.replace("value: 0.25", "value: 0.55"))
+    transitive = validate()
+    assert transitive["validationWork"]["endToEnd"]["materialShaderPreparations"] == 4, transitive["validationWork"]
+    assert work(transitive, "shaderCompileRuns") == 0
+    assert signature(transitive) == initial_diagnostics
+    assert work(validate(), "materialInputReuses") == 1
+
+    # Removing the grandchild must not leave stale cache outputs or trigger
+    # a full Material rebuild on the next (new-inventory) admission.
+    deep.unlink()
+    removed = validate()
+    assert removed["validationWork"]["endToEnd"]["materialShaderPreparations"] == 0, removed["validationWork"]
+    assert work(removed, "shaderCompileRuns") == 0
+    assert signature(removed) == initial_diagnostics
+
+    # Removing a shader file is a Project inventory change, not merely a new
+    # compiler key. It must not conceal Material source-path diagnostics just
+    # because the authored Material YAML itself is unchanged.
+    shader_source = shader.read_text()
+    shader.unlink()
+    source_missing = validate(False)
+    assert any("shader" in d["code"] for d in signature(source_missing)), source_missing
+    assert signature(validate(False, local=True)) == signature(source_missing)
+    shader.write_text(shader_source)
+    source_restored = validate()
+    assert signature(source_restored) == initial_diagnostics
+    assert work(validate(), "shaderCompileRuns") == 0
+
+    # Material-only reflected interface diagnostics must be invalidated and
+    # repaired independently from compilation. The shader bytes never change.
+    grade.write_text(grade.read_text().replace(
+        "  parameters: {}", "  parameters:\n    u_unbound:\n      type: float\n      value: 0.5"))
+    orphan = validate()
+    assert work(orphan, "shaderCompileRuns") == 0, orphan["validationWork"]
+    assert orphan["validationWork"]["endToEnd"]["materialShaderPreparations"] == 1
+    assert any("u_unbound" in d["message"] for d in signature(orphan)), orphan
+    grade.write_text(original_grade.replace(
+        "label: Premultiplied green grade",
+        "label: Premultiplied green grade (renamed)"))
+    orphan_repaired = validate()
+    assert work(orphan_repaired, "shaderCompileRuns") == 0
+    assert orphan_repaired["validationWork"]["endToEnd"]["materialShaderPreparations"] == 1
+    assert signature(orphan_repaired) == initial_diagnostics
     assert signature(validate(local=True)) == initial_diagnostics
 
     print("Resident shader validation cache certification passed")

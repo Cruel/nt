@@ -21,8 +21,15 @@ The CLI continues to apply the same compiler-diagnostic and Material reflection
 presentation policy, but no longer invokes a separate shaderc pass after
 receiving the validated generation.
 
-Unchanged saved Material/Asset records reuse their resolved Material inputs
-and generated compiler requests. The owner retains bounded per-program shaderc
+The owner now compares each certified saved Material's compiler-relevant data,
+reusing resolved inputs and generated compiler requests for unchanged owners.
+An edited Material re-resolves only itself and its transitive inheritors;
+unrelated Materials retain their projected inputs, even across a new Project
+admission caused by source membership changes. A newly admitted clean snapshot
+and identical source Material/Asset data are required for such reuse; changing
+an Asset conservatively revokes all Material inputs, and changing the canonical
+Project root clears the cache. Presentation-only Material labels do not alter
+compiler inputs. The owner retains bounded per-program shaderc
 results in memory, keyed by the canonical program request within that owner
 process/compiler build. Successful results record the recursive compiler's
 Project source dependency identities against the independently verified
@@ -69,6 +76,18 @@ repair. The public disk validator resolves these edits from its certified
 clean contributors, not potentially stale editor-inspected record owners.
 Metadata-only Material edits retain compiler inputs; shader and interface
 reuse remains scoped to verified program and effective Material identities.
+The focused test additionally exercises a second inheritance level, adding
+and deleting Material owners, changed inherited parameters, and an orphaned
+Material interface warning repaired without recompilation. Its work counters
+require one Material preparation for an independent shader-path edit, four
+for an edited base with two children and one grandchild, and zero unnecessary
+preparations after removing an unrelated descendant.
+The previous whole-Material reprojection would prepare all 13 Feature Lab
+Materials after any compiler-relevant Material edit. The new focused test
+asserts **13 → 1** preparations when one independent Material switches shader
+source; changing the shared Engine2D parent prepares **3 of 13** (parent plus
+two inheritors), or **4 of 14** after creating a grandchild. These are matched
+work-count comparisons, not a new elapsed-time benchmark.
 
 The matched 83-sample Release CLI/Release addon run on the reference Ryzen
 7 5700G is retained as
