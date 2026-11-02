@@ -1,0 +1,42 @@
+{
+  "schema": "noveltea.validation-594-paired-source-edits.v1",
+  "date": "2026-11-02",
+  "machine": "Debian Ryzen 7 5700G, 16 logical CPUs",
+  "build": "GCC Release native CLI, NOVELTEA_ENABLE_VALIDATION_COUNTERS=ON",
+  "sourceBaseCommit": "5a797427",
+  "sourceAfter": "complete-Project input reuse follow-up to #594",
+  "fixture": "tests/projects/feature-lab (disposable copy)",
+  "method": "35 alternating edits per Lua/RML/RCSS source, persistent native daemon, native subprocess wall time, all diagnostics byte-for-byte equivalent to initial result, separate daemon runtime, profiling enabled unless specified",
+  "sourceEditCounts": {
+    "lua": 35,
+    "rml": 35,
+    "rcss": 35
+  },
+  "profiledMedianMilliseconds": {
+    "before": {"lua": 49.669, "rml": 50.002, "rcss": 49.781},
+    "after": {"lua": 23.062, "rml": 23.412, "rcss": 23.295}
+  },
+  "unprofiledMedianMillisecondsAfter": {
+    "lua": 23.089,
+    "rml": 23.176,
+    "rcss": 23.131
+  },
+  "profiledMedianPhysicalWorkAfter": {
+    "fileByteReads": {"lua": 1, "rml": 1, "rcss": 1},
+    "contentHashes": {"lua": 6, "rml": 6, "rcss": 6},
+    "completeProjectPreparations": {"lua": 0, "rml": 0, "rcss": 0},
+    "completeProjectSerializationMicros": {"lua": 0, "rml": 0, "rcss": 0},
+    "globalStageExecutions": {"lua": 0, "rml": 0, "rcss": 0},
+    "portableSourceIncrementalRechecks": {"lua": 1, "rml": 1, "rcss": 1}
+  },
+  "sampleFilesLocal": [
+    "build/reports/validation-594-current-598-599-600.json",
+    "build/reports/validation-594-project-input-reuse.json",
+    "build/reports/validation-594-unprofiled-current.json"
+  ],
+  "limitations": [
+    "Changed-file medians remain above the provisional 20 ms goal",
+    "No Windows or macOS native certification performed",
+    "Immediate saved-edit requests are not comparable to #600's post-publication exact-result cache hits"
+  ]
+}

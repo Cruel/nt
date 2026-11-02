@@ -1,5 +1,52 @@
 # Native CLI validation performance investigation
 
+## #594: post-#596–#600 native test repairs and complete-Project input reuse (November 2, 2026)
+
+On current HEAD after `5a797427`, the native dependency graph records Room-exit
+targets at `@identity` scope, and restored binary Assets require affected
+semantic-contribution rechecks and exact diagnostic parity, **not** reparsing
+unchanged YAML. The Debug `native_authoring_dependency_mutation_graph` and
+`native_authoring_project_validation` tests both pass. The Release public
+dependency-mutation suite passes **793 assertions with zero failures**.
+
+For a valid saved Lua/RML/RCSS edit, source reindexing can recheck a Layout
+contribution without changing any normalized YAML Project input. The CLI
+resident now retains that already assembled complete-Project JSON until a
+record change, global/localization invalidation, source membership change or
+session readmission retires it. A changed physical source **still** receives
+an independently watcher-fenced portable containment/readability check; this
+does not reuse stale portable results, bypass the final generation fence or
+affect clean cold-session admission. The public
+`native_cli_portable_validation_cache` regression verifies one-source portable
+rechecks, no complete-Project preparation/serialization, and exact direct CLI
+diagnostic parity for Lua, RML and RCSS edits.
+
+Matched manual Release measurements on the Debian Ryzen 7 5700G host used a
+disposable Feature Lab copy and 35 alternating saved edits per file type,
+single persistent daemon, and independent full diagnostics equality. See the
+tracked [paired summary](performance/baselines/validation-2026-11-02-594-project-input-reuse.json)
+and local full sample reports in `build/reports/validation-594-current-598-599-600.json`,
+`validation-594-project-input-reuse.json` and
+`validation-594-unprofiled-current.json`. With profiling enabled, median
+end-to-end subprocess response times (milliseconds) changed as follows:
+
+| Source edit | Before retained Project input | After | Physical reads / hashes (after) |
+| --- | ---: | ---: | ---: |
+| Lua | 49.67 | **23.06** | 1 / 6 |
+| RML | 50.00 | **23.41** | 1 / 6 |
+| RCSS | 49.78 | **23.30** | 1 / 6 |
+
+All 105 post-change requests showed zero complete-Project preparations and
+serialization, zero global-stage executions and one incremental portable
+source recheck. An independent **unprofiled** run measured medians of **23.09
+ms Lua**, **23.18 ms RML** and **23.13 ms RCSS**, without exact-result cache
+hits because each request immediately followed an edit. The provisional
+20 ms changed-file target is therefore **close but not attained** on this
+host. Separately, #600's background quiet-window publication allows the next
+unchanged CLI request to use its exact-result cache; that is a different
+scenario from immediate saved-edit validation. Windows/macOS watcher and
+source-authority qualification is still outstanding.
+
 ## #595: dependency mutation work-contract certification (November 2, 2026)
 
 The new `native_cli_dependency_mutation_certification` CTest exercises the

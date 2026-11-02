@@ -1,4 +1,5 @@
 #include "tooling_native_c.h"
+#include "tooling_native.hpp"
 #include "tooling_native_project_sync.hpp"
 #include "../project_authoring/localization_semantics.hpp"
 #include "../project_authoring/room_session.hpp"
@@ -1851,6 +1852,11 @@ void certify_deferred_cache_hit_asset_proof(const std::filesystem::path& source)
     const auto first = validate();
     require(first.value("ok", false) && first.value("valid", false),
             "Native validation creates a valid exact clean cache for deferred-hit certification");
+    // The elected #600 resident writer publishes after its quiet window, not
+    // necessarily during the first foreground validation. A graceful owner
+    // shutdown flushes that validated generation without a timer or a second
+    // competing writer; standalone/editor admission can then prove a real hit.
+    noveltea::tooling::release_native_disk_validation_owner();
     const auto cache_path = fixture.root / ".noveltea/cache/authoring/native-clean-current.json";
     const auto cache_bytes = read(cache_path);
 
@@ -1867,8 +1873,9 @@ void certify_deferred_cache_hit_asset_proof(const std::filesystem::path& source)
     require(session != nullptr, "Deferred cache-hit owner can admit the Project: " + error);
     const auto hit = session->validate_clean_project(true, true);
     require(hit.cache_hit && hit.snapshot.valid && hit.deferred_exact_revisions &&
-                hit.deferred_resident_json.empty(),
-            "Public cache hit retains exact admission revisions for the later generation fence");
+                Json::parse(hit.deferred_resident_json, nullptr, false).is_object(),
+            "Public cache hit retains exact admission revisions and its certified resident "
+            "payload for the later generation fence");
     const auto observation = session->observe_sources();
     require(observation.authoritative && observation.unchanged && !observation.full_rescan,
             "Deferred cache-hit owner remains physically authoritative before preparation proof");

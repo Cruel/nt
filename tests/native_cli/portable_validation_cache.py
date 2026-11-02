@@ -174,9 +174,32 @@ with TemporaryDirectory(prefix="noveltea-portable-validation-") as temporary:
         assert work(changed_lua, "portableSourceIncrementalRechecks") == 1, (
             changed_lua["validationWork"])
         assert changed_lua["validationWork"]["endToEnd"]["portableSourceChecks"] == 0
+        # A changed text source has the same normalized Project inputs. The
+        # portable stage must reprove the changed file, but it must not rebuild
+        # and serialize hundreds of unrelated YAML contributors to do so.
+        assert changed_lua["validationWork"]["endToEnd"]["completeProjectPreparations"] == 0, (
+            changed_lua["validationWork"])
+        assert changed_lua["validationWork"]["endToEnd"]["completeProjectSerializationMicros"] == 0
     assert_public_parity(changed_lua, validate(direct=True))
     lua.write_text(old_lua)
     assert validate()["diagnostics"] == diagnostics
+
+    for relative, comment in (
+        ("records/layouts/feature-lab-hud/layout.rml", "<!-- text-only edit -->"),
+        ("records/layouts/feature-lab-hud/layout.rcss", "/* text-only edit */"),
+    ):
+        source = project / relative
+        original = source.read_text()
+        source.write_text(original + "\n" + comment + "\n")
+        changed_text = validate()
+        assert changed_text["diagnostics"] == diagnostics
+        if sys.platform.startswith("linux"):
+            assert work(changed_text, "portableSourceIncrementalRechecks") == 1
+            assert changed_text["validationWork"]["endToEnd"]["completeProjectPreparations"] == 0, (
+                relative, changed_text["validationWork"])
+        assert_public_parity(changed_text, validate(direct=True))
+        source.write_text(original)
+        assert validate()["diagnostics"] == diagnostics
 
     # Workflows are portable without appearing in Asset YAML. Create, modify,
     # rename and remove a member, then ensure each membership generation is

@@ -134,6 +134,10 @@ struct OwnerValidation {
     // per-program compiler cache.
     std::optional<Json> material_records;
     std::optional<Json> material_assets;
+    // Canonical complete Project input, distinct from the independently
+    // watched portable/notice/font/shader proofs. Text-only source changes
+    // cannot change this YAML projection, but still recheck their own bytes.
+    std::optional<Json> complete_project;
     Json material_programs = Json::object();
     Json material_effective = Json::object();
     noveltea::tooling::MaterialShaderValidationCache shader_cache;
@@ -141,6 +145,7 @@ struct OwnerValidation {
     std::optional<ExternalCheck> notice_check;
     void clear_preparations(bool clear_shaders = true, bool clear_materials = true)
     {
+        complete_project.reset();
         font_inputs.reset();
         certified_font_result.reset();
         certified_font_inputs.reset();
@@ -1115,6 +1120,20 @@ Json validate(std::string_view request_text)
             const auto membership_changed = [&](const auto& paths) {
                 return std::any_of(paths.begin(), paths.end(), source_bearing_membership);
             };
+            // A source inventory change or Project/YAML source edit may alter
+            // the complete Project even if the downstream semantic stage
+            // reuses its contribution. A text-only Lua/RML/RCSS edit may not.
+            const auto project_input_source = [](std::string_view path) {
+                return path.starts_with("i18n/") || path.ends_with(".yaml") ||
+                       path.ends_with(".yml");
+            };
+            const auto changes_project_input = [&](const auto& paths) {
+                return std::any_of(paths.begin(), paths.end(), project_input_source);
+            };
+            if (!observed.delta.added.empty() || !observed.delta.removed.empty() ||
+                changes_project_input(observed.delta.changed) ||
+                changes_project_input(observed.watch_paths))
+                state.complete_project.reset();
             if (membership_changed(observed.delta.added) ||
                 membership_changed(observed.delta.removed))
                 state.portable_check.reset();
@@ -1223,6 +1242,13 @@ Json validate(std::string_view request_text)
     // projection *now*, not only on the next request asking for coverage.
     // Otherwise a later unchanged request could reuse the prior generation.
     const auto semantic_work = state.session->validation_work();
+    // Even a presentation-only YAML mutation must retire the complete
+    // Project projection: a later text edit must not accidentally reuse the
+    // version from before that saved record change. Physical text-source
+    // reindexing alone does not affect normalized YAML fields.
+    if (semantic_work.rechecked_records != 0 || semantic_work.global_stage_executions != 0 ||
+        semantic_work.localization_rebuilds != 0 || semantic_work.global_stage_reuses == 0)
+        state.complete_project.reset();
     if (!validated.snapshot.valid || semantic_work.localization_rebuilds != 0 ||
         (!font_independent_source_change &&
          (semantic_work.global_stage_executions != 0 ||
@@ -1284,24 +1310,39 @@ Json validate(std::string_view request_text)
         if (request.value("includeFontCoverageInputs", false) &&
             (!readmission_reason.empty() ||
              !restore_stages(state, validated.stages_json, result, retain_stage_projections))) {
-            const auto prepared = [&] {
-                ScopedPhysicalValidationStage physical(work_counts, physical_stages,
-                                                       "completePreparation");
-                noveltea::authoring::ScopedValidationStageTime<
-                    noveltea::authoring::WorkCounter::CompleteProjectPreparationMicros>
-                    timed;
-                return state.session->prepare_complete_working(state.session->working_revision(),
-                                                               {}, true, true);
-            }();
-            if (!prepared.accepted)
-                throw std::runtime_error("Native font coverage Project preparation failed: " +
-                                         prepared.error);
-            const auto [reused, projected] = state.session->complete_project_assembly_work();
-            result["work"]["completeProjectReused"] = reused;
-            result["work"]["completeProjectProjected"] = projected;
-            result["work"]["completeProjectSnapshotReads"] =
-                state.session->complete_project_snapshot_reads();
-            const auto admitted = Json::parse(prepared.complete_project_json);
+            // No record source or global/localization generation changed: the
+            // previously assembled YAML Project remains authoritative. The
+            // physical source generation and independent external stages are
+            // still checked below. In particular, a changed Lua/RML/RCSS file
+            // must *not* inherit its previous portable source proof.
+            const bool reuse_complete = state.complete_project &&
+                semantic_work.rechecked_records == 0 &&
+                semantic_work.global_stage_executions == 0 &&
+                semantic_work.localization_rebuilds == 0 &&
+                semantic_work.global_stage_reuses == 1 &&
+                state.session->verified_source_revisions_view();
+            if (!reuse_complete) {
+                const auto prepared = [&] {
+                    ScopedPhysicalValidationStage physical(work_counts, physical_stages,
+                                                           "completePreparation");
+                    noveltea::authoring::ScopedValidationStageTime<
+                        noveltea::authoring::WorkCounter::CompleteProjectPreparationMicros>
+                        timed;
+                    return state.session->prepare_complete_working(
+                        state.session->working_revision(), {}, true, true);
+                }();
+                if (!prepared.accepted)
+                    throw std::runtime_error("Native font coverage Project preparation failed: " +
+                                             prepared.error);
+                const auto [reused, projected] = state.session->complete_project_assembly_work();
+                result["work"]["completeProjectReused"] = reused;
+                result["work"]["completeProjectProjected"] = projected;
+                result["work"]["completeProjectSnapshotReads"] =
+                    state.session->complete_project_snapshot_reads();
+                state.complete_project = Json::parse(prepared.complete_project_json);
+            }
+            result["work"]["completeProjectInputReuses"] = reuse_complete ? 1 : 0;
+            const auto& admitted = *state.complete_project;
             const auto portable_key = [&] {
                 ScopedPhysicalValidationStage physical(work_counts, physical_stages,
                                                        "portableInputs");
