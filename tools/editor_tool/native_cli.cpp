@@ -260,13 +260,17 @@ bool known_command(const std::vector<std::string>& command)
     return false;
 }
 
-Json project_diagnostics(const Json& response)
+Json normalize_project_diagnostics(Json diagnostics)
 {
-    auto diagnostics = response.value("cliDiagnostics", Json::array());
     for (auto& item : diagnostics)
         if (item.value("code", "") == "schema.const" && item.value("path", "") == "/schemaVersion")
             item["code"] = "WORKSPACE_VERSION_UNSUPPORTED";
     return diagnostics;
+}
+
+Json project_diagnostics(const Json& response)
+{
+    return normalize_project_diagnostics(response.value("cliDiagnostics", Json::array()));
 }
 
 Json native_request(const Json& request)
@@ -1735,6 +1739,7 @@ int project_read(const Arguments& args, std::string action)
     if (action == "project-validate") {
         request["includeFontCoverageInputs"] = true;
         request["compactValidationResponse"] = true;
+        request["finalizeSourceGenerationProof"] = true;
     }
     std::string missing_path = "/";
     std::string human;
@@ -1787,7 +1792,7 @@ int project_read(const Arguments& args, std::string action)
 #if NOVELTEA_ENABLE_VALIDATION_COUNTERS
     const auto native_started = std::chrono::steady_clock::now();
 #endif
-    const auto response = native_request(request);
+    auto response = native_request(request);
     if (action == "project-validate") {
         Json work_profile = response.value("work", Json::object());
 #if NOVELTEA_ENABLE_VALIDATION_COUNTERS
@@ -1820,7 +1825,7 @@ int project_read(const Arguments& args, std::string action)
             return failure(args.json, 70, "NATIVE_PROJECT_VALIDATION_UNAVAILABLE", "/", message,
                            message);
         }
-        auto diagnostics = project_diagnostics(response);
+        auto diagnostics = normalize_project_diagnostics(std::move(response["cliDiagnostics"]));
         bool valid = response.at("valid").get<bool>();
         bool workspace = false;
         for (const auto& item : diagnostics) {
@@ -1965,30 +1970,36 @@ int project_read(const Arguments& args, std::string action)
 #if NOVELTEA_ENABLE_VALIDATION_COUNTERS
             const auto proof_started = std::chrono::steady_clock::now();
 #endif
-            const auto proof =
-                native_request({{"action", "validation-source-generation-proof"},
-                                {"projectRoot", root_text},
-                                {"expectedSourceGeneration", response.at("sourceGeneration")}});
-            if (!proof.value("ok", false))
-                return failure(
-                    args.json, 5, "WORKSPACE_REVISION_CONFLICT", "/",
-                    proof.value("error", std::string("Project sources changed during validation.")),
-                    "Project sources changed during validation.");
-            if (profile_work && work_profile.contains("endToEnd") && proof.contains("work") &&
-                proof.at("work").is_object()) {
-                for (auto& [key, value] : work_profile["endToEnd"].items())
-                    if (value.is_number_unsigned() && proof.at("work").contains(key) &&
-                        proof.at("work").at(key).is_number_unsigned())
-                        value =
-                            value.get<std::size_t>() + proof.at("work").at(key).get<std::size_t>();
-                work_profile["finalGenerationProofs"] = 1;
+            if (!response.value("finalSourceGenerationProven", false)) {
+                const auto proof =
+                    native_request({{"action", "validation-source-generation-proof"},
+                                    {"projectRoot", root_text},
+                                    {"expectedSourceGeneration", response.at("sourceGeneration")}});
+                if (!proof.value("ok", false))
+                    return failure(
+                        args.json, 5, "WORKSPACE_REVISION_CONFLICT", "/",
+                        proof.value("error",
+                                    std::string("Project sources changed during validation.")),
+                        "Project sources changed during validation.");
+                if (profile_work && work_profile.contains("endToEnd") && proof.contains("work") &&
+                    proof.at("work").is_object()) {
+                    for (auto& [key, value] : work_profile["endToEnd"].items())
+                        if (value.is_number_unsigned() && proof.at("work").contains(key) &&
+                            proof.at("work").at(key).is_number_unsigned())
+                            value = value.get<std::size_t>() +
+                                    proof.at("work").at(key).get<std::size_t>();
+                }
             }
+            if (profile_work)
+                work_profile["finalGenerationProofs"] = 1;
 #if NOVELTEA_ENABLE_VALIDATION_COUNTERS
             if (profile_work)
                 work_profile["finalProofRequestMicros"] =
-                    std::chrono::duration_cast<std::chrono::microseconds>(
-                        std::chrono::steady_clock::now() - proof_started)
-                        .count();
+                    response.value("finalSourceGenerationProven", false)
+                        ? response.value("work", Json::object()).value("finalProofRequestMicros", 0)
+                        : static_cast<int>(std::chrono::duration_cast<std::chrono::microseconds>(
+                                               std::chrono::steady_clock::now() - proof_started)
+                                               .count());
 #endif
             Json paths = Json::array();
             std::vector<std::size_t> indices;

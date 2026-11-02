@@ -976,7 +976,7 @@ void release_child_process(ChildProcess& process);
 
 std::optional<ProjectAuthorityRequest> parse_project_authority_request(const Json& request,
                                                                        std::string& error);
-Json project_observation_json(const ProjectObservation& observation);
+Json project_observation_json(const ProjectObservation& observation, bool compact_manifest = false);
 
 class BrokerServer : public std::enable_shared_from_this<BrokerServer> {
 public:
@@ -3706,7 +3706,8 @@ private:
                         measure.emplace(observed_work);
                     const auto observation = observe_owner_project(
                         message_payload["ownerWorkerId"].get<std::uint64_t>(), *authority_request);
-                    auto result = project_observation_json(observation);
+                    auto result = project_observation_json(
+                        observation, message_payload.value("compactManifest", false));
                     if (profile) {
                         Json counts = Json::object();
                         for (const auto& [name, value] : observed_work.fields())
@@ -3714,7 +3715,8 @@ private:
                         counts["brokerAuthorityObservations"] = 1;
                         counts["brokerAuthorityMicros"] =
                             std::chrono::duration_cast<std::chrono::microseconds>(
-                                std::chrono::steady_clock::now() - started).count();
+                                std::chrono::steady_clock::now() - started)
+                                .count();
                         result["work"] = std::move(counts);
                     }
                     client->send(result_event_json(request_id, true, result.dump()));
@@ -5125,7 +5127,35 @@ Json project_manifest_json(const ProjectSourceManifest& manifest)
     return {{"canonicalRoot", manifest.canonical_root}, {"entries", std::move(entries)}};
 }
 
-Json project_observation_json(const ProjectObservation& observation)
+std::string project_manifest_identity(const ProjectSourceManifest& manifest)
+{
+    // All equality-bearing fields are included. Length prefixes and optional
+    // markers distinguish values without building a temporary JSON tree.
+    std::string bytes;
+    bytes.reserve(manifest.canonical_root.size() + manifest.entries.size() * 130);
+    const auto append = [&](std::string_view text) {
+        bytes.append(std::to_string(text.size()));
+        bytes.push_back(':');
+        bytes.append(text);
+    };
+    append(manifest.canonical_root);
+    bytes.append(std::to_string(manifest.entries.size()));
+    bytes.push_back(':');
+    for (const auto& entry : manifest.entries) {
+        append(entry.path);
+        append(entry.source_identity);
+        append(std::to_string(entry.byte_size));
+        bytes.push_back(entry.mtime_nanoseconds ? '1' : '0');
+        if (entry.mtime_nanoseconds)
+            append(std::to_string(*entry.mtime_nanoseconds));
+        bytes.push_back(entry.content_hash ? '1' : '0');
+        if (entry.content_hash)
+            append(*entry.content_hash);
+    }
+    return sha256_text(bytes);
+}
+
+Json project_observation_json(const ProjectObservation& observation, bool compact_manifest)
 {
     return {{"ok", true},
             {"authority", "proven"},
@@ -5138,7 +5168,8 @@ Json project_observation_json(const ProjectObservation& observation)
              {{"added", observation.delta.added},
               {"changed", observation.delta.changed},
               {"removed", observation.delta.removed}}},
-            {"manifest", project_manifest_json(observation.manifest)}};
+            {"manifest", compact_manifest ? Json(project_manifest_identity(observation.manifest))
+                                          : project_manifest_json(observation.manifest)}};
 }
 
 Json observe_local_project(const Json& request)
@@ -6598,17 +6629,33 @@ std::string endpoint_identity(std::string_view build_identity,
 std::string result_event_json(std::string_view request_id, bool ok, std::string_view result_json,
                               std::string_view error)
 {
-    Json result = Json::parse(result_json, nullptr, false);
-    if (result.is_discarded())
-        result = nullptr;
-    Json event = {{"type", "result"},
-                  {"requestId", request_id},
-                  {"ok", ok},
-                  {"final", true},
-                  {"result", std::move(result)}};
-    if (!error.empty())
-        event["error"] = error;
-    return event.dump();
+    // result_json is already a serialized JSON value produced by an internal
+    // owner or broker operation. Forward its bytes without rebuilding a
+    // potentially large diagnostic tree merely to wrap it in an event.
+    // Escape the untrusted request ID and error as JSON strings.
+    // The completion can also originate from a worker. Validate its syntax
+    // without materializing a second JSON tree, preserving the old malformed
+    // response -> null behavior and never emitting a broken protocol frame.
+    if (result_json.empty() || !Json::accept(result_json))
+        result_json = "null";
+    const auto id = Json(std::string(request_id)).dump();
+    std::string event;
+    event.reserve(result_json.size() + id.size() + error.size() + 85);
+    event.push_back('{');
+    if (!error.empty()) {
+        event.append("\"error\":");
+        event.append(Json(std::string(error)).dump());
+        event.push_back(',');
+    }
+    event.append("\"final\":true,\"ok\":");
+    event.append(ok ? "true" : "false");
+    event.append(",\"requestId\":");
+    event.append(id);
+    event.append(",\"result\":");
+    event.append(result_json);
+    event.append(",\"type\":\"result\"");
+    event.push_back('}');
+    return event;
 }
 
 std::string text_event_json(std::string_view type, std::string_view request_id,

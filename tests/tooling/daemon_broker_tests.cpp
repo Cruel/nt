@@ -1268,6 +1268,22 @@ TEST_CASE("daemon protocol event shapes preserve request identity")
                          {"final", true},
                          {"result", Json{{"value", 4}}}});
 
+    // The broker embeds an already-serialized result without constructing
+    // another diagnostic tree. Its framing must still escape externally
+    // supplied IDs and reject malformed worker JSON.
+    const std::string id = "request-\"quoted\"\\suffix";
+    Json large{{"diagnostics", Json::array()}};
+    for (int index = 0; index < 512; ++index)
+        large["diagnostics"].push_back(
+            {{"code", "room.description.empty"}, {"path", "/rooms/room-" + std::to_string(index)}});
+    const auto escaped = Json::parse(result_event_json(id, false, large.dump(), "bad \"input\""));
+    CHECK(escaped.at("requestId") == id);
+    CHECK(escaped.at("result") == large);
+    CHECK(escaped.at("error") == "bad \"input\"");
+    const auto malformed = Json::parse(result_event_json(id, false, "{broken", "invalid result"));
+    CHECK(malformed.at("result").is_null());
+    CHECK(malformed.at("requestId") == id);
+
     const auto stdout_event = Json::parse(text_event_json("stdout", "req-2", "hello"));
     CHECK(stdout_event == Json{{"type", "stdout"}, {"requestId", "req-2"}, {"text", "hello"}});
     const auto stderr_event = Json::parse(text_event_json("stderr", "req-2", "warning"));

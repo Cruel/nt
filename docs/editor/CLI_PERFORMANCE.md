@@ -65,6 +65,56 @@ end-to-end CPU time, or close #576 on the strength of the work counts alone.
 Windows/macOS watchers and respective conservative fallbacks still require
 native platform certification.
 
+### #576: public validation result and owner/broker IPC (November 1, 2026)
+
+Low-level `perf` call-stack sampling and `strace` of 120 warm Room-label
+edits showed that the remaining hot functions were dominated by JSON
+serialization/deserialization, allocation, and memory movement across the
+owner, broker, and short-lived CLI. The synthetic 501-Room fixture returns
+**501 complete diagnostics**, approximately 104 KB of public JSON per edit.
+That complete public diagnostic contract is retained.
+
+The optimized public path now:
+
+- Constructs only CLI diagnostics when the caller opts into the compact
+  validation response (editor diagnostics remain available to editor callers)
+  and moves the owned CLI array into the final result instead of deep-copying.
+- Serializes the resident response only once, patching the observed
+  serialization duration into its numerical profiling field without a second
+  full JSON `dump()`.
+- Wraps an already serialized worker result in the broker's response frame
+  without rebuilding its JSON tree. Untrusted worker result syntax is still
+  checked before forwarding; malformed results become JSON null as before.
+- Performs the independent, watcher-fenced final source-generation proof
+  within the resident validation call, after downstream validation and
+  publication preparation, instead of requiring a separate CLI IPC exchange.
+  The standalone proof action remains for other clients.
+- Sends owner-only observations a SHA-256 identity of the *complete*
+  length-delimited Project manifest. The broker still owns the full manifest
+  and its exact source authority, but the owner no longer receives/parses
+  its 70 KB serialized entry array twice per changed request. Other public
+  observation responses retain their original shape.
+
+The independent matched Release CLI/Node-API harness recorded results under
+`build/reports/validation-transport-final.json` (the prior evidence is
+`build/reports/validation-2026-11-01-incremental-work-contract.json`):
+
+| Fixture | Pre-IPC saved Room-label | Optimized saved Room-label |
+|---|---:|---:|
+| Feature Lab | 34.13 ms | **26.61 ms** |
+| 1 Room | 10.84 ms | **8.42 ms** |
+| 101 Rooms | 16.73 ms | **14.85 ms** |
+| 501 Rooms | 51.62 ms | **38.51 ms** |
+
+All **67 comparable public diagnostic fingerprints match** across the two
+83-sample runs. Each changed Room still incurs exactly one source read,
+one YAML parse, one contribution, zero unrelated byte proofs and zero
+directory enumerations. These are sampled timings, not CI thresholds.
+The complete public diagnostic output and some remaining IPC cost still
+scale with diagnostic count, so the 20 ms objective is **not yet met** for
+Feature Lab or 501 Rooms. Platform-specific watcher certification remains
+outstanding.
+
 ### #583: watcher-fenced broker authority (November 1, 2026)
 
 **Cross-platform follow-up (implementation pending host CI):** Both the broker and native

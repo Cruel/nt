@@ -558,6 +558,7 @@ int owner_process(const Json& context, std::uint64_t worker_id,
         }
         request["ownerWorkerId"] = worker_id;
         request["projectRoot"] = canonical_root;
+        request["compactManifest"] = true;
         if (profile_work)
             request["profileWork"] = true;
         const auto observed = broker_call(context, "owner-project-observe", request);

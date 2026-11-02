@@ -735,21 +735,23 @@ Json work_counts_json(const noveltea::authoring::ValidationWorkCounters& counts)
 }
 
 Json response_for(const noveltea::authoring::RoomSessionSnapshot& snapshot, bool warm,
-                  const ProjectSession::ValidationWork& work)
+                  const ProjectSession::ValidationWork& work, bool cli_only = false)
 {
     Json diagnostics = Json::array();
     Json cli_diagnostics = Json::array();
     for (const auto& diagnostic : snapshot.diagnostics) {
-        Json value{{"code", diagnostic.code},
-                   {"path", diagnostic.path},
-                   {"severity", diagnostic.severity},
-                   {"message", diagnostic.message},
-                   {"sourcePath", diagnostic.source_path}};
-        if (diagnostic.line)
-            value["line"] = *diagnostic.line;
-        if (diagnostic.column)
-            value["column"] = *diagnostic.column;
-        diagnostics.push_back(std::move(value));
+        if (!cli_only) {
+            Json value{{"code", diagnostic.code},
+                       {"path", diagnostic.path},
+                       {"severity", diagnostic.severity},
+                       {"message", diagnostic.message},
+                       {"sourcePath", diagnostic.source_path}};
+            if (diagnostic.line)
+                value["line"] = *diagnostic.line;
+            if (diagnostic.column)
+                value["column"] = *diagnostic.column;
+            diagnostics.push_back(std::move(value));
+        }
 
         // CLI validate has a narrower presentation policy than local
         // editor-native diagnostics. Conditional selectors are an authoring
@@ -792,11 +794,10 @@ Json response_for(const noveltea::authoring::RoomSessionSnapshot& snapshot, bool
         }
         cli_diagnostics.push_back(std::move(projected));
     }
-    return {{"ok", true},
+    Json result{{"ok", true},
             {"valid", snapshot.valid},
             {"exitCode", snapshot.valid ? 0 : 1},
             {"warm", warm},
-            {"diagnostics", std::move(diagnostics)},
             {"cliDiagnostics", std::move(cli_diagnostics)},
             {"work",
              {{"recheckedRecords", work.rechecked_records},
@@ -810,6 +811,43 @@ Json response_for(const noveltea::authoring::RoomSessionSnapshot& snapshot, bool
               {"diagnosticAssemblies", work.diagnostic_assemblies},
               {"sourceLocationRebuilds", work.source_location_rebuilds},
               {"semanticFallbackReasons", work.semantic_fallback_reasons}}}};
+    if (!cli_only)
+        result["diagnostics"] = std::move(diagnostics);
+    return result;
+}
+
+bool final_source_generation_matches(OwnerValidation& state, const std::filesystem::path& root,
+                                     std::string_view expected)
+{
+    if (!state.session || state.pending_generation.empty() ||
+        state.pending_generation != expected)
+        return false;
+    const auto unchanged = [&]() {
+        noveltea::authoring::count_validation_work<
+            noveltea::authoring::WorkCounter::DiskSafetyChecks>();
+        noveltea::authoring::ScopedValidationStageTime<
+            noveltea::authoring::WorkCounter::DiskSafetyMicros> timed;
+        return native_project_disk_safety(root).value("ok", false) &&
+               fence_resident_sources(*state.session);
+    };
+    try {
+        // A final, independent proof after all semantic/external stages. The
+        // earlier preparation proof alone cannot certify public publication.
+        return unchanged() && [&] {
+            noveltea::authoring::ScopedValidationStageTime<
+                noveltea::authoring::WorkCounter::SourceGenerationMicros> timed;
+            return native_project_source_generation(*state.session, root, true,
+                                                    "validation-final-generation", nullptr,
+#if defined(__APPLE__)
+                                                    nullptr) ==
+#else
+                                                    &state.pending_exact_revisions) ==
+#endif
+                   expected;
+        }() && unchanged();
+    } catch (const std::exception&) {
+        return false;
+    }
 }
 
 Json validate(std::string_view request_text)
@@ -873,35 +911,8 @@ Json validate(std::string_view request_text)
             state.pending_generation.empty() ||
             request.at("expectedSourceGeneration").get<std::string>() != state.pending_generation)
             return conflict();
-        const auto unchanged = [&]() {
-            noveltea::authoring::count_validation_work<
-                noveltea::authoring::WorkCounter::DiskSafetyChecks>();
-            noveltea::authoring::ScopedValidationStageTime<
-                noveltea::authoring::WorkCounter::DiskSafetyMicros> timed;
-            if (!native_project_disk_safety(root).value("ok", false))
-                return false;
-            return fence_resident_sources(*state.session);
-        };
-        // Bracket the independent exact binary-Asset proof with watcher/epoch
-        // fences. This does not rescan or rehash the full authoring inventory.
-        bool matching = false;
-        try {
-            matching = unchanged() && [&] {
-                noveltea::authoring::ScopedValidationStageTime<
-                    noveltea::authoring::WorkCounter::SourceGenerationMicros> timed;
-                return native_project_source_generation(*state.session, root, true,
-                                                        "validation-final-generation", nullptr,
-#if defined(__APPLE__)
-                                                        nullptr) ==
-#else
-                                                        &state.pending_exact_revisions) ==
-#endif
-                       request.at("expectedSourceGeneration").get<std::string>();
-            }() && unchanged();
-        } catch (const std::exception&) {
-            matching = false;
-        }
-        if (!matching) {
+        if (!final_source_generation_matches(
+                state, root, request.at("expectedSourceGeneration").get<std::string>())) {
             noveltea::authoring::trace_source_proof_event("validation-final", "conflict");
             return conflict();
         }
@@ -998,7 +1009,7 @@ Json validate(std::string_view request_text)
         trace_native_validation("cold invalid-Project validation returned");
         if (!cold)
             return {{"ok", false}, {"error", error}};
-        auto result = response_for(*cold, false, {});
+        auto result = response_for(*cold, false, {}, request.value("compactValidationResponse", false));
 #if NOVELTEA_ENABLE_VALIDATION_COUNTERS
         noveltea::authoring::count_validation_work<
             noveltea::authoring::WorkCounter::ValidationResponseSerializations>();
@@ -1024,7 +1035,8 @@ Json validate(std::string_view request_text)
          (semantic_work.rechecked_records != 0 || semantic_work.rechecked_contributions != 0 ||
           semantic_work.reference_indexed_records != 0)))
         state.font_inputs.reset();
-    auto result = response_for(validated.snapshot, warm, state.session->validation_work());
+    auto result = response_for(validated.snapshot, warm, state.session->validation_work(),
+                               request.value("compactValidationResponse", false));
     result["cacheHit"] = validated.cache_hit;
     result["work"]["sessionAdmissions"] = state.session_admissions;
     // A malformed physical source invalidates the mutable session's complete
@@ -1384,6 +1396,26 @@ Json validate(std::string_view request_text)
         state.session->localization_record_cache_hits() - record_hits_before;
     result["work"]["localizationSourcePathsReused"] =
         state.session->localization_source_path_cache_hits() - source_hits_before;
+    if (request.value("finalizeSourceGenerationProof", false) && validated.snapshot.valid) {
+        const auto started = std::chrono::steady_clock::now();
+        if (!final_source_generation_matches(state, root, state.pending_generation)) {
+            noveltea::authoring::trace_source_proof_event("validation-final", "conflict");
+            state.session.reset();
+            state.clear_preparations(false, false);
+            state.pending_generation.clear();
+            state.pending_exact_revisions.clear();
+            return {{"ok", false},
+                    {"kind", "conflict"},
+                    {"error", "Project sources changed during validation."}};
+        }
+        result["finalSourceGenerationProven"] = true;
+#if NOVELTEA_ENABLE_VALIDATION_COUNTERS
+        result["work"]["endToEnd"] = work_counts_json(work_counts);
+        result["work"]["finalProofRequestMicros"] =
+            std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::steady_clock::now() - started).count();
+#endif
+    }
     if (request.value("compactValidationResponse", false)) {
         // The public CLI consumes final diagnostics/coverage/compiler evidence,
         // not the large intermediate Message and Material input projections.
@@ -1436,16 +1468,20 @@ extern "C" std::uint64_t noveltea_tooling_native_disk_project_validation_json(
         auto result = validate(std::string_view(reinterpret_cast<const char*>(request),
                                                 static_cast<std::size_t>(request_size)));
 #if NOVELTEA_ENABLE_VALIDATION_COUNTERS
-        // Reporting the cost of serializing a JSON response inside that very
-        // response requires a second pass. Measure the first complete pass,
-        // then append its duration without altering any semantic fields.
+        // Serialize only once. The profiling field starts as zero; patch its
+        // numeric value into the serialized bytes afterward instead of
+        // traversing the entire diagnostic JSON a second time.
         const auto started = std::chrono::steady_clock::now();
         serialized = result.dump();
         if (result.contains("work") && result["work"].contains("endToEnd")) {
-            result["work"]["endToEnd"]["validationResponseSerializationMicros"] =
-                std::chrono::duration_cast<std::chrono::microseconds>(
-                    std::chrono::steady_clock::now() - started).count();
-            serialized = result.dump();
+            constexpr std::string_view marker = "\"validationResponseSerializationMicros\":0";
+            const auto position = serialized.find(marker);
+            if (position != std::string::npos) {
+                const auto micros = std::chrono::duration_cast<std::chrono::microseconds>(
+                                        std::chrono::steady_clock::now() - started)
+                                        .count();
+                serialized.replace(position + marker.size() - 1, 1, std::to_string(micros));
+            }
         }
 #else
         serialized = result.dump();
