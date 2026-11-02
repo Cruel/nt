@@ -671,6 +671,31 @@ Json native_project_bundle(const Json& request, ProjectSession* session,
     const auto action = request.value("action", std::string{});
     if (action == "project-import")
         return import_bundle(request);
+    if (action == "validation-source-recheck") {
+        // Called only after SourceAuthority has observed this generation and
+        // the owner's portable input projection has remained identical. The
+        // full Project path walk was certified previously: re-prove just the
+        // physically changed sources, including readability and containment.
+        if (!session || !request.contains("sourcePaths") ||
+            !request.at("sourcePaths").is_array())
+            return failure("Portable incremental source check requires an admitted Project.");
+        try {
+            for (const auto& entry : request.at("sourcePaths")) {
+                if (!entry.is_string())
+                    return failure("Portable incremental source path is malformed.");
+                const auto source = entry.get<std::string>();
+                std::ifstream input(checked_source(root, source), std::ios::binary);
+                if (!input)
+                    return failure("Portable Project source cannot be read: " + source);
+                (void)input.peek();
+                if (input.bad())
+                    return failure("Portable Project source read failed: " + source);
+            }
+        } catch (const std::exception& error) {
+            return failure(error.what(), "invalid-project");
+        }
+        return {{"ok", true}};
+    }
     if (action == "export-preparation" || action == "runtime-package-preparation" ||
         action == "test-source-preparation" || action == "validation-source-check") {
         if (!session)

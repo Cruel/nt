@@ -658,6 +658,28 @@ as an oracle for differential C++ tests. Public CLI mutation certification at 2,
 Rooms asserts spatial-owner work counts and complete ordered diagnostic/navigation parity; Release
 wall-clock timings are measured separately from these CI work-count gates.
 
+Room Exit reference edges consume the target Room's synthetic `/@identity` dependency, not
+its complete normalized contents. Rename, removal, and restoration invalidate consumers;
+unrelated changes to a target's presentation or room-local data do not. The graph contract is
+certified separately from the public mutation workload.
+
+Portable validation reuses its unchanged path projection after a watched physical source edit.
+When all prior portable members remain in the authoritative source inventory, only changed
+members have their containment, regular-file status, and stream readability rechecked. The
+prior exact source revisions are advanced only after this targeted verification succeeds;
+missing members, changed portable inputs, workflow membership changes, or unavailable reliable
+watcher proof retain the complete portable-source-check fallback. Source-generation publication
+fences remain mandatory. The public portable cache certification exercises Lua, workflow and
+binary edits, metadata-restored writes, and independent clean-client diagnostic parity.
+
+On 2026-11-02, a Release Feature Lab single-Layout-Lua edit before this portable optimization
+measured **82.49 ms** end-to-end, including **25.2 ms** portable-source validation and **8.68 ms**
+complete-Project preparation. Five independent saved-Lua changes after the optimization measured
+**51.14–55.36 ms** (median **52.11 ms**), with **zero** full portable checks and exactly **one**
+incremental source recheck each. Complete-Project preparation still took about **8–11 ms** per edit.
+These are observed wall-clock samples, not a CI timing gate or a claim that the remaining
+changed-file latency meets the full #594 optimization target.
+
 On 2026-11-02, a separate `linux-release` (`-O3`, validation counters enabled)
 `validation_performance.py` run on dev-lawdeep measured median **warm saved-label**
 public CLI time (three requests per fixture): **Feature Lab 24.39 ms**, **1 Room

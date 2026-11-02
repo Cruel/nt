@@ -161,6 +161,23 @@ with TemporaryDirectory(prefix="noveltea-portable-validation-") as temporary:
             counter, label["validationWork"])
     assert_public_parity(label, validate(direct=True))
 
+    # Changing one watched Layout Lua source does not change the Project's
+    # portable path projection. Recheck only that file's containment and
+    # readability against the newly observed physical generation, rather
+    # than reopening every portable source in Feature Lab.
+    lua = project / "records/layouts/feature-lab-hud/layout.lua"
+    old_lua = lua.read_text()
+    lua.write_text(old_lua + "\n-- incremental portable source certification\n")
+    changed_lua = validate()
+    assert changed_lua["diagnostics"] == diagnostics
+    if sys.platform.startswith("linux"):
+        assert work(changed_lua, "portableSourceIncrementalRechecks") == 1, (
+            changed_lua["validationWork"])
+        assert changed_lua["validationWork"]["endToEnd"]["portableSourceChecks"] == 0
+    assert_public_parity(changed_lua, validate(direct=True))
+    lua.write_text(old_lua)
+    assert validate()["diagnostics"] == diagnostics
+
     # Workflows are portable without appearing in Asset YAML. Create, modify,
     # rename and remove a member, then ensure each membership generation is
     # actually observed rather than borrowing a successful prior stage.
@@ -177,6 +194,9 @@ with TemporaryDirectory(prefix="noveltea-portable-validation-") as temporary:
     workflow.write_text('{"value":2}\n')
     changed = validate()
     assert work(changed, "portableSourceReuses") == 0, changed["validationWork"]
+    if sys.platform.startswith("linux"):
+        assert work(changed, "portableSourceIncrementalRechecks") == 1
+        assert changed["validationWork"]["endToEnd"]["portableSourceChecks"] == 0
     renamed = workflows / "renamed.json"
     workflow.rename(renamed)
     renamed_response = validate()
@@ -193,6 +213,8 @@ with TemporaryDirectory(prefix="noveltea-portable-validation-") as temporary:
     binary = validate()
     assert work(binary, "portableSourceReuses") == 0, binary["validationWork"]
     assert binary["diagnostics"] == diagnostics
+    if sys.platform.startswith("linux"):
+        assert work(binary, "portableSourceIncrementalRechecks") == 1
     assert work(validate(), "portableSourceReuses") == 1
 
     # Restored timestamps and unchanged size cannot hide an external edit:

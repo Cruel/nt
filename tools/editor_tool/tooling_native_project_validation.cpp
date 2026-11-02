@@ -31,6 +31,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace {
 using Json = nlohmann::json;
@@ -78,6 +79,30 @@ struct OwnerValidation {
                 if (it->second != "absent" && !source_revisions.contains(it->first))
                     return false;
             return true;
+        }
+
+        // Only an unchanged portable input projection can use this path. A
+        // changed physical source is rechecked individually before advancing
+        // its proof; missing sources and new workflow members force the full
+        // portable check and its attributable diagnostics.
+        std::optional<std::vector<std::string>> portable_changed_paths(
+            const std::map<std::string, std::string>* current) const
+        {
+            if (!current)
+                return std::nullopt;
+            std::vector<std::string> changed;
+            for (const auto& [path, revision] : source_revisions) {
+                const auto found = current->find(path);
+                if (found == current->end() || found->second == "absent")
+                    return std::nullopt;
+                if (found->second != revision)
+                    changed.push_back(path);
+            }
+            for (auto it = current->lower_bound("workflows/");
+                 it != current->end() && it->first.starts_with("workflows/"); ++it)
+                if (it->second != "absent" && !source_revisions.contains(it->first))
+                    return std::nullopt;
+            return changed;
         }
     };
     std::mutex mutex;
@@ -1131,14 +1156,14 @@ Json validate(std::string_view request_text)
                         return;
                     }
             };
-            revoke(state.portable_check);
             revoke(state.notice_check);
             // Resident cache maintenance can consume a watcher event before
             // the next public request. A retained stage must compare the
             // certified revision snapshot, not only this call's event list.
             const auto* current = state.session->verified_source_revisions_view();
-            if (state.portable_check && !state.portable_check->matches_portable(current))
-                state.portable_check.reset();
+            // Do not discard a changed portable source's previous membership
+            // proof yet. The incremental check below will either reprove the
+            // changed members or fall back to a complete portable check.
             if (state.notice_check && !state.notice_check->matches(current))
                 state.notice_check.reset();
         }
@@ -1290,7 +1315,29 @@ Json validate(std::string_view request_text)
                                             state.session->verified_source_revisions_view()) &&
                                         state.portable_check->inputs == portable_key;
             result["work"]["portableSourceReuses"] = portable_reuse ? 1 : 0;
-            if (!portable_reuse) {
+            bool portable_incremental = false;
+            if (!portable_reuse && state.portable_check &&
+                state.portable_check->inputs == portable_key &&
+                state.session->source_watcher_proof_available()) {
+                const auto* revisions = state.session->verified_source_revisions_view();
+                const auto changes = state.portable_check->portable_changed_paths(revisions);
+                if (changes && !changes->empty()) {
+                    const auto rechecked = [&] {
+                        ScopedPhysicalValidationStage physical(work_counts, physical_stages,
+                                                               "portableIncrementalValidation");
+                        return native_project_bundle(
+                            {{"action", "validation-source-recheck"}, {"sourcePaths", *changes}},
+                            state.session.get(), root);
+                    }();
+                    if (rechecked.value("ok", false)) {
+                        for (const auto& path : *changes)
+                            state.portable_check->source_revisions[path] = revisions->at(path);
+                        portable_incremental = true;
+                        result["work"]["portableSourceIncrementalRechecks"] = changes->size();
+                    }
+                }
+            }
+            if (!portable_reuse && !portable_incremental) {
                 state.portable_check.reset();
                 noveltea::authoring::count_validation_work<
                     noveltea::authoring::WorkCounter::PortableSourceChecks>();

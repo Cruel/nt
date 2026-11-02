@@ -3,9 +3,9 @@
 Usage: python3 dependency_mutation_certification.py <noveltea> <repo-root>
        [2|101|501|feature-lab ...]
 
-Some non-membership source-impact scenarios remain RED for #597-599.
 Diagnostic equality is independently checked against a cache-free --no-daemon
-copy. Work contracts (not machine-specific time limits) enforce incrementality.
+copy. Work contracts (not machine-specific time limits) enforce incrementality
+across #596–#599, including source membership and dependency mutations.
 """
 
 import json

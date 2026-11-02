@@ -220,7 +220,7 @@ std::vector<std::string> impact_paths(std::string_view role, std::string_view ta
     // its content or label. The synthetic pointer is intentionally never a
     // normalized record field; a whole-owner change on removal/restoration
     // still overlaps it.
-    if (role == "test-identity")
+    if (role == "test-identity" || role == "room-exit-target")
         return {std::string(target) + "/@identity"};
     if (role == "test-feature")
         return {std::string(target) + "/data/features"};

@@ -2061,9 +2061,10 @@ void project_validation_roundtrip(const std::filesystem::path& fixture)
         "A physical Asset deletion invalidates a resident full-Project proof without a YAML edit");
     write(media, original_media);
     const auto restored_media = project->validate_project();
-    require(restored_media.valid && signature(restored_media) == signature(cold) &&
-                project->validation_work().rechecked_records > 0,
-            "Restoring physical Asset membership refreshes the dependent full-Project contributor");
+    require(restored_media.valid && ordered_signature(restored_media) == ordered_signature(cold) &&
+                project->validation_work().rechecked_contributions > 0,
+            "Restoring physical Asset membership revalidates affected semantics and restores "
+            "exact baseline diagnostics without needlessly reparsing records");
     require(project->validate_project().valid && project->validation_work().rechecked_records == 0,
             "Restored physical Asset proof is reusable after revalidation");
     // CLI-owned native validation and the opt-in editor addon use this same
