@@ -232,7 +232,9 @@ public:
     // Resident CLI and editor hosts call this on their serialized idle loop.
     // A nonowner only attempts an OS lock at the five-second retry cadence.
     void enable_resident_cache_maintenance();
-    void maintain_clean_cache(bool shutdown = false, bool already_observed = false);
+    // True only after the elected writer has fenced and settled its quiet-window
+    // maintenance for the current saved generation.
+    bool maintain_clean_cache(bool shutdown = false, bool already_observed = false);
     bool owns_clean_cache_lease() const noexcept;
     struct ValidationWork {
         std::size_t rechecked_records = 0;

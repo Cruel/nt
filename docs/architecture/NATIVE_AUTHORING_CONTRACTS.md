@@ -694,6 +694,19 @@ Project always reobserves physical authority **after** semantic validation and
 rejects publication if sources changed. Invalid YAML remains attributable to
 its precise physical owner; working overlays always take precedence.
 
+The daemon's elected disk-cache writer maintains the resident clean validation
+after five seconds without saved-source changes. Once this fenced maintenance
+settles, the same owner runs the ordinary public validation pipeline while idle
+to collect complete diagnostics, external-stage results, and the public exit
+code. Matching pre/post physical observations and a still-idle owner generation
+are required before the broker retains the result as a public exact-cache
+candidate. The first subsequent CLI validation can therefore reuse the
+background result without rechecking semantic records. A competing writer,
+private editor generation, changed/unknown authority, in-flight owner request,
+or interrupted quiet period cannot publish it. An exact-hit request still proves
+the current physical source authority independently; watcher hints alone never
+establish validity.
+
 `ProjectSession` also retains each validated owner's normalized result and
 its conservative scalar/property-key reference tokens. Updating or removing a
 record withdraws its old reverse edges; transitive invalidation follows the

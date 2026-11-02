@@ -1259,6 +1259,45 @@ public:
         return completed;
     }
 
+    Json retain_exact_validation_result(const std::string& canonical_root, std::string semantic_key,
+                                        Json structured_result)
+    {
+        if (!structured_result.is_object() || !structured_result.contains("success") ||
+            !structured_result["success"].is_boolean() || !structured_result.contains("exitCode") ||
+            !structured_result["exitCode"].is_number_integer() ||
+            !structured_result.contains("diagnostics") ||
+            !structured_result["diagnostics"].is_array() ||
+            !structured_result.contains("editorDiagnostics") ||
+            !structured_result["editorDiagnostics"].is_array() ||
+            (structured_result["exitCode"] != 0 && structured_result["exitCode"] != 4))
+            return error_json("exact validation result payload is malformed");
+#if defined(_WIN32)
+        const std::filesystem::path root = utf8_to_wide(canonical_root);
+#else
+        const std::filesystem::path root = canonical_root;
+#endif
+        if (const auto status = project_authority_.status(root);
+            !status || status->state != ProjectAuthorityState::proven)
+            return error_json("exact validation source authority is no longer clean");
+        const auto checkpoint = project_authority_.checkpoint(root);
+        if (!checkpoint)
+            return error_json("exact validation result has no proven native Project authority");
+
+        RetainedExactValidationResult retained{
+            .canonical_root = canonical_root,
+            .semantic_key = std::move(semantic_key),
+            .authority = *checkpoint,
+            .semantic_result_json = structured_result.dump(),
+            .revision = next_validation_revision_.fetch_add(1),
+        };
+        exact_validation_results_.retain(retained, now_millis());
+        {
+            std::scoped_lock lock(validation_publication_state_->mutex);
+            validation_publication_state_->pending[canonical_root] = std::move(retained);
+        }
+        return {{"ok", true}};
+    }
+
     Json retain_owner_validation_result(std::uint64_t owner_worker_id, std::uint64_t token,
                                         std::string semantic_key, Json structured_result)
     {
@@ -1281,37 +1320,38 @@ public:
                     "exact validation result does not match the active validate request");
             canonical_root = owner->second.canonical_root;
         }
-        if (!structured_result.is_object() || !structured_result.contains("success") ||
-            !structured_result["success"].is_boolean() || !structured_result.contains("exitCode") ||
-            !structured_result["exitCode"].is_number_integer() ||
-            !structured_result.contains("diagnostics") ||
-            !structured_result["diagnostics"].is_array() ||
-            !structured_result.contains("editorDiagnostics") ||
-            !structured_result["editorDiagnostics"].is_array())
-            return error_json("exact validation result payload is malformed");
+        return retain_exact_validation_result(canonical_root, std::move(semantic_key),
+                                              std::move(structured_result));
+    }
 
-#if defined(_WIN32)
-        const std::filesystem::path root = utf8_to_wide(canonical_root);
-#else
-        const std::filesystem::path root = canonical_root;
-#endif
-        const auto checkpoint = project_authority_.checkpoint(root);
-        if (!checkpoint)
-            return error_json("exact validation result has no proven native Project authority");
-
-        RetainedExactValidationResult retained{
-            .canonical_root = canonical_root,
-            .semantic_key = std::move(semantic_key),
-            .authority = *checkpoint,
-            .semantic_result_json = structured_result.dump(),
-            .revision = next_validation_revision_.fetch_add(1),
-        };
-        exact_validation_results_.retain(retained, now_millis());
+    Json retain_owner_idle_validation_result(std::uint64_t owner_worker_id,
+                                             ProjectGenerationIdentity generation,
+                                             std::string semantic_key, Json structured_result)
+    {
+        std::string canonical_root;
         {
-            std::scoped_lock lock(validation_publication_state_->mutex);
-            validation_publication_state_->pending[canonical_root] = std::move(retained);
+            std::scoped_lock lock(queue_mutex_);
+            const auto owner = project_owners_.find(owner_worker_id);
+            if (owner == project_owners_.end() || owner->second.retiring ||
+                !owner->second.active_generation ||
+                *owner->second.active_generation != generation || !owner->second.queued.empty() ||
+                owner->second.dispatching || owner->second.critical_sections != 0 ||
+                owner->second.reconciling ||
+                exact_validation_probe_roots_.contains(owner->second.canonical_root) ||
+                state_.load() != State::ready)
+                return error_json("idle validation publication lost its owner generation");
+            const bool active = std::any_of(active_.begin(), active_.end(), [&](const auto& item) {
+                return item.second.owner_worker_id == owner_worker_id;
+            });
+            if (active)
+                return error_json("idle validation publication overlaps an active request");
+            canonical_root = owner->second.canonical_root;
         }
-        return {{"ok", true}};
+        auto result = retain_exact_validation_result(canonical_root, std::move(semantic_key),
+                                                     std::move(structured_result));
+        if (result.value("ok", false))
+            idle_validation_publications_.fetch_add(1);
+        return result;
     }
 
     Json emit_owner_request_event(std::uint64_t owner_worker_id, std::uint64_t token,
@@ -2092,6 +2132,7 @@ public:
             {"ownerColdAdmissions", owner_cold_admissions_.load()},
             {"ownerRehydrations", owner_rehydrations_.load()},
             {"exactResultHits", exact_result_hits_.load()},
+            {"idleValidationPublications", idle_validation_publications_.load()},
             {"generationPromotions", generation_promotions_.load()},
             {"snapshotPublications", snapshot_publications_.load()},
             {"snapshotHandoffs", snapshot_handoffs_.load()},
@@ -3602,6 +3643,31 @@ private:
                                                result.value("error", std::string{})));
                 continue;
             }
+            if (method == "owner-idle-validation-result") {
+                if (!message_payload.contains("ownerWorkerId") ||
+                    !message_payload["ownerWorkerId"].is_number_unsigned() ||
+                    !message_payload.contains("sessionEpoch") ||
+                    !message_payload["sessionEpoch"].is_number_unsigned() ||
+                    !message_payload.contains("generation") ||
+                    !message_payload["generation"].is_number_unsigned() ||
+                    !message_payload.contains("semanticKey") ||
+                    !message_payload["semanticKey"].is_string() ||
+                    !message_payload.contains("validationResult")) {
+                    client->send(result_event_json(request_id, false, "null",
+                                                   "idle validation result requires owner, "
+                                                   "generation, semantic key and result"));
+                    continue;
+                }
+                const auto result = retain_owner_idle_validation_result(
+                    message_payload["ownerWorkerId"].get<std::uint64_t>(),
+                    {message_payload["sessionEpoch"].get<std::uint64_t>(),
+                     message_payload["generation"].get<std::uint64_t>()},
+                    message_payload["semanticKey"].get<std::string>(),
+                    message_payload["validationResult"]);
+                client->send(result_event_json(request_id, result.value("ok", false), result.dump(),
+                                               result.value("error", std::string{})));
+                continue;
+            }
             if (method == "owner-cancelled") {
                 if (!message_payload.contains("ownerWorkerId") ||
                     !message_payload["ownerWorkerId"].is_number_unsigned() ||
@@ -4631,6 +4697,7 @@ private:
     std::atomic<std::uint64_t> owner_cold_admissions_{0};
     std::atomic<std::uint64_t> owner_rehydrations_{0};
     std::atomic<std::uint64_t> exact_result_hits_{0};
+    std::atomic<std::uint64_t> idle_validation_publications_{0};
     std::atomic<std::uint64_t> generation_promotions_{0};
     std::atomic<std::uint64_t> snapshot_publications_{0};
     std::atomic<std::uint64_t> snapshot_handoffs_{0};
@@ -6755,6 +6822,8 @@ extern "C" std::uint64_t noveltea_tooling_daemon_json(const std::uint8_t* reques
         result = owner_client_request(*context, "owner-internal-complete", parsed);
     else if (action == "owner-validation-result")
         result = owner_client_request(*context, "owner-validation-result", parsed);
+    else if (action == "owner-idle-validation-result")
+        result = owner_client_request(*context, "owner-idle-validation-result", parsed);
     else if (action == "owner-event")
         result = owner_client_request(*context, "owner-event", parsed);
     else if (action == "owner-cancelled")

@@ -656,22 +656,23 @@ void ProjectSession::enable_resident_cache_maintenance()
     }
 }
 
-void ProjectSession::maintain_clean_cache(bool shutdown, bool already_observed)
+bool ProjectSession::maintain_clean_cache(bool shutdown, bool already_observed)
 {
     if (!resident_cache_maintenance_ || !acquire_cache_lease_if_due())
-        return;
+        return false;
     // Only the elected writer is allowed to poll for proactive maintenance.
     if (!shutdown && !already_observed) {
         try {
             (void)observe_sources();
         } catch (...) {
-            return; // Optional maintenance must not disrupt active sessions.
+            return false; // Optional maintenance must not disrupt active sessions.
         }
     }
-    if (!cache_maintenance_pending_ ||
-        (!shutdown && (std::chrono::steady_clock::now() < cache_quiet_until_ ||
-                       std::chrono::steady_clock::now() < cache_next_maintenance_attempt_)))
-        return;
+    if (!cache_maintenance_pending_)
+        return !shutdown && std::chrono::steady_clock::now() >= cache_quiet_until_;
+    if (!shutdown && (std::chrono::steady_clock::now() < cache_quiet_until_ ||
+                      std::chrono::steady_clock::now() < cache_next_maintenance_attempt_))
+        return false;
     // Serialize through the same resident validator, not a second disk reader.
     cache_maintenance_active_ = true;
     cache_maintenance_shutdown_ = shutdown;
@@ -686,13 +687,14 @@ void ProjectSession::maintain_clean_cache(bool shutdown, bool already_observed)
         cache_maintenance_shutdown_ = false;
         cache_next_maintenance_attempt_ =
             std::chrono::steady_clock::now() + std::chrono::seconds(5);
-        return; // Cached results are optional; retry on a later idle tick.
+        return false; // Cached results are optional; retry on a later idle tick.
     }
     cache_maintenance_active_ = false;
     cache_maintenance_shutdown_ = false;
     if (cache_maintenance_pending_)
         cache_next_maintenance_attempt_ =
             std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    return !shutdown && !cache_maintenance_pending_;
 }
 
 void ProjectSession::revoke_clean_validation()

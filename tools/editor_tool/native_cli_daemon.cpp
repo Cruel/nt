@@ -356,6 +356,25 @@ std::string native_validation_semantic_key()
         .dump();
 }
 
+std::optional<Json> exact_public_validation_result(const Json& result)
+{
+    if (!result.is_array() || result.size() != 3 || !result[0].is_number_integer() ||
+        !result[1].is_string() || !result[2].is_string() ||
+        !result[2].get_ref<const std::string&>().empty())
+        return std::nullopt;
+    const auto structured = Json::parse(result[1].get<std::string>(), nullptr, false);
+    if (!structured.is_object() || !structured.contains("success") ||
+        !structured["success"].is_boolean() || !structured.contains("diagnostics") ||
+        !structured["diagnostics"].is_array() ||
+        result[0].get<int>() != structured.value("exitCode", -1) ||
+        (structured.value("exitCode", -1) != 0 && structured.value("exitCode", -1) != 4))
+        return std::nullopt;
+    return Json{{"success", structured.at("success")},
+                {"exitCode", structured.at("exitCode")},
+                {"diagnostics", structured.at("diagnostics")},
+                {"editorDiagnostics", Json::array()}};
+}
+
 bool native_validation_argv(const Json& payload)
 {
     return payload.value("nativeValidationRequest", false) &&
@@ -552,6 +571,8 @@ int owner_process(const Json& context, std::uint64_t worker_id,
     const auto session_epoch = descriptor.at("coldSessionEpoch").get<std::uint64_t>();
     std::optional<Json> last_manifest;
     std::optional<std::uint64_t> last_watcher_epoch;
+    std::optional<std::uint64_t> last_idle_publication_generation;
+    std::optional<std::uint64_t> last_idle_publication_watcher_epoch;
     std::uint64_t generation = 0;
     const auto observe = [&](bool profile_work = false) -> std::optional<Json> {
         Json request;
@@ -597,8 +618,46 @@ int owner_process(const Json& context, std::uint64_t worker_id,
                 // Native disk validation owns the only persistent Project
                 // semantic session. Its maintenance action is a no-op for
                 // nonowners until the next nonblocking OS lease attempt.
-                (void)native_call(noveltea_tooling_native_disk_project_validation_json,
-                                  {{"projectRoot", canonical_root}, {"action", "maintenance"}});
+                const auto maintenance =
+                    native_call(noveltea_tooling_native_disk_project_validation_json,
+                                {{"projectRoot", canonical_root}, {"action", "maintenance"}});
+                if (maintenance.value("ok", false) && maintenance.value("ready", false) &&
+                    (!last_idle_publication_generation ||
+                     *last_idle_publication_generation != generation ||
+                     last_idle_publication_watcher_epoch != last_watcher_epoch)) {
+                    // Maintenance has already validated and persisted the quiet saved
+                    // generation. Reuse the normal public CLI pipeline to include
+                    // compiler, font, entrypoint, locations, and exit-code semantics.
+                    const auto before = observe();
+                    if (before && (!last_idle_publication_generation ||
+                                   *last_idle_publication_generation != generation ||
+                                   last_idle_publication_watcher_epoch != last_watcher_epoch)) {
+                        const auto result = run_owner_command(
+                            {{"argv",
+                              Json::array({"--json", "--project", canonical_root, "validate"})},
+                             {"cwd", canonical_root},
+                             {"ownerProjectRoot", canonical_root},
+                             {"environment", Json::object()}},
+                            run_local);
+                        const auto after = observe();
+                        if (after && before->at("manifest") == after->at("manifest") &&
+                            before->at("watcherEpoch") == after->at("watcherEpoch")) {
+                            if (const auto public_result = exact_public_validation_result(result)) {
+                                const auto published =
+                                    broker_call(context, "owner-idle-validation-result",
+                                                {{"ownerWorkerId", worker_id},
+                                                 {"sessionEpoch", session_epoch},
+                                                 {"generation", generation},
+                                                 {"semanticKey", native_validation_semantic_key()},
+                                                 {"validationResult", *public_result}});
+                                if (published.value("ok", false)) {
+                                    last_idle_publication_generation = generation;
+                                    last_idle_publication_watcher_epoch = last_watcher_epoch;
+                                }
+                            }
+                        }
+                    }
+                }
             }
             const auto pending =
                 broker_call(context, "owner-needs-reconcile", {{"ownerWorkerId", worker_id}});
@@ -717,24 +776,13 @@ int owner_process(const Json& context, std::uint64_t worker_id,
             // bracket the validated source generation with no physical changes.
             if (validation && before && after && before->at("manifest") == after->at("manifest") &&
                 before->at("watcherEpoch") == after->at("watcherEpoch")) {
-                const auto& result = completion.at("result");
-                const auto structured =
-                    Json::parse(result.at(1).get<std::string>(), nullptr, false);
-                if (structured.is_object() && structured.contains("success") &&
-                    structured["success"].is_boolean() && structured.contains("diagnostics") &&
-                    structured["diagnostics"].is_array() &&
-                    result.at(0).get<int>() == structured.value("exitCode", -1) &&
-                    (structured.value("exitCode", -1) == 0 ||
-                     structured.value("exitCode", -1) == 4)) {
-                    (void)broker_call(
-                        context, "owner-validation-result",
-                        {{"ownerWorkerId", worker_id},
-                         {"token", token},
-                         {"semanticKey", native_validation_semantic_key()},
-                         {"validationResult", Json{{"success", structured.at("success")},
-                                                   {"exitCode", structured.at("exitCode")},
-                                                   {"diagnostics", structured.at("diagnostics")},
-                                                   {"editorDiagnostics", Json::array()}}}});
+                if (const auto public_result =
+                        exact_public_validation_result(completion.at("result"))) {
+                    (void)broker_call(context, "owner-validation-result",
+                                      {{"ownerWorkerId", worker_id},
+                                       {"token", token},
+                                       {"semanticKey", native_validation_semantic_key()},
+                                       {"validationResult", *public_result}});
                 }
             }
             completion["requestOk"] = true;

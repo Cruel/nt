@@ -977,8 +977,9 @@ Json validate(std::string_view request_text)
             ++state.session_admissions;
             state.session->enable_resident_cache_maintenance();
         }
-        state.session->maintain_clean_cache();
-        return {{"ok", true}, {"writer", state.session->owns_clean_cache_lease()}};
+        const bool ready = state.session->maintain_clean_cache();
+        return {
+            {"ok", true}, {"writer", state.session->owns_clean_cache_lease()}, {"ready", ready}};
     }
     if (request.value("action", std::string("validate")) == "source-generation-proof") {
         const auto conflict = [&]() -> Json {
