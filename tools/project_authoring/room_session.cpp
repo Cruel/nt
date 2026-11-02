@@ -121,6 +121,16 @@ bool analyzable_text_path(std::string_view path)
            !path.starts_with(".noveltea/");
 }
 
+bool text_affects_localization(const SourceAnalysis& source)
+{
+    // Only managed local/plural/select calls contribute to localization
+    // tracking. Text.msg references are checked by the separate text stage.
+    // Incomplete analysis cannot prove that no managed call was hidden.
+    return !source.complete ||
+           std::any_of(source.messages.begin(), source.messages.end(),
+                       [](const auto& message) { return message.kind != "named"; });
+}
+
 bool indexed_text_owner(std::string_view owner)
 {
     for (const auto* family : {"scripts/", "layouts/", "rooms/", "scenes/", "dialogues/", "verbs/",
@@ -1912,13 +1922,26 @@ RoomSessionSnapshot ProjectSession::validate_project(bool observed_at_entry,
         validation_normalized_records_.insert_or_assign(owner, std::move(indexed));
     }
 
+    // A verified Lua/RML/RCSS content or membership delta does not change the
+    // inventory of YAML record identities. Avoid turning a missing physical
+    // resource into an apparent missing Layout/Room identity below.
+    const bool saved_text_only =
+        validation_snapshot_ && validation_snapshot_->working_revision == working_revision_ &&
+        !validation_pending_source_revisions_.empty() &&
+        std::all_of(validation_pending_source_revisions_.begin(),
+                    validation_pending_source_revisions_.end(),
+                    [](const auto& entry) { return analyzable_text_path(entry.first); }) &&
+        validation_pending_asset_owners_.empty() &&
+        validation_shader_overlays_ == shader_overlays_ &&
+        validation_text_source_overlays_ == text_source_overlays_;
+
     // Test expectations also inspect Project/registry identities, and future
     // Test contracts can add new discriminated scalar reference positions.
     // On inventory membership changes (not ordinary field/label edits),
     // conservatively recheck the Test subsystem until every such position is
     // graph-admitted. This protects against an omitted typed edge without
     // reinstating the old broad string-token reverse index.
-    if (validation_snapshot_) {
+    if (validation_snapshot_ && !saved_text_only) {
         static const std::set<std::string_view> test_targets = {
             "scenes",  "dialogues", "rooms", "characters",
             "layouts", "variables", "verbs", "interactables"};
@@ -1957,8 +1980,21 @@ RoomSessionSnapshot ProjectSession::validate_project(bool observed_at_entry,
             validation_invalidated_owners_.insert(owner);
     } else {
         const auto changed_owners = validation_invalidated_owners_;
+        // Physical edits to analyzed Lua/RML/RCSS do not change the semantic
+        // identity of the owning record. Their managed Message projection and
+        // resource references are independently checked below; reverse YAML
+        // dependency edges must not turn a script or template body edit into
+        // a Project-wide semantic invalidation.
         std::vector<std::pair<std::string, std::set<std::string>>> pending;
         for (const auto& owner : changed_owners) {
+            if (saved_text_only &&
+                std::any_of(validation_pending_source_revisions_.begin(),
+                            validation_pending_source_revisions_.end(), [&](const auto& entry) {
+                                const auto found = text_source_owners_.find(entry.first);
+                                return found != text_source_owners_.end() &&
+                                       found->second.contains(owner);
+                            }))
+                continue;
             const auto previous = old_normalized.contains(owner) ? old_normalized.at(owner) : "";
             const auto current = validation_normalized_records_.contains(owner)
                                      ? validation_normalized_records_.at(owner).normalized_json
@@ -2029,34 +2065,69 @@ RoomSessionSnapshot ProjectSession::validate_project(bool observed_at_entry,
         explicit ScopedView(bool& flag) : active(flag) { active = true; }
         ~ScopedView() { active = false; }
     } view(validation_view_active_);
+    bool text_only_updates = !validation_pending_source_revisions_.empty() ||
+                             validation_text_source_overlays_ != text_source_overlays_;
+    std::set<std::string> text_owners;
+    for (const auto& [path, revision] : validation_pending_source_revisions_) {
+        if (!analyzable_text_path(path)) {
+            text_only_updates = false;
+            break;
+        }
+        if (const auto owners = text_source_owners_.find(path); owners != text_source_owners_.end())
+            text_owners.insert(owners->second.begin(), owners->second.end());
+    }
+    for (const auto& [path, owners] : text_source_owners_)
+        if (text_source_overlays_.contains(path) || validation_text_source_overlays_.contains(path))
+            text_owners.insert(owners.begin(), owners.end());
+    // A saved text delta can alter resource presentation without modifying the
+    // authored YAML. With working edits, even a text owner must retain its
+    // original normalized semantic content before the global stage can be reused.
+    const bool unchanged_working_semantics =
+        validation_snapshot_ && validation_snapshot_->working_revision == working_revision_;
+    // Physical resources may also be mentioned by Asset/Material records.
+    // Rechecking those records does not make their unchanged normalized YAML
+    // a new global semantic input, nor does it create an import cascade.
+    text_only_updates &=
+        std::all_of(validation_invalidated_owners_.begin(), validation_invalidated_owners_.end(),
+                    [&](const auto& owner) {
+                        if (text_owners.contains(owner) && unchanged_working_semantics)
+                            return true;
+                        const auto previous = old_normalized.find(owner);
+                        const auto current = validation_normalized_records_.find(owner);
+                        return previous != old_normalized.end() &&
+                               current != validation_normalized_records_.end() &&
+                               previous->second == current->second.normalized_json;
+                    });
     reuse_validation_global_contribution_ =
-        validation_snapshot_ && !presentation_only_updates.empty() &&
+        validation_snapshot_ && (text_only_updates || !presentation_only_updates.empty()) &&
         !validation_pending_uncertain_ &&
         (observation.authoritative || observation.scoped_authority) &&
-        validation_invalidated_owners_ == presentation_only_updates &&
+        (text_only_updates || validation_invalidated_owners_ == presentation_only_updates) &&
         validation_pending_asset_owners_.empty() &&
         validation_shader_overlays_ == shader_overlays_ && localization_cache_ &&
-        std::all_of(presentation_only_updates.begin(), presentation_only_updates.end(),
-                    [](const std::string& owner) {
-                        // Other families can feed generated localization and
-                        // message diagnostics even on a label-only edit.
-                        return owner.starts_with("rooms/") || owner.starts_with("maps/");
-                    }) &&
-        std::all_of(validation_pending_source_revisions_.begin(),
-                    validation_pending_source_revisions_.end(), [&](const auto& entry) {
-                        const auto& path = entry.first;
-                        if (!path.starts_with("records/") || !path.ends_with(".yaml"))
-                            return false;
-                        return std::any_of(presentation_only_updates.begin(),
-                                           presentation_only_updates.end(),
-                                           [&](const std::string& owner) {
-                                               const auto record = validation_records_.find(owner);
-                                               return record != validation_records_.end() &&
-                                                      record->second->source_path()
-                                                              .lexically_relative(root_)
-                                                              .generic_string() == path;
-                                           });
-                    });
+        (text_only_updates ||
+         std::all_of(presentation_only_updates.begin(), presentation_only_updates.end(),
+                     [](const std::string& owner) {
+                         // Other families can feed generated localization and
+                         // message diagnostics even on a label-only edit.
+                         return owner.starts_with("rooms/") || owner.starts_with("maps/");
+                     })) &&
+        (text_only_updates ||
+         std::all_of(validation_pending_source_revisions_.begin(),
+                     validation_pending_source_revisions_.end(), [&](const auto& entry) {
+                         const auto& path = entry.first;
+                         if (!path.starts_with("records/") || !path.ends_with(".yaml"))
+                             return false;
+                         return std::any_of(presentation_only_updates.begin(),
+                                            presentation_only_updates.end(),
+                                            [&](const std::string& owner) {
+                                                const auto record = validation_records_.find(owner);
+                                                return record != validation_records_.end() &&
+                                                       record->second->source_path()
+                                                               .lexically_relative(root_)
+                                                               .generic_string() == path;
+                                            });
+                     }));
     ++validation_work_.diagnostic_assemblies;
     auto result = snapshot();
     reuse_validation_global_contribution_ = false;
@@ -2630,6 +2701,7 @@ RoomSessionSnapshot ProjectSession::snapshot() const
                                      validation_global_contribution_->diagnostics.begin(),
                                      validation_global_contribution_->diagnostics.end());
             state.valid = validation_global_contribution_->output_valid;
+            append_text_source_diagnostics(state);
             return state;
         }
         ++validation_work_.global_stage_executions;
@@ -3092,6 +3164,19 @@ RoomSessionSnapshot ProjectSession::snapshot() const
         state.valid = false;
         state.diagnostics.push_back(std::move(issue));
     }
+    if (validation_view_active_) {
+        validation_global_contribution_ = GlobalValidationContribution{
+            global_input_valid,
+            state.valid,
+            {state.diagnostics.begin() + static_cast<std::ptrdiff_t>(global_diagnostic_start),
+             state.diagnostics.end()}};
+    }
+    append_text_source_diagnostics(state);
+    return state;
+}
+
+void ProjectSession::append_text_source_diagnostics(RoomSessionSnapshot& state) const
+{
     std::set<std::string> named_messages;
     std::map<std::string, std::vector<std::string>> named_message_arguments;
     if (localization_cache_ && localization_cache_->accepted) {
@@ -3232,14 +3317,6 @@ RoomSessionSnapshot ProjectSession::snapshot() const
             }
         }
     }
-    if (validation_view_active_) {
-        validation_global_contribution_ = GlobalValidationContribution{
-            global_input_valid,
-            state.valid,
-            {state.diagnostics.begin() + static_cast<std::ptrdiff_t>(global_diagnostic_start),
-             state.diagnostics.end()}};
-    }
-    return state;
 }
 
 std::map<std::string, std::string> ProjectSession::staged_layout_text_sources() const
@@ -3543,6 +3620,30 @@ SourceObservation ProjectSession::observe_sources()
     }
     if (observed.full_rescan || (!observed.authoritative && !observed.scoped_authority))
         validation_pending_uncertain_ = true;
+    bool text_localization_changed = false;
+    for (const auto& [path, revision] : observed.delta_revisions) {
+        if (!analyzable_text_path(path))
+            continue;
+        const auto old = text_analysis_cache_.find(path);
+        const bool had_old = old != text_analysis_cache_.end();
+        const bool old_managed = had_old && text_affects_localization(old->second);
+        bool new_managed = false;
+        if (revision != "absent") {
+            if (const auto* verified = source_authority_->verified_source(path)) {
+                auto analyzed = analyze_project_text(path, verified->bytes, true);
+                new_managed = text_affects_localization(analyzed);
+                if (!text_source_overlays_.contains(path))
+                    text_analysis_cache_.insert_or_assign(path, std::move(analyzed));
+            } else
+                new_managed = true; // An unproven source cannot retain its old projection.
+        }
+        // A cold or unindexed prior source cannot prove absence of managed
+        // messages. Added sources have no prior localization contribution.
+        const bool added = std::find(observed.delta.added.begin(), observed.delta.added.end(),
+                                     path) != observed.delta.added.end();
+        text_localization_changed |= old_managed || new_managed || (!had_old && !added) ||
+                                     text_source_overlays_.contains(path);
+    }
     if (observed.authoritative || observed.scoped_authority) {
         for (const auto& path : observed.delta.removed) {
             text_source_paths_.erase(path);
@@ -3554,7 +3655,10 @@ SourceObservation ProjectSession::observe_sources()
                 continue;
             text_source_paths_.insert(path);
             text_disk_revisions_.insert_or_assign(path, revision);
-            text_analysis_cache_.erase(path);
+            if (const auto analyzed = text_analysis_cache_.find(path);
+                analyzed != text_analysis_cache_.end() &&
+                analyzed->second.source_revision != revision)
+                text_analysis_cache_.erase(analyzed);
         }
     }
     const auto changed_localization = [](const std::vector<std::string>& paths) {
@@ -3563,8 +3667,7 @@ SourceObservation ProjectSession::observe_sources()
     };
     const auto source_contributes = [](const std::vector<std::string>& paths) {
         return std::any_of(paths.begin(), paths.end(), [](const auto& path) {
-            return path.starts_with("records/") || path.ends_with(".lua") ||
-                   path.ends_with(".rml") || path.ends_with(".rcss");
+            return path.starts_with("records/") && path.ends_with(".yaml");
         });
     };
     const auto presentation_only_source = [&](const std::string& path) {
@@ -3616,8 +3719,9 @@ SourceObservation ProjectSession::observe_sources()
                 return true;
         return false;
     };
-    if (!observed.authoritative || localization_changed() ||
-        source_contributes(observed.delta.added) || source_contributes(observed.delta.removed) ||
+    if (observed.full_rescan || !observed.authoritative || text_localization_changed ||
+        localization_changed() || source_contributes(observed.delta.added) ||
+        source_contributes(observed.delta.removed) ||
         changed_localization(observed.delta.changed) ||
         changed_localization(observed.delta.added) || changed_localization(observed.delta.removed))
         localization_cache_.reset();
@@ -3690,6 +3794,13 @@ RoomSessionResult ProjectSession::stage_text_source(std::uint64_t revision,
             response.accepted = true;
             return response;
         }
+        const auto previous_analysis = text_analysis_cache_.find(path);
+        const auto previous_managed =
+            previous_analysis == text_analysis_cache_.end()
+                ? text_affects_localization(analyze_project_text(path, prior, true))
+                : text_affects_localization(previous_analysis->second);
+        auto next_analysis = analyze_project_text(path, source_text, true);
+        const bool managed_changed = previous_managed || text_affects_localization(next_analysis);
         if (source_text == disk) {
             text_source_overlays_.erase(path);
             text_overlay_disk_revisions_.erase(path);
@@ -3697,8 +3808,9 @@ RoomSessionResult ProjectSession::stage_text_source(std::uint64_t revision,
             text_overlay_disk_revisions_.try_emplace(path, exact_source_revision(disk));
             text_source_overlays_.insert_or_assign(path, std::move(source_text));
         }
-        text_analysis_cache_.erase(path);
-        localization_cache_.reset();
+        text_analysis_cache_.insert_or_assign(path, std::move(next_analysis));
+        if (managed_changed)
+            localization_cache_.reset();
         ++working_revision_;
         response.accepted = true;
         if (const auto owners = text_source_owners_.find(path); owners != text_source_owners_.end())

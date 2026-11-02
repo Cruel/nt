@@ -111,6 +111,20 @@ void certify_owner_session_reuse()
                 unchanged_work.at("directoryEnumerations").get<std::size_t>() == 0,
             "Warm public validation reuses one pinned source generation without repeated scans");
 #endif
+    const auto script_path = fixture.root / "scripts/bootstrap.lua";
+    const auto saved_script = read(script_path);
+    write(script_path, saved_script + "\n-- public native validation text-only edit\n");
+    const auto script_validation = disk_validate({{"projectRoot", fixture.root.string()}});
+    const auto& script_work = script_validation.at("work");
+    require(script_validation.value("valid", false) && script_work.at("recheckedRecords") == 0 &&
+                script_work.at("globalStageExecutions") == 0 &&
+                script_work.at("globalStageReuses") == 1 &&
+                script_work.at("localizationRebuilds") == 0 &&
+                script_validation.at("cliDiagnostics") == initial_validation.at("cliDiagnostics"),
+            "Public saved Lua edit reuses semantic and localization stages and keeps diagnostics");
+    write(script_path, saved_script);
+    require(disk_validate({{"projectRoot", fixture.root.string()}}).value("valid", false),
+            "Public Lua source repair preserves clean validation");
     const auto manifest_file = fixture.root / "project.yaml";
     const auto manifest_bytes = read(manifest_file);
     write(manifest_file, manifest_bytes + "\ninvalid: [\n");
@@ -369,6 +383,41 @@ struct Fixture {
         std::filesystem::remove_all(root, ignored);
     }
 };
+
+void certify_public_text_stage(const std::filesystem::path& source)
+{
+    Fixture fixture(source);
+    const Json request{{"projectRoot", fixture.root.string()}};
+    const auto first = disk_validate(request);
+    require(first.value("ok", false) && first.value("valid", false),
+            "Public Feature Lab native validation must admit a clean initial generation");
+    const auto baseline_diagnostics = first.at("cliDiagnostics");
+    const auto check = [&](std::string_view path, std::string_view change) {
+        const auto file = fixture.root / path;
+        const auto original = read(file);
+        write(file, original + std::string(change));
+        const auto edited = disk_validate(request);
+        const auto& work = edited.at("work");
+        require(edited.value("ok", false) && edited.value("valid", false) &&
+                    work.at("recheckedRecords") == 0 &&
+                    work.at("globalStageExecutions") == 0 &&
+                    work.at("globalStageReuses") == 1 &&
+                    work.at("localizationRebuilds") == 0 &&
+                    edited.at("cliDiagnostics") == baseline_diagnostics,
+                "Public Feature Lab text content edit reuses unrelated stages: " +
+                    std::string(path));
+        write(file, original);
+        const auto repaired = disk_validate(request);
+        require(repaired.value("valid", false) &&
+                    repaired.at("cliDiagnostics") == baseline_diagnostics &&
+                    repaired.at("work").at("globalStageReuses") == 1,
+                "Public Feature Lab text repair retains diagnostic parity: " +
+                    std::string(path));
+    };
+    check("scripts/notice-board.lua", "\n-- public Lua text-stage edit\n");
+    check("records/layouts/notice-board/layout.rml", "\n<!-- public RML edit -->\n");
+    check("records/layouts/notice-board/layout.rcss", "\n/* public RCSS edit */\n");
+}
 
 void certify_invalid_manifest_boundary(const std::filesystem::path& fixture_source)
 {
@@ -1894,6 +1943,11 @@ int main(int argc, char** argv)
             certify_validation_exact_asset_boundary(argv[2]);
             certify_deferred_cache_hit_asset_proof(argv[2]);
             std::cout << "Native public validation generation certification passed.\n";
+            return 0;
+        }
+        if (argc == 3 && std::string_view(argv[1]) == "--public-text-stage") {
+            certify_public_text_stage(argv[2]);
+            std::cout << "Public Feature Lab Lua/RML/RCSS stage certification passed.\n";
             return 0;
         }
         // Test-only direct adapter seam for real two-root mutation comparison.

@@ -483,6 +483,7 @@ private:
     std::map<std::string, std::string> staged_layout_text_sources() const;
     void reindex_asset_consumers(std::string_view asset_id);
     ValidationResult validate_working_localization() const;
+    void append_text_source_diagnostics(RoomSessionSnapshot& state) const;
     std::unique_ptr<RoomSession> source_;
     std::unique_ptr<SourceAuthority> source_authority_;
     // Immutable parsed source values shared by admission, observation and

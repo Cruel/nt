@@ -535,6 +535,11 @@ add_executable(noveltea-cli-native-certify EXCLUDE_FROM_ALL tooling_native_proje
 target_link_libraries(noveltea-cli-native-certify PRIVATE noveltea_tooling_native nlohmann_json::nlohmann_json)
 target_compile_definitions(noveltea-cli-native-certify PRIVATE ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
 if(BUILD_TESTING)
+    add_test(NAME native_authoring_cli_text_stage
+        COMMAND noveltea-cli-native-certify --owner-session-smoke)
+    add_test(NAME native_authoring_cli_text_stage_feature_lab
+        COMMAND noveltea-cli-native-certify --public-text-stage
+                "${CMAKE_SOURCE_DIR}/tests/projects/feature-lab")
     add_test(NAME native_authoring_cli_commands
         COMMAND noveltea-cli-native-certify "${CMAKE_SOURCE_DIR}/tests/projects/feature-lab")
     add_test(NAME native_authoring_cli_validation_generation

@@ -1050,6 +1050,35 @@ only their source consumers and the relevant shared source analysis. Restoring
 the original text withdraws its working diagnostics without changing disk
 authority or the CLI's authoritative clean result.
 
+### #598: text-source invalidation matrix
+
+Native `SourceAnalysis` is shared by validation, localization Message tracking,
+and the workbench graph. Source ownership determines the record contributors;
+managed Message occurrences separately determine whether the localization
+generation must be rebuilt. Text-source diagnostics are evaluated after the
+retained global diagnostic contribution, so their changes cannot themselves
+force unrelated global work.
+
+| Mutation | Semantic record impact | Localization | Text/resource and preview impact |
+| --- | --- | --- | --- |
+| Lua body or static `import("id")` without managed Messages | Direct source owners; no import-target semantic cascade | Reuse | Recheck text diagnostics; update resource/preview graph edges |
+| Lua `Text.msg("key")` / arguments | Direct owners | Reuse Message model | Recheck named-key/argument diagnostics |
+| Lua `Text.tr`, plural/select, or incomplete lexical analysis | Direct owners | Rebuild tracked Message inputs or conservatively revalidate | Recheck text diagnostics and preview |
+| RML `<script>` or `<link>` target change without managed Messages | Declared Layout owners | Reuse | Re-resolve references without reparsing unchanged linked files |
+| RCSS content change without managed Messages | Declared owners | Reuse | Do not reparse unchanged RML; update relevant UI preview |
+| Source addition/removal or missing/repaired declaration | Old/new source owners; retain unrelated contributions | Rebuild if managed occurrence or absence cannot be proven | Update unresolved-source diagnostics and resource membership; rerun global stage if the owner's validity flips, since conditional global checks depend on prior validity |
+| YAML semantic/i18n change or uncertain source authority | Typed reverse dependents; conservative fallback if uncertain | Rebuild as needed | Invalidate downstream physical input proofs |
+
+The runtime exposes Script Module `import`, not Lua `require` (`package` is
+disabled). The native graph already retains static imports, missing targets
+and import cycles as resource/preview relationships, not semantic cascades.
+Dynamic import targets have no exact edge and must be handled conservatively
+by runtime and preview consumers. An RCSS byte change is not equivalent to an
+RML `<link>` change: only the latter changes the RML reference. External
+portable/bundle and preview stages continue to use their independently
+verified physical source dependencies; global-stage reuse is not permission
+to reuse a changed runtime resource.
+
 `noveltea-cli-native-certify --validation-generation` tests dirty label,
 Lua and RML edits, unchanged working hits, no new source capture on an intact
 Linux watcher epoch, and clean-cache byte isolation. The real Node-API worker
@@ -1098,8 +1127,9 @@ rechecked while the Project-wide stage's raw diagnostics (including
 deterministic negative findings) are reused.
 Other record families can feed generated localization or Message diagnostics
 even through presentation metadata, so they conservatively run the global
-stage. Edits to semantic fields, source membership, text inputs, or an
-uncertain observation take the normal conservative validation path. This does **not**
+stage. Edits to semantic fields or uncertain source evidence take the normal
+conservative validation path. Text-only inputs follow the #598 matrix above;
+changed source membership still needs its own physical proof. This does **not**
 replace the authoritative source watcher, dependency index or CLI output.
 
 The post-record contribution retains diagnostics before YAML navigation is

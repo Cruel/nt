@@ -2263,6 +2263,9 @@ void project_validation_roundtrip(const std::filesystem::path& fixture)
                                 return issue.code == "authoring.localization.lua_source_literal";
                             }) &&
                 editor->validation_work().rechecked_records == 0 &&
+                editor->validation_work().global_stage_executions == 0 &&
+                editor->validation_work().global_stage_reuses == 1 &&
+                editor->validation_work().localization_rebuilds == 0 &&
                 read(temp.root / overlay_path) == original_overlay &&
                 read(cached_path) == cache_bytes,
             "Unsaved Lua errors update working diagnostics only, without scanning records or disk "
@@ -2289,12 +2292,32 @@ void project_validation_roundtrip(const std::filesystem::path& fixture)
                                        issue.source_path == rml_path;
                             }) &&
                 editor->validation_work().rechecked_records == 0 &&
+                editor->validation_work().global_stage_executions == 0 &&
+                editor->validation_work().global_stage_reuses == 1 &&
+                editor->validation_work().localization_rebuilds == 0 &&
                 read(temp.root / rml_path) == original_rml && read(cached_path) == cache_bytes,
             "Working RML references invalidate their analysis but not disk contributors");
     require(
         editor->stage_text_source(editor->working_revision(), rml_path, original_rml).accepted &&
             editor->validate_working_project().valid,
         "RML undo restores working validation without a disk write");
+    const std::string rcss_path = "records/layouts/notice-board/layout.rcss";
+    const auto original_rcss = read(temp.root / rcss_path);
+    const auto rcss_staged =
+        editor->stage_text_source(editor->working_revision(), rcss_path,
+                                  original_rcss + "\n/* saved-style preview edit */\n");
+    require(rcss_staged.accepted, "Editor stages an RCSS source independently of its RML");
+    const auto changed_rcss = editor->validate_working_project();
+    require(changed_rcss.valid && editor->validation_work().rechecked_records == 0 &&
+                editor->validation_work().global_stage_executions == 0 &&
+                editor->validation_work().global_stage_reuses == 1 &&
+                editor->validation_work().localization_rebuilds == 0 &&
+                read(temp.root / rcss_path) == original_rcss,
+            "RCSS contents affect preview, not unchanged parent RML or localization");
+    require(
+        editor->stage_text_source(editor->working_revision(), rcss_path, original_rcss).accepted &&
+            editor->validate_working_project().valid,
+        "Restored RCSS retains the working validation proof");
     auto cli = ProjectSession::open(temp.root, error);
     require(cli != nullptr && cli->validate_clean_project().cache_hit,
             "CLI Project still consumes the clean generation after an unsaved editor edit");
@@ -2335,7 +2358,10 @@ void project_validation_roundtrip(const std::filesystem::path& fixture)
                 std::any_of(after_invalid.diagnostics.begin(), after_invalid.diagnostics.end(),
                             [](const Diagnostic& issue) {
                                 return issue.code == "authoring.localization.lua_source_literal";
-                            }),
+                            }) &&
+                project->validation_work().global_stage_executions == 0 &&
+                project->validation_work().global_stage_reuses == 1 &&
+                project->validation_work().localization_rebuilds == 0,
             "Changed Lua source revokes old valid diagnostic proof");
     require(project->validation_work().rechecked_records == 0,
             "Source-only edit does not reparse unrelated YAML records");
@@ -2346,6 +2372,49 @@ void project_validation_roundtrip(const std::filesystem::path& fixture)
     const auto repaired = project->validate_project();
     require(repaired.valid && signature(repaired) == signature(cold),
             "Repairing one Lua source withdraws only its stale diagnostics");
+
+    const auto saved_rml = read(temp.root / rml_path);
+    write(temp.root / rml_path,
+          "<rml><head><link type=\"text/rcss\" "
+          "href=\"project:/assets/ui/missing-from-layout.rcss\"/></head><body/></rml>");
+    const auto broken_rml = project->validate_project();
+    const auto rml_work = project->validation_work();
+    require(std::any_of(broken_rml.diagnostics.begin(), broken_rml.diagnostics.end(),
+                        [&](const Diagnostic& issue) {
+                            return issue.code == "authoring.rml.external_stylesheet_unresolved" &&
+                                   issue.source_path == rml_path;
+                        }) &&
+                rml_work.rechecked_records == 0 && rml_work.global_stage_executions == 0 &&
+                rml_work.global_stage_reuses == 1 && rml_work.localization_rebuilds == 0,
+            "Saved RML link edits recheck their own references without global validation: " +
+                std::to_string(rml_work.rechecked_records) + "/" +
+                std::to_string(rml_work.global_stage_executions) + "/" +
+                std::to_string(rml_work.global_stage_reuses) + "/" +
+                std::to_string(rml_work.localization_rebuilds));
+    write(temp.root / rml_path, saved_rml);
+    require(project->validate_project().valid &&
+                project->validation_work().global_stage_reuses == 1,
+            "Repaired RML links withdraw stale warnings");
+
+    const auto saved_rcss = read(temp.root / rcss_path);
+    const auto previous_rml_analysis = project->source_analyses().at(rml_path).source_revision;
+    write(temp.root / rcss_path, saved_rcss + "\n/* saved-file RCSS edit */\n");
+    ValidationWorkCounters rcss_work;
+    RoomSessionSnapshot saved_css_result;
+    {
+        ScopedValidationWork measured(rcss_work);
+        saved_css_result = project->validate_project();
+    }
+    require(saved_css_result.valid && project->validation_work().rechecked_records == 0 &&
+                project->validation_work().global_stage_executions == 0 &&
+                project->validation_work().global_stage_reuses == 1 &&
+                project->validation_work().localization_rebuilds == 0 &&
+                rcss_work.get<WorkCounter::ParsedRml>() == 0 &&
+                project->source_analyses().at(rml_path).source_revision == previous_rml_analysis,
+            "Saved RCSS changes retain the parent's RML analysis and global diagnostics");
+    write(temp.root / rcss_path, saved_rcss);
+    require(project->validate_project().valid,
+            "Restored RCSS retains the clean Project diagnostics");
 
     const std::string record_path = "records/rooms/room-lifecycle-roundtrip.yaml";
     const auto original_room = read(temp.root / record_path);
@@ -2982,6 +3051,102 @@ void invalid_manifest_roundtrip(const std::filesystem::path& fixture)
 int main(int argc, char** argv)
 {
     try {
+        if (argc == 3 && std::string_view(argv[1]) == "--text-stage-matrix") {
+            TemporaryProject temp(argv[2]);
+            std::string error;
+            auto project = ProjectSession::open(temp.root, error);
+            require(project && project->validate_project().valid,
+                    "Text stage matrix requires a valid initial Project: " + error);
+            const auto verify_stages = [&](std::string_view context) {
+                const auto& work = project->validation_work();
+                std::string fallbacks;
+                for (const auto& reason : work.semantic_fallback_reasons)
+                    fallbacks += reason + ";";
+                require(work.rechecked_records == 0 && work.global_stage_executions == 0 &&
+                            work.global_stage_reuses == 1 && work.localization_rebuilds == 0,
+                        std::string(context) + " should reuse global and localization stages: " +
+                            std::to_string(work.rechecked_records) + "/" +
+                            std::to_string(work.global_stage_executions) + "/" +
+                            std::to_string(work.global_stage_reuses) + "/" +
+                            std::to_string(work.localization_rebuilds) + " " + fallbacks);
+            };
+            const auto rml_path = std::string("records/layouts/notice-board/layout.rml");
+            const auto original_rml = read(temp.root / rml_path);
+            write(temp.root / rml_path,
+                  "<rml><head><link type=\"text/rcss\" "
+                  "href=\"project:/assets/ui/missing-from-layout.rcss\"/></head><body/></rml>");
+            const auto missing_link = project->validate_project();
+            verify_stages("Saved RML link change");
+            require(std::any_of(missing_link.diagnostics.begin(), missing_link.diagnostics.end(),
+                                [](const auto& issue) {
+                                    return issue.code ==
+                                           "authoring.rml.external_stylesheet_unresolved";
+                                }),
+                    "Changed RML link must produce source-specific warning");
+            write(temp.root / rml_path, original_rml);
+            require(project->validate_project().valid, "Restored RML link is valid");
+            verify_stages("Repaired RML link");
+            const auto lua_path = std::string("scripts/notice-board.lua");
+            const auto original_lua = read(temp.root / lua_path);
+            write(temp.root / lua_path, original_lua + "\nlocal text_only_probe = 1\n");
+            require(project->validate_project().valid, "Lua body-only edit remains valid");
+            verify_stages("Saved Lua body change");
+            write(temp.root / lua_path, original_lua + "\nText.msg('missing.text-stage-key')\n");
+            const auto invalid_lua = project->validate_project();
+            verify_stages("Saved Lua Message reference change");
+            require(
+                !invalid_lua.valid &&
+                    std::any_of(invalid_lua.diagnostics.begin(), invalid_lua.diagnostics.end(),
+                                [&](const auto& issue) {
+                                    return issue.code ==
+                                               "authoring.localization.lua_named_message_missing" &&
+                                           issue.source_path == lua_path;
+                                }),
+                "New Lua Message reference updates only text-source diagnostics");
+            write(temp.root / lua_path, original_lua);
+            require(project->validate_project().valid, "Repaired Lua message reference is valid");
+            verify_stages("Repaired Lua Message reference");
+            const auto rcss_path = std::string("records/layouts/notice-board/layout.rcss");
+            const auto original_css = read(temp.root / rcss_path);
+            const auto rml_revision = project->source_analyses().at(rml_path).source_revision;
+            write(temp.root / rcss_path, original_css + "\n/* stylesheet-only saved edit */\n");
+            ValidationWorkCounters changed_css_work;
+            RoomSessionSnapshot edited_css;
+            {
+                ScopedValidationWork measured(changed_css_work);
+                edited_css = project->validate_project();
+            }
+            require(edited_css.valid && changed_css_work.get<WorkCounter::ParsedRml>() == 0 &&
+                        project->source_analyses().at(rml_path).source_revision == rml_revision,
+                    "RCSS edits never reparse or replace unchanged parent RML analysis");
+            verify_stages("Saved RCSS content change");
+            write(temp.root / rcss_path, original_css);
+            require(project->validate_project().valid, "Repaired RCSS remains valid");
+            verify_stages("Repaired RCSS content");
+            std::filesystem::remove(temp.root / rcss_path);
+            const auto missing_css = project->validate_project();
+            const auto removed_work = project->validation_work();
+            require(removed_work.rechecked_records == 0 &&
+                        removed_work.localization_rebuilds == 0 &&
+                        removed_work.global_stage_executions == 1,
+                    "Missing RCSS rechecks validity-dependent global semantics, not YAML or i18n");
+            require(!missing_css.valid &&
+                        std::any_of(missing_css.diagnostics.begin(), missing_css.diagnostics.end(),
+                                    [&](const auto& issue) {
+                                        return issue.code ==
+                                                   "authoring.lua.external_source_unresolved" &&
+                                               issue.source_path == rcss_path;
+                                    }),
+                    "Missing declared stylesheet source updates its own diagnostic");
+            write(temp.root / rcss_path, original_css);
+            require(project->validate_project().valid, "Recreated RCSS source is admitted");
+            require(project->validation_work().rechecked_records == 0 &&
+                        project->validation_work().global_stage_executions == 1 &&
+                        project->validation_work().localization_rebuilds == 0,
+                    "Recreated RCSS rechecks changed input validity, not unchanged records");
+            std::cout << "Text source stage matrix passed.\n";
+            return 0;
+        }
         if (argc == 3 && std::string_view(argv[1]) == "--cache-writer-probe") {
             std::string error;
             auto session = ProjectSession::open(argv[2], error);

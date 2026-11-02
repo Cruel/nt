@@ -61,7 +61,7 @@ std::optional<std::string> read_exact_file(const fs::path& path)
 // Intentionally NOT the TypeScript authoring-cache semantic identity. Native
 // diagnostic semantics must be independently bumped when validation changes.
 constexpr std::string_view kContract = "noveltea.native-clean-validation.v1";
-constexpr std::string_view kSemanticKey = "workspace-v1/native-project-validation-597";
+constexpr std::string_view kSemanticKey = "workspace-v1/native-project-validation-598";
 constexpr std::string_view kSemanticFingerprint = NOVELTEA_NATIVE_VALIDATION_FINGERPRINT;
 constexpr std::string_view kRelative = ".noveltea/cache/authoring/native-clean-current.json";
 // Discriminate cached source generations from pre-cutover SHA-256 evidence.
@@ -388,9 +388,13 @@ read_clean_cache(const fs::path& root, const std::map<std::string, std::string>&
                     !valid_diagnostics(entry.value().at("diagnostics")))
                     return std::nullopt;
             }
+            // Older ledgers included text-only diagnostics in this global
+            // contribution. Reusing them after the split could publish stale
+            // source findings; rebuild those ledgers instead.
             if (!global.is_null() &&
-                (!global.is_object() || global.size() != 3 || !global.at("inputValid").is_bool() ||
+                (!global.is_object() || global.size() != 4 || !global.at("inputValid").is_bool() ||
                  !global.at("outputValid").is_bool() ||
+                 global.at("textDiagnosticsSeparate") != true ||
                  !valid_diagnostics(global.at("diagnostics"))))
                 return std::nullopt;
         }
@@ -777,6 +781,7 @@ ProjectSession::CleanValidation ProjectSession::validate_clean_project(bool init
             global = Json::object();
             global["inputValid"] = validation_global_contribution_->input_valid;
             global["outputValid"] = validation_global_contribution_->output_valid;
+            global["textDiagnosticsSeparate"] = true;
             global["diagnostics"] = diagnostics_json(validation_global_contribution_->diagnostics);
         }
         return resident;
@@ -962,8 +967,9 @@ ProjectSession::CleanValidation ProjectSession::validate_clean_project(bool init
             std::optional<GlobalValidationContribution> prepared_global;
             const auto& global = payload.at("global");
             if (!global.is_null()) {
-                if (!global.is_object() || global.size() != 3 ||
-                    !global.at("inputValid").is_bool() || !global.at("outputValid").is_bool())
+                if (!global.is_object() || global.size() != 4 ||
+                    !global.at("inputValid").is_bool() || !global.at("outputValid").is_bool() ||
+                    global.at("textDiagnosticsSeparate") != true)
                     return false;
                 prepared_global = GlobalValidationContribution{
                     global.at("inputValid").as<bool>(), global.at("outputValid").as<bool>(),
