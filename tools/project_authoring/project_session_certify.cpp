@@ -2685,6 +2685,8 @@ void clean_cache_correctness_roundtrip(const std::filesystem::path& fixture)
             "Clean cache rejects same-size, timestamp-restored physical Asset changes");
     write(asset_path, original_asset);
     std::filesystem::last_write_time(asset_path, original_time);
+    require(read(asset_path) == original_asset,
+            "Restored physical Asset bytes match the previously imported cache generation");
     const auto room_path = temp.root / "records/rooms/dependent.yaml";
     const auto original = read(room_path);
     auto invalid = original;
@@ -2702,10 +2704,10 @@ void clean_cache_correctness_roundtrip(const std::filesystem::path& fixture)
     require(has_width_error(first.snapshot), "First invalid disk revision is diagnosed");
     const auto imported_change = imported->validate_clean_project();
     require(has_width_error(imported_change.snapshot) &&
-                imported->validation_work().rechecked_records == 2 &&
+                imported->validation_work().rechecked_records == 1 &&
                 imported->validation_work().retained_records > 0,
-            "Lazy imported contributors recheck the changed Room and the Asset whose physical "
-            "source was replaced, retaining unrelated records");
+            "Restored Asset bytes do not spuriously invalidate an imported record; only the "
+            "changed Room rechecks, while unrelated records remain retained");
     const auto repeated = project->validate_clean_project();
     require(has_width_error(repeated.snapshot) &&
                 project->validation_work().rechecked_records == 0 &&

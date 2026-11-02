@@ -151,7 +151,9 @@ jobs:
       - name: Certify real native Project operations and source transactions
         run: ctest --test-dir build/native-authoring-host --output-on-failure -R '^native_authoring_(contracts|yaml|room_session|room_map|yaml_transaction)$'
       - name: Certify cross-platform source observation and clean-cache proofs
-        run: ctest --test-dir build/native-authoring-host --output-on-failure -R '^native_authoring_(project_session|clean_cache_correctness|cache_writer_processes)$'
+        run: >-
+          ctest --test-dir build/native-authoring-host --output-on-failure
+          -R '^native_authoring_(project_session|typed_reference_invalidation|source_watcher_races|clean_cache_path_alias|clean_cache_recovery|clean_cache_correctness|clean_cache_offline|cache_writer_processes)$'
       - name: Bundle dedicated Project worker
         run: pnpm -C editor exec vp pack
       - name: Certify native worker session / external watcher / revision / recovery
@@ -521,6 +523,12 @@ jobs:
 
       - name: Build NovelTea host CLI
         run: pnpm -C editor run noveltea:build
+
+      - name: Certify Release incremental validation and external stage parity
+        run: |
+          python3 tests/native_cli/incremental_validation_certification.py "$PWD/build/cli/linux/noveltea" "$PWD"
+          python3 tests/native_cli/shader_validation_cache.py "$PWD/build/cli/linux/noveltea" "$PWD/tests/projects/feature-lab"
+          python3 tests/native_cli/portable_validation_cache.py "$PWD/build/cli/linux/noveltea" "$PWD/tests/projects/feature-lab"
 
       - name: Certify exhaustive native CLI public command inventory
         run: node editor/scripts/certify-native-cli-inventory.mjs "$PWD/build/cli/linux/noveltea"
@@ -990,6 +998,21 @@ jobs:
         shell: pwsh
         run: |
           ctest --test-dir build/windows-release --output-on-failure -R '^native_cli_(windows_pe_resources|platform_publication|platform_commands|public_contract|macos_export)$'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Certify native Windows incremental validation, external stages and recovery
+        shell: pwsh
+        run: |
+          ctest --test-dir build/windows-release --output-on-failure -R '^native_cli_(incremental_validation_certification|shader_validation_cache|portable_validation_cache)$'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build Windows editor validation addon for real cache-writer interop
+        run: node editor/scripts/build-native-authoring-addon.mjs --addon-only
+
+      - name: Certify Windows CLI/editor cache-writer handoff
+        shell: pwsh
+        run: |
+          python tests/native_cli/cache_writer_cli_editor.py "${{ github.workspace }}/build/windows-release/tools/editor_tool/native-cli/noveltea.exe" "${{ github.workspace }}/build/native-authoring-host/noveltea-authoring-node.node" "${{ github.workspace }}"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Set up Node.js for native release-template generation

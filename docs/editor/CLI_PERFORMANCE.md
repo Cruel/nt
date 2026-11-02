@@ -115,6 +115,51 @@ scale with diagnostic count, so the 20 ms objective is **not yet met** for
 Feature Lab or 501 Rooms. Platform-specific watcher certification remains
 outstanding.
 
+### #576 final review follow-up (November 2, 2026)
+
+The native clean-cache correctness regression was an obsolete test expectation:
+the test restores the Asset's *original exact bytes* before changing one Room,
+so the imported ledger should recheck one Room, not the restored Asset record.
+The test now verifies that restoration explicitly; it retains the separate
+same-size/restored-mtime Asset corruption rejection test. The Release public
+incremental certification also repeats the formerly intermittent 101-Room
+malformed-ledger restart three times, asserting a complete semantic rebuild,
+ordered diagnostic parity with an independent cache-free CLI, and verified
+daemon termination before each overwrite. This is stronger regression coverage,
+not proof of a specific root cause for the historical intermittent failure.
+
+The Build native-authoring host matrix now runs typed-reference, watcher-race,
+cache alias, offline recovery and cross-process writer checks on Linux, Windows
+and macOS. Public incremental, shader and portable stage certification is now
+required by the Linux/Windows Build CLI jobs and the macOS Release CLI job.
+The Windows Build and macOS Release jobs also build the real Node-API editor
+addon and exercise CLI/editor writer handoff in separate processes, including
+both opening orders and graceful shutdown.
+Those host-specific CI additions are **pending hosted execution**; Linux tests
+cannot establish NTFS USN or macOS FSEvents coverage and fallback correctness.
+
+A fresh matched Release CLI **and** Release Node-API addon 83-sample profile
+on the original Debian Ryzen 7 5700G host is at
+`build/reports/validation-2026-11-02-576-final-fix.json`. The original #577
+reference and its fixtures/profiling protocol are unchanged. Relative to that
+reference, median warm saved Room-label latencies (ms) were:
+
+| Fixture | #577 baseline | Post-#576 review |
+| --- | ---: | ---: |
+| Feature Lab | 323.31 | 23.81 |
+| 1 Room | 13.17 | 5.84 |
+| 101 Rooms | 45.22 | 11.32 |
+| 501 Rooms | 167.99 | 36.85 |
+
+Feature Lab cached-cold restart was **2,930.01 → 497.04 ms**, and unsaved
+in-memory validation was **94.38 → 1.62 ms**. The measured warm-saved figures
+include validation instrumentation and complete public output; the ordinary
+broker's unchanged exact-result shortcut is intentionally bypassed by this
+harness. Feature Lab still misses the provisional 20 ms warm-saved objective
+slightly, and a 501-Room fixture still returns 501 complete diagnostics. The
+sub-500 ms cached-cold target is now met on this reference run, with limited
+margin. These remain engineering measures rather than elapsed-time CI gates.
+
 ### Unchanged exact-hit result path (November 2, 2026)
 
 The normal CLI's unchanged-result fast path is distinct from engineering

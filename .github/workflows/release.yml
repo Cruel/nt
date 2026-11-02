@@ -397,6 +397,19 @@ jobs:
             macOS-arm64-ccache-
       - name: Build NovelTea macOS host CLI
         run: pnpm -C editor run noveltea:build
+      - name: Certify native macOS incremental validation and external stage parity
+        run: |
+          python3 tests/native_cli/incremental_validation_certification.py "$PWD/build/cli/macos/noveltea" "$PWD"
+          python3 tests/native_cli/shader_validation_cache.py "$PWD/build/cli/macos/noveltea" "$PWD/tests/projects/feature-lab"
+          python3 tests/native_cli/portable_validation_cache.py "$PWD/build/cli/macos/noveltea" "$PWD/tests/projects/feature-lab"
+      - name: Build macOS editor validation addon for real cache-writer interop
+        run: node editor/scripts/build-native-authoring-addon.mjs --addon-only
+      - name: Certify macOS CLI/editor cache-writer handoff
+        run: >-
+          python3 tests/native_cli/cache_writer_cli_editor.py
+          "$PWD/build/cli/macos/noveltea"
+          "$PWD/build/native-authoring-host/noveltea-authoring-node.node"
+          "$PWD"
       # The release executable is now the same direct C++ exporter certified
       # at the native CMake target. No second, scripting-backed host is built.
       - name: Audit macOS host CLI deployment target

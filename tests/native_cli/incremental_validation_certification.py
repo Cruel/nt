@@ -371,17 +371,23 @@ with tempfile.TemporaryDirectory(prefix="noveltea-incremental-certify-") as dire
             fresh_parity(project, cached)
 
             # Corrupt optional evidence cannot make validation succeed with a
-            # stale result or change the public diagnostics.
-            stop()
-            ledger = project / ".noveltea/cache/authoring/native-clean-current.json"
-            assert ledger.is_file(), (size, ledger)
-            ledger.write_bytes(b"{truncated")
-            assert ledger.read_bytes() == b"{truncated", (size, "Ledger was republished after stop")
-            recovered = validate(project)
-            assert public(recovered) == public(saved), (size, recovered)
-            assert work(recovered, "recheckedRecords") >= expected_records, (
-                size, "Corrupt disk evidence was incorrectly admitted", recovered["validationWork"])
-            fresh_parity(project, recovered)
+            # stale result or change the public diagnostics. Repeat the 101-Room
+            # restart that previously intermittently admitted zero contributors:
+            # a successful cold rebuild must not depend on the preceding owner
+            # having remained alive or its shutdown having republished a ledger.
+            for recovery_attempt in range(3 if size == 101 else 1):
+                stop()
+                ledger = project / ".noveltea/cache/authoring/native-clean-current.json"
+                assert ledger.is_file(), (size, recovery_attempt, ledger)
+                ledger.write_bytes(b"{truncated")
+                assert ledger.read_bytes() == b"{truncated", (
+                    size, recovery_attempt, "Ledger was republished after stop")
+                recovered = validate(project)
+                assert public(recovered) == public(saved), (size, recovery_attempt, recovered)
+                assert work(recovered, "recheckedRecords") >= expected_records, (
+                    size, recovery_attempt, "Corrupt disk evidence was incorrectly admitted",
+                    recovered["validationWork"])
+                fresh_parity(project, recovered)
 
             # An invalid saved source must carry the same complete diagnostic
             # coordinates as fresh native validation. Cache the deterministic
