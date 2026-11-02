@@ -22,6 +22,7 @@
 #include <chrono>
 #include <thread>
 #include <map>
+#include <memory>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -57,15 +58,18 @@ Json native_call(NativeOperation operation, const Json& request)
 {
     const auto serialized = request.dump();
     // The broker has stateful operations: a size probe would dispatch twice.
-    // Owner polls on an idle cadence; reuse the frame buffer instead of
-    // allocating a multi-megabyte response area on every poll.
-    thread_local std::string response(tooling::daemon::max_frame_bytes, '\0');
+    // Reuse the response capacity across calls, but do not zero-initialize
+    // 16 MiB on every fresh CLI process. The native operation writes exactly
+    // the returned byte count; only that bounded span may be parsed.
+    // A size probe would dispatch this stateful operation a second time.
+    thread_local std::unique_ptr<std::uint8_t[]> response(
+        new std::uint8_t[tooling::daemon::max_frame_bytes]);
     const auto length =
         operation(reinterpret_cast<const std::uint8_t*>(serialized.data()), serialized.size(),
-                  reinterpret_cast<std::uint8_t*>(response.data()), response.size());
-    if (length == 0 || length > response.size())
+                  response.get(), tooling::daemon::max_frame_bytes);
+    if (length == 0 || length > tooling::daemon::max_frame_bytes)
         throw std::runtime_error("Native daemon reply exceeds the protocol frame limit.");
-    return Json::parse(response.begin(), response.begin() + static_cast<std::ptrdiff_t>(length));
+    return Json::parse(response.get(), response.get() + static_cast<std::ptrdiff_t>(length));
 }
 
 Json broker_context()

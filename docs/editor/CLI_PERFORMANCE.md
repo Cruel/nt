@@ -151,6 +151,48 @@ startup and broker/CLI dispatch. The 24.09 ms unchanged time from earlier
 instrumented runs was explicitly a *forced resident path*, not a normal
 exact-result hit.
 
+### Unchanged CLI response buffer (November 2, 2026)
+
+The short-lived native CLI formerly constructed a 16 MiB zero-filled
+`thread_local std::string` response buffer on its first broker call in
+every process. The single-dispatch native broker API already writes the
+response bytes and reports their exact length. The CLI now retains the
+same 16 MiB maximum and thread-local lifetime using an **uninitialized**
+owned byte array, validates the returned length, and parses only the
+returned byte range. A length probe/retry remains prohibited for
+stateful operations.
+
+Direct temporary instrumentation on Release `-O3` measured **2.22 ms**
+to initialize the old buffer and **0.009 ms** for the replacement;
+the matched instrumented unchanged Feature Lab median fell from
+**5.96 to 3.44 ms**. The temporary instrumentation was removed.
+
+Normal unprofiled end-to-end CLI measurements, with captured subprocess
+output and **65/65 confirmed exact-result hits per fixture**, were:
+
+| Fixture | Median unchanged CLI |
+|---|---:|
+| 1 Room, 1 diagnostic | **2.47 ms** |
+| Feature Lab, 2 diagnostics | **3.37 ms** |
+| 101 Rooms, 101 diagnostics | **3.36 ms** |
+| 501 Rooms, 501 diagnostics (~104 KB) | **7.82 ms** |
+| 501 Rooms, 0 diagnostics | **3.68 ms** |
+
+An older Python timing harness used `subprocess.run` with output
+redirected to `DEVNULL` *and* a timeout. The subprocess timeout wait
+polls, inflating some observed durations to approximately 7.4 ms.
+Cross-checking 60 unchanged requests each measured **7.43 ms** with
+DEVNULL+timeout, versus **3.35 ms** with DEVNULL and a blocking wait
+and **3.31 ms** with PIPE+timeout. Future fast-path measurements must
+use the latter two equivalent subprocess timing methods, not the
+polling-induced overhead.
+
+The 3–4 ms goal is met for unchanged Projects without large diagnostic
+output. Returning 501 existing diagnostics necessarily retains an
+output-size-dependent cost under the current public CLI contract.
+Background save-to-diagnostics latency and changed-record latency
+have not been redefined by this change.
+
 ### #583: watcher-fenced broker authority (November 1, 2026)
 
 **Cross-platform follow-up (implementation pending host CI):** Both the broker and native
