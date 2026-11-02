@@ -41,6 +41,10 @@ with tempfile.TemporaryDirectory(prefix="noveltea-incremental-certify-") as dire
 
     def stop():
         assert invoke("daemon", "stop")["success"]
+        # A cache-corruption test must not accidentally exercise a still-live
+        # resident owner (or race its final clean-ledger publication).
+        status = invoke("daemon", "status")["daemon"]
+        assert not status["running"], ("Daemon survived stop", status)
 
     def validate(project, direct=False):
         return invoke(*(["--no-daemon"] if direct else []), "--project", project, "validate")
@@ -134,6 +138,46 @@ with tempfile.TemporaryDirectory(prefix="noveltea-incremental-certify-") as dire
                     "completeProjectSerializationMicros", "completeProjectBytesSerialized"):
             assert end[key] == 0, (key, end)
 
+    def warm_stage_proofs(result):
+        """Reused semantic stages must also avoid physical proof/rebuild work."""
+        counters = result["validationWork"]
+        physical = counters["endToEnd"]
+        for key in ("fontPreparations", "materialShaderPreparations",
+                    "portableSourceChecks", "fullResultAssemblies",
+                    "completeProjectPreparations", "completeProjectPhysicalProjections",
+                    "completeProjectBytesSerialized", "stageLedgerSerializations",
+                    "stageLedgerBytesSerialized", "stageLedgerConstructionMicros",
+                    "stageLedgerJsonSerializationMicros"):
+            assert physical[key] == 0, (key, physical)
+        for key in ("fontCoverageRuns", "shaderCompileRuns"):
+            assert work(result, key) == 0, (key, counters)
+        for key in ("fontInputReuses", "materialInputReuses", "portableSourceReuses",
+                    "noticeValidationReuses"):
+            assert work(result, key) == 1, (key, counters)
+        if sys.platform.startswith("linux") and "shaderStageReuses" in counters:
+            # Watched source generations permit reuse with zero physical
+            # cache proofs, not merely zero shader/coverage semantic runs.
+            assert work(result, "shaderStageReuses") == 1, counters
+        if work(result, "shaderStageReuses"):
+            for key in ("shaderOutputProofs", "shaderValidationCalls",
+                        "materialInterfaceValidations"):
+                assert work(result, key) == 0, (key, counters)
+            assert physical["shaderValidationMicros"] == 0, physical
+            for key in ("shaderProofReads", "shaderProofHashes", "shaderBytesRead",
+                        "shaderBytesHashed"):
+                assert physical[key] == 0, (key, physical)
+        elif "shaderStageReuses" not in counters:
+            # A minimal Room-only fixture has no shader stage to reuse.
+            assert physical["shaderProofReads"] == physical["shaderProofHashes"] == 0
+        if sys.platform.startswith("linux"):
+            for key in ("fontProofReads", "fontProofHashes", "fontBytesRead",
+                        "fontBytesHashed"):
+                assert physical[key] == 0, (key, physical)
+        # Generation Asset digests intentionally remain a separate physical
+        # source-integrity proof; they cannot be eliminated by stage reuse.
+        assert physical["generationAssetProofReads"] == physical["generationAssetProofHashes"], physical
+        assert physical["generationAssetBytesRead"] == physical["generationAssetBytesHashed"], physical
+
     def set_label(path, value):
         source = path.read_text()
         assert re.search(r"^label: .*$", source, flags=re.M), path
@@ -179,6 +223,7 @@ with tempfile.TemporaryDirectory(prefix="noveltea-incremental-certify-") as dire
                 unchanged = validate(project)
                 assert public(unchanged) == public(initial), size
                 no_stages(unchanged)
+                warm_stage_proofs(unchanged)
 
             for index in range(2):
                 set_label(room, f"Certification label {index}")
@@ -190,6 +235,7 @@ with tempfile.TemporaryDirectory(prefix="noveltea-incremental-certify-") as dire
                 for stage in ("fontPreparations", "materialShaderPreparations",
                               "localizationChecks"):
                     assert saved["validationWork"]["endToEnd"][stage] == 0, (size, stage)
+                warm_stage_proofs(saved)
                 # Linux's pinned Project and system-font watchers prove this
                 # stage without rereading unchanged font bytes. Other hosts
                 # deliberately retain conservative full-byte verification.
@@ -239,7 +285,9 @@ with tempfile.TemporaryDirectory(prefix="noveltea-incremental-certify-") as dire
                     assert broker["statReadlinkCalls"] <= 12, (size, broker)
                     assert saved["validationWork"]["endToEnd"]["portableSourceChecks"] == 0
                     assert saved["validationWork"]["endToEnd"]["directoryEnumerations"] == 0
-                no_stages(validate(project))
+                unchanged = validate(project)
+                no_stages(unchanged)
+                warm_stage_proofs(unchanged)
             fresh_parity(project, saved)
 
             if size == 1 and sys.platform.startswith("linux"):
@@ -307,9 +355,11 @@ with tempfile.TemporaryDirectory(prefix="noveltea-incremental-certify-") as dire
             ledger = project / ".noveltea/cache/authoring/native-clean-current.json"
             assert ledger.is_file(), (size, ledger)
             ledger.write_bytes(b"{truncated")
+            assert ledger.read_bytes() == b"{truncated", (size, "Ledger was republished after stop")
             recovered = validate(project)
             assert public(recovered) == public(saved), (size, recovered)
-            assert work(recovered, "recheckedRecords") > 0, (size, recovered["validationWork"])
+            assert work(recovered, "recheckedRecords") >= expected_records, (
+                size, "Corrupt disk evidence was incorrectly admitted", recovered["validationWork"])
             fresh_parity(project, recovered)
 
             # An invalid saved source must carry the same complete diagnostic

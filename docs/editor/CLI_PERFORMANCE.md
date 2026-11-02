@@ -199,6 +199,91 @@ Release `cxx-dependency-policy` target could not complete on this host because
 its runtime link graph lacks the configured NovelTea policy triplet; this is
 not a validator test failure.
 
+### #594 reopened: physical work, post-optimization certification, and remaining gates
+
+The original #594 measurements above describe the **initial** certification,
+before the reopened #583/#586/#587/#588/#589/#591/#593 changes. Do not cite its
+207.89 ms Feature Lab saved-file median as the latest result. The
+[post-reopening #594 Release profile](performance/baselines/validation-2026-11-01-594-reopened.json)
+reruns the same #577 workload on the same Ryzen 7 5700G reference host, with
+Release CLI and Release Node-API addon, profiling enabled and three samples
+per scenario. It includes the external-stage source-revision fix below and
+supersedes the [intermediate post-#589 profile](performance/baselines/validation-2026-11-01-589-recheck.json).
+The profile records build identity, host and the dirty working tree under test;
+it is a **cumulative** comparison, not an isolated #594 speedup:
+
+| Scenario, median ms | Feature Lab (#577 → post-#594) | 1 Room | 101 Rooms | 501 Rooms |
+| --- | ---: | ---: | ---: | ---: |
+| Editor in-memory edit | 94.38 → 1.75 | 1.23 → 0.18 | 7.53 → 0.83 | 34.08 → 4.09 |
+| Warm saved label | 323.31 → 110.81 | 13.17 → 9.41 | 45.22 → 22.91 | 167.99 → 63.95 |
+| Unchanged warm daemon | 328.37 → 107.94 | 13.05 → 8.55 | 38.86 → 21.25 | 152.07 → 60.86 |
+| Cached cold daemon | 2,930.01 → 538.13 | 104.34 → 97.70 | 197.95 → 124.56 | 587.69 → 237.45 |
+| Cached direct `--no-daemon` | 2,631.72 → 638.07 | 82.60 → 80.94 | 168.62 → 106.11 | 626.95 → 231.40 |
+
+**Physical counters matter more than semantic cache hits.** The post-#594
+Feature Lab saved-label median reports one rechecked Record and zero font
+coverage executions, shader compilations, portable checks, shader output proofs,
+font proof reads, and shader proof reads. Nevertheless the physical validation
+still performs **102 file-byte reads, 17.84 MB read**, including **25 generation
+Asset proof reads (8.90 MB)**, and approximately **17.14 ms** inside the
+font-coverage wrapper (including its input/cache reuse path). Unchanged warm
+validation still reads **17.84 MB** across **100 byte-read sites**, with zero
+semantic rechecks. That is not zero end-to-end work. The original #594 test's
+zero-stage assertions alone were insufficient to establish the avoided-proof
+claim; `incremental_validation_certification.py` now also checks the physical
+font/shader proof reads, hashes and bytes on Linux, conditional shader-stage
+presence and cross-platform conservative fallback, retained input reuse,
+Project/ledger assembly avoidance and generation Asset proof accounting. The
+separate `shader_validation_cache.py` and `portable_validation_cache.py`
+certifications cover changes to shader inputs and portable external evidence.
+
+The reopened portable certification also exposed a stale notice-stage hit for
+an external notice rewritten with the **same byte count and restored mtime**.
+The resident maintenance loop could consume the watcher change before public
+validation, so a per-request event list was not sufficient to invalidate the
+older external-stage proof. Retained portable and distribution-notice stages
+now capture the source authority's physical revision for each verified external
+path and compare it against the current certified generation before reuse.
+Missing, changed or uncertain evidence forces a conservative stage recheck;
+this does not add redundant byte reads for an unchanged watched generation.
+The public portable regression tests valid-to-valid, valid-to-invalid, and
+invalid-to-repaired notice writes with restored metadata and confirms fresh
+direct-CLI diagnostic parity. The persisted ledger format is unchanged; its
+existing exact admission proof remains mandatory.
+
+The public certification compares **complete ordered** CLI diagnostic objects,
+statuses and exit codes to a fresh, cache-free, direct CLI on every Project
+size. It exercises unsaved/editor checks via the independent Release harness,
+warm changed/unchanged, cold cached admission, invalid YAML and repair,
+negative lookup, moved/deleted sources, escaped symlinks, font mutation with
+restored timestamps, deterministic portable export bytes and malformed cache
+recovery. On ledger corruption the harness now verifies daemon termination and
+on-disk malformed bytes **before** the next admission, then requires all
+semantic contributors to be freshly rechecked. This strengthens observability
+around the once-reported intermittent 101-Room recovery result; it does not
+establish that an unreplicated race has been eliminated.
+
+**Remaining sign-off gaps:** 110.81 ms saved-file and 538.13 ms cached-cold
+Feature Lab still miss the provisional ≤20 ms and under-500 ms objectives;
+101/501-Room saved-file medians also miss ≤20 ms. The retained source-generation
+Asset proofs, font-coverage reuse overhead and public CLI/native request
+boundary remain measurable bottlenecks. Release profiles are **not** the
+unprofiled broker shortcut: measure that separately when asserting ordinary
+interactive latency. Linux certification cannot replace native Windows/macOS
+watcher, filesystem-race, writer-handoff, shader/font fallback and editor/CLI
+interop checks. Parent #576 must remain unsigned until these gaps and the
+remaining open dependency tickets are verified; no wall-time CI threshold is
+appropriate.
+
+For a post-fix matched measurement, rerun the existing Release CLI **and**
+Release addon builds (with `NOVELTEA_ENABLE_VALIDATION_COUNTERS=ON`) on the
+reference host, then use the `validation_performance.py` command above with
+`--issue 594` and a **new** dated output file. Do not overwrite the fixed #577
+baseline or compare numbers from different machines/build modes. Run
+`incremental_validation_certification.py`, `shader_validation_cache.py`,
+`portable_validation_cache.py`, `cache_writer_cli_editor.py` and the native
+host CTest suite separately to preserve independent correctness evidence.
+
 ### #593: cross-process clean-ledger writer and quiet publication
 
 Native Project sessions now attempt a nonblocking exclusive OS lock at

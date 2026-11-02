@@ -278,7 +278,23 @@ with TemporaryDirectory(prefix="noveltea-portable-validation-") as temporary:
     os.utime(notice, ns=(previous.st_atime_ns, previous.st_mtime_ns))
     same_metadata = validate()
     assert same_metadata["diagnostics"] == diagnostics
-    assert work(same_metadata, "noticeValidationRuns") == 1
+    assert work(same_metadata, "noticeValidationRuns") == 1, same_metadata["validationWork"]
+    assert work(validate(), "noticeValidationReuses") == 1
+
+    # The same restored-metadata write must revoke a previously valid stage
+    # even when resident maintenance observed it before public validation.
+    last_valid = notice.read_bytes()
+    before_invalid = notice.stat()
+    notice.write_bytes(last_valid.replace(b"!", b"\x01"))
+    os.utime(notice, ns=(before_invalid.st_atime_ns, before_invalid.st_mtime_ns))
+    invalid_same_metadata = validate(False)
+    assert work(invalid_same_metadata, "noticeValidationRuns") == 1, invalid_same_metadata["validationWork"]
+    assert_public_parity(invalid_same_metadata, validate(False, direct=True))
+    notice.write_bytes(last_valid)
+    os.utime(notice, ns=(before_invalid.st_atime_ns, before_invalid.st_mtime_ns))
+    restored_notice = validate()
+    assert restored_notice["diagnostics"] == diagnostics
+    assert work(restored_notice, "noticeValidationRuns") == 1, restored_notice["validationWork"]
     assert work(validate(), "noticeValidationReuses") == 1
 
     # A missing notice is not a deterministic clean result. No retry may

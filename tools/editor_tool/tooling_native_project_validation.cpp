@@ -48,6 +48,19 @@ struct OwnerValidation {
     struct ExternalCheck {
         Json inputs;
         std::set<std::string> watched_paths;
+        std::map<std::string, std::string> source_revisions;
+
+        bool matches(const std::map<std::string, std::string>* current) const
+        {
+            if (!current)
+                return false;
+            for (const auto& [path, revision] : source_revisions) {
+                const auto found = current->find(path);
+                if (found == current->end() || found->second != revision)
+                    return false;
+            }
+            return true;
+        }
     };
     std::mutex mutex;
     std::filesystem::path root;
@@ -96,6 +109,16 @@ struct OwnerValidation {
             shader_cache.discard_certified_stage();
     }
 };
+
+OwnerValidation::ExternalCheck capture_external_check(
+    Json inputs, std::set<std::string> watched,
+    const std::map<std::string, std::string>& revisions)
+{
+    OwnerValidation::ExternalCheck check{std::move(inputs), std::move(watched), {}};
+    for (const auto& path : check.watched_paths)
+        check.source_revisions.emplace(path, revisions.at(path));
+    return check;
+}
 
 Json stage_ledger(const OwnerValidation& state)
 {
@@ -173,9 +196,11 @@ bool restore_stages(OwnerValidation& state, std::string_view serialized, Json& r
         // observation and remain fenced, with a full exact-scan fallback when
         // the host monitor is unavailable. Font and shader byte proofs are
         // checked by their own stages below.
-        if (!state.session->verified_source_revisions_view() || !state.portable_check ||
+        const auto* current = state.session->verified_source_revisions_view();
+        if (!current || !state.portable_check ||
             !state.notice_check || !state.font_inputs || !state.material_records ||
-            !state.material_assets)
+            !state.material_assets || !state.portable_check->matches(current) ||
+            !state.notice_check->matches(current))
             return false;
         result["fontCoverageInputs"] = *state.font_inputs;
         result["materialCompilerPrograms"] = state.material_programs;
@@ -206,7 +231,7 @@ bool restore_stages(OwnerValidation& state, std::string_view serialized, Json& r
                 for (const auto& path : paths)
                     if (!revisions->contains(path))
                         throw std::runtime_error("Unproven external ledger source.");
-                return {value.at("inputs"), std::move(paths)};
+                return capture_external_check(value.at("inputs"), std::move(paths), *revisions);
             };
             const auto portable = check(ledger.at("portable"));
             const auto notices = check(ledger.at("notices"));
@@ -866,6 +891,14 @@ Json validate(std::string_view request_text)
             };
             revoke(state.portable_check);
             revoke(state.notice_check);
+            // Resident cache maintenance can consume a watcher event before
+            // the next public request. A retained stage must compare the
+            // certified revision snapshot, not only this call's event list.
+            const auto* current = state.session->verified_source_revisions_view();
+            if (state.portable_check && !state.portable_check->matches(current))
+                state.portable_check.reset();
+            if (state.notice_check && !state.notice_check->matches(current))
+                state.notice_check.reset();
         }
     }
     const bool warm = state.session != nullptr;
@@ -988,6 +1021,8 @@ Json validate(std::string_view request_text)
                 return portable_inputs(admitted);
             }();
             const bool portable_reuse = state.portable_check &&
+                                        state.portable_check->matches(
+                                            state.session->verified_source_revisions_view()) &&
                                         state.portable_check->inputs == portable_key;
             result["work"]["portableSourceReuses"] = portable_reuse ? 1 : 0;
             if (!portable_reuse) {
@@ -1011,7 +1046,8 @@ Json validate(std::string_view request_text)
                 // hosts without a reliable watcher fully scan before reuse.
                 if (const auto watched =
                         observed_external_paths(portable.at("sourcePaths"), *state.session))
-                    state.portable_check = OwnerValidation::ExternalCheck{portable_key, *watched};
+                    state.portable_check = capture_external_check(
+                        portable_key, *watched, *state.session->verified_source_revisions_view());
             }
             const auto notice_key = [&] {
                 noveltea::authoring::ScopedValidationStageTime<
@@ -1019,6 +1055,8 @@ Json validate(std::string_view request_text)
                 return notice_inputs(admitted);
             }();
             const bool notice_reuse = state.notice_check &&
+                                      state.notice_check->matches(
+                                          state.session->verified_source_revisions_view()) &&
                                       state.notice_check->inputs == notice_key;
             result["work"]["noticeValidationReuses"] = notice_reuse ? 1 : 0;
             if (!notice_reuse) {
@@ -1039,7 +1077,8 @@ Json validate(std::string_view request_text)
                         for (const auto& notice : entries)
                             paths.push_back(notice.at("path"));
                     if (const auto watched = observed_external_paths(paths, *state.session))
-                        state.notice_check = OwnerValidation::ExternalCheck{notice_key, *watched};
+                        state.notice_check = capture_external_check(
+                            notice_key, *watched, *state.session->verified_source_revisions_view());
                 }
             } else {
                 result["work"]["noticeValidationRuns"] = 0;
