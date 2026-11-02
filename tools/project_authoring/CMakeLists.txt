@@ -322,6 +322,8 @@ if(BUILD_TESTING)
         --project-validation "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
     add_test(NAME native_authoring_typed_reference_invalidation COMMAND noveltea-project-session-certify
         --typed-reference-invalidation "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
+    add_test(NAME native_authoring_dependency_mutation_graph COMMAND noveltea-project-session-certify
+        --dependency-mutation-graph)
     add_test(NAME native_authoring_source_watcher_races COMMAND noveltea-project-session-certify
         --source-watcher-races "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
     add_test(NAME native_authoring_clean_cache_path_alias COMMAND noveltea-project-session-certify

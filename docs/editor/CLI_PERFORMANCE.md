@@ -1,5 +1,46 @@
 # Native CLI validation performance investigation
 
+## #595: dependency mutation work-contract certification (November 2, 2026)
+
+The new `native_cli_dependency_mutation_certification` CTest exercises the
+**running public daemon**, not only `ProjectSession`: Room add/delete/
+restore/rename/duplicate, missing and restored exit targets, shared consumers,
+dependency chains, cycles and simultaneous edits on 2/101/501-Room Projects;
+Feature Lab Lua/RML/RCSS/shader edits and repairs, binary Asset mutation,
+and Project/trait/localization/Material edits. It compares complete ordered
+public diagnostics (including severity and source location) against a
+separate cache-free `--no-daemon` Project copy on each step.
+
+Profiling now also reports `recheckedRecordOwners`,
+`recheckedContributionOwners`, `invalidatedOwners`, and
+`coldValidationFallback`. The cold invalid-admission fallback explicitly
+reports its status and reason, rather than reporting zero record work as
+evidence of incrementality. The suite asserts affected identities, resident
+session admissions, source reads/YAML parses and stage execution counts;
+clock timings are **not** CI assertions.
+
+`native_authoring_dependency_mutation_graph` additionally tests Room-exit
+identity edges with shared consumers and a cycle. Existing
+`native_cli_shader_validation_cache` independently covers recursive shader
+includes, negative-cache repair, compiler output integrity and Material input
+changes; existing source/watcher and clean-cache tests retain authority and
+recovery coverage. Feature Lab remains an unmodified input fixture: all
+mutation tests work on disposable copies.
+
+To run in a test-enabled build:
+
+```sh
+ctest --test-dir build/linux-debug --output-on-failure \
+  -R '^(native_authoring_(typed_reference_invalidation|dependency_mutation_graph)|native_cli_dependency_mutation_certification)$'
+```
+
+The new tests are intentionally a **red incremental-work contract** against
+the current implementation. They must not be weakened to pass while broad
+fallbacks remain: #596 repairs resident record membership changes; #597
+narrows spatial stages; #598 limits text-source invalidation; #599 reduces
+duplicate physical proofs. #594 should use these tests as sign-off blockers
+alongside independent diagnostic parity and cross-platform certification.
+
 ## Scope and status
 
 Active optimization follow-up for daemon-backed `noveltea validate`. The first implementation

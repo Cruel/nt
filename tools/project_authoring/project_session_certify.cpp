@@ -1710,6 +1710,35 @@ void source_watcher_races(const std::filesystem::path& fixture)
 #endif
 }
 
+void dependency_mutation_graph_certification()
+{
+    // Graph acceptance for a cycle and a shared target is independent of
+    // whether that target happens to exist on disk. Preserve old and new
+    // identity edges so the live validator can invalidate only consumers.
+    const auto exit_edges = [](std::string_view owner, std::string_view target) {
+        return semantic_graph_record_dependencies(
+            owner, "{\"label\":\"destination\",\"data\":{\"exits\":[{\"target\":{\"$ref\":{"
+                   "\"collection\":\"rooms\",\"id\":\"" +
+                       std::string(target) + "\"}}}]}}");
+    };
+    const auto assert_exit_edge = [&](std::string_view owner, std::string_view target) {
+        const auto edges = exit_edges(owner, target);
+        require(edges.size() == 1 && edges[0].target_owner == "rooms/" + std::string(target) &&
+                    edges[0].target_impact_paths ==
+                        std::vector<std::string>{"/rooms/" + std::string(target) + "/@identity"},
+                "Room exit references consume target identity, not its label: " +
+                    std::string(owner) + " -> " + std::string(target));
+    };
+    assert_exit_edge("rooms/entry", "rooms-target");
+    assert_exit_edge("rooms/shared-consumer", "rooms-target");
+    assert_exit_edge("rooms/rooms-target", "next");
+    assert_exit_edge("rooms/next", "entry");
+    const auto no_spurious_edge = semantic_graph_record_dependencies(
+        "rooms/unrelated", R"({"label":"rooms-target","data":{}})");
+    require(no_spurious_edge.empty(),
+            "A Room label equal to a target ID is never a graph dependency");
+}
+
 void typed_reference_invalidation_roundtrip(const std::filesystem::path& fixture)
 {
     const auto typed = semantic_graph_record_dependencies(
@@ -3129,6 +3158,10 @@ int main(int argc, char** argv)
         }
         if (argc == 3 && std::string_view(argv[1]) == "--typed-reference-invalidation") {
             typed_reference_invalidation_roundtrip(argv[2]);
+            return 0;
+        }
+        if (argc == 2 && std::string_view(argv[1]) == "--dependency-mutation-graph") {
+            dependency_mutation_graph_certification();
             return 0;
         }
         if (argc == 3 && std::string_view(argv[1]) == "--source-watcher-races") {

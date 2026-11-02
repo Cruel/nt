@@ -513,6 +513,11 @@ if(BUILD_TESTING)
             "${CMAKE_SOURCE_DIR}/tests/native_cli/incremental_validation_certification.py"
             "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}")
     set_tests_properties(native_cli_incremental_validation_certification PROPERTIES TIMEOUT 900)
+    add_test(NAME native_cli_dependency_mutation_certification
+        COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_SOURCE_DIR}/tests/native_cli/dependency_mutation_certification.py"
+            "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}")
+    set_tests_properties(native_cli_dependency_mutation_certification PROPERTIES TIMEOUT 900)
     add_test(NAME native_compiled_project_parity
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli/compiled_project_parity.py"
             "$<TARGET_FILE:noveltea-runtime-cache-publish-certify>" "${CMAKE_SOURCE_DIR}")

@@ -810,7 +810,11 @@ Json response_for(const noveltea::authoring::RoomSessionSnapshot& snapshot, bool
               {"globalStageReuses", work.global_stage_reuses},
               {"diagnosticAssemblies", work.diagnostic_assemblies},
               {"sourceLocationRebuilds", work.source_location_rebuilds},
-              {"semanticFallbackReasons", work.semantic_fallback_reasons}}}};
+              {"semanticFallbackReasons", work.semantic_fallback_reasons},
+              {"coldValidationFallback", false},
+              {"recheckedRecordOwners", work.rechecked_record_owners},
+              {"recheckedContributionOwners", work.rechecked_contribution_owners},
+              {"invalidatedOwners", work.invalidated_owners}}}};
     if (!cli_only)
         result["diagnostics"] = std::move(diagnostics);
     return result;
@@ -1010,6 +1014,9 @@ Json validate(std::string_view request_text)
         if (!cold)
             return {{"ok", false}, {"error", error}};
         auto result = response_for(*cold, false, {}, request.value("compactValidationResponse", false));
+        result["work"]["coldValidationFallback"] = true;
+        result["work"]["semanticFallbackReasons"] = Json::array({"cold-invalid-project-admission"});
+        result["work"]["sessionAdmissions"] = state.session_admissions;
 #if NOVELTEA_ENABLE_VALIDATION_COUNTERS
         noveltea::authoring::count_validation_work<
             noveltea::authoring::WorkCounter::ValidationResponseSerializations>();

@@ -248,6 +248,12 @@ public:
         // Profile-only explanations for conservative semantic work; these do
         // not change validation diagnostics or source authority.
         std::set<std::string> semantic_fallback_reasons;
+        // Canonical record owners actually parsed / semantically rechecked.
+        // An empty list with a new session admission must not be mistaken for
+        // proof of incremental reuse by the public certification.
+        std::set<std::string> rechecked_record_owners;
+        std::set<std::string> rechecked_contribution_owners;
+        std::set<std::string> invalidated_owners;
     };
     ValidationWork validation_work() const { return validation_work_; }
     // An internal consumer of the same serialized certification request may

@@ -1694,6 +1694,9 @@ RoomSessionSnapshot ProjectSession::validate_project(bool observed_at_entry,
         }
         changed = true;
         ++validation_work_.rechecked_records;
+#if NOVELTEA_ENABLE_VALIDATION_COUNTERS
+        validation_work_.rechecked_record_owners.insert(owner);
+#endif
         validation_invalidated_owners_.insert(owner);
         const auto previous_record = validation_records_.find(owner);
         // An offline ledger restores the previous normalized identity without
@@ -2007,6 +2010,9 @@ RoomSessionSnapshot ProjectSession::validate_project(bool observed_at_entry,
         validation_contributions_.clear();
         validation_global_contribution_.reset();
     }
+#if NOVELTEA_ENABLE_VALIDATION_COUNTERS
+    validation_work_.invalidated_owners = validation_invalidated_owners_;
+#endif
     for (auto it = validation_contributions_.begin(); it != validation_contributions_.end();) {
         if (!validation_records_.contains(it->first))
             it = validation_contributions_.erase(it);
@@ -2364,8 +2370,12 @@ RoomSessionSnapshot ProjectSession::snapshot() const
                 continue;
             }
         }
-        if (validation_view_active_)
+        if (validation_view_active_) {
             ++validation_work_.rechecked_contributions;
+#if NOVELTEA_ENABLE_VALIDATION_COUNTERS
+            validation_work_.rechecked_contribution_owners.insert(owner);
+#endif
+        }
         const auto owner_diagnostic_start = state.diagnostics.size();
         const bool preceding_valid = state.valid;
         state.valid = true;
