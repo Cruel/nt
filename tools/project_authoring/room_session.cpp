@@ -2178,13 +2178,21 @@ RoomSessionSnapshot ProjectSession::validate_project(bool observed_at_entry,
         if (location == validation_source_locations_.end() ||
             location->second.revision != record->second->disk_revision_) {
             ++validation_work_.source_location_rebuilds;
-            location =
-                validation_source_locations_
-                    .insert_or_assign(owner,
-                                      SourceLocationContribution{
-                                          record->second->disk_revision_,
-                                          open_yaml_source(record->second->disk_source_).locations})
-                    .first;
+            // The source authority already parsed this exact physical YAML
+            // generation, including locations. Do not parse the Room again
+            // merely to attach a retained diagnostic's line and column.
+            auto locations = [&] {
+                const auto* verified = source_authority_->verified_source(source_path);
+                if (verified && verified->revision == record->second->disk_revision_ &&
+                    verified->yaml)
+                    return verified->yaml->locations;
+                return open_yaml_source(record->second->disk_source_).locations;
+            }();
+            location = validation_source_locations_
+                           .insert_or_assign(
+                               owner, SourceLocationContribution{record->second->disk_revision_,
+                                                                 std::move(locations)})
+                           .first;
         }
         std::string pointer = issue.path.substr(owner.size() + 1);
         for (;;) {
@@ -3480,6 +3488,9 @@ SourceObservation ProjectSession::observe_sources()
     // next clean-validation request. Keep that revocation pending even if the
     // full rescan re-established physical authority without a byte delta.
     if (observed.full_rescan) {
+        // An uncertain watcher interval invalidates *all* retained physical
+        // byte proofs, even if an Asset's size and mtime appear unchanged.
+        exact_asset_proofs_.clear();
         // This is a Project-session-wide invalidation, not just a flag for the
         // cache-import path. Already-warm sessions must revoke their resident
         // contributors before they can claim to have revalidated this source.
@@ -3538,10 +3549,12 @@ SourceObservation ProjectSession::observe_sources()
             observed_revision == observed.delta_revisions.end())
             return false;
         try {
-            const auto bytes = read_bytes(root_ / path);
-            if (exact_source_revision(bytes) != observed_revision->second)
+            const auto* verified = source_authority_->verified_source(path);
+            if (!verified || verified->revision != observed_revision->second)
                 return false;
-            const auto parsed = open_yaml_source(bytes);
+            if (!verified->yaml)
+                return false;
+            const auto& parsed = *verified->yaml;
             if (!parsed.accepted)
                 return false;
             auto before = Json::parse(previous->second->snapshot().source_json);
@@ -5667,7 +5680,7 @@ RoomSessionSnapshot RoomSession::snapshot() const
             const auto path = path_.parent_path() / (std::string("layout.") + channel);
             if (!companions.contains(channel) && std::filesystem::exists(path) &&
                 std::filesystem::is_regular_file(path))
-                companions.emplace(channel, read_bytes(path));
+                companions.emplace(channel, admitted_bytes(path));
         }
     }
     // Asset-local diagnostics inspect physical membership, not media bytes.
@@ -5865,7 +5878,7 @@ RoomSession::validate_source(std::string_view source_json,
             const auto path = path_.parent_path() / (std::string("layout.") + channel);
             if (!companions.contains(channel) && std::filesystem::exists(path) &&
                 std::filesystem::is_regular_file(path))
-                companions.emplace(channel, read_bytes(path));
+                companions.emplace(channel, admitted_bytes(path));
         }
         return validate_layout_source(source_json, companions);
     }

@@ -173,10 +173,16 @@ with tempfile.TemporaryDirectory(prefix="noveltea-incremental-certify-") as dire
             for key in ("fontProofReads", "fontProofHashes", "fontBytesRead",
                         "fontBytesHashed"):
                 assert physical[key] == 0, (key, physical)
-        # Generation Asset digests intentionally remain a separate physical
-        # source-integrity proof; they cannot be eliminated by stage reuse.
-        assert physical["generationAssetProofReads"] == physical["generationAssetProofHashes"], physical
-        assert physical["generationAssetBytesRead"] == physical["generationAssetBytesHashed"], physical
+        # A healthy resident source generation must not reread unchanged
+        # binary Assets merely to validate a Room presentation-only edit.
+        # Transaction CAS, uncertain watcher recovery and cold admission
+        # retain their independently stricter integrity contracts.
+        if sys.platform.startswith("linux"):
+            assert physical["generationAssetProofReads"] == 0, physical
+            assert physical["generationAssetBytesRead"] == 0, physical
+            assert physical["fileByteReads"] <= 1, physical
+            assert physical["parsedYaml"] <= 1, physical
+            assert physical["fontCoverageMicros"] == 0, physical
 
     def set_label(path, value):
         source = path.read_text()
@@ -231,6 +237,10 @@ with tempfile.TemporaryDirectory(prefix="noveltea-incremental-certify-") as dire
                 assert saved["success"], (size, saved)
                 assert work(saved, "recheckedRecords") == 1, (size, saved["validationWork"])
                 assert work(saved, "recheckedContributions") == 1, (size, saved["validationWork"])
+                if sys.platform.startswith("linux"):
+                    physical = saved["validationWork"]["endToEnd"]
+                    assert physical["fileByteReads"] == 1, (size, physical)
+                    assert physical["parsedYaml"] == 1, (size, physical)
                 assert public(saved) == public(initial), (size, public(saved))
                 for stage in ("fontPreparations", "materialShaderPreparations",
                               "localizationChecks"):
@@ -312,13 +322,15 @@ with tempfile.TemporaryDirectory(prefix="noveltea-incremental-certify-") as dire
                 assert public(repaired_shortcut) == public(saved), repaired_shortcut
 
             if size == "feature-lab" and sys.platform.startswith("linux"):
-                # A restored-mtime font mutation is still a watched physical
-                # generation change, even though unrelated Room edits should
-                # no longer hash these bytes. Recover the prior diagnostics.
+                # An external hard link bypasses Project directory watches.
+                # Inode-level fencing must still revoke a restored-mtime font
+                # mutation without checking its bytes on unrelated Room edits.
                 font = project / "assets/fonts/DejaVuSans.ttf"
+                external_alias = root / "external-font-hardlink.ttf"
+                os.link(font, external_alias)
                 original_font = font.read_bytes()
                 timestamp = font.stat().st_mtime_ns
-                with font.open("r+b") as stream:
+                with external_alias.open("r+b") as stream:
                     stream.seek(128)
                     byte = stream.read(1)
                     assert byte
@@ -328,11 +340,15 @@ with tempfile.TemporaryDirectory(prefix="noveltea-incremental-certify-") as dire
                 changed_font = validate_after_membership_change(project)
                 assert changed_font["validationWork"]["endToEnd"]["fontProofReads"] > 0, changed_font
                 fresh_parity(project, changed_font)
-                font.write_bytes(original_font)
+                external_alias.write_bytes(original_font)
                 os.utime(font, ns=(timestamp, timestamp))
                 restored_font = validate_after_membership_change(project)
                 assert public(restored_font) == public(saved), (saved, restored_font)
                 fresh_parity(project, restored_font)
+                # Leave the alias until the fixture is torn down. Unlinking it
+                # would emit a *new* inode metadata event after certification,
+                # so shutdown must conservatively defer publication rather
+                # than claim the just-tested generation stayed unchanged.
 
             # A persisted ledger is exercised by a genuinely restarted owner,
             # not an unchanged request to the still-live daemon.
@@ -343,6 +359,11 @@ with tempfile.TemporaryDirectory(prefix="noveltea-incremental-certify-") as dire
             assert set(published["stages"]) == {
                 "projection", "portable", "notices", "materials", "assets", "fonts", "shaders"
             }, (size, published["stages"].keys())
+            # A deferred writer must publish the latest changed Room source,
+            # not preserve the pre-edit contributor bundle from a cache hit.
+            expected_owner = "rooms/" + room.stem
+            assert (published["resident"]["contributions"][expected_owner]["record"]["bytes"] ==
+                    room.read_text()), (size, "Stale cached Room after shutdown")
             cached = validate(project)
             assert public(cached) == public(saved), size
             assert work(cached, "recheckedRecords") == 0, (size, cached["validationWork"])

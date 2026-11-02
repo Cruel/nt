@@ -68,10 +68,14 @@ struct OwnerValidation {
     // Only the most recent valid public validation may be finalized. This
     // generation belongs to the resident session and is never persisted.
     std::string pending_generation;
+    std::map<std::string, std::string> pending_exact_revisions;
     std::uint64_t session_admissions = 0;
     // Derived only from this session's last certified localization generation.
     // A new admission cannot borrow another Project's source projection.
     std::optional<Json> font_inputs;
+    std::optional<Json> certified_font_result;
+    std::optional<Json> certified_font_inputs;
+    std::map<std::string, std::string> certified_font_sources;
     noveltea::tooling::FontCoverageSourceProofs font_source_proofs;
     noveltea::tooling::FontCoverageSourceProofs& current_font_proofs()
     {
@@ -95,6 +99,9 @@ struct OwnerValidation {
     void clear_preparations(bool clear_shaders = true, bool clear_materials = true)
     {
         font_inputs.reset();
+        certified_font_result.reset();
+        certified_font_inputs.reset();
+        certified_font_sources.clear();
         if (clear_materials) {
             material_records.reset();
             material_assets.reset();
@@ -109,6 +116,73 @@ struct OwnerValidation {
             shader_cache.discard_certified_stage();
     }
 };
+
+bool can_reuse_font_result(const OwnerValidation& state)
+{
+    if (!state.certified_font_result || !state.certified_font_inputs || !state.font_inputs ||
+        *state.certified_font_inputs != *state.font_inputs ||
+        !state.session->source_watcher_proof_available() ||
+        !noveltea::tooling::retained_font_system_sources_current())
+        return false;
+    const auto* current = state.session->verified_source_revisions_view();
+    if (!current)
+        return false;
+    for (const auto& [path, revision] : state.certified_font_sources) {
+        const auto found = current->find(path);
+        if (found == current->end() || found->second != revision)
+            return false;
+    }
+    return true;
+}
+
+void validate_or_reuse_font_result(OwnerValidation& state, Json& result)
+{
+    if (can_reuse_font_result(state)) {
+        result["fontCoverageResult"] = *state.certified_font_result;
+        result["work"]["fontCoverageRuns"] = 0;
+        result["work"]["fontCoverageReusedLocales"] = state.font_inputs->size();
+        return;
+    }
+    const auto coverage = [&] {
+        noveltea::authoring::ScopedValidationStageTime<
+            noveltea::authoring::WorkCounter::FontCoverageMicros> timed;
+        return noveltea::tooling::validate_font_coverage(
+            Json{{"projectRoot", state.root.string()}, {"locales", *state.font_inputs}}.dump(),
+            state.session->verified_source_revisions_view(), state.current_font_proofs());
+    }();
+    result["fontCoverageResult"] = Json::parse(coverage.response_json);
+    const auto work = result["fontCoverageResult"].value("work", Json::object());
+    result["work"]["fontCoverageRuns"] = work.value("executedLocales", 0);
+    result["work"]["fontCoverageReusedLocales"] = work.value("reusedLocales", 0);
+    state.certified_font_result.reset();
+    state.certified_font_inputs.reset();
+    state.certified_font_sources.clear();
+    // A deterministic missing-glyph diagnostic is as reusable as successful
+    // coverage. Only uncertain execution/source failures (ok=false) must
+    // re-enter the tool when the Project and font generations are unchanged.
+    if (!result["fontCoverageResult"].value("ok", false) ||
+        !state.session->source_watcher_proof_available())
+        return;
+    const auto* revisions = state.session->verified_source_revisions_view();
+    if (!revisions)
+        return;
+    for (const auto& locale : *state.font_inputs) {
+        for (const auto& font : locale.value("fonts", Json::array())) {
+            if (!font.is_string())
+                return;
+            const auto path = font.get<std::string>();
+            if (!path.starts_with("project:/"))
+                return; // Unknown external font binding: full physical check.
+            const auto relative = path.substr(std::string_view("project:/").size());
+            const auto found = revisions->find(relative);
+            if (found == revisions->end() || !found->second.starts_with("physical:"))
+                return;
+            state.certified_font_sources.emplace(relative, found->second);
+        }
+    }
+    state.certified_font_inputs = *state.font_inputs;
+    state.certified_font_result = result["fontCoverageResult"];
+}
 
 OwnerValidation::ExternalCheck capture_external_check(
     Json inputs, std::set<std::string> watched,
@@ -261,18 +335,8 @@ bool restore_stages(OwnerValidation& state, std::string_view serialized, Json& r
     result["work"]["fontInputReuses"] = 1;
     result["work"]["materialInputReuses"] = 1;
     if (result.at("entrypointConfigured").get<bool>()) {
-        const auto coverage = [&] {
-            noveltea::authoring::ScopedValidationStageTime<
-                noveltea::authoring::WorkCounter::FontCoverageMicros> timed;
-            return noveltea::tooling::validate_font_coverage(
-                Json{{"projectRoot", state.root.string()}, {"locales", *state.font_inputs}}.dump(),
-                state.session->verified_source_revisions_view(), state.current_font_proofs());
-        }();
-        result["fontCoverageResult"] = Json::parse(coverage.response_json);
+        validate_or_reuse_font_result(state, result);
         const auto& font = result.at("fontCoverageResult");
-        const auto work = font.value("work", Json::object());
-        result["work"]["fontCoverageRuns"] = work.value("executedLocales", 0);
-        result["work"]["fontCoverageReusedLocales"] = work.value("reusedLocales", 0);
         const auto font_diagnostics = font.value("diagnostics", Json::array());
         const bool coverage_valid = font.value("ok", false) && font.value("success", false) &&
             std::none_of(font_diagnostics.begin(), font_diagnostics.end(),
@@ -826,7 +890,12 @@ Json validate(std::string_view request_text)
                 noveltea::authoring::ScopedValidationStageTime<
                     noveltea::authoring::WorkCounter::SourceGenerationMicros> timed;
                 return native_project_source_generation(*state.session, root, true,
-                                                        "validation-final-generation") ==
+                                                        "validation-final-generation", nullptr,
+#if defined(__APPLE__)
+                                                        nullptr) ==
+#else
+                                                        &state.pending_exact_revisions) ==
+#endif
                        request.at("expectedSourceGeneration").get<std::string>();
             }() && unchanged();
         } catch (const std::exception&) {
@@ -843,6 +912,7 @@ Json validate(std::string_view request_text)
     if (request.value("action", std::string("validate")) != "validate")
         return {{"ok", false}, {"error", "Unknown disk-validation action."}};
     state.pending_generation.clear();
+    state.pending_exact_revisions.clear();
     if (state.root != root) {
         state.session.reset();
         state.clear_preparations();
@@ -1111,22 +1181,7 @@ Json validate(std::string_view request_text)
             // source authority; the public boundary still fences that epoch.
             if (result["entrypointConfigured"].get<bool>() &&
                 !result.contains("noticeValidationFailure")) {
-                const auto font_request =
-                    Json{{"projectRoot", root.string()}, {"locales", result["fontCoverageInputs"]}};
-                const auto coverage = [&] {
-                    noveltea::authoring::ScopedValidationStageTime<
-                        noveltea::authoring::WorkCounter::FontCoverageMicros> timed;
-                    return noveltea::tooling::validate_font_coverage(
-                        font_request.dump(), state.session->verified_source_revisions_view(),
-                        state.current_font_proofs());
-                }();
-                result["fontCoverageResult"] = Json::parse(coverage.response_json);
-                if (result["fontCoverageResult"].contains("work")) {
-                    const auto& font_work = result["fontCoverageResult"].at("work");
-                    result["work"]["fontCoverageRuns"] = font_work.value("executedLocales", 0);
-                    result["work"]["fontCoverageReusedLocales"] =
-                        font_work.value("reusedLocales", 0);
-                }
+                validate_or_reuse_font_result(state, result);
             }
             const Json materials = admitted.value("materials", Json::object());
             const Json assets = admitted.value("assets", Json::object());
@@ -1310,6 +1365,7 @@ Json validate(std::string_view request_text)
                     {"kind", "conflict"},
                     {"error", "Project sources changed during validation preparation."}};
         state.pending_generation = result.at("sourceGeneration").get<std::string>();
+        state.pending_exact_revisions = std::move(post_revisions);
     } else if (!fence_resident_sources(*state.session)) {
         return {{"ok", false},
                 {"kind", "conflict"},
@@ -1328,6 +1384,19 @@ Json validate(std::string_view request_text)
         state.session->localization_record_cache_hits() - record_hits_before;
     result["work"]["localizationSourcePathsReused"] =
         state.session->localization_source_path_cache_hits() - source_hits_before;
+    if (request.value("compactValidationResponse", false)) {
+        // The public CLI consumes final diagnostics/coverage/compiler evidence,
+        // not the large intermediate Message and Material input projections.
+        // The elected writer retains these independently in the owner state.
+        if (result.contains("fontCoverageResult"))
+            result.erase("fontCoverageInputs");
+        if (result.contains("materialCompilerPrograms")) {
+            result["hasMaterialCompilerPrograms"] =
+                !result.at("materialCompilerPrograms").empty();
+            result.erase("materialCompilerPrograms");
+        }
+        result.erase("materialEffectiveInputs");
+    }
     return result;
 }
 

@@ -1732,8 +1732,10 @@ int inspect(const Arguments& args)
 int project_read(const Arguments& args, std::string action)
 {
     Json request{{"action", action}};
-    if (action == "project-validate")
+    if (action == "project-validate") {
         request["includeFontCoverageInputs"] = true;
+        request["compactValidationResponse"] = true;
+    }
     std::string missing_path = "/";
     std::string human;
     if (action == "entity-usages") {
@@ -1867,16 +1869,16 @@ int project_read(const Arguments& args, std::string action)
                 valid = false;
             }
             if (valid) {
-                if (!response.contains("fontCoverageInputs") ||
-                    !response.at("fontCoverageInputs").is_array())
+                const bool resident_coverage = response.contains("fontCoverageResult") &&
+                                               response.at("fontCoverageResult").is_object();
+                if (!resident_coverage && (!response.contains("fontCoverageInputs") ||
+                                           !response.at("fontCoverageInputs").is_array()))
                     return failure(args.json, 70, "NATIVE_PROJECT_VALIDATION_UNAVAILABLE", "/",
                                    "Native validation omitted its localization coverage inputs.",
                                    "Native validation omitted its localization coverage inputs.");
                 // The disk owner has already performed/reused font coverage
                 // against the validated physical generation. Do not recreate
                 // a TextEngine in this short-lived public CLI client.
-                const bool resident_coverage = response.contains("fontCoverageResult") &&
-                                               response.at("fontCoverageResult").is_object();
                 const auto coverage =
                     resident_coverage
                         ? response.at("fontCoverageResult")
@@ -1908,12 +1910,16 @@ int project_read(const Arguments& args, std::string action)
                                  [](const Json& item) {
                                      return item.value("severity", "error") == "error";
                                  }) &&
-                    response.contains("materialCompilerPrograms") &&
-                    response.at("materialCompilerPrograms").is_object() &&
-                    !response.at("materialCompilerPrograms").empty()) {
+                    (response.value("hasMaterialCompilerPrograms", false) ||
+                     (response.contains("materialCompilerPrograms") &&
+                      response.at("materialCompilerPrograms").is_object() &&
+                      !response.at("materialCompilerPrograms").empty()))) {
                     if (std::getenv("NOVELTEA_CLI_TRACE"))
                         std::cerr << "[native-cli] materials with compiler requests: "
-                                  << response.at("materialCompilerPrograms").size() << '\n';
+                                  << (response.contains("materialCompilerPrograms")
+                                          ? response.at("materialCompilerPrograms").size()
+                                          : std::size_t{1})
+                                  << '\n';
                     // The resident Project owner compiles or verifies its
                     // cached programs against the same pinned source inventory
                     // as semantic and font validation. A separate CLI-side

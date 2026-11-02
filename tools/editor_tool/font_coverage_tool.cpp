@@ -608,6 +608,35 @@ nlohmann::json validate_font_coverage_request(const nlohmann::json& request)
 
 namespace noveltea::tooling {
 
+bool retained_font_system_sources_current()
+{
+#ifdef __linux__
+    std::lock_guard lock(system_font_watch_mutex);
+    if (system_font_watches.empty())
+        return false;
+    for (const auto& [path, watch] : system_font_watches) {
+        if (watch->content_revision.empty() || !watch->healthy())
+            return false;
+        struct stat info {};
+        if (::stat(path.c_str(), &info) != 0 || !S_ISREG(info.st_mode) ||
+            info.st_size < 0 || info.st_mtim.tv_sec < 0 || info.st_mtim.tv_nsec < 0)
+            return false;
+        const auto physical =
+            "posix:" + std::to_string(static_cast<unsigned long long>(info.st_dev)) + ":" +
+            std::to_string(static_cast<unsigned long long>(info.st_ino)) + ":" +
+            std::to_string(static_cast<std::uint64_t>(info.st_size)) + ":" +
+            std::to_string(static_cast<std::uint64_t>(info.st_mtim.tv_sec) *
+                               1'000'000'000ULL +
+                           static_cast<std::uint64_t>(info.st_mtim.tv_nsec));
+        if (physical != watch->physical_identity)
+            return false;
+    }
+    return true;
+#else
+    return false; // Without a synchronous external inode fence, re-prove.
+#endif
+}
+
 std::string font_coverage_ledger()
 {
     std::lock_guard lock(font_coverage_cache_mutex);

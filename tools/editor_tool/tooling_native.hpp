@@ -35,6 +35,9 @@ struct FontCoverageSourceProofs {
 // Optional same-build ledger data; imported entries must establish fresh physical authority.
 std::string font_coverage_ledger();
 bool restore_font_coverage_ledger(std::string_view snapshot);
+// Fast fail-closed fence for already-certified system font bytes; Linux's
+// inode+parent watches must still match current file metadata.
+bool retained_font_system_sources_current();
 // Release the short-lived CLI's native Project resident before process-local
 // validation statics begin their C++ teardown.
 void release_native_disk_validation_owner() noexcept;

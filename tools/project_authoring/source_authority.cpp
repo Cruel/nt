@@ -154,10 +154,15 @@ void referenced_paths(const Json& value, std::set<std::string>& referenced)
 
 struct SourceAuthority::NativeWatch {
 #ifdef __linux__
-    explicit NativeWatch(const std::filesystem::path&) {}
+    explicit NativeWatch(const std::filesystem::path& root) : root_for_physical(root) {}
+    std::filesystem::path root_for_physical;
     int fd = inotify_init1(IN_CLOEXEC | IN_NONBLOCK);
     std::map<std::string, int> descriptors;
+    // Inode watches also observe writes through hard links outside the Project.
+    // Parent directory watches alone cannot fence such writes.
+    std::map<std::string, int> physical_files;
     std::set<int> removed_watches;
+    bool physical_watch_failed = false;
     static constexpr auto mask = IN_CREATE | IN_DELETE | IN_MODIFY | IN_CLOSE_WRITE | IN_ATTRIB |
                                  IN_MOVED_FROM | IN_MOVED_TO | IN_DELETE_SELF | IN_MOVE_SELF |
                                  IN_UNMOUNT;
@@ -174,7 +179,9 @@ struct SourceAuthority::NativeWatch {
             close(fd);
         fd = inotify_init1(IN_CLOEXEC | IN_NONBLOCK);
         descriptors.clear();
+        physical_files.clear();
         removed_watches.clear();
+        physical_watch_failed = false;
         return fd >= 0;
     }
 
@@ -197,7 +204,7 @@ struct SourceAuthority::NativeWatch {
 
     bool drain(bool& observed, std::set<std::string>& hinted_paths)
     {
-        if (fd < 0)
+        if (fd < 0 || physical_watch_failed)
             return true;
         alignas(inotify_event) std::array<char, 32768> buffer{};
         while (true) {
@@ -220,6 +227,10 @@ struct SourceAuthority::NativeWatch {
                             const std::string name(event->name, strnlen(event->name, event->len));
                             hinted_paths.insert(directory == "." ? name : directory + "/" + name);
                         }
+                } else {
+                    for (const auto& [path, wd] : physical_files)
+                        if (event->wd == wd)
+                            hinted_paths.insert(path);
                 }
                 if ((event->mask & IN_IGNORED) && removed_watches.erase(event->wd)) {
                     pos += sizeof(inotify_event) + event->len;
@@ -259,10 +270,35 @@ struct SourceAuthority::NativeWatch {
         }
         return covered;
     }
-    [[nodiscard]] bool reliable() const { return fd >= 0; }
-    void protect_sources(const std::map<std::string, std::string>&,
-                         const std::set<std::string>* = nullptr)
+    [[nodiscard]] bool reliable() const { return fd >= 0 && !physical_watch_failed; }
+    void protect_sources(const std::map<std::string, std::string>& revisions,
+                         const std::set<std::string>* hints = nullptr)
     {
+        for (auto it = physical_files.begin(); it != physical_files.end();) {
+            if (revisions.contains(it->first) && revisions.at(it->first).starts_with("physical:") &&
+                (!hints || !hints->contains(it->first))) {
+                ++it;
+                continue;
+            }
+            const int wd = it->second;
+            it = physical_files.erase(it);
+            const bool used = std::any_of(physical_files.begin(), physical_files.end(),
+                                          [&](const auto& item) { return item.second == wd; }) ||
+                              std::any_of(descriptors.begin(), descriptors.end(),
+                                          [&](const auto& item) { return item.second == wd; });
+            if (!used && inotify_rm_watch(fd, wd) == 0)
+                removed_watches.insert(wd);
+        }
+        for (const auto& [path, revision] : revisions) {
+            if (!revision.starts_with("physical:") || physical_files.contains(path))
+                continue;
+            const auto wd = inotify_add_watch(fd, (root_for_physical / path).c_str(), mask);
+            if (wd < 0 || removed_watches.contains(wd)) {
+                physical_watch_failed = true;
+                return;
+            }
+            physical_files.emplace(path, wd);
+        }
     }
 #else
     explicit NativeWatch(const std::filesystem::path& root)

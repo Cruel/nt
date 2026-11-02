@@ -454,7 +454,11 @@ public:
         return source_authority_->verified_source(path);
     }
     void source_watch_hint(std::string_view path) { source_authority_->hint(path); }
-    void source_watch_coverage_lost() { source_authority_->coverage_lost(); }
+    void source_watch_coverage_lost()
+    {
+        exact_asset_proofs_.clear();
+        source_authority_->coverage_lost();
+    }
 
 private:
     struct CacheLease;
@@ -487,6 +491,10 @@ private:
     std::chrono::steady_clock::time_point cache_next_lease_attempt_{};
     std::chrono::steady_clock::time_point cache_next_maintenance_attempt_{};
     std::optional<std::map<std::string, std::string>> cache_stage_revisions_;
+    // Resident-only exact binary proofs. A physical revision is reusable only
+    // while a healthy watcher (including inode watches for hard links) fences
+    // the source; never admit this map from a persisted cache.
+    std::map<std::string, std::pair<std::string, std::string>> exact_asset_proofs_;
     std::string cache_stage_json_;
     // The elected writer invokes this only at actual publication/shutdown,
     // after the same physical generation proof as the semantic snapshot.

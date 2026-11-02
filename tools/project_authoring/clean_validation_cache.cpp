@@ -123,7 +123,9 @@ bool transactions_settled(const fs::path& root)
 
 std::optional<std::map<std::string, std::string>>
 exact_proof(const fs::path& root, const std::map<std::string, std::string>* observed,
-            std::string_view phase)
+            std::string_view phase,
+            std::map<std::string, std::pair<std::string, std::string>>* resident_proofs,
+            bool watcher_fenced)
 {
     if (!observed)
         return std::nullopt;
@@ -134,6 +136,14 @@ exact_proof(const fs::path& root, const std::map<std::string, std::string>* obse
     for (auto& [relative, revision] : revisions) {
         if (!revision.starts_with("physical:"))
             continue;
+        const auto physical_revision = revision;
+        if (watcher_fenced && resident_proofs) {
+            const auto found = resident_proofs->find(relative);
+            if (found != resident_proofs->end() && found->second.first == physical_revision) {
+                revision = found->second.second;
+                continue;
+            }
+        }
         const fs::path path = root / relative;
         const auto contained = fs::weakly_canonical(path).lexically_relative(canonical_root);
         if (fs::symlink_status(path).type() != fs::file_type::regular || contained.empty() ||
@@ -145,6 +155,8 @@ exact_proof(const fs::path& root, const std::map<std::string, std::string>* obse
         count_validation_work<WorkCounter::ContentHashes>();
         count_validation_work<WorkCounter::ContentBytesHashed>(bytes->size());
         revision = noveltea::core::xxh3_128_revision(*bytes);
+        if (watcher_fenced && resident_proofs)
+            (*resident_proofs)[relative] = {physical_revision, revision};
         trace_exact_asset_proof(phase, relative, bytes->size());
     }
     return revisions;
@@ -980,7 +992,16 @@ ProjectSession::CleanValidation ProjectSession::validate_clean_project(bool init
             } else if (!source_authority_->verified_revisions_view()) {
                 return std::nullopt;
             }
-            auto exact = exact_proof(root_, source_authority_->verified_revisions_view(), phase);
+            // macOS FSEvents does not yet prove writes through a hard link
+            // outside the watched Project; retain full-byte checks there.
+#if defined(__APPLE__)
+            constexpr bool inode_proof_supported = false;
+#else
+            constexpr bool inode_proof_supported = true;
+#endif
+            auto exact = exact_proof(
+                root_, source_authority_->verified_revisions_view(), phase, &exact_asset_proofs_,
+                inode_proof_supported && source_authority_->watcher_proof_available());
             return transactions_settled(root_) ? exact : std::nullopt;
         } catch (...) {
             // Cache IO and physical proof may fail independently of semantic
@@ -1124,16 +1145,15 @@ ProjectSession::CleanValidation ProjectSession::validate_clean_project(bool init
     const bool completed = validation_snapshot_.has_value() &&
                            validation_snapshot_->working_revision == snapshot.working_revision &&
                            !validation_pending_uncertain_;
-    // Rebuilt validation contributions have a final source observation.
-    // Recompute exact binary Asset hashes at this boundary in every case.
+    // Rebuilt validation contributions retain their pinned exact source proof.
     if (clean() && completed && validated_input) {
         if (defer_valid_publication && snapshot.valid)
-            return {std::move(snapshot),
-                    false,
-                    std::move(validated_input),
-                    resident_state().to_string(),
-                    std::move(offline_stage_evidence),
-                    validation_generation_};
+            return {std::move(snapshot), false, std::move(validated_input),
+                    // The resident writer builds this whole-Project bundle
+                    // only at its elected quiet-window publication, never on
+                    // an ordinary saved-file validation request.
+                    resident_cache_maintenance_ ? std::string{} : resident_state().to_string(),
+                    std::move(offline_stage_evidence), validation_generation_};
         if (owns_clean_cache_lease() &&
             (!resident_cache_maintenance_ || cache_maintenance_active_) &&
             (!resident_cache_maintenance_ || cache_maintenance_shutdown_ ||

@@ -13,6 +13,58 @@ records baseline evidence from `4e0dcdfc`, not performance guarantees. See
 The problem is **repeated whole-Project work around an incremental validator**, not an
 unoptimized compiler build or failure to retain the primary validation session.
 
+### Warm Room presentation edit: strict physical-work contract (November 1, 2026)
+
+The public Release CLI's healthy resident watcher path now retains exact
+binary Asset proofs by watched physical revision and uses the same pinned
+evidence for the final generation fence. Linux watches physical Asset inodes
+as well as parent directories so writes through hard links revoke the proof;
+unreliable coverage falls back to full-byte verification. macOS retains the
+conservative exact-byte path until an equally strong inode-link fence is
+certified. The whole resident contributor bundle and stage ledger are built
+only at the elected quiet-window publication, not on each saved edit. The
+resident owner reuses independently certified font results without entering
+the coverage wrapper when Project font sources and system-font inode/parent
+evidence remain unchanged. Other platforms retain their conservative fallback.
+
+The real `incremental_validation_certification.py` now enforces, on Linux,
+**one changed Room file read, one YAML parse, one Record/contribution
+recheck, zero binary Asset proof reads, zero font/shader proof reads, zero
+unrelated stages, zero foreground Project/ledger assembly, and zero directory
+enumerations**, comparing full diagnostics with fresh direct CLI validation
+on Feature Lab and 1/101/501 Room fixtures. Changed external inputs, lost
+watchers, corrupted ledgers and source races continue to require conservative
+reconciliation. These are work bounds, not stopwatch assertions.
+
+The first live Release Feature Lab measurement after removing eager resident
+bundle construction reported **1 file read (554 bytes), 1 YAML parse,
+0 binary Asset proof reads, 0 font wrapper invocations, and ~1.7 ms within
+the native semantic validation stage**. The public CLI call was still about
+69 ms before compacting its redundant intermediate Message/Material response
+fields.
+
+The independent matched post-change Release CLI/addon benchmark is recorded
+at `build/reports/validation-2026-11-01-incremental-work-contract.json`
+(the disposable 83-sample harness, same Debian Ryzen 7 5700G host and
+Feature Lab/1/101/501 Room fixtures). Warm saved-label medians are
+**34.13 / 10.84 / 16.73 / 51.62 ms**, versus the immediate pre-change
+**108.42 / 9.60 / 20.15 / 64.80 ms**. Feature Lab's three sampled warm
+edits each read exactly **one YAML file**, parsed it once, checked one
+record/contribution, performed zero binary Asset/font/shader proofs, and
+spent zero time in the cached font wrapper or Project/ledger rebuild.
+The read byte count differs with the edited fixture's YAML size (1,848
+bytes for the benchmark's Feature Lab edit). The warm unchanged broker
+shortcut remains a separate unprofiled behavior; this profiler bypasses it.
+
+The hard physical-work budget is now achieved on Linux, but **the 20 ms
+saved-edit latency goal is not yet met** for Feature Lab or the 501-Room
+fixture. Current cost is dominated by retained in-memory Project traversal,
+complete diagnostic/CLI response assembly and host dispatch rather than
+unrelated disk I/O. Do not interpret one semantic contribution as constant
+end-to-end CPU time, or close #576 on the strength of the work counts alone.
+Windows/macOS watchers and respective conservative fallbacks still require
+native platform certification.
+
 ### #583: watcher-fenced broker authority (November 1, 2026)
 
 **Cross-platform follow-up (implementation pending host CI):** Both the broker and native
