@@ -58,6 +58,24 @@ with TemporaryDirectory(prefix="noveltea-portable-validation-") as temporary:
 
     initial = validate()
     diagnostics = initial["diagnostics"]
+    # A normal warm saved Room-label edit is provably unrelated to portable
+    # and notice inputs. Exercise it before ledger restarts/corruption create
+    # deliberately conservative fallback states later in this certification.
+    room = project / "records/rooms/feature-lab-home.yaml"
+    original_room = room.read_text()
+    room.write_text(original_room.replace(
+        "label: Feature Lab Home", "label: Feature Lab Home - warm input reuse"))
+    clean_warm_label = validate()
+    assert clean_warm_label["diagnostics"] == diagnostics
+    assert work(clean_warm_label, "portableSourceReuses") == 1
+    assert work(clean_warm_label, "noticeValidationReuses") == 1
+    for counter in ("completeProjectPreparationMicros", "portableInputPreparationMicros",
+                    "noticeInputPreparationMicros", "portableSourceValidationMicros",
+                    "noticeValidationMicros"):
+        assert clean_warm_label["validationWork"]["endToEnd"][counter] == 0, (
+            counter, clean_warm_label["validationWork"])
+    room.write_text(original_room)
+    assert validate()["diagnostics"] == diagnostics
     # The elected daemon writer debounces disk publication for five seconds.
     # A direct client must not expect an immediate cold ledger while that
     # resident still owns the lease. Graceful stop flushes its validated
@@ -129,6 +147,18 @@ with TemporaryDirectory(prefix="noveltea-portable-validation-") as temporary:
     assert work(label, "portableSourceReuses") == 1, label["validationWork"]
     assert work(label, "noticeValidationReuses") == 1
     assert label["validationWork"]["endToEnd"]["portableSourceChecks"] == 0
+    # Count validators separately from complete-Project input preparation:
+    # the latter is tracked by #586 and must not be confused with stage work.
+    for counter in ("portableSourceChecks", "noticeValidationRuns"):
+        assert work(label, counter) == 0, (counter, label["validationWork"])
+    for counter in ("completeProjectPreparationMicros", "portableInputPreparationMicros",
+                    "noticeInputPreparationMicros", "portableSourceValidationMicros",
+                    "noticeValidationMicros"):
+        assert counter in label["validationWork"]["endToEnd"], (
+            counter, label["validationWork"])
+    for counter in ("portableSourceValidationMicros", "noticeValidationMicros"):
+        assert label["validationWork"]["endToEnd"][counter] == 0, (
+            counter, label["validationWork"])
     assert_public_parity(label, validate(direct=True))
 
     # Workflows are portable without appearing in Asset YAML. Create, modify,
@@ -175,6 +205,44 @@ with TemporaryDirectory(prefix="noveltea-portable-validation-") as temporary:
     assert work(equal_metadata, "portableSourceReuses") == 0
     assert work(validate(), "portableSourceReuses") == 1
 
+    # The Asset record can switch between two already-proven binary files.
+    # A changed reference must revoke the portable key even when neither
+    # physical file changes and the semantic global stage is unaffected.
+    alternative = project / "assets/audio/notification-copy.mp3"
+    alternative.write_bytes(media.read_bytes())
+    assert validate()["diagnostics"] == diagnostics
+    assert work(validate(), "portableSourceReuses") == 1
+    asset_record = project / "records/assets/pilot-cue-audio.yaml"
+    asset_yaml = asset_record.read_text()
+    assert "path: assets/audio/notification.mp3" in asset_yaml
+    asset_record.write_text(asset_yaml.replace(
+        "path: assets/audio/notification.mp3",
+        "path: assets/audio/notification-copy.mp3"))
+    switched = validate()
+    assert switched["diagnostics"] == diagnostics
+    assert work(switched, "portableSourceReuses") == 0, switched["validationWork"]
+    assert_public_parity(switched, validate(direct=True))
+    asset_record.write_text(asset_yaml)
+    restored_reference = validate()
+    assert restored_reference["diagnostics"] == diagnostics
+    assert work(restored_reference, "portableSourceReuses") == 0
+    alternative.unlink()
+    assert validate()["diagnostics"] == diagnostics
+
+    # Removing or replacing an Asset source cannot preserve a clean cache
+    # entry, even when the record's own bytes are unchanged.
+    original = media.read_bytes()
+    media.unlink()
+    missing_asset = validate(False)
+    assert_public_parity(missing_asset, validate(False, direct=True))
+    media.symlink_to(root / "outside-asset.mp3")
+    (root / "outside-asset.mp3").write_bytes(original)
+    escaping_asset = validate(False)
+    assert_public_parity(escaping_asset, validate(False, direct=True))
+    media.unlink()
+    media.write_bytes(original)
+    assert validate()["diagnostics"] == diagnostics
+
     manifest = project / "project.yaml"
     notice = project / "assets/notices/legal.txt"
     notice.parent.mkdir(parents=True, exist_ok=True)
@@ -212,6 +280,35 @@ with TemporaryDirectory(prefix="noveltea-portable-validation-") as temporary:
     assert same_metadata["diagnostics"] == diagnostics
     assert work(same_metadata, "noticeValidationRuns") == 1
     assert work(validate(), "noticeValidationReuses") == 1
+
+    # A missing notice is not a deterministic clean result. No retry may
+    # silently borrow the previous successful path/content proof.
+    notice_bytes = notice.read_bytes()
+    notice.rename(notice.with_suffix(".moved"))
+    missing_notice = validate(False)
+    assert_public_parity(missing_notice, validate(False, direct=True))
+    repeated_missing = validate(False)
+    assert_public_parity(missing_notice, repeated_missing)
+    # Physical source admission can reject an absent path *before* the
+    # downstream notice validator runs. Neither path can return a cache hit.
+    if "validationWork" in missing_notice:
+        assert work(missing_notice, "noticeValidationRuns") == 1
+    notice.with_suffix(".moved").rename(notice)
+    assert validate()["diagnostics"] == diagnostics
+    assert work(validate(), "noticeValidationReuses") == 1
+
+    # Replacing a proven notice with an escaping symlink must also revoke
+    # both the resident result and the public export safety proof.
+    notice.unlink()
+    outside_notice = root / "outside-notice.txt"
+    outside_notice.write_bytes(notice_bytes)
+    notice.symlink_to(outside_notice)
+    unsafe_notice = validate(False)
+    assert_public_parity(unsafe_notice, validate(False, direct=True))
+    export("unsafe-notice.ntproject", success=False)
+    notice.unlink()
+    notice.write_bytes(notice_bytes)
+    assert validate()["diagnostics"] == diagnostics
 
     # An escaping symlink must never inherit the previous success. Both the
     # daemon and direct CLI fail, then a repaired file is admitted again.

@@ -615,10 +615,24 @@ generation publication remains an independent obligation. Failed portable
 checks, invalid notices, and unobserved external paths are never cached as
 successful or deterministic negative proofs. Package export continues to
 enumerate and hash its own source files independently of validation reuse.
-On hosts without Linux inotify, these external stages continue to run for each
-validation because their full observation alone cannot prove a same-size,
-restored-mtime binary file unchanged; the cache does not substitute for a
-cross-platform physical notification contract.
+The later #583 host monitor extends source fencing to Windows (USN journal)
+and macOS (synchronous FSEvents) where available. Without trustworthy
+notification coverage, source observation falls back to a full scan rather
+than treating unchanged metadata as proof; a stage is retained only when its
+required paths are independently proven. Cross-platform behavior still
+requires certification on the respective native release hosts.
+
+#586 introduces a retained projection for certified unchanged or Room/Map
+presentation-only generations. The #577 timers distinguish complete-Project
+preparation from portable/notice input-key extraction; the earlier ~11 ms
+estimate for portable input extraction conflated these stages. Some saved
+Room-label validation sequences still take the full preparation path despite
+successfully reusing portable and notice validations; the broader source
+of complete-Project work is tracked by #586. The expanded #589 public CLI
+certification asserts zero **external validation executions** on Room-label
+edits and exercises record-path swaps, removed/escaping binary and notice
+paths, and daemon/direct diagnostic parity. These tests assert stage work
+and semantics, not input-extraction timing budgets.
 
 `tests/native_cli/portable_validation_cache.py` exercises these boundaries
 through public direct and daemon CLI requests on a disposable Feature Lab
@@ -638,6 +652,30 @@ speedup. On every measured warm saved-label request, the portable-stage
 execution counter is **0** (previous reference: **1**), with
 `portableSourceReuses = 1` and `noticeValidationReuses = 1`; all comparable
 public CLI diagnostic fingerprints are identical to the reference baseline.
+
+**Post-#586 recheck (November 1, 2026):**
+[separate Release result](performance/baselines/validation-2026-11-01-589-recheck.json)
+reruns the same 83-sample #577 harness on the same Ryzen 7 5700G reference
+host with Release CLI and Release Node-API addon, their build identities and
+profiling configuration recorded in the artifact. The checked-out tests and
+docs were modified during the run, but the production binaries correspond
+to source commit `cb956824`; no validator implementation was changed here.
+Warm saved Room-label medians (ms, reference → current) are **323.31 →
+114.62** (Feature Lab), **13.17 → 9.42** (1 Room), **45.22 → 23.14**
+(101 Rooms) and **167.99 → 64.90** (501 Rooms). This is a *cumulative*
+comparison across earlier optimization tickets, not an isolated #589 benefit.
+Every sampled warm label change rechecks one record; the median
+`portableSourceReuses=1`, `noticeValidationReuses=1`, and both
+`portableSourceChecks=0` and `noticeValidationRuns=0` hold at every size.
+Moreover, the median `completeProjectPreparationMicros`,
+`portableInputPreparationMicros` and `noticeInputPreparationMicros` are all
+**zero** for the ordinary warm-label benchmark scenario. Feature Lab median
+end-to-end byte reads are **2,268 → 102**, hashes **3,813 → 57** and directory
+enumerations **205 → 0**. The benchmark verifies diagnostic parity rather
+than imposing latency thresholds. A separate #589 regression sequence that
+corrupts and restores stage ledgers can still take a conservative complete-
+Project preparation path on a subsequent Room edit; this is distinguished
+from the clean resident warm-label case and tracked under #586.
 
 ### #590: retained editor working-generation validation
 
