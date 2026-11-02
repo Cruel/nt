@@ -91,6 +91,10 @@ public:
     // native events without capturing source bytes or walking the inventory.
     // A relevant event or uncertainty revokes the pinned generation.
     bool fence();
+    // True only while the host's synchronous filesystem monitor has proven
+    // coverage. An unsupported/lost monitor still permits authoritative
+    // source observations, but publication must use a fresh exact scan.
+    bool watcher_proof_available() const noexcept;
     // Adopt only a successfully persisted source whose current bytes still
     // prove the writer's revision. Other external changes remain observable.
     bool acknowledge_own_write(std::string_view relative_path, std::string_view revision);

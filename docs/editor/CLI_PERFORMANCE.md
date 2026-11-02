@@ -36,7 +36,9 @@ source manifest: unchanged requests do no discovery or per-file metadata work, a
 notifications recapture only affected source paths. Directory notifications, missing or uncertain
 watcher coverage, newly admitted Projects, and restored checkpoints still force a conservative
 complete scan. The Linux watcher fence drains notifications before acknowledging the caller;
-other platforms retain full observations until an equivalent watcher fence exists. An owner
+the native disk-validation owner also uses the #583 Windows USN/macOS FSEvents
+synchronous fence when the monitor proves coverage, falling back to a full
+exact source observation when that evidence is unavailable. An owner
 generation advances on any observed watcher epoch change, even when file size, modification time,
 and inode are restored. Final publication and the broker's exact-diagnostics shortcut reject
 unstable observed generations instead of publishing an obsolete result.
@@ -684,13 +686,18 @@ whole-Project recomputation.
 
 The reopened #586 follow-up also retains downstream stage projections for
 source-proven unchanged generations and presentation-only Room/Map edits. On
-Linux, the native semantic validator's unchanged work or global-contribution
+all hosts, the native semantic validator's unchanged work or global-contribution
 reuse proves that no semantic or localization input changed; the resident owner
 reuses its independently watched stage inputs instead of assembling and
 JSON-parsing a complete Project. Font and shader stages continue verifying
 their own physical evidence and final source-generation fences are unchanged.
-Missing watcher evidence, other semantic edits, and cold/direct admissions
-fall back to normal preparation. `retainedStageProjections` identifies this
+Missing source evidence, other semantic edits, and cold/direct admissions
+fall back to normal preparation. Reliable inotify, NTFS USN or FSEvents
+coverage permits cheap publication fences; unsupported or unreliable
+monitoring requires a complete exact physical source observation before
+reusing the same retained projections. Changed portable/notice paths revoke
+their stages even when size and mtime have been restored.
+`retainedStageProjections` identifies this
 path. `endToEnd.completeProjectPreparations`,
 `completeProjectPhysicalProjections`, `completeProjectSerializationMicros`,
 and `completeProjectBytesSerialized` distinguish complete preparation calls,
@@ -713,9 +720,11 @@ with **zero** complete preparation calls, physical projections, complete
 Project serialization bytes/time, or portable source rechecks; a cold first
 validation still performs full preparation. These end-to-end timings reflect
 all changes since the fixed #577 baseline and are not CI latency thresholds.
-Native Windows and macOS optimization/certification is not established by
-these Linux measurements; without proved external watcher reuse the source
-stages retain their conservative preparation path.
+Native Windows and macOS performance/certification is not established by
+these Linux measurements. The retained-stage eligibility and final source
+fence now use the platform-independent source authority, with full exact-scan
+fallback. Native host CI must still confirm work counters, source-race
+behavior, and unsupported-filesystem paths.
 
 The [#586 matched Release comparison](performance/baselines/validation-2026-10-31-retained-diagnostics.json)
 records 67/67 matching diagnostic fingerprints (from 83 total samples, 16

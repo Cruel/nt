@@ -430,6 +430,10 @@ public:
     // will reconcile these paths into the resident editor/daemon Project model.
     SourceObservation observe_sources();
     bool fence_observed_sources() { return source_authority_->fence(); }
+    bool source_watcher_proof_available() const noexcept
+    {
+        return source_authority_->watcher_proof_available();
+    }
     std::optional<std::map<std::string, std::string>> verified_source_revisions() const
     {
         return source_authority_->verified_revisions();

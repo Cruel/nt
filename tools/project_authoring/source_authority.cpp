@@ -1079,6 +1079,11 @@ bool SourceAuthority::fence()
     return true;
 }
 
+bool SourceAuthority::watcher_proof_available() const noexcept
+{
+    return initialized_ && !uncertain_ && native_->reliable();
+}
+
 SourceObservation SourceAuthority::observe()
 {
     SourceObservation observation;

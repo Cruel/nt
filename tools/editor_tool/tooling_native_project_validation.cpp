@@ -33,14 +33,6 @@ namespace {
 using Json = nlohmann::json;
 using noveltea::authoring::ProjectSession;
 
-#ifdef __linux__
-constexpr bool external_watcher_cache_supported = true;
-#else
-// Other hosts perform full observation but have no notification trail for a
-// same-size, restored-mtime binary change. Never reuse that negative evidence.
-constexpr bool external_watcher_cache_supported = false;
-#endif
-
 void trace_native_validation(const char* stage)
 {
     const char* trace = std::getenv("NOVELTEA_CLI_TRACE");
@@ -145,10 +137,13 @@ bool restore_stages(OwnerValidation& state, std::string_view serialized, Json& r
         // An unchanged semantic generation or certified presentation-only
         // Room/Map edit cannot modify the portable, notice, Material or
         // localization source projections.
-        // All retained external paths must still have their watcher proofs;
-        // font and shader byte proofs are checked by their own stages below.
-        if (!external_watcher_cache_supported || !state.portable_check || !state.notice_check ||
-            !state.font_inputs || !state.material_records || !state.material_assets)
+        // Retained external paths were proved by the authoritative source
+        // observation and remain fenced, with a full exact-scan fallback when
+        // the host monitor is unavailable. Font and shader byte proofs are
+        // checked by their own stages below.
+        if (!state.session->verified_source_revisions_view() || !state.portable_check ||
+            !state.notice_check || !state.font_inputs || !state.material_records ||
+            !state.material_assets)
             return false;
         result["fontCoverageInputs"] = *state.font_inputs;
         result["materialCompilerPrograms"] = state.material_programs;
@@ -282,12 +277,13 @@ bool fence_resident_sources(ProjectSession& session)
 {
     noveltea::authoring::count_validation_work<
         noveltea::authoring::WorkCounter::SourceGenerationFences>();
-#ifdef __linux__
-    return session.fence_observed_sources();
-#else
+    // The native authority supplies a synchronous inotify/USN/FSEvents fence
+    // when its coverage is reliable. Unsupported or inaccessible host monitors
+    // must re-prove the entire source inventory by exact observation instead.
+    if (session.source_watcher_proof_available())
+        return session.fence_observed_sources();
     const auto observation = session.observe_sources();
     return observation.authoritative && observation.unchanged && !observation.full_rescan;
-#endif
 }
 
 // Distribution notices are physical authored inputs, not YAML fragments.
@@ -943,9 +939,12 @@ Json validate(std::string_view request_text)
             semantic_work.global_stage_reuses == 1 &&
             semantic_work.global_stage_executions == 0 &&
             semantic_work.localization_rebuilds == 0;
-        const bool retain_stage_projections = external_watcher_cache_supported &&
+        // Every host has either an authoritative watched source generation or
+        // an exact full observation. Neither permits retained projections if
+        // an external path changed or its proof is missing.
+        const bool retain_stage_projections =
             !validated.cache_hit && (unchanged_semantics || presentation_only) &&
-            state.portable_check &&
+            state.session->verified_source_revisions_view() && state.portable_check &&
             state.notice_check && state.font_inputs && state.material_records &&
             state.material_assets;
         if (request.value("includeFontCoverageInputs", false) &&
@@ -970,7 +969,7 @@ Json validate(std::string_view request_text)
                     noveltea::authoring::WorkCounter::PortableInputPreparationMicros> timed;
                 return portable_inputs(admitted);
             }();
-            const bool portable_reuse = external_watcher_cache_supported && state.portable_check &&
+            const bool portable_reuse = state.portable_check &&
                                         state.portable_check->inputs == portable_key;
             result["work"]["portableSourceReuses"] = portable_reuse ? 1 : 0;
             if (!portable_reuse) {
@@ -989,10 +988,9 @@ Json validate(std::string_view request_text)
                         "error", std::string("Native Project source preparation failed."));
                     return result;
                 }
-                // Persist the proved source set on every host. Non-Linux
-                // readers may restore it only at cold exact-byte admission;
-                // their subsequent resident requests still rerun the stage
-                // because they have no inotify-style change evidence.
+                // Persist only the paths backed by this source authority's
+                // exact bytes. The next observation revokes changed paths;
+                // hosts without a reliable watcher fully scan before reuse.
                 if (const auto watched =
                         observed_external_paths(portable.at("sourcePaths"), *state.session))
                     state.portable_check = OwnerValidation::ExternalCheck{portable_key, *watched};
@@ -1002,7 +1000,7 @@ Json validate(std::string_view request_text)
                     noveltea::authoring::WorkCounter::NoticeInputPreparationMicros> timed;
                 return notice_inputs(admitted);
             }();
-            const bool notice_reuse = external_watcher_cache_supported && state.notice_check &&
+            const bool notice_reuse = state.notice_check &&
                                       state.notice_check->inputs == notice_key;
             result["work"]["noticeValidationReuses"] = notice_reuse ? 1 : 0;
             if (!notice_reuse) {

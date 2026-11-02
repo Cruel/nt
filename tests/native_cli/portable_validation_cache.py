@@ -12,7 +12,6 @@ from zipfile import ZipFile
 
 cli = Path(sys.argv[1]).resolve()
 fixture = Path(sys.argv[2]).resolve()
-watcher_cache = sys.platform.startswith("linux")
 
 with TemporaryDirectory(prefix="noveltea-portable-validation-") as temporary:
     root = Path(temporary)
@@ -114,9 +113,11 @@ with TemporaryDirectory(prefix="noveltea-portable-validation-") as temporary:
                     "materialInterfaceValidations", "completeProjectProjected"):
         assert work(daemon_cold, counter) == 0, (counter, daemon_cold["validationWork"])
     unchanged = validate()
-    assert work(unchanged, "portableSourceReuses") == int(watcher_cache)
-    assert work(unchanged, "noticeValidationReuses") == int(watcher_cache)
-    assert unchanged["validationWork"]["endToEnd"]["portableSourceChecks"] == int(not watcher_cache)
+    # All hosts retain exact source-proven inputs. A missing platform watcher
+    # requires a full physical observation, not a repeated portable stage.
+    assert work(unchanged, "portableSourceReuses") == 1
+    assert work(unchanged, "noticeValidationReuses") == 1
+    assert unchanged["validationWork"]["endToEnd"]["portableSourceChecks"] == 0
 
     # An actual saved Room label changes its YAML source revision but no
     # external-source identity. No portable check or notice scan is allowed.
@@ -125,9 +126,9 @@ with TemporaryDirectory(prefix="noveltea-portable-validation-") as temporary:
         "label: Feature Lab Home", "label: Feature Lab Home - external cache"))
     label = validate()
     assert label["diagnostics"] == diagnostics
-    assert work(label, "portableSourceReuses") == int(watcher_cache), label["validationWork"]
-    assert work(label, "noticeValidationReuses") == int(watcher_cache)
-    assert label["validationWork"]["endToEnd"]["portableSourceChecks"] == int(not watcher_cache)
+    assert work(label, "portableSourceReuses") == 1, label["validationWork"]
+    assert work(label, "noticeValidationReuses") == 1
+    assert label["validationWork"]["endToEnd"]["portableSourceChecks"] == 0
     assert_public_parity(label, validate(direct=True))
 
     # Workflows are portable without appearing in Asset YAML. Create, modify,
@@ -142,7 +143,7 @@ with TemporaryDirectory(prefix="noveltea-portable-validation-") as temporary:
     assert work(added, "portableSourceReuses") == 0
     with ZipFile(export("workflow-present.ntproject")) as archive:
         assert archive.read("workflows/source.json") == b'{"value":1}\n'
-    assert work(validate(), "portableSourceReuses") == int(watcher_cache)
+    assert work(validate(), "portableSourceReuses") == 1
     workflow.write_text('{"value":2}\n')
     changed = validate()
     assert work(changed, "portableSourceReuses") == 0, changed["validationWork"]
@@ -161,19 +162,18 @@ with TemporaryDirectory(prefix="noveltea-portable-validation-") as temporary:
     binary = validate()
     assert work(binary, "portableSourceReuses") == 0, binary["validationWork"]
     assert binary["diagnostics"] == diagnostics
-    assert work(validate(), "portableSourceReuses") == int(watcher_cache)
+    assert work(validate(), "portableSourceReuses") == 1
 
-    # A same-size modification with restored timestamps still has a watcher
-    # event, and must advance the pinned physical source generation.
-    if watcher_cache:
-        original_binary = media.read_bytes()
-        timestamp = media.stat()
-        media.write_bytes(original_binary[:-1] + b"\x01")
-        os.utime(media, ns=(timestamp.st_atime_ns, timestamp.st_mtime_ns))
-        equal_metadata = validate()
-        assert equal_metadata["diagnostics"] == diagnostics
-        assert work(equal_metadata, "portableSourceReuses") == 0
-        assert work(validate(), "portableSourceReuses") == 1
+    # Restored timestamps and unchanged size cannot hide an external edit:
+    # either the synchronous watcher observes it or the full scan hashes it.
+    original_binary = media.read_bytes()
+    timestamp = media.stat()
+    media.write_bytes(original_binary[:-1] + b"\x01")
+    os.utime(media, ns=(timestamp.st_atime_ns, timestamp.st_mtime_ns))
+    equal_metadata = validate()
+    assert equal_metadata["diagnostics"] == diagnostics
+    assert work(equal_metadata, "portableSourceReuses") == 0
+    assert work(validate(), "portableSourceReuses") == 1
 
     manifest = project / "project.yaml"
     notice = project / "assets/notices/legal.txt"
@@ -186,7 +186,7 @@ with TemporaryDirectory(prefix="noveltea-portable-validation-") as temporary:
         "      displayName: Legal notice"))
     configured = validate()
     assert work(configured, "noticeValidationRuns") == 1
-    assert work(validate(), "noticeValidationReuses") == int(watcher_cache)
+    assert work(validate(), "noticeValidationReuses") == 1
 
     # An invalid UTF-8/control-bearing notice cannot yield a trustworthy
     # clean hit; changing or repairing those bytes must rerun the stage.
@@ -200,19 +200,18 @@ with TemporaryDirectory(prefix="noveltea-portable-validation-") as temporary:
     repaired = validate()
     assert repaired["diagnostics"] == diagnostics
     assert work(repaired, "noticeValidationRuns") == 1
-    assert work(validate(), "noticeValidationReuses") == int(watcher_cache)
+    assert work(validate(), "noticeValidationReuses") == 1
     assert validate(direct=True)["diagnostics"] == diagnostics
 
     # A valid, same-size write with restored mtime must not reuse the old
     # notice content proof merely because metadata happened to match.
-    if watcher_cache:
-        previous = notice.stat()
-        notice.write_bytes(notice.read_bytes().replace(b".", b"!"))
-        os.utime(notice, ns=(previous.st_atime_ns, previous.st_mtime_ns))
-        same_metadata = validate()
-        assert same_metadata["diagnostics"] == diagnostics
-        assert work(same_metadata, "noticeValidationRuns") == 1
-        assert work(validate(), "noticeValidationReuses") == 1
+    previous = notice.stat()
+    notice.write_bytes(notice.read_bytes().replace(b".", b"!"))
+    os.utime(notice, ns=(previous.st_atime_ns, previous.st_mtime_ns))
+    same_metadata = validate()
+    assert same_metadata["diagnostics"] == diagnostics
+    assert work(same_metadata, "noticeValidationRuns") == 1
+    assert work(validate(), "noticeValidationReuses") == 1
 
     # An escaping symlink must never inherit the previous success. Both the
     # daemon and direct CLI fail, then a repaired file is admitted again.
@@ -239,7 +238,7 @@ with TemporaryDirectory(prefix="noveltea-portable-validation-") as temporary:
         manifest.write("\nentrypoint:\n  kind: room\n  id: entry\n")
     minimal = validate()
     assert minimal["success"] is True
-    assert work(validate(), "portableSourceReuses") == int(watcher_cache)
+    assert work(validate(), "portableSourceReuses") == 1
     assert validate(direct=True)["diagnostics"] == minimal["diagnostics"]
 
     print("Portable and external validation cache certification passed")

@@ -126,13 +126,13 @@ with tempfile.TemporaryDirectory(prefix="noveltea-incremental-certify-") as dire
         for key in ("recordContributions", "dependencyContributions", "localizationChecks",
                     "fontPreparations", "materialShaderPreparations"):
             assert end[key] == 0, (key, end)
-        # Only Linux has the watcher evidence needed to retain the portable
-        # proof between warm requests. Other hosts conservatively rerun it.
-        if sys.platform.startswith("linux"):
-            assert end["portableSourceChecks"] == 0, end
-            for key in ("completeProjectPreparations", "completeProjectPhysicalProjections",
-                        "completeProjectSerializationMicros", "completeProjectBytesSerialized"):
-                assert end[key] == 0, (key, end)
+        # Reliable monitors retain the watched generation. Unsupported
+        # monitors instead re-prove exact source bytes by full observation.
+        # Neither situation requires rebuilding the complete Project.
+        assert end["portableSourceChecks"] == 0, end
+        for key in ("completeProjectPreparations", "completeProjectPhysicalProjections",
+                    "completeProjectSerializationMicros", "completeProjectBytesSerialized"):
+            assert end[key] == 0, (key, end)
 
     def set_label(path, value):
         source = path.read_text()
@@ -194,17 +194,16 @@ with tempfile.TemporaryDirectory(prefix="noveltea-incremental-certify-") as dire
                 # stage without rereading unchanged font bytes. Other hosts
                 # deliberately retain conservative full-byte verification.
                 physical = saved["validationWork"]["endToEnd"]
+                # The retained downstream projection must avoid full Project
+                # reconstruction on all hosts, including full-scan fallback.
+                assert work(saved, "retainedStageProjections") == 1, (size, saved)
+                for key in ("completeProjectPreparations",
+                            "completeProjectPhysicalProjections",
+                            "completeProjectSerializationMicros",
+                            "completeProjectBytesSerialized", "fullResultAssemblies",
+                            "completeProjectPreparationMicros"):
+                    assert physical[key] == 0, (size, key, physical)
                 if sys.platform.startswith("linux"):
-                    # One presentation-only owner cannot change any external
-                    # stage's keyed inputs. No complete Project preparation,
-                    # projection or JSON serialization is permitted here.
-                    assert work(saved, "retainedStageProjections") == 1, (size, saved)
-                    for key in ("completeProjectPreparations",
-                                "completeProjectPhysicalProjections",
-                                "completeProjectSerializationMicros",
-                                "completeProjectBytesSerialized", "fullResultAssemblies",
-                                "completeProjectPreparationMicros"):
-                        assert physical[key] == 0, (size, key, physical)
                     assert physical["fontProofReads"] == 0, (size, physical)
                     assert physical["fontProofHashes"] == 0, (size, physical)
                     assert physical["fontBytesRead"] == 0, (size, physical)
