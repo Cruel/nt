@@ -61,6 +61,21 @@ struct OwnerValidation {
             }
             return true;
         }
+
+        bool matches_portable(const std::map<std::string, std::string>* current) const
+        {
+            if (!matches(current))
+                return false;
+            // Workflow files are independent of the Project YAML projection.
+            // A prior portable proof must cover the *complete current* loose
+            // workflow inventory, not merely whichever members existed when
+            // its paths were captured.
+            for (auto it = current->lower_bound("workflows/");
+                 it != current->end() && it->first.starts_with("workflows/"); ++it)
+                if (it->second != "absent" && !source_revisions.contains(it->first))
+                    return false;
+            return true;
+        }
     };
     std::mutex mutex;
     std::filesystem::path root;
@@ -208,9 +223,11 @@ Json stage_ledger(const OwnerValidation& state)
                        {"materialEffectiveInputs", state.material_effective}};
     return {{"projection", projection},
             {"portable", {{"inputs", state.portable_check->inputs},
-                           {"paths", state.portable_check->watched_paths}}},
+                           {"paths", state.portable_check->watched_paths},
+                           {"revisions", state.portable_check->source_revisions}}},
             {"notices", {{"inputs", state.notice_check->inputs},
-                          {"paths", state.notice_check->watched_paths}}},
+                          {"paths", state.notice_check->watched_paths},
+                          {"revisions", state.notice_check->source_revisions}}},
             {"materials", *state.material_records}, {"assets", *state.material_assets},
             {"fonts", Json::parse(noveltea::tooling::font_coverage_ledger())},
             {"shaders", state.shader_cache.ledger()}};
@@ -273,7 +290,7 @@ bool restore_stages(OwnerValidation& state, std::string_view serialized, Json& r
         const auto* current = state.session->verified_source_revisions_view();
         if (!current || !state.portable_check ||
             !state.notice_check || !state.font_inputs || !state.material_records ||
-            !state.material_assets || !state.portable_check->matches(current) ||
+            !state.material_assets || !state.portable_check->matches_portable(current) ||
             !state.notice_check->matches(current))
             return false;
         result["fontCoverageInputs"] = *state.font_inputs;
@@ -298,17 +315,25 @@ bool restore_stages(OwnerValidation& state, std::string_view serialized, Json& r
             if (!revisions)
                 throw std::runtime_error("No verified external validation source revision.");
             const auto check = [&](const Json& value) -> OwnerValidation::ExternalCheck {
-                if (!value.is_object() || value.size() != 2 || !value.at("inputs").is_object() ||
-                    !value.at("paths").is_array())
+                if (!value.is_object() || value.size() != 3 || !value.at("inputs").is_object() ||
+                    !value.at("paths").is_array() || !value.at("revisions").is_object())
                     throw std::runtime_error("Malformed external validation ledger.");
                 auto paths = value.at("paths").get<std::set<std::string>>();
-                for (const auto& path : paths)
-                    if (!revisions->contains(path))
-                        throw std::runtime_error("Unproven external ledger source.");
-                return capture_external_check(value.at("inputs"), std::move(paths), *revisions);
+                auto saved = value.at("revisions").get<std::map<std::string, std::string>>();
+                if (saved.size() != paths.size())
+                    throw std::runtime_error("Malformed external validation source proofs.");
+                for (const auto& path : paths) {
+                    const auto current = revisions->find(path);
+                    if (current == revisions->end() || !saved.contains(path) ||
+                        current->second != saved.at(path))
+                        throw std::runtime_error("Stale external validation source proof.");
+                }
+                return {value.at("inputs"), std::move(paths), std::move(saved)};
             };
             const auto portable = check(ledger.at("portable"));
             const auto notices = check(ledger.at("notices"));
+            if (!portable.matches_portable(revisions))
+                throw std::runtime_error("Stale portable workflow membership proof.");
             noveltea::tooling::MaterialShaderValidationCache restored_shaders;
             if (!restored_shaders.restore_ledger(state.root, ledger.at("shaders")) ||
                 !noveltea::tooling::restore_font_coverage_ledger(ledger.at("fonts").dump()))
@@ -937,14 +962,24 @@ Json validate(std::string_view request_text)
     auto record_hits_before = state.session ? state.session->localization_record_cache_hits() : 0;
     auto source_hits_before =
         state.session ? state.session->localization_source_path_cache_hits() : 0;
+    std::string readmission_reason;
     if (state.session) {
         const auto observed = state.session->observe_sources();
-        // The retained validator incrementally handles edits to existing
-        // sources (including Lua), preserving its warm semantic work. A new
-        // or removed source instead changes the inventory and requires fresh
-        // Project admission; otherwise deleted records can remain in the view.
-        if (observed.full_rescan || !observed.authoritative || !observed.delta.added.empty() ||
-            !observed.delta.removed.empty()) {
+        const bool unsafe_external_source = std::any_of(
+            observed.invalid_sources.begin(), observed.invalid_sources.end(),
+            [](const auto& source) {
+                return source.error.find("not contained in the Project") != std::string::npos;
+            });
+        // A proven membership delta is owned by the existing ProjectSession:
+        // its pending source revisions retire removed contributors while the
+        // old reverse edges remain available for impact calculation. A scoped
+        // observation of an invalid source is also sufficient to preserve the
+        // other resident owners and their attributable diagnostics.
+        if (observed.full_rescan || (!observed.authoritative && !observed.scoped_authority) ||
+            unsafe_external_source) {
+            readmission_reason = observed.full_rescan   ? "source-authority-recovery"
+                                 : unsafe_external_source ? "unsafe-external-source"
+                                                          : "source-authority-unproven";
             state.session.reset();
             state.clear_preparations(false, false);
             // The replacement authority starts its scan count at zero.
@@ -952,6 +987,37 @@ Json validate(std::string_view request_text)
             record_hits_before = 0;
             source_hits_before = 0;
         } else {
+            // Portable packaging includes loose watched source families even
+            // when they have no YAML owner. A newly added workflow, for
+            // example, was never in the previous stage's watched_paths and
+            // cannot be detected by comparing only retained source revisions.
+            // Record inventory changes in source-bearing collections can also
+            // change portable/notice inputs on deletion without parsing any
+            // surviving owner. Room/Map and localization membership alone do
+            // not revoke otherwise independent external stages.
+            const auto source_bearing_membership = [](const std::string& path) {
+                if (path.starts_with("i18n/"))
+                    return false;
+                if (!path.starts_with("records/"))
+                    return true;
+                return path.starts_with("records/assets/") ||
+                       path.starts_with("records/animations/") ||
+                       path.starts_with("records/layouts/") ||
+                       path.starts_with("records/materials/") ||
+                       path.starts_with("records/scripts/");
+            };
+            const auto membership_changed = [&](const auto& paths) {
+                return std::any_of(paths.begin(), paths.end(), source_bearing_membership);
+            };
+            if (membership_changed(observed.delta.added) ||
+                membership_changed(observed.delta.removed))
+                state.portable_check.reset();
+            const auto asset_record = [](const std::string& path) {
+                return path.starts_with("records/assets/") && path.ends_with(".yaml");
+            };
+            if (std::any_of(observed.delta.added.begin(), observed.delta.added.end(), asset_record) ||
+                std::any_of(observed.delta.removed.begin(), observed.delta.removed.end(), asset_record))
+                state.notice_check.reset();
             const auto revoke = [&](std::optional<OwnerValidation::ExternalCheck>& cached) {
                 if (!cached)
                     return;
@@ -962,6 +1028,16 @@ Json validate(std::string_view request_text)
                     return false;
                 };
                 for (const auto& path : observed.delta.changed)
+                    if (changed(path)) {
+                        cached.reset();
+                        return;
+                    }
+                for (const auto& path : observed.delta.added)
+                    if (changed(path)) {
+                        cached.reset();
+                        return;
+                    }
+                for (const auto& path : observed.delta.removed)
                     if (changed(path)) {
                         cached.reset();
                         return;
@@ -980,7 +1056,7 @@ Json validate(std::string_view request_text)
             // the next public request. A retained stage must compare the
             // certified revision snapshot, not only this call's event list.
             const auto* current = state.session->verified_source_revisions_view();
-            if (state.portable_check && !state.portable_check->matches(current))
+            if (state.portable_check && !state.portable_check->matches_portable(current))
                 state.portable_check.reset();
             if (state.notice_check && !state.notice_check->matches(current))
                 state.notice_check.reset();
@@ -1016,6 +1092,8 @@ Json validate(std::string_view request_text)
         auto result = response_for(*cold, false, {}, request.value("compactValidationResponse", false));
         result["work"]["coldValidationFallback"] = true;
         result["work"]["semanticFallbackReasons"] = Json::array({"cold-invalid-project-admission"});
+        if (!readmission_reason.empty())
+            result["work"]["semanticFallbackReasons"].push_back(readmission_reason);
         result["work"]["sessionAdmissions"] = state.session_admissions;
 #if NOVELTEA_ENABLE_VALIDATION_COUNTERS
         noveltea::authoring::count_validation_work<
@@ -1046,6 +1124,8 @@ Json validate(std::string_view request_text)
                                request.value("compactValidationResponse", false));
     result["cacheHit"] = validated.cache_hit;
     result["work"]["sessionAdmissions"] = state.session_admissions;
+    if (!readmission_reason.empty())
+        result["work"]["semanticFallbackReasons"].push_back(readmission_reason);
     // A malformed physical source invalidates the mutable session's complete
     // source proof. Return its certified diagnostics without asking for that
     // proof: downstream preparation is only allowed for valid Projects.
@@ -1087,8 +1167,13 @@ Json validate(std::string_view request_text)
             state.session->verified_source_revisions_view() && state.portable_check &&
             state.notice_check && state.font_inputs && state.material_records &&
             state.material_assets;
+        // A failed watcher epoch is not a license to re-admit external stage
+        // results from an older disk ledger, even if the resulting path set
+        // happens to match again (e.g. create, rename, then remove workflow).
+        // Rebuild against the freshly certified physical generation instead.
         if (request.value("includeFontCoverageInputs", false) &&
-            !restore_stages(state, validated.stages_json, result, retain_stage_projections)) {
+            (!readmission_reason.empty() ||
+             !restore_stages(state, validated.stages_json, result, retain_stage_projections))) {
             const auto prepared = [&] {
                 noveltea::authoring::ScopedValidationStageTime<
                     noveltea::authoring::WorkCounter::CompleteProjectPreparationMicros> timed;
@@ -1110,7 +1195,7 @@ Json validate(std::string_view request_text)
                 return portable_inputs(admitted);
             }();
             const bool portable_reuse = state.portable_check &&
-                                        state.portable_check->matches(
+                                        state.portable_check->matches_portable(
                                             state.session->verified_source_revisions_view()) &&
                                         state.portable_check->inputs == portable_key;
             result["work"]["portableSourceReuses"] = portable_reuse ? 1 : 0;

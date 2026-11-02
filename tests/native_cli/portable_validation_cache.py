@@ -179,7 +179,8 @@ with TemporaryDirectory(prefix="noveltea-portable-validation-") as temporary:
     assert work(changed, "portableSourceReuses") == 0, changed["validationWork"]
     renamed = workflows / "renamed.json"
     workflow.rename(renamed)
-    assert work(validate(), "portableSourceReuses") == 0
+    renamed_response = validate()
+    assert work(renamed_response, "portableSourceReuses") == 0, renamed_response["validationWork"]
     renamed.unlink()
     assert work(validate(), "portableSourceReuses") == 0
     with ZipFile(export("workflow-removed.ntproject")) as archive:

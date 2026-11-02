@@ -1,5 +1,37 @@
 # Native Project schema contracts
 
+## Resident disk-validation membership changes (#596)
+
+The CLI's serialized native Project owner retains its existing `ProjectSession`
+across authoritative source additions, deletions, and renames. The session's
+`SourceAuthority` provides the physical inventory and pending exact revisions;
+the resident validator updates YAML owner membership and normalized
+contributions while preserving the previous reverse reference edges through
+impact calculation. Both newly missing and newly present identities invalidate
+their existing consumers. Invalid saved records remain scoped, inspectable
+diagnostic generations and do not require full mutable Project re-admission.
+
+Only unproven source authority or a watcher-coverage recovery requires
+conservative session readmission. The public validation work report attributes
+these cases as `source-authority-unproven` or `source-authority-recovery` in
+`semanticFallbackReasons`; readmission is also visible through
+`sessionAdmissions`. Separately certified physical external stages revoke
+their retained proofs on matching added, removed, or changed source paths;
+portable-source membership changes also revoke a prior portable proof when a
+new loose source (such as a workflow) was not in its former watched path set.
+Persisted portable and notice stage ledgers also retain each watched path's
+exact source revision; restoring a stage against new physical bytes must
+reject that optional cache evidence instead of relabeling it with the new
+generation's revision. A portable proof must cover the entire current
+workflow inventory; a recovered watcher epoch forces new external validation
+even when the inventory returns to a previously observed member set. An Asset
+path that escapes the Project root is a security/admission failure, not an
+inspectable malformed-YAML owner; the daemon must follow the same conservative
+recovery path as cold admission.
+`tests/native_cli/dependency_mutation_certification.py` exercises the public
+daemon and compares exact diagnostics to a fresh direct validation for 2,
+101, and 501 Room inventories, including invalid source and identity repair.
+
 ## Local authoring source-revision expand phase (#578)
 
 Native authoring source revisions are **local byte-identity/CAS tokens**, not

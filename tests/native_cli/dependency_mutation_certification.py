@@ -3,7 +3,7 @@
 Usage: python3 dependency_mutation_certification.py <noveltea> <repo-root>
        [2|101|501|feature-lab ...]
 
-This intentionally remains RED for known broad-invalidation defects (#596-599).
+Some non-membership source-impact scenarios remain RED for #597-599.
 Diagnostic equality is independently checked against a cache-free --no-daemon
 copy. Work contracts (not machine-specific time limits) enforce incrementality.
 """
@@ -204,10 +204,30 @@ with tempfile.TemporaryDirectory(prefix="nt-dependency-mutation-") as directory:
         moved.write_text(template.replace("id: destination", "id: renamed-destination", 1))
         destination.unlink()
         mutation(project, f"{size}:rename-target", expected_valid=False,
+                 owners={"rooms/renamed-destination"},
+                 contributions={"rooms/entry", "rooms/renamed-destination"},
+                 invalidated={"rooms/entry", "rooms/destination", "rooms/renamed-destination"},
                  max_yaml=4, max_reads=10, max_admissions=admission)
         moved.unlink()
         destination.write_text(template)
         mutation(project, f"{size}:undo-rename", expected_valid=True,
+                 owners={"rooms/destination"},
+                 contributions={"rooms/entry", "rooms/destination"},
+                 invalidated={"rooms/entry", "rooms/destination", "rooms/renamed-destination"},
+                 max_yaml=4, max_reads=10, max_admissions=admission)
+
+        # A malformed new physical source is a scoped, attributable diagnostic
+        # generation; it cannot discard the resident graph or force wholesale
+        # mutable admission. Repair must restore the same resident generation.
+        destination.write_text("id: [unterminated\n")
+        mutation(project, f"{size}:invalid-target-yaml", expected_valid=False,
+                 owners={"rooms/destination"},
+                 contributions={"rooms/entry"},
+                 max_yaml=4, max_reads=10, max_admissions=admission)
+        destination.write_text(template)
+        mutation(project, f"{size}:repair-target-yaml", expected_valid=True,
+                 owners={"rooms/destination"},
+                 contributions={"rooms/entry", "rooms/destination"},
                  max_yaml=4, max_reads=10, max_admissions=admission)
 
         # Simultaneous saved-file edits must both participate in the same
@@ -276,16 +296,17 @@ with tempfile.TemporaryDirectory(prefix="nt-dependency-mutation-") as directory:
         independent = project / "records/rooms/added-room.yaml"
         independent.write_text(template.replace("id: destination", "id: added-room", 1))
         mutation(project, f"{size}:add-unreferenced", expected_valid=True,
+                 owners={"rooms/added-room"}, contributions={"rooms/added-room"},
                  max_yaml=3, max_admissions=admission)
         independent.unlink()
         mutation(project, f"{size}:delete-unreferenced", expected_valid=True,
-                 max_yaml=3, max_admissions=admission)
+                 owners=set(), contributions=set(), max_yaml=3, max_admissions=admission)
         duplicate = project / "records/rooms/duplicate-room.yaml"
         duplicate.write_text(template)
-        # An inadmissible duplicate identity may legitimately need cold
-        # diagnostic recovery; ordinary missing references may not.
+        # An inadmissible duplicate identity is also an inspectable resident
+        # diagnostic generation; its repair must not reopen every Room.
         mutation(project, f"{size}:duplicate-id", expected_valid=False,
-                 allow_cold=True)
+                 max_yaml=3, max_admissions=admission)
         duplicate.unlink()
         mutation(project, f"{size}:duplicate-repair", expected_valid=True,
                  max_yaml=3, max_admissions=admission)
