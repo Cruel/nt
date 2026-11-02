@@ -833,6 +833,8 @@ Json response_for(const noveltea::authoring::RoomSessionSnapshot& snapshot, bool
               {"localizationRebuilds", work.localization_rebuilds},
               {"globalStageExecutions", work.global_stage_executions},
               {"globalStageReuses", work.global_stage_reuses},
+              {"spatialOwnerEvaluations", work.spatial_owner_evaluations},
+              {"spatialOwnerReuses", work.spatial_owner_reuses},
               {"diagnosticAssemblies", work.diagnostic_assemblies},
               {"sourceLocationRebuilds", work.source_location_rebuilds},
               {"semanticFallbackReasons", work.semantic_fallback_reasons},

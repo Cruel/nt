@@ -5,6 +5,7 @@
 
 #include <array>
 #include <cmath>
+#include <functional>
 #include <map>
 #include <set>
 #include <stdexcept>
@@ -57,8 +58,9 @@ std::string path_token(std::string_view token)
 
 class SemanticValidation {
 public:
-    explicit SemanticValidation(const Json& project, bool normalized = false)
-        : project_(project), normalized_(normalized)
+    explicit SemanticValidation(const Json& project, bool normalized = false,
+                                SpatialRecordLookup lookup = {})
+        : project_(project), normalized_(normalized), lookup_(std::move(lookup))
     {
     }
 
@@ -119,14 +121,52 @@ public:
         return result;
     }
 
+    ValidationResult run_owner(std::string_view owner, const Json& value)
+    {
+        const auto slash = owner.find('/');
+        if (slash != owner.npos && value.is_object()) {
+            const auto family = owner.substr(0, slash);
+            const auto id = std::string(owner.substr(slash + 1));
+            const auto base = "/" + std::string(family) + "/" + path_token(id);
+            if (const auto* body = field(&value, "data")) {
+                if (family == "rooms")
+                    room(id, *body, base + "/data");
+                else if (family == "maps")
+                    map(id, *body, base + "/data");
+                else if (family == "interactables")
+                    interactable_hotspots(*body, base + "/data/presentation", id);
+            }
+        }
+        ValidationResult result;
+        result.accepted = true;
+        result.diagnostics = std::move(diagnostics_);
+        for (const auto& diagnostic : result.diagnostics)
+            if (diagnostic.severity == "error")
+                result.accepted = false;
+        return result;
+    }
+
 private:
     const Json& project_;
     bool normalized_ = false;
+    SpatialRecordLookup lookup_;
+    mutable std::map<std::string, Json> referenced_records_;
     std::vector<Diagnostic> diagnostics_;
 
     const Json* record(std::string_view collection, std::string_view id) const
     {
-        return field(field(&project_, collection), id);
+        if (const auto* in_project = field(field(&project_, collection), id))
+            return in_project;
+        if (!lookup_)
+            return nullptr;
+        const auto owner = std::string(collection) + "/" + std::string(id);
+        if (const auto cached = referenced_records_.find(owner);
+            cached != referenced_records_.end())
+            return &cached->second;
+        const auto normalized = lookup_(owner);
+        if (normalized.empty())
+            return nullptr;
+        return &referenced_records_.emplace(owner, Json::parse(normalized)).first->second;
     }
 
     const Json* data(std::string_view collection, std::string_view id) const
@@ -915,6 +955,23 @@ ValidationResult validate_normalized_room_map_project(const Json& project)
         if (!project.is_object())
             throw std::runtime_error("Normalized Project must be an object.");
         return SemanticValidation(project, true).run();
+    } catch (const std::exception& error) {
+        ValidationResult invalid;
+        invalid.diagnostics.push_back({"", "project.failure", error.what()});
+        return invalid;
+    }
+}
+
+ValidationResult validate_normalized_room_map_owner(std::string_view owner,
+                                                    std::string_view normalized_json,
+                                                    const Json& project,
+                                                    const SpatialRecordLookup& lookup)
+{
+    try {
+        if (!project.is_object())
+            throw std::runtime_error("Normalized Project must be an object.");
+        return SemanticValidation(project, true, lookup)
+            .run_owner(owner, Json::parse(normalized_json));
     } catch (const std::exception& error) {
         ValidationResult invalid;
         invalid.diagnostics.push_back({"", "project.failure", error.what()});

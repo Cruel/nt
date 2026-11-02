@@ -642,9 +642,32 @@ with dirty editor records preferred. Asset snapshots are cached only while their
 and attachment **membership/containment** proofs stay identical; Layout snapshots include the
 exact current companion RML, RCSS, and Lua contents. Physical media changes propagate from
 `SourceAuthority`'s reverse Asset-reference map to resident validation contributors even if Asset
-YAML remains unchanged. The complete-Project spatial validator consumes already-normalized Room
-and Map data without validating their structural schema again; its independent public entrypoint
-retains full malformed-input checks.
+YAML remains unchanged. The Room/Map/Hotspot spatial validator evaluates deterministic
+**per-owner contributions** from normalized Rooms, Maps, and Interactable Definitions. Native
+validation resolves referenced records lazily from the same resident normalized dependency graph
+used for other semantic contributors, without reconstructing the complete Project. Changed owners
+and typed reverse dependents re-evaluate only their own checks; retained contributors preserve
+diagnostic order (Rooms, Maps, Interactables) and source navigation. Room-local uniqueness,
+placement, Exit, hotspot, Map Connection, and Material checks are owner/edge invariants, not
+Project-wide stages. Named hotspot cursors are the spatial Project-level setting: changing their
+registry conservatively invalidates spatial owners, and that fallback is exposed in work profiles.
+The serialized clean-validation ledger retains each owner's spatial diagnostics; old whole-Project
+spatial ledger shapes are rejected rather than migrated. The independent public entrypoint still
+performs full malformed-input admission, and the complete normalized validator remains available
+as an oracle for differential C++ tests. Public CLI mutation certification at 2, 101, and 501
+Rooms asserts spatial-owner work counts and complete ordered diagnostic/navigation parity; Release
+wall-clock timings are measured separately from these CI work-count gates.
+
+On 2026-11-02, a separate `linux-release` (`-O3`, validation counters enabled)
+`validation_performance.py` run on dev-lawdeep measured median **warm saved-label**
+public CLI time (three requests per fixture): **Feature Lab 24.39 ms**, **1 Room
+5.37 ms**, **101 Rooms 11.05 ms**, **501 Rooms 36.45 ms**. These figures
+include public CLI startup and source proof; they are not measurements of the
+isolated spatial stage and are not CI time gates. The warmed label cases
+reported zero spatial-owner evaluations. A repeat run completed the Feature
+Lab, 1- and 101-Room fixtures, then failed a separate uncached-restart
+record-count assertion at 501 Rooms; that intermittent cache-test failure
+needs independent investigation before treating the numbers as a stable baseline.
 
 Three fresh-process Release runs after the initial integrated changes measured **808–814 ms**
 combined opening and validation (approximately 301–306 ms opening, 504–509 ms validation), with

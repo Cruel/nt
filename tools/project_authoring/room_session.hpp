@@ -243,6 +243,8 @@ public:
         std::size_t localization_rebuilds = 0;
         std::size_t global_stage_executions = 0;
         std::size_t global_stage_reuses = 0;
+        std::size_t spatial_owner_evaluations = 0;
+        std::size_t spatial_owner_reuses = 0;
         std::size_t diagnostic_assemblies = 0;
         std::size_t source_location_rebuilds = 0;
         // Profile-only explanations for conservative semantic work; these do
@@ -567,7 +569,8 @@ private:
     std::map<std::string, std::map<std::string, std::vector<std::string>>>
         validation_reference_consumers_;
     std::set<std::string> validation_invalidated_owners_;
-    std::optional<ValidationResult> validation_room_map_cache_;
+    std::map<std::string, ValidationResult> validation_spatial_contributions_;
+    std::string validation_spatial_cursor_settings_;
     std::map<std::string, std::string> shader_overlays_;
     std::map<std::string, std::string> text_source_overlays_;
     // Baseline at the first unsaved text edit. Source observation may advance

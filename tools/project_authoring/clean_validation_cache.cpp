@@ -61,7 +61,7 @@ std::optional<std::string> read_exact_file(const fs::path& path)
 // Intentionally NOT the TypeScript authoring-cache semantic identity. Native
 // diagnostic semantics must be independently bumped when validation changes.
 constexpr std::string_view kContract = "noveltea.native-clean-validation.v1";
-constexpr std::string_view kSemanticKey = "workspace-v1/native-project-validation-502.2";
+constexpr std::string_view kSemanticKey = "workspace-v1/native-project-validation-597";
 constexpr std::string_view kSemanticFingerprint = NOVELTEA_NATIVE_VALIDATION_FINGERPRINT;
 constexpr std::string_view kRelative = ".noveltea/cache/authoring/native-clean-current.json";
 // Discriminate cached source generations from pre-cutover SHA-256 evidence.
@@ -376,9 +376,18 @@ read_clean_cache(const fs::path& root, const std::map<std::string, std::string>&
         if (resident.is_object()) {
             const auto& spatial = resident.at("spatial");
             const auto& global = resident.at("global");
-            if (!spatial.is_object() || spatial.size() != 2 || !spatial.at("accepted").is_bool() ||
-                !valid_diagnostics(spatial.at("diagnostics")))
+            if (!spatial.is_object() || spatial.size() != 2 ||
+                !spatial.at("cursorSettings").is_string() || !spatial.at("owners").is_object())
                 return std::nullopt;
+            for (const auto& entry : spatial.at("owners").object_range()) {
+                const auto owner = std::string(entry.key());
+                if (!(owner.starts_with("rooms/") || owner.starts_with("maps/") ||
+                      owner.starts_with("interactables/")) ||
+                    !resident.at("contributions").contains(owner) || !entry.value().is_object() ||
+                    entry.value().size() != 2 || !entry.value().at("accepted").is_bool() ||
+                    !valid_diagnostics(entry.value().at("diagnostics")))
+                    return std::nullopt;
+            }
             if (!global.is_null() &&
                 (!global.is_object() || global.size() != 3 || !global.at("inputValid").is_bool() ||
                  !global.at("outputValid").is_bool() ||
@@ -694,7 +703,8 @@ void ProjectSession::revoke_clean_validation()
     validation_reference_consumers_.clear();
     validation_global_contribution_.reset();
     validation_source_locations_.clear();
-    validation_room_map_cache_.reset();
+    validation_spatial_contributions_.clear();
+    validation_spatial_cursor_settings_.clear();
     validation_pending_uncertain_ = true;
 }
 
@@ -719,7 +729,6 @@ ProjectSession::CleanValidation ProjectSession::validate_clean_project(bool init
         // for a clean result. Malformed physical YAML source errors cannot be
         // reconstructed from record sessions and therefore omit this bundle.
         if (!validation_snapshot_ || !validation_source_errors_.empty() ||
-            !validation_room_map_cache_ ||
             validation_contributions_.size() != validation_records_.size())
             return Json::null();
         Json contributors = Json::object();
@@ -751,8 +760,14 @@ ProjectSession::CleanValidation ProjectSession::validate_clean_project(bool init
                 }
         }
         Json spatial = Json::object();
-        spatial["accepted"] = validation_room_map_cache_->accepted;
-        spatial["diagnostics"] = diagnostics_json(validation_room_map_cache_->diagnostics);
+        spatial["cursorSettings"] = validation_spatial_cursor_settings_;
+        spatial["owners"] = Json::object();
+        for (const auto& [owner, contribution] : validation_spatial_contributions_) {
+            auto& saved = spatial["owners"][owner];
+            saved = Json::object();
+            saved["accepted"] = contribution.accepted;
+            saved["diagnostics"] = diagnostics_json(contribution.diagnostics);
+        }
         Json resident = Json::object();
         resident["contributions"] = std::move(contributors);
         resident["spatial"] = std::move(spatial);
@@ -826,11 +841,20 @@ ProjectSession::CleanValidation ProjectSession::validate_clean_project(bool init
                     ValidationContribution{source.at("valid").as<bool>(), false,
                                            parse_diagnostics(source.at("diagnostics"))});
             }
-            if (spatial.size() != 2 || !spatial.at("accepted").is_bool())
+            if (spatial.size() != 2 || !spatial.at("cursorSettings").is_string() ||
+                !spatial.at("owners").is_object())
                 return false;
-            ValidationResult prepared_spatial;
-            prepared_spatial.accepted = spatial.at("accepted").as<bool>();
-            prepared_spatial.diagnostics = parse_diagnostics(spatial.at("diagnostics"));
+            std::map<std::string, ValidationResult> prepared_spatial;
+            for (const auto& entry : spatial.at("owners").object_range()) {
+                const auto owner = std::string(entry.key());
+                const auto& contribution = entry.value();
+                if (!contribution.is_object() || contribution.size() != 2 ||
+                    !contribution.at("accepted").is_bool())
+                    return false;
+                prepared_spatial.emplace(
+                    owner, ValidationResult{contribution.at("accepted").as<bool>(), "",
+                                            parse_diagnostics(contribution.at("diagnostics"))});
+            }
 
             std::map<std::string, std::unique_ptr<RoomSession>> prepared_records;
             std::map<std::string, std::string> prepared_revisions;
@@ -954,7 +978,8 @@ ProjectSession::CleanValidation ProjectSession::validate_clean_project(bool init
             validation_contributions_ = std::move(prepared_contributions);
             validation_normalized_records_ = std::move(prepared_normalized);
             validation_reference_consumers_ = std::move(prepared_consumers);
-            validation_room_map_cache_ = std::move(prepared_spatial);
+            validation_spatial_contributions_ = std::move(prepared_spatial);
+            validation_spatial_cursor_settings_ = spatial.at("cursorSettings").as<std::string>();
             validation_global_contribution_ = std::move(prepared_global);
             validation_source_errors_.clear();
             for (const auto& [owner, record] : validation_records_)
@@ -1018,7 +1043,8 @@ ProjectSession::CleanValidation ProjectSession::validate_clean_project(bool init
         validation_snapshot_.reset();
         validation_source_revisions_.clear();
         validation_contributions_.clear();
-        validation_room_map_cache_.reset();
+        validation_spatial_contributions_.clear();
+        validation_spatial_cursor_settings_.clear();
     }
 
     std::optional<std::map<std::string, std::string>> cache_admission_evidence;

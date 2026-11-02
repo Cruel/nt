@@ -73,6 +73,7 @@ with tempfile.TemporaryDirectory(prefix="nt-dependency-mutation-") as directory:
                  invalidated=None,
                  contributions=None, max_yaml=None, max_reads=None,
                  max_global=None, max_admissions=None, shader_runs=None,
+                 max_spatial=None,
                  allow_cold=False):
         # The resident may temporarily reject a generation during a physical
         # directory rename. Stable bytes must converge without daemon restart.
@@ -122,6 +123,12 @@ with tempfile.TemporaryDirectory(prefix="nt-dependency-mutation-") as directory:
             require(work.get("globalStageExecutions", 10**9) <= max_global,
                     case + ":global-stages",
                     (work.get("globalStageExecutions"), work.get("semanticFallbackReasons")))
+        if max_spatial is not None:
+            require(work.get("spatialOwnerEvaluations", 10**9) <= max_spatial,
+                    case + ":spatial-owner-work",
+                    (work.get("spatialOwnerEvaluations"), work.get("semanticFallbackReasons")))
+            require("spatial-subsystem" not in work.get("semanticFallbackReasons", ()),
+                    case + ":no-whole-spatial-fallback", work.get("semanticFallbackReasons"))
         if max_admissions is not None:
             require(work.get("sessionAdmissions", 10**9) <= max_admissions,
                     case + ":resident-admission", work.get("sessionAdmissions", "<missing>"))
@@ -168,13 +175,14 @@ with tempfile.TemporaryDirectory(prefix="nt-dependency-mutation-") as directory:
         require(admission >= 1, f"{size}:initial-admission", admission)
         # Stable, unchanged warm responses must do no semantic work.
         mutation(project, f"{size}:unchanged", owners=[], contributions=[],
-                 max_yaml=0, max_global=0, max_admissions=admission)
+                 max_yaml=0, max_global=0, max_spatial=0, max_admissions=admission)
 
         entry.write_text(linked.replace("target: destination", "target: absent-room"))
         changed = mutation(project, f"{size}:rewire-to-missing", expected_valid=False,
                            owners={"rooms/entry"}, contributions={"rooms/entry"},
                            invalidated={"rooms/entry"},
-                           max_yaml=1, max_reads=3, max_admissions=admission)
+                           max_yaml=1, max_reads=3, max_spatial=1,
+                           max_admissions=admission)
         require(any(d.get("code") == "reference.missing" and
                     d["path"].startswith("/rooms/entry/") for d in changed["diagnostics"]),
                 f"{size}:missing-exit-diagnostic", changed["diagnostics"][:3])
@@ -182,7 +190,8 @@ with tempfile.TemporaryDirectory(prefix="nt-dependency-mutation-") as directory:
         mutation(project, f"{size}:rewire-repair", expected_valid=True,
                  owners={"rooms/entry"}, contributions={"rooms/entry"},
                  invalidated={"rooms/entry"},
-                 max_yaml=1, max_reads=3, max_admissions=admission)
+                 max_yaml=1, max_reads=3, max_spatial=1,
+                 max_admissions=admission)
 
         # A deletion must affect the old target and its dependent entry,
         # without parsing any of the unrelated 499 Room YAML files.
@@ -190,15 +199,17 @@ with tempfile.TemporaryDirectory(prefix="nt-dependency-mutation-") as directory:
         mutation(project, f"{size}:delete-target", expected_valid=False,
                  owners=set(), contributions={"rooms/entry"},
                  invalidated={"rooms/entry", "rooms/destination"},
-                 max_yaml=4, max_reads=10, max_admissions=admission)
+                 max_yaml=4, max_reads=10, max_spatial=1,
+                 max_admissions=admission)
         mutation(project, f"{size}:unchanged-missing", expected_valid=False,
                  owners=[], contributions=[], max_yaml=0, max_global=0,
-                 max_admissions=admission)
+                 max_spatial=0, max_admissions=admission)
         destination.write_text(template)
         mutation(project, f"{size}:restore-target", expected_valid=True,
                  owners={"rooms/destination"}, contributions={"rooms/entry", "rooms/destination"},
                  invalidated={"rooms/entry", "rooms/destination"},
-                 max_yaml=4, max_reads=10, max_admissions=admission)
+                 max_yaml=4, max_reads=10, max_spatial=2,
+                 max_admissions=admission)
 
         moved = project / "records/rooms/renamed-destination.yaml"
         moved.write_text(template.replace("id: destination", "id: renamed-destination", 1))
@@ -241,6 +252,16 @@ with tempfile.TemporaryDirectory(prefix="nt-dependency-mutation-") as directory:
         destination.write_text(template)
         mutation(project, f"{size}:two-edits-repair", expected_valid=True,
                  max_yaml=2, max_reads=5, max_admissions=admission)
+
+        # Presentation metadata is not a spatial predicate, even when the
+        # edited Room is the target of an unrelated Room's Exit.
+        destination.write_text(template.replace("label:", "label: Presentation ", 1))
+        mutation(project, f"{size}:label-only", expected_valid=True,
+                 owners={"rooms/destination"}, max_spatial=0,
+                 max_admissions=admission)
+        destination.write_text(template)
+        mutation(project, f"{size}:label-repair", expected_valid=True,
+                 max_spatial=0, max_admissions=admission)
 
         if size > 2:
             # Two consumers of one target, with a further Room pointing to
@@ -312,7 +333,7 @@ with tempfile.TemporaryDirectory(prefix="nt-dependency-mutation-") as directory:
                  max_yaml=3, max_admissions=admission)
         print(f"COMPLETE room mutation fixture {size}", flush=True)
 
-    def file_cases():
+    def file_cases(spatial_only=False):
         project = root / "feature-lab"
         shutil.copytree(repo / "tests/projects/feature-lab", project,
                         ignore=shutil.ignore_patterns(".noveltea"))
@@ -320,6 +341,25 @@ with tempfile.TemporaryDirectory(prefix="nt-dependency-mutation-") as directory:
         initial = validate(project)
         require(initial["success"], "feature-lab:baseline", initial["diagnostics"][:3])
         admission = initial["validationWork"].get("sessionAdmissions", 0)
+        # An unrelated Material or Layout label must not evaluate any spatial
+        # owner. Keep this independently selectable from physical source tests.
+        for family, relative in (
+            ("material", "records/materials/lab-invert.yaml"),
+            ("layout", "records/layouts/feature-lab-hud/layout.yaml"),
+        ):
+            path = project / relative
+            source = path.read_text()
+            changed = source.replace("label: ", "label: Certification ", 1)
+            assert changed != source, relative
+            path.write_text(changed)
+            mutation(project, f"feature-lab:{family}-label", expected_valid=True,
+                     max_spatial=0, max_admissions=admission)
+            path.write_text(source)
+            mutation(project, f"feature-lab:{family}-label-repair", expected_valid=True,
+                     max_spatial=0, max_admissions=admission)
+        if spatial_only:
+            print("COMPLETE Feature Lab spatial fixture", flush=True)
+            return
         # Pure text edits have source-owner impact but no reparse of YAML
         # records or Project-wide semantic invalidation.
         for name, relative, edit, expected_shader_runs in (
@@ -341,7 +381,7 @@ with tempfile.TemporaryDirectory(prefix="nt-dependency-mutation-") as directory:
             path.write_text(new)
             mutation(project, f"feature-lab:{name}", expected_valid=True,
                      owners=set(), max_yaml=0, max_reads=12,
-                     max_global=0, max_admissions=admission,
+                     max_global=0, max_spatial=0, max_admissions=admission,
                      shader_runs=expected_shader_runs)
             path.write_text(old)
             mutation(project, f"feature-lab:{name}-repair", expected_valid=True,
@@ -355,7 +395,7 @@ with tempfile.TemporaryDirectory(prefix="nt-dependency-mutation-") as directory:
         stylesheet.write_text(before_style + "\n/* shared CSS mutation */\n")
         mutation(project, "feature-lab:shared-rcss", expected_valid=True,
                  owners=set(), max_yaml=0, max_reads=12,
-                 max_global=0, max_admissions=admission)
+                 max_global=0, max_spatial=0, max_admissions=admission)
         stylesheet.write_text(before_style)
         mutation(project, "feature-lab:shared-rcss-repair", expected_valid=True,
                  max_yaml=0, max_reads=12, max_admissions=admission)
@@ -367,7 +407,7 @@ with tempfile.TemporaryDirectory(prefix="nt-dependency-mutation-") as directory:
         before_script = script.read_text()
         script.write_text(before_script + '\nimport("nonexistent-module")\n')
         mutation(project, "feature-lab:lua-import", owners=set(),
-                 max_yaml=0, max_reads=12, max_global=0,
+                 max_yaml=0, max_reads=12, max_global=0, max_spatial=0,
                  max_admissions=admission)
         script.write_text(before_script)
         mutation(project, "feature-lab:lua-import-repair", expected_valid=True,
@@ -430,13 +470,15 @@ with tempfile.TemporaryDirectory(prefix="nt-dependency-mutation-") as directory:
     selected = set(sys.argv[3:]) if len(sys.argv) > 3 else {
         "2", "101", "501", "feature-lab"
     }
-    assert selected and selected <= {"2", "101", "501", "feature-lab"}, selected
+    assert selected and selected <= {"2", "101", "501", "feature-lab", "feature-lab-spatial"}, selected
     try:
         for size in (2, 101, 501):
             if str(size) in selected:
                 room_cases(size)
         if "feature-lab" in selected:
             file_cases()
+        if "feature-lab-spatial" in selected:
+            file_cases(spatial_only=True)
     finally:
         stop()
 

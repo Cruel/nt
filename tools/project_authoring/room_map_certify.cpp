@@ -1,17 +1,21 @@
 #include "contracts.hpp"
 #include "room_session.hpp"
+#include "room_map_semantics_internal.hpp"
 #include "yaml_codec.hpp"
 
 #include <jsoncons/json.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <map>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace {
 using Json = jsoncons::ojson;
@@ -96,6 +100,52 @@ int main(int argc, char** argv)
             return 0;
         }
         if (mode == "--map-roundtrip" || mode == "--self-test") {
+            if (mode == "--self-test") {
+                Json project = Json::parse(
+                    R"({"rooms":{"entry":{"data":{"presentationSpace":{"size":{"width":800,"height":600}},"exits":[{"id":"east","direction":"east","target":{"$ref":{"id":"destination"}}}]}},"destination":{"data":{"presentationSpace":{"size":{"width":800,"height":600}},"exits":[{"id":"west","direction":"west","target":{"$ref":{"id":"entry"}}}]} }},"maps":{"world":{"data":{"locations":[{"id":"entry","room":{"$ref":{"id":"entry"}}},{"id":"destination","room":{"$ref":{"id":"destination"}}}],"connections":[{"id":"link","exits":[{"room":"entry","exit":"east"},{"room":"destination","exit":"west"}]}]}}}})");
+                std::map<std::string, std::string> records;
+                for (const auto& family : {"rooms", "maps"})
+                    for (const auto& entry : project.at(family).object_range())
+                        records.emplace(std::string(family) + "/" + std::string(entry.key()),
+                                        entry.value().to_string());
+                const auto lookup = [&](std::string_view owner) -> std::string_view {
+                    const auto found = records.find(std::string(owner));
+                    return found == records.end() ? std::string_view{} : found->second;
+                };
+                const auto all = noveltea::authoring::validate_normalized_room_map_project(project);
+                std::vector<noveltea::authoring::Diagnostic> owners;
+                for (const auto& family : {"rooms", "maps"})
+                    for (const auto& entry : project.at(family).object_range()) {
+                        const auto owner = std::string(family) + "/" + std::string(entry.key());
+                        const auto result = noveltea::authoring::validate_normalized_room_map_owner(
+                            owner, records.at(owner), Json::object(), lookup);
+                        owners.insert(owners.end(), result.diagnostics.begin(),
+                                      result.diagnostics.end());
+                    }
+                require(owners.size() == all.diagnostics.size(),
+                        "spatial owner diagnostic count mismatch");
+                for (std::size_t i = 0; i < owners.size(); ++i)
+                    require(owners[i].path == all.diagnostics[i].path &&
+                                owners[i].code == all.diagnostics[i].code &&
+                                owners[i].message == all.diagnostics[i].message &&
+                                owners[i].severity == all.diagnostics[i].severity,
+                            "spatial per-owner diagnostic differs from full Project");
+                records.erase("rooms/destination");
+                const auto missing = noveltea::authoring::validate_normalized_room_map_owner(
+                    "rooms/entry", records.at("rooms/entry"), Json::object(), lookup);
+                require(std::any_of(missing.diagnostics.begin(), missing.diagnostics.end(),
+                                    [](const auto& diagnostic) {
+                                        return diagnostic.code == "reference.missing";
+                                    }),
+                        "deleted Room must revalidate dependent Exit");
+                const auto map_missing = noveltea::authoring::validate_normalized_room_map_owner(
+                    "maps/world", records.at("maps/world"), Json::object(), lookup);
+                require(std::any_of(map_missing.diagnostics.begin(), map_missing.diagnostics.end(),
+                                    [](const auto& diagnostic) {
+                                        return diagnostic.code == "map.connection.room-missing";
+                                    }),
+                        "deleted Room must revalidate dependent Map Connection");
+            }
             const auto source = mode == "--self-test"
                                     ? std::string("# map owner\nid: world\nlabel: World\n"
                                                   "data:\n  locations:\n    - id: foyer\n"

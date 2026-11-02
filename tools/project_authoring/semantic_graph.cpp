@@ -201,8 +201,14 @@ std::vector<std::string> impact_paths(std::string_view role, std::string_view ta
     if (assets.contains(role)) {
         std::vector<std::string> fields;
         for (const char* part : {"/data/source/path", "/data/contentHash", "/data/kind",
-                                 "/data/extension", "/data/sampling"})
+                                 "/data/extension", "/data/sampling", "/data/imageMetadata"})
             fields.push_back(std::string(target) + part);
+        // Hotspot validation follows an Interactable Animation's selected
+        // raster motion and its default motion, not just the Asset kind.
+        if (role == "interactable-visual") {
+            fields.push_back(std::string(target) + "/data/motions");
+            fields.push_back(std::string(target) + "/data/defaultMotionId");
+        }
         return fields;
     }
     if (role == "condition-variable" || role == "variable-ref")
@@ -227,8 +233,9 @@ std::vector<std::string> impact_paths(std::string_view role, std::string_view ta
         return {std::string(target) + "/data/slots", std::string(target) + "/data/offers",
                 std::string(target) + "/data/defaultProgram"};
     if (role == "room-cast-character")
-        return {std::string(target) + "/data/defaults", std::string(target) + "/data/poses",
-                std::string(target) + "/data/expressions", std::string(target) + "/data/idles"};
+        return {std::string(target) + "/data/defaults", std::string(target) + "/data/profiles",
+                std::string(target) + "/data/expressions",
+                std::string(target) + "/data/appearances", std::string(target) + "/data/idles"};
     if (role == "room-compose-script" || role == "room-script-hook")
         return {std::string(target) + "/data/source"};
     if (role == "system-layout" || role == "room-overlay-layout" || role == "room-placement-layout")

@@ -1946,6 +1946,7 @@ RoomSessionSnapshot ProjectSession::validate_project(bool observed_at_entry,
         }
     }
 
+    const auto directly_invalidated_owners = validation_invalidated_owners_;
     if (validation_invalidated_owners_.contains("project") ||
         validation_invalidated_owners_.contains("traits")) {
         if (validation_invalidated_owners_.contains("project"))
@@ -2009,6 +2010,7 @@ RoomSessionSnapshot ProjectSession::validate_project(bool observed_at_entry,
         validation_work_.semantic_fallback_reasons.insert("source-authority-uncertain");
         validation_contributions_.clear();
         validation_global_contribution_.reset();
+        validation_spatial_contributions_.clear();
     }
 #if NOVELTEA_ENABLE_VALIDATION_COUNTERS
     validation_work_.invalidated_owners = validation_invalidated_owners_;
@@ -2103,49 +2105,76 @@ RoomSessionSnapshot ProjectSession::validate_project(bool observed_at_entry,
             result.valid = false;
         }
     }
-    // The Room/Map/Hotspot validator consumes the complete normalized
-    // membership graph, not just records an editor happened to inspect.
+    // Every spatial check is an owner/edge check. Referenced identities and
+    // data are resolved lazily from the already indexed normalized graph;
+    // changed owners and typed reverse dependents are the only rechecks.
     if (!result.normalized_json.empty()) {
-        const bool spatial_changed =
-            !validation_room_map_cache_ || validation_invalidated_owners_.contains("project") ||
-            std::any_of(
-                validation_invalidated_owners_.begin(), validation_invalidated_owners_.end(),
-                [&](const std::string& owner) {
-                    return !presentation_only_updates.contains(owner) &&
-                           (owner.starts_with("rooms/") || owner.starts_with("maps/") ||
-                            owner.starts_with("interactables/") ||
-                            owner.starts_with("characters/") || owner.starts_with("assets/") ||
-                            owner.starts_with("animations/") || owner.starts_with("materials/") ||
-                            owner.starts_with("layouts/") || owner.starts_with("variables/"));
-                });
-        if (spatial_changed) {
-            validation_work_.semantic_fallback_reasons.insert("spatial-subsystem");
-            Json complete = Json::parse(result.normalized_json);
-            for (const auto& [owner, record] : validation_records_) {
-                const auto slash = owner.find('/');
-                if (slash == std::string::npos || owner.starts_with("i18n/"))
-                    continue;
-                const auto normalized = record->snapshot().normalized_json;
-                if (normalized.empty())
-                    continue;
-                const auto family = owner.substr(0, slash);
-                if (!complete.contains(family))
-                    complete[family] = Json::object();
-                complete[family].insert_or_assign(owner.substr(slash + 1), Json::parse(normalized));
-            }
-            validation_room_map_cache_ = validate_normalized_room_map_project(complete);
+        const Json manifest = Json::parse(result.normalized_json);
+        const auto* settings = manifest.contains("settings") ? &manifest.at("settings") : nullptr;
+        const auto* cursors = settings && settings->is_object() && settings->contains("cursors")
+                                  ? &settings->at("cursors")
+                                  : nullptr;
+        const auto cursor_settings = cursors && cursors->is_object() && cursors->contains("named")
+                                         ? cursors->at("named").to_string()
+                                         : std::string("null");
+        const bool cursor_changed = cursor_settings != validation_spatial_cursor_settings_;
+        // Manifest changes widen non-spatial stages to every owner. That does
+        // not make an unrelated entrypoint or title change a spatial input.
+        // If records and the manifest change together, conservatively recheck
+        // spatial owners until that combined transaction has separate closure.
+        const bool manifest_widened = directly_invalidated_owners.contains("project");
+        const bool simultaneous_manifest_edit =
+            manifest_widened && directly_invalidated_owners.size() > 1;
+        if (cursor_changed && !validation_spatial_contributions_.empty())
+            validation_work_.semantic_fallback_reasons.insert("spatial-project-cursor-settings");
+        if (simultaneous_manifest_edit)
+            validation_work_.semantic_fallback_reasons.insert("spatial-concurrent-manifest-edit");
+        validation_spatial_cursor_settings_ = cursor_settings;
+        const SpatialRecordLookup lookup = [&](std::string_view owner) -> std::string_view {
+            const auto found = validation_normalized_records_.find(std::string(owner));
+            return found == validation_normalized_records_.end()
+                       ? std::string_view{}
+                       : std::string_view(found->second.normalized_json);
+        };
+        for (auto it = validation_spatial_contributions_.begin();
+             it != validation_spatial_contributions_.end();) {
+            if (!validation_normalized_records_.contains(it->first))
+                it = validation_spatial_contributions_.erase(it);
+            else
+                ++it;
         }
-        for (const auto& issue : validation_room_map_cache_->diagnostics) {
-            const bool duplicate = std::any_of(result.diagnostics.begin(), result.diagnostics.end(),
-                                               [&](const Diagnostic& previous) {
-                                                   return issue.code == previous.code &&
-                                                          issue.path == previous.path &&
-                                                          issue.severity == previous.severity;
-                                               });
-            if (!duplicate)
-                result.diagnostics.push_back(issue);
-            if (issue.severity == "error")
-                result.valid = false;
+        // Preserve first-writer diagnostic order without quadratic duplicate
+        // scans when many unchanged Rooms retain a warning contribution.
+        std::set<std::tuple<std::string, std::string, std::string>> diagnostic_keys;
+        for (const auto& diagnostic : result.diagnostics)
+            diagnostic_keys.emplace(diagnostic.code, diagnostic.path, diagnostic.severity);
+        for (const auto& family : {"rooms/", "maps/", "interactables/"}) {
+            // Ordered prefix ranges avoid scanning unrelated normalized
+            // records; diagnostic publication still visits cached owners.
+            for (auto it = validation_normalized_records_.lower_bound(family);
+                 it != validation_normalized_records_.end() && it->first.starts_with(family);
+                 ++it) {
+                const auto& [owner, indexed] = *it;
+                if (indexed.normalized_json.empty())
+                    continue;
+                const bool cached = validation_spatial_contributions_.contains(owner);
+                if (!cached || cursor_changed || simultaneous_manifest_edit ||
+                    ((!manifest_widened || directly_invalidated_owners.contains(owner)) &&
+                     validation_invalidated_owners_.contains(owner) &&
+                     !presentation_only_updates.contains(owner))) {
+                    validation_spatial_contributions_.insert_or_assign(
+                        owner, validate_normalized_room_map_owner(owner, indexed.normalized_json,
+                                                                  manifest, lookup));
+                    ++validation_work_.spatial_owner_evaluations;
+                } else
+                    ++validation_work_.spatial_owner_reuses;
+                for (const auto& issue : validation_spatial_contributions_.at(owner).diagnostics) {
+                    if (diagnostic_keys.emplace(issue.code, issue.path, issue.severity).second)
+                        result.diagnostics.push_back(issue);
+                    if (issue.severity == "error")
+                        result.valid = false;
+                }
+            }
         }
     }
     // Attach navigation to the actual YAML owner, not to the last edited
@@ -3507,7 +3536,8 @@ SourceObservation ProjectSession::observe_sources()
         validation_snapshot_.reset();
         validation_source_revisions_.clear();
         validation_contributions_.clear();
-        validation_room_map_cache_.reset();
+        validation_spatial_contributions_.clear();
+        validation_spatial_cursor_settings_.clear();
         validation_normalized_records_.clear();
         validation_reference_consumers_.clear();
     }
