@@ -138,54 +138,70 @@ std::string serialize_stage_ledger(const OwnerValidation& state)
     return serialized;
 }
 
-bool restore_stages(OwnerValidation& state, std::string_view serialized, Json& result)
+bool restore_stages(OwnerValidation& state, std::string_view serialized, Json& result,
+                    bool retain_resident = false)
 {
-    if (serialized.empty())
-        return false;
-    try {
-        const auto ledger = Json::parse(serialized);
-        if (!ledger.is_object() || ledger.size() != 7 ||
-            !ledger.at("projection").is_object() || ledger.at("projection").size() != 3 ||
-            !ledger.at("materials").is_object() || !ledger.at("assets").is_object())
-            throw std::runtime_error("Malformed external validation ledger.");
-        const auto& projection = ledger.at("projection");
-        if (!projection.at("fontCoverageInputs").is_array() ||
-            !projection.at("materialCompilerPrograms").is_object() ||
-            !projection.at("materialEffectiveInputs").is_object())
-            throw std::runtime_error("Malformed external validation projection.");
-        const auto* revisions = state.session->verified_source_revisions_view();
-        if (!revisions)
-            throw std::runtime_error("No verified external validation source revision.");
-        const auto check = [&](const Json& value) -> OwnerValidation::ExternalCheck {
-            if (!value.is_object() || value.size() != 2 || !value.at("inputs").is_object() ||
-                !value.at("paths").is_array())
+    if (retain_resident) {
+        // An unchanged semantic generation or certified presentation-only
+        // Room/Map edit cannot modify the portable, notice, Material or
+        // localization source projections.
+        // All retained external paths must still have their watcher proofs;
+        // font and shader byte proofs are checked by their own stages below.
+        if (!external_watcher_cache_supported || !state.portable_check || !state.notice_check ||
+            !state.font_inputs || !state.material_records || !state.material_assets)
+            return false;
+        result["fontCoverageInputs"] = *state.font_inputs;
+        result["materialCompilerPrograms"] = state.material_programs;
+        result["materialEffectiveInputs"] = state.material_effective;
+        result["work"]["retainedStageProjections"] = 1;
+    } else {
+        if (serialized.empty())
+            return false;
+        try {
+            const auto ledger = Json::parse(serialized);
+            if (!ledger.is_object() || ledger.size() != 7 ||
+                !ledger.at("projection").is_object() || ledger.at("projection").size() != 3 ||
+                !ledger.at("materials").is_object() || !ledger.at("assets").is_object())
                 throw std::runtime_error("Malformed external validation ledger.");
-            auto paths = value.at("paths").get<std::set<std::string>>();
-            for (const auto& path : paths)
-                if (!revisions->contains(path))
-                    throw std::runtime_error("Unproven external ledger source.");
-            return {value.at("inputs"), std::move(paths)};
-        };
-        const auto portable = check(ledger.at("portable"));
-        const auto notices = check(ledger.at("notices"));
-        noveltea::tooling::MaterialShaderValidationCache restored_shaders;
-        if (!restored_shaders.restore_ledger(state.root, ledger.at("shaders")) ||
-            !noveltea::tooling::restore_font_coverage_ledger(ledger.at("fonts").dump()))
-            throw std::runtime_error("Malformed font or shader validation evidence.");
-        state.shader_cache = std::move(restored_shaders);
-        state.portable_check = portable;
-        state.notice_check = notices;
-        state.material_records = ledger.at("materials");
-        state.material_assets = ledger.at("assets");
-        state.material_programs = projection.at("materialCompilerPrograms");
-        state.material_effective = projection.at("materialEffectiveInputs");
-        state.font_inputs = projection.at("fontCoverageInputs");
-        result.update(projection);
-    } catch (...) {
-        // An optional, stale or malformed persisted stage cannot revoke
-        // otherwise proven resident Material/shader candidates. The fallback
-        // below rechecks every candidate against its exact current inputs.
-        return false;
+            const auto& projection = ledger.at("projection");
+            if (!projection.at("fontCoverageInputs").is_array() ||
+                !projection.at("materialCompilerPrograms").is_object() ||
+                !projection.at("materialEffectiveInputs").is_object())
+                throw std::runtime_error("Malformed external validation projection.");
+            const auto* revisions = state.session->verified_source_revisions_view();
+            if (!revisions)
+                throw std::runtime_error("No verified external validation source revision.");
+            const auto check = [&](const Json& value) -> OwnerValidation::ExternalCheck {
+                if (!value.is_object() || value.size() != 2 || !value.at("inputs").is_object() ||
+                    !value.at("paths").is_array())
+                    throw std::runtime_error("Malformed external validation ledger.");
+                auto paths = value.at("paths").get<std::set<std::string>>();
+                for (const auto& path : paths)
+                    if (!revisions->contains(path))
+                        throw std::runtime_error("Unproven external ledger source.");
+                return {value.at("inputs"), std::move(paths)};
+            };
+            const auto portable = check(ledger.at("portable"));
+            const auto notices = check(ledger.at("notices"));
+            noveltea::tooling::MaterialShaderValidationCache restored_shaders;
+            if (!restored_shaders.restore_ledger(state.root, ledger.at("shaders")) ||
+                !noveltea::tooling::restore_font_coverage_ledger(ledger.at("fonts").dump()))
+                throw std::runtime_error("Malformed font or shader validation evidence.");
+            state.shader_cache = std::move(restored_shaders);
+            state.portable_check = portable;
+            state.notice_check = notices;
+            state.material_records = ledger.at("materials");
+            state.material_assets = ledger.at("assets");
+            state.material_programs = projection.at("materialCompilerPrograms");
+            state.material_effective = projection.at("materialEffectiveInputs");
+            state.font_inputs = projection.at("fontCoverageInputs");
+            result.update(projection);
+        } catch (...) {
+            // An optional, stale or malformed persisted stage cannot revoke
+            // otherwise proven resident Material/shader candidates. The fallback
+            // below rechecks every candidate against its exact current inputs.
+            return false;
+        }
     }
     result["work"]["portableSourceReuses"] = 1;
     result["work"]["noticeValidationReuses"] = 1;
@@ -913,8 +929,27 @@ Json validate(std::string_view request_text)
         // Do not force a second complete shader/runtime preparation for it.
         result["entrypointConfigured"] =
             effective.contains("entrypoint") && !effective.at("entrypoint").is_null();
+        // A certified unchanged semantic generation, or a presentation-only
+        // Room/Map update whose global contribution was reused, cannot modify
+        // these downstream input projections. Reuse the *resident* proofs
+        // rather than reassembling/serializing the entire Project. The watcher
+        // separately revokes portable/notice paths changed outside semantics.
+        const bool unchanged_semantics = semantic_work.rechecked_records == 0 &&
+            semantic_work.rechecked_contributions == 0 &&
+            semantic_work.reference_indexed_records == 0 &&
+            semantic_work.localization_rebuilds == 0 &&
+            semantic_work.global_stage_executions == 0;
+        const bool presentation_only = semantic_work.rechecked_records != 0 &&
+            semantic_work.global_stage_reuses == 1 &&
+            semantic_work.global_stage_executions == 0 &&
+            semantic_work.localization_rebuilds == 0;
+        const bool retain_stage_projections = external_watcher_cache_supported &&
+            !validated.cache_hit && (unchanged_semantics || presentation_only) &&
+            state.portable_check &&
+            state.notice_check && state.font_inputs && state.material_records &&
+            state.material_assets;
         if (request.value("includeFontCoverageInputs", false) &&
-            !restore_stages(state, validated.stages_json, result)) {
+            !restore_stages(state, validated.stages_json, result, retain_stage_projections)) {
             const auto prepared = [&] {
                 noveltea::authoring::ScopedValidationStageTime<
                     noveltea::authoring::WorkCounter::CompleteProjectPreparationMicros> timed;

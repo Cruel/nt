@@ -69,6 +69,10 @@ enum class WorkCounter : std::size_t {
     ShaderBytesHashed,
     GenerationAssetBytesRead,
     GenerationAssetBytesHashed,
+    CompleteProjectPreparations,
+    CompleteProjectPhysicalProjections,
+    CompleteProjectSerializationMicros,
+    CompleteProjectBytesSerialized,
     Count
 };
 
@@ -169,7 +173,11 @@ public:
             "shaderBytesRead",
             "shaderBytesHashed",
             "generationAssetBytesRead",
-            "generationAssetBytesHashed"};
+            "generationAssetBytesHashed",
+            "completeProjectPreparations",
+            "completeProjectPhysicalProjections",
+            "completeProjectSerializationMicros",
+            "completeProjectBytesSerialized"};
         std::array<std::pair<std::string_view, std::size_t>, work_counter_count> result{};
         for (std::size_t index = 0; index < names.size(); ++index)
             result[index] = {names[index], value(index)};

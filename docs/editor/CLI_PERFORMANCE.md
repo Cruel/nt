@@ -682,6 +682,41 @@ or updated for downstream font/material preparation. The historical
 the number of records rebuilt, so it must not be used alone as evidence of
 whole-Project recomputation.
 
+The reopened #586 follow-up also retains downstream stage projections for
+source-proven unchanged generations and presentation-only Room/Map edits. On
+Linux, the native semantic validator's unchanged work or global-contribution
+reuse proves that no semantic or localization input changed; the resident owner
+reuses its independently watched stage inputs instead of assembling and
+JSON-parsing a complete Project. Font and shader stages continue verifying
+their own physical evidence and final source-generation fences are unchanged.
+Missing watcher evidence, other semantic edits, and cold/direct admissions
+fall back to normal preparation. `retainedStageProjections` identifies this
+path. `endToEnd.completeProjectPreparations`,
+`completeProjectPhysicalProjections`, `completeProjectSerializationMicros`,
+and `completeProjectBytesSerialized` distinguish complete preparation calls,
+physical contributor projection, JSON serialization time, and bytes. All are
+zero for a proven retained-stage edit; `completeProjectProjected` alone does
+not prove that a complete JSON result was avoided.
+
+The separate [reopened #586 Release profile](performance/baselines/validation-2026-11-01-586-reopened.json)
+uses the same reference host, 83-sample #577 workload, Release CLI and
+Release Node-API addon, cache protocol, and diagnostic fingerprints. Warm
+saved-label medians in milliseconds are **#577 baseline → #594 preceding
+certification → reopened #586**: Feature Lab **323.31 → 207.89 → 118.13**,
+1 Room **13.17 → 10.47 → 9.81**, 101 Rooms **45.22 → 26.11 → 20.70**, and
+501 Rooms **167.99 → 89.74 → 68.47**. Unchanged warm medians are respectively
+**328.37 → 199.75 → 116.93**, **13.05 → 9.14 → 9.73**,
+**38.86 → 25.55 → 19.01**, and **152.07 → 107.82 → 60.03**. All 67
+comparable public diagnostic fingerprints match the preceding certification.
+Every sampled Linux warm saved-label edit reused retained stage projections
+with **zero** complete preparation calls, physical projections, complete
+Project serialization bytes/time, or portable source rechecks; a cold first
+validation still performs full preparation. These end-to-end timings reflect
+all changes since the fixed #577 baseline and are not CI latency thresholds.
+Native Windows and macOS optimization/certification is not established by
+these Linux measurements; without proved external watcher reuse the source
+stages retain their conservative preparation path.
+
 The [#586 matched Release comparison](performance/baselines/validation-2026-10-31-retained-diagnostics.json)
 records 67/67 matching diagnostic fingerprints (from 83 total samples, 16
 editor work-only) against the untouched #577 baseline, Release CLI/addon

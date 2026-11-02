@@ -130,6 +130,9 @@ with tempfile.TemporaryDirectory(prefix="noveltea-incremental-certify-") as dire
         # proof between warm requests. Other hosts conservatively rerun it.
         if sys.platform.startswith("linux"):
             assert end["portableSourceChecks"] == 0, end
+            for key in ("completeProjectPreparations", "completeProjectPhysicalProjections",
+                        "completeProjectSerializationMicros", "completeProjectBytesSerialized"):
+                assert end[key] == 0, (key, end)
 
     def set_label(path, value):
         source = path.read_text()
@@ -163,6 +166,8 @@ with tempfile.TemporaryDirectory(prefix="noveltea-incremental-certify-") as dire
             # Arming a quiet-window cache write must not construct or serialize
             # external stage evidence on the public validation request.
             initial_work = initial["validationWork"]["endToEnd"]
+            assert initial_work["completeProjectPreparations"] > 0, (size, initial_work)
+            assert initial_work["completeProjectBytesSerialized"] > 0, (size, initial_work)
             assert initial_work["stageLedgerSerializations"] == 0, (size, initial_work)
             assert initial_work["stageLedgerBytesSerialized"] == 0, (size, initial_work)
             assert initial_work["stageLedgerConstructionMicros"] == 0, (size, initial_work)
@@ -190,6 +195,16 @@ with tempfile.TemporaryDirectory(prefix="noveltea-incremental-certify-") as dire
                 # deliberately retain conservative full-byte verification.
                 physical = saved["validationWork"]["endToEnd"]
                 if sys.platform.startswith("linux"):
+                    # One presentation-only owner cannot change any external
+                    # stage's keyed inputs. No complete Project preparation,
+                    # projection or JSON serialization is permitted here.
+                    assert work(saved, "retainedStageProjections") == 1, (size, saved)
+                    for key in ("completeProjectPreparations",
+                                "completeProjectPhysicalProjections",
+                                "completeProjectSerializationMicros",
+                                "completeProjectBytesSerialized", "fullResultAssemblies",
+                                "completeProjectPreparationMicros"):
+                        assert physical[key] == 0, (size, key, physical)
                     assert physical["fontProofReads"] == 0, (size, physical)
                     assert physical["fontProofHashes"] == 0, (size, physical)
                     assert physical["fontBytesRead"] == 0, (size, physical)

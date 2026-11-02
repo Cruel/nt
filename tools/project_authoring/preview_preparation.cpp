@@ -305,6 +305,7 @@ ProjectSession::WorkingPreparation
 ProjectSession::prepare_complete_working(std::uint64_t expected_revision, std::string_view test_id,
                                          bool reuse_clean_validation, bool defer_final_observation)
 {
+    count_validation_work<WorkCounter::CompleteProjectPreparations>();
     WorkingPreparation prepared;
     prepared.working_revision = working_revision_;
     if (expected_revision != working_revision_) {
@@ -415,6 +416,7 @@ ProjectSession::prepare_complete_working(std::uint64_t expected_revision, std::s
                 continue;
             }
             ++cache->projected;
+            count_validation_work<WorkCounter::CompleteProjectPhysicalProjections>();
             if (owner == "traits" || owner == "editor") {
                 complete.insert_or_assign(owner, Json::parse(record.normalized_json));
             } else if (!owner.starts_with("i18n/")) {
@@ -510,7 +512,12 @@ ProjectSession::prepare_complete_working(std::uint64_t expected_revision, std::s
         collect_runtime_asset_references(complete, "", runtime_assets);
         prepared.referenced_asset_ids = std::move(runtime_assets);
         count_validation_work<WorkCounter::FullResultAssemblies>();
-        prepared.complete_project_json = complete.to_string();
+        {
+            ScopedValidationStageTime<WorkCounter::CompleteProjectSerializationMicros> timed;
+            prepared.complete_project_json = complete.to_string();
+        }
+        count_validation_work<WorkCounter::CompleteProjectBytesSerialized>(
+            prepared.complete_project_json.size());
         cache->validation_generation = validation_generation_;
         complete_project_cache_ = std::move(cache);
     } catch (const std::exception& error) {
