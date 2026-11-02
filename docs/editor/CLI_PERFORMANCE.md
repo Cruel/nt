@@ -510,6 +510,56 @@ should report zero `materialShaderPreparations`, zero `shaderCompileRuns`,
 and zero `materialInterfaceValidations`, while
 still proving the relevant binary outputs before publishing diagnostics.
 Focused coverage is `native_cli_shader_validation_cache`.
+
+**Reopened #588 output-proof follow-up:** The former path entered shader
+validation on an unrelated saved Room-label edit. Feature Lab still performed
+48 output proofs plus materialized-engine dependency proofs (70 physical
+SHA-256 reads/hashes, 37,536 bytes, and a measured 2,867 µs shader-validation
+median), even with no compiler runs. A *resident-only* certified stage now
+holds compiler results and Material interface diagnostics against its exact
+effective Material/program inputs and compiler-recorded transitive Project
+source revisions. On Linux a separate inotify fence watches every verified
+binary and engine-copy inode (including writes via hard links) and every path
+ancestor (including replacements). On Windows the NTFS USN journal monitors
+the generated-artifact tree and disqualifies hard-linked or unsupported
+filesystems; on macOS, where the existing FSEvents path watch cannot prove
+external hard-link writes, the full SHA-256 path remains mandatory. A source
+dependency edit, artifact event, lost proof/monitor coverage, root change or
+offline ledger restore falls back to the canonical shader validator. The
+watch is armed **before** a fresh SHA-256 certification and fenced after;
+metadata alone never authorizes reuse. The resident proof is not serialized.
+The normal compiler cache still independently proves physical outputs and
+engine copies on every miss. `shaderValidationCalls` now counts actual cache
+invocations, `shaderStageReuses` counts whole-stage reuse, and
+`shaderProofReads`/`shaderProofHashes` count the physical output and engine
+proofs (including first-time stage certification). `shaderOutputProofs` counts
+the output portion only. Source-generation/publication fences remain separate.
+The focused test covers an unrelated Room and Material label edit and a
+same-size, restored-mtime binary tamper; no cross-host acceleration claim is
+made without native host certification. The test also corrupts a materialized
+engine `varying.def.sc` dependency with restored timestamps and verifies that
+the original diagnostic output survives both recovery paths.
+
+The separate matched Release CLI/addon result is
+`performance/baselines/validation-2026-11-01-588-reopened.json`, run on the
+same Ryzen 7 5700G reference host with the unchanged #577 harness and the
+same disposable fixture/cache protocol. Its **67/67 comparable public
+diagnostic fingerprints match** the immutable October 31 reference. For
+Feature Lab's warm saved Room-label edit the median changes from **323.31 ms
+(#577) to 106.51 ms (current)**; unchanged resident validation from
+**328.37 to 104.98 ms**. The 1-, 101-, and 501-Room saved-label medians are
+respectively **13.17 → 11.09**, **45.22 → 20.65**, and **167.99 → 73.33 ms**.
+These are *cumulative* effects of all intervening validation optimizations,
+not an isolated #588 time saving or CI latency threshold. On each of the
+three Feature Lab warm-label samples, `shaderValidationCalls=0`,
+`shaderStageReuses=1`, `shaderOutputProofs=0`, and the request-scoped physical
+`shaderProofReads=shaderProofHashes=shaderBytesRead=shaderBytesHashed=0`.
+`shaderValidationMicros=0`, `shaderCompileRuns=0`, and Material preparations
+and reflected-interface validations also remain zero. First-time compiler
+output admission and any invalidated stage still use the original physical
+SHA-256 checks; avoiding these reads applies only to a healthy, already
+certified resident artifact generation.
+
 The test also changes saved Material YAML: an explorer-label-only edit,
 an inherited parameter value, a fragment-source switch to an existing or
 new shader program, and a missing Material shader reference followed by

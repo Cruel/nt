@@ -5,6 +5,8 @@
 #include <cstddef>
 #include <filesystem>
 #include <map>
+#include <memory>
+#include <optional>
 #include <string>
 
 namespace noveltea::tooling {
@@ -14,6 +16,18 @@ namespace noveltea::tooling {
 // Restored evidence passes the same exact input/output proofs as resident hits.
 class MaterialShaderValidationCache {
 public:
+    MaterialShaderValidationCache();
+    ~MaterialShaderValidationCache();
+    MaterialShaderValidationCache(MaterialShaderValidationCache&&) noexcept;
+    MaterialShaderValidationCache& operator=(MaterialShaderValidationCache&&) noexcept;
+    MaterialShaderValidationCache(const MaterialShaderValidationCache&) = delete;
+    MaterialShaderValidationCache& operator=(const MaterialShaderValidationCache&) = delete;
+
+    struct Stage {
+        nlohmann::json compiled;
+        nlohmann::json reflections;
+    };
+
     struct Work {
         std::size_t compiler_runs = 0;
         std::size_t reused_programs = 0;
@@ -27,13 +41,20 @@ public:
                             const std::map<std::string, std::string>& source_revisions, Work& work);
     nlohmann::json reflected_materials(const nlohmann::json& compiled,
                                        const nlohmann::json& effective_materials, Work& work);
+    // Resident-only fast path. A persisted ledger never imports this evidence.
+    std::optional<Stage> reuse_certified_stage(
+        const std::filesystem::path& root, const nlohmann::json& material_programs,
+        const nlohmann::json& effective_materials,
+        const std::map<std::string, std::string>& source_revisions);
+    void certify_stage(const std::filesystem::path& root,
+                       const nlohmann::json& material_programs,
+                       const nlohmann::json& effective_materials,
+                       const std::map<std::string, std::string>& source_revisions,
+                       const Stage& stage, Work& work);
     nlohmann::json ledger() const;
     bool restore_ledger(const std::filesystem::path& root, const nlohmann::json& snapshot);
-    void clear()
-    {
-        entries_.clear();
-        reflection_entries_.clear();
-    }
+    void discard_certified_stage();
+    void clear();
 
 private:
     struct Entry {
@@ -49,6 +70,15 @@ private:
 
     std::map<std::string, Entry> entries_;
     std::map<std::string, ReflectionEntry> reflection_entries_;
+    struct ArtifactProof;
+    struct CertifiedStage {
+        nlohmann::json programs;
+        nlohmann::json effective;
+        std::map<std::string, std::string> dependencies;
+        Stage result;
+    };
+    std::optional<CertifiedStage> certified_stage_;
+    std::unique_ptr<ArtifactProof> artifact_proof_;
 };
 
 // One shared projection for both explicit shader commands and resident

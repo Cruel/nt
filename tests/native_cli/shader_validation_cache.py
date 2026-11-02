@@ -40,6 +40,29 @@ with TemporaryDirectory(prefix="noveltea-shader-validation-") as temporary:
     def signature(response):
         return response["diagnostics"]
 
+    def assert_idle_stage(response):
+        assert work(response, "shaderCompileRuns") == 0, response["validationWork"]
+        stage_reuse = work(response, "shaderStageReuses")
+        assert stage_reuse in (0, 1), response["validationWork"]
+        # Linux has inode + parent-directory inotify coverage. Windows may
+        # lack the required NTFS journal privileges/filesystem; macOS's
+        # FSEvents cannot prove external hard-link writes. In either case a
+        # conservative SHA-256 fallback must remain a supported path.
+        if sys.platform.startswith("linux"):
+            assert stage_reuse == 1, response["validationWork"]
+        if sys.platform == "darwin":
+            assert stage_reuse == 0, response["validationWork"]
+        proofs = response["validationWork"]["endToEnd"]
+        if stage_reuse:
+            assert work(response, "shaderValidationCalls") == 0, response["validationWork"]
+            assert work(response, "shaderOutputProofs") == 0, response["validationWork"]
+            assert proofs["shaderProofReads"] == proofs["shaderProofHashes"] == 0
+            assert proofs["shaderBytesRead"] == proofs["shaderBytesHashed"] == 0
+        else:
+            assert work(response, "shaderValidationCalls") == 1, response["validationWork"]
+            assert proofs["shaderProofReads"] > 0, response["validationWork"]
+            assert proofs["shaderProofHashes"] > 0, response["validationWork"]
+
     shader = project / "shaders/lab-invert.fs.sc"
     common = project / "shaders/memo-common.sh"
     nested = project / "shaders/memo-nested.inc"
@@ -51,13 +74,12 @@ with TemporaryDirectory(prefix="noveltea-shader-validation-") as temporary:
 
     first = validate()
     assert work(first, "shaderCompileRuns") > 0, first["validationWork"]
+    assert first["validationWork"]["endToEnd"]["shaderProofReads"] > 0
     initial_diagnostics = signature(first)
     warm = validate()
-    assert work(warm, "shaderCompileRuns") == 0, warm["validationWork"]
-    assert work(warm, "shaderProgramsReused") > 0
+    assert_idle_stage(warm)
     assert work(warm, "materialInputReuses") == 1
     assert work(warm, "materialInterfaceValidations") == 0
-    assert work(warm, "materialInterfaceReuses") > 0
     assert signature(warm) == initial_diagnostics
     assert signature(validate(local=True)) == initial_diagnostics
 
@@ -66,7 +88,7 @@ with TemporaryDirectory(prefix="noveltea-shader-validation-") as temporary:
     room.write_text(room.read_text().replace(
         "label: Feature Lab Home", "label: Feature Lab Home - cache check"))
     label = validate()
-    assert work(label, "shaderCompileRuns") == 0, label["validationWork"]
+    assert_idle_stage(label)
     assert work(label, "materialInputReuses") == 1
     assert work(label, "materialInterfaceValidations") == 0
     assert label["validationWork"]["endToEnd"]["materialShaderPreparations"] == 0
@@ -102,11 +124,32 @@ with TemporaryDirectory(prefix="noveltea-shader-validation-") as temporary:
     # newest emitted binary, not a stale output no current program references.
     target = max((p for p in binaries if p.stat().st_size),
                  key=lambda p: p.stat().st_mtime_ns)
+    original_mtime = target.stat().st_mtime_ns
     target.write_bytes(b"\xA5" * target.stat().st_size)
+    os.utime(target, ns=(original_mtime, original_mtime))
     corrupt = validate()
     assert work(corrupt, "shaderCompileRuns") >= 1, corrupt["validationWork"]
+    assert work(corrupt, "shaderValidationCalls") == 1, corrupt["validationWork"]
+    assert work(corrupt, "shaderStageReuses") == 0, corrupt["validationWork"]
+    assert corrupt["validationWork"]["endToEnd"]["shaderProofReads"] > 0, corrupt["validationWork"]
     assert signature(corrupt) == initial_diagnostics
     assert work(validate(), "shaderCompileRuns") == 0
+
+    # The extra SHA-256 reads beyond emitted binaries cover materialized
+    # engine includes. Their physical bytes must also revoke stage reuse.
+    includes = list((project / ".noveltea/cache/toolchain/noveltea-shaders").rglob(
+        "varying.def.sc"))
+    assert includes, "Expected the compiler's materialized varying definition"
+    include = includes[0]
+    include_bytes = include.read_bytes()
+    include_mtime = include.stat().st_mtime_ns
+    include.write_bytes(bytes([include_bytes[0] ^ 1]) + include_bytes[1:])
+    os.utime(include, ns=(include_mtime, include_mtime))
+    damaged_include = validate()
+    assert work(damaged_include, "shaderValidationCalls") == 1, damaged_include["validationWork"]
+    assert work(damaged_include, "shaderStageReuses") == 0, damaged_include["validationWork"]
+    assert damaged_include["validationWork"]["endToEnd"]["shaderProofReads"] > 0
+    assert signature(damaged_include) == initial_diagnostics
 
     # A saved Material label is not a codegen or reflected-interface input.
     # This must not turn into shader compilation just because Material YAML
@@ -117,7 +160,7 @@ with TemporaryDirectory(prefix="noveltea-shader-validation-") as temporary:
         "label: Premultiplied green grade",
         "label: Premultiplied green grade (renamed)"))
     material_label = validate()
-    assert work(material_label, "shaderCompileRuns") == 0, material_label["validationWork"]
+    assert_idle_stage(material_label)
     assert work(material_label, "materialInputReuses") == 1
     assert work(material_label, "materialInterfaceValidations") == 0
     assert material_label["validationWork"]["endToEnd"]["materialShaderPreparations"] == 0

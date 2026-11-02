@@ -92,6 +92,8 @@ struct OwnerValidation {
         notice_check.reset();
         if (clear_shaders)
             shader_cache.clear();
+        else
+            shader_cache.discard_certified_stage();
     }
 };
 
@@ -128,6 +130,36 @@ std::string serialize_stage_ledger(const OwnerValidation& state)
     noveltea::authoring::count_validation_work<
         noveltea::authoring::WorkCounter::StageLedgerBytesSerialized>(serialized.size());
     return serialized;
+}
+
+void validate_material_stage(OwnerValidation& state, const std::filesystem::path& root,
+                             const Json& programs, const Json& effective,
+                             const std::map<std::string, std::string>& revisions, Json& result)
+{
+    noveltea::tooling::MaterialShaderValidationCache::Work shader_work;
+    const auto stage = state.shader_cache.reuse_certified_stage(root, programs, effective, revisions);
+    result["work"]["shaderStageReuses"] = stage ? 1 : 0;
+    result["work"]["shaderValidationCalls"] = stage ? 0 : 1;
+    result["materialCompilerResult"] = stage ? stage->compiled : [&] {
+        noveltea::authoring::ScopedValidationStageTime<
+            noveltea::authoring::WorkCounter::ShaderValidationMicros> timed;
+        return state.shader_cache.validate(root, programs, revisions, shader_work);
+    }();
+    const auto& compiled = result.at("materialCompilerResult");
+    if (compiled.value("ok", false) && compiled.value("success", false)) {
+        result["materialReflectionDiagnostics"] =
+            stage ? stage->reflections
+                  : state.shader_cache.reflected_materials(compiled, effective, shader_work);
+        if (!stage)
+            state.shader_cache.certify_stage(root, programs, effective, revisions,
+                                            {compiled, result.at("materialReflectionDiagnostics")},
+                                            shader_work);
+    }
+    result["work"]["shaderCompileRuns"] = shader_work.compiler_runs;
+    result["work"]["shaderProgramsReused"] = shader_work.reused_programs;
+    result["work"]["shaderOutputProofs"] = shader_work.output_proofs;
+    result["work"]["materialInterfaceValidations"] = shader_work.interface_validations;
+    result["work"]["materialInterfaceReuses"] = shader_work.interface_reuses;
 }
 
 bool restore_stages(OwnerValidation& state, std::string_view serialized, Json& result,
@@ -221,23 +253,9 @@ bool restore_stages(OwnerValidation& state, std::string_view serialized, Json& r
             std::none_of(font_diagnostics.begin(), font_diagnostics.end(),
                          [](const Json& item) { return item.value("severity", "error") == "error"; });
         if (coverage_valid && !state.material_programs.empty()) {
-            noveltea::tooling::MaterialShaderValidationCache::Work shader_work;
-            result["materialCompilerResult"] = [&] {
-                noveltea::authoring::ScopedValidationStageTime<
-                    noveltea::authoring::WorkCounter::ShaderValidationMicros> timed;
-                return state.shader_cache.validate(
-                    state.root, state.material_programs,
-                    *state.session->verified_source_revisions_view(), shader_work);
-            }();
-            const auto& compiled = result.at("materialCompilerResult");
-            if (compiled.value("ok", false) && compiled.value("success", false))
-                result["materialReflectionDiagnostics"] = state.shader_cache.reflected_materials(
-                    compiled, state.material_effective, shader_work);
-            result["work"]["shaderCompileRuns"] = shader_work.compiler_runs;
-            result["work"]["shaderProgramsReused"] = shader_work.reused_programs;
-            result["work"]["shaderOutputProofs"] = shader_work.output_proofs;
-            result["work"]["materialInterfaceValidations"] = shader_work.interface_validations;
-            result["work"]["materialInterfaceReuses"] = shader_work.interface_reuses;
+            validate_material_stage(state, state.root, state.material_programs,
+                                    state.material_effective,
+                                    *state.session->verified_source_revisions_view(), result);
         }
     }
     return true;
@@ -1192,24 +1210,11 @@ Json validate(std::string_view request_text)
                     return {{"ok", false},
                             {"kind", "conflict"},
                             {"error", "Shader compiler source evidence is unavailable."}};
-                noveltea::tooling::MaterialShaderValidationCache::Work shader_work;
-                result["materialCompilerResult"] = [&] {
-                    noveltea::authoring::ScopedValidationStageTime<
-                        noveltea::authoring::WorkCounter::ShaderValidationMicros> timed;
-                    return state.shader_cache.validate(root, material_programs, *source_revisions,
-                                                       shader_work);
-                }();
-                const auto& compiled = result["materialCompilerResult"];
-                if (compiled.value("ok", false) && compiled.value("success", false))
-                    result["materialReflectionDiagnostics"] =
-                        state.shader_cache.reflected_materials(compiled, material_effective,
-                                                               shader_work);
-                result["work"]["shaderCompileRuns"] = shader_work.compiler_runs;
-                result["work"]["shaderProgramsReused"] = shader_work.reused_programs;
-                result["work"]["shaderOutputProofs"] = shader_work.output_proofs;
-                result["work"]["materialInterfaceValidations"] = shader_work.interface_validations;
-                result["work"]["materialInterfaceReuses"] = shader_work.interface_reuses;
+                validate_material_stage(state, root, material_programs, material_effective,
+                                        *source_revisions, result);
             } else {
+                result["work"]["shaderStageReuses"] = 0;
+                result["work"]["shaderValidationCalls"] = 0;
                 result["work"]["shaderCompileRuns"] = 0;
                 result["work"]["shaderProgramsReused"] = 0;
                 result["work"]["shaderOutputProofs"] = 0;

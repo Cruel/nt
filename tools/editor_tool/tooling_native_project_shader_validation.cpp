@@ -3,6 +3,7 @@
 #include "tooling_native.hpp"
 
 #include "../project_authoring/material_semantics.hpp"
+#include "../project_authoring/platform_source_monitor.hpp"
 #include "../project_authoring/validation_work_instrumentation.hpp"
 
 #include <noveltea/core/player_bootstrap.hpp>
@@ -12,6 +13,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <memory>
 #include <optional>
 #include <set>
 #include <span>
@@ -19,6 +21,11 @@
 #include <string>
 #include <string_view>
 #include <vector>
+
+#if defined(__linux__)
+#include <cerrno>
+#include <sys/inotify.h>
+#endif
 
 #if defined(_WIN32)
 #include <fcntl.h>
@@ -252,6 +259,246 @@ shader_inventory(const std::map<std::string, std::string>& revisions)
 
 } // namespace
 
+// .noveltea/build and the materialized engine toolchain are not part of the
+// Project source observer. Proof reuse requires a separate physical fence;
+// checking the saved size/mtime of a binary would miss restored-timestamp edits.
+struct MaterialShaderValidationCache::ArtifactProof {
+    explicit ArtifactProof(fs::path project_root) : root(std::move(project_root))
+    {
+#if defined(__linux__)
+        fd = ::inotify_init1(IN_CLOEXEC | IN_NONBLOCK);
+#elif defined(_WIN32)
+        monitor = std::make_unique<authoring::PlatformSourceMonitor>(root / ".noveltea");
+#endif
+    }
+    ~ArtifactProof()
+    {
+#if defined(__linux__)
+        if (fd >= 0)
+            ::close(fd);
+#endif
+    }
+    fs::path root;
+#if defined(__linux__)
+    int fd = -1;
+    std::set<fs::path> watched;
+    std::map<int, std::set<fs::path>> watch_paths;
+#elif defined(_WIN32)
+    std::unique_ptr<authoring::PlatformSourceMonitor> monitor;
+#endif
+
+    bool watch(const fs::path& file)
+    {
+        const auto relative = file.lexically_relative(root);
+        if (relative.empty() || relative.is_absolute() || *relative.begin() != ".noveltea" ||
+            relative != relative.lexically_normal())
+            return false;
+#if defined(__linux__)
+        if (fd < 0)
+            return false;
+        auto cursor = root;
+        const auto arm = [&](const fs::path& path) {
+            if (watched.contains(path))
+                return true;
+            constexpr auto mask = IN_ATTRIB | IN_MODIFY | IN_CLOSE_WRITE | IN_CREATE | IN_DELETE |
+                                  IN_MOVED_FROM | IN_MOVED_TO | IN_DELETE_SELF | IN_MOVE_SELF |
+                                  IN_UNMOUNT;
+            const auto wd = ::inotify_add_watch(fd, path.c_str(), mask);
+            if (wd < 0)
+                return false;
+            watched.insert(path);
+            watch_paths[wd].insert(path);
+            return true;
+        };
+        if (!arm(cursor))
+            return false;
+        for (const auto& part : relative) {
+            cursor /= part;
+            if (!arm(cursor))
+                return false;
+        }
+        return true;
+#elif defined(_WIN32)
+        monitor->protect_source(relative.lexically_relative(".noveltea").generic_string());
+        return true;
+#else
+        (void)file;
+        return false; // No verified inode/hard-link fence for external macOS writes.
+#endif
+    }
+
+    bool quiet()
+    {
+#if defined(__linux__)
+        if (fd < 0)
+            return false;
+        alignas(inotify_event) char buffer[32768];
+        for (;;) {
+            const auto count = ::read(fd, buffer, sizeof(buffer));
+            if (count < 0) {
+                if (errno == EINTR)
+                    continue;
+                return errno == EAGAIN;
+            }
+            if (count == 0)
+                return false;
+            for (std::size_t pos = 0; pos < static_cast<std::size_t>(count);) {
+                const auto* event = reinterpret_cast<const inotify_event*>(buffer + pos);
+                if (event->mask & (IN_Q_OVERFLOW | IN_IGNORED | IN_UNMOUNT | IN_DELETE_SELF |
+                                   IN_MOVE_SELF))
+                    return false;
+                const auto paths = watch_paths.find(event->wd);
+                if (paths == watch_paths.end())
+                    return false;
+                for (const auto& watched_path : paths->second) {
+                    if (event->len == 0)
+                        return false; // The watched inode itself was altered.
+                    const auto changed = watched_path / event->name;
+                    for (const auto& protected_path : watched) {
+                        if (protected_path == changed ||
+                            protected_path.string().starts_with(changed.string() + "/"))
+                            return false;
+                    }
+                }
+                pos += sizeof(inotify_event) + event->len;
+            }
+        }
+#elif defined(_WIN32)
+        const auto changes = monitor->fence();
+        return changes.reliable && changes.paths.empty() && changes.directories.empty();
+#else
+        return false;
+#endif
+    }
+};
+
+MaterialShaderValidationCache::MaterialShaderValidationCache() = default;
+MaterialShaderValidationCache::~MaterialShaderValidationCache() = default;
+MaterialShaderValidationCache::MaterialShaderValidationCache(MaterialShaderValidationCache&&) noexcept =
+    default;
+MaterialShaderValidationCache&
+MaterialShaderValidationCache::operator=(MaterialShaderValidationCache&&) noexcept = default;
+
+void MaterialShaderValidationCache::clear()
+{
+    entries_.clear();
+    reflection_entries_.clear();
+    discard_certified_stage();
+}
+
+void MaterialShaderValidationCache::discard_certified_stage()
+{
+    certified_stage_.reset();
+    artifact_proof_.reset();
+}
+
+std::optional<MaterialShaderValidationCache::Stage>
+MaterialShaderValidationCache::reuse_certified_stage(
+    const fs::path& root, const Json& material_programs, const Json& effective_materials,
+    const std::map<std::string, std::string>& source_revisions)
+{
+    if (!certified_stage_ || !artifact_proof_ || artifact_proof_->root != root ||
+        certified_stage_->programs != material_programs ||
+        certified_stage_->effective != effective_materials ||
+        !source_matches(certified_stage_->dependencies, source_revisions) ||
+        !artifact_proof_->quiet()) {
+        certified_stage_.reset();
+        artifact_proof_.reset();
+        return std::nullopt;
+    }
+    Stage stage = certified_stage_->result;
+    for (auto& output : stage.compiled["outputs"])
+        output["cacheHit"] = true;
+    if (!artifact_proof_->quiet()) {
+        certified_stage_.reset();
+        artifact_proof_.reset();
+        return std::nullopt;
+    }
+    return stage;
+}
+
+void MaterialShaderValidationCache::certify_stage(
+    const fs::path& root, const Json& material_programs, const Json& effective_materials,
+    const std::map<std::string, std::string>& source_revisions, const Stage& stage, Work& work)
+{
+    certified_stage_.reset();
+    artifact_proof_.reset();
+    if (!stage.compiled.value("ok", false) || !stage.compiled.value("success", false))
+        return;
+
+    auto proof = std::make_unique<ArtifactProof>(root);
+    std::map<std::string, std::string> dependencies;
+    std::map<fs::path, std::string> engine;
+    std::set<std::string> canonical_programs;
+    for (const auto& [material, collection] : material_programs.items()) {
+        (void)material;
+        for (const auto& [id, program] : collection.items()) {
+            // Alias programs share the same canonical compiler request. Only
+            // the first program ID is used by the shaderc cache authority.
+            if (!canonical_programs.insert(program.dump()).second)
+                continue;
+            const auto entry = entries_.find(id + "\n" + program.dump());
+            // A compiler response not admitted to the normal dependency cache
+            // (e.g. partial outputs or uncertain dependency revisions) cannot
+            // become a broader whole-stage authority either.
+            if (entry == entries_.end() || entry->second.failed)
+                return;
+            for (const auto& [path, revision] : entry->second.source_revisions) {
+                const auto [existing, added] = dependencies.emplace(path, revision);
+                if (!added && existing->second != revision)
+                    return;
+            }
+            for (const auto& [path, revision] : entry->second.engine_revisions) {
+                const auto [existing, added] = engine.emplace(path, revision);
+                if (!added && existing->second != revision)
+                    return;
+            }
+        }
+    }
+    if (!source_matches(dependencies, source_revisions))
+        return;
+    // Establish notification coverage before hashing; a concurrent write
+    // cannot turn a digest checked before watch registration into authority.
+    std::map<fs::path, Json> binaries;
+    for (const auto& output : stage.compiled.at("outputs")) {
+        if (!output.is_object() || !output.contains("outputPath") ||
+            !output.at("outputPath").is_string())
+            return;
+        const auto [existing, added] =
+            binaries.emplace(fs::path(output.at("outputPath").get<std::string>()), output);
+        if (!added && (existing->second.value("byteHash", Json{}) !=
+                           output.value("byteHash", Json{}) ||
+                       existing->second.value("byteSize", Json{}) !=
+                           output.value("byteSize", Json{})))
+            return;
+    }
+    if (binaries.empty())
+        return;
+    for (const auto& [path, _] : binaries)
+        if (!proof->watch(path))
+            return;
+    for (const auto& [path, _] : engine)
+        if (!proof->watch(path))
+            return;
+    if (!proof->quiet())
+        return;
+    for (const auto& [path, output] : binaries) {
+        ++work.output_proofs;
+        if (!binary_current(root, output))
+            return;
+    }
+    for (const auto& [path, digest] : engine)
+        if (!file_hash_matches(path, digest))
+            return;
+    if (!proof->quiet())
+        return;
+    // The primary compiler cache remains the source of truth for a miss.
+    // This resident shortcut is never serialized into the offline ledger.
+    artifact_proof_ = std::move(proof);
+    certified_stage_ = CertifiedStage{material_programs, effective_materials,
+                                      std::move(dependencies), stage};
+}
+
 Json MaterialShaderValidationCache::validate(
     const fs::path& root, const Json& material_programs,
     const std::map<std::string, std::string>& source_revisions, Work& work)
@@ -461,6 +708,7 @@ bool MaterialShaderValidationCache::restore_ledger(const fs::path& root, const J
         }
         entries_ = std::move(entries);
         reflection_entries_ = std::move(reflections);
+        discard_certified_stage();
         return true;
     } catch (...) {
         return false;
