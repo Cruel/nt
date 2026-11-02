@@ -115,6 +115,42 @@ scale with diagnostic count, so the 20 ms objective is **not yet met** for
 Feature Lab or 501 Rooms. Platform-specific watcher certification remains
 outstanding.
 
+### Unchanged exact-hit result path (November 2, 2026)
+
+The normal CLI's unchanged-result fast path is distinct from engineering
+profiles that deliberately bypass the broker's exact-result cache. Before
+the following optimization, 60 unprofiled Release samples returned at
+median **7.11 ms** for Feature Lab (2 diagnostics, ~712 bytes) and **14.55
+ms** for 501 synthetic Rooms (501 diagnostics, ~104 KB). Making the latter
+501 Rooms warning-free reduced the median to **6.57 ms**, confirming that
+unchanged-result scaling mainly follows diagnostic output size, not
+revalidation of unchanged Rooms.
+
+The CLI now submits the invocation **before** asking for daemon status.
+Only a specifically identified failed connection may trigger ordinary
+single-owner startup and a subsequent request. A failed send, cancelled
+request, lost reply, or any ambiguity after dispatch must not cause an
+automatic replay of a mutating command. On Windows the initial connect
+probe does not wait for the normal two-second pipe-acquisition retry; after
+bootstrap the normal connection policy remains intact.
+
+For a current exact-result hit, the broker embeds the retained serialized
+validation payload without parsing it into another diagnostic tree solely
+to serialize it back into the result frame. The frame still validates the
+JSON syntax, and the CLI wrapper **moves** rather than deep-copies the
+diagnostic array when constructing its public result. The fresh native
+authority observation and source-generation comparison are unchanged.
+Other cached-result consumers and cold/direct validation remain covered by
+the daemon owner and public incremental certifications.
+
+An unprofiled 100-request post-change spot check returned **10.44 ms** for
+501 Rooms with 501 diagnostics; the 150-request Feature Lab A/B measurement
+was effectively flat (**7.43 → 7.44 ms**). These are observed timings, not
+portable targets; the small-result case is still dominated by process
+startup and broker/CLI dispatch. The 24.09 ms unchanged time from earlier
+instrumented runs was explicitly a *forced resident path*, not a normal
+exact-result hit.
+
 ### #583: watcher-fenced broker authority (November 1, 2026)
 
 **Cross-platform follow-up (implementation pending host CI):** Both the broker and native

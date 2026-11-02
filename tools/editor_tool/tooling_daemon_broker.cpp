@@ -2448,7 +2448,8 @@ private:
         return owner_worker_id;
     }
 
-    std::optional<Json> exact_validation_hit(const std::string& canonical_root, const Json& payload)
+    std::optional<std::string> exact_validation_hit(const std::string& canonical_root,
+                                                    const Json& payload)
     {
         if (!payload.is_object() || !payload.contains("argv") || !payload["argv"].is_array() ||
             std::find(payload["argv"].begin(), payload["argv"].end(), "validate") ==
@@ -2503,8 +2504,15 @@ private:
         // dormant state instead of leaving watcher coverage alive indefinitely.
         if (!active_owner)
             (void)project_authority_.suspend(root);
-        return Json{{"kind", "authoring-validation-exact-result"},
-                    {"result", Json::parse(proof.result->semantic_result_json)}};
+        // This result was validated on retention and proved current above.
+        // Embed its existing serialized bytes instead of materializing every
+        // diagnostic only to serialize the same tree into another IPC frame.
+        std::string serialized;
+        serialized.reserve(proof.result->semantic_result_json.size() + 62);
+        serialized.append("{\"kind\":\"authoring-validation-exact-result\",\"result\":");
+        serialized.append(proof.result->semantic_result_json);
+        serialized.push_back('}');
+        return serialized;
     }
 
     std::optional<std::string>
@@ -2642,7 +2650,7 @@ private:
                             if (exact) {
                                 exact_result_hits_.fetch_add(1);
                                 lock.unlock();
-                                client->send(result_event_json(request_id, true, exact->dump()));
+                                client->send(result_event_json(request_id, true, *exact));
                                 touch();
                                 return std::nullopt;
                             }
@@ -4747,7 +4755,7 @@ ConnectionHandle connect_endpoint(const Endpoint& endpoint, IoDeadline deadline 
 Json client_request(const BrokerContext& context, std::string_view method, std::string request_id,
                     Json request_payload = Json::object(),
                     std::optional<std::uint64_t> cancel_after_ms = std::nullopt,
-                    IoDeadline deadline = std::nullopt)
+                    IoDeadline deadline = std::nullopt, bool fast_connect = false)
 {
     ClientInterruptScope interrupt_scope(method == "invoke");
     Endpoint endpoint;
@@ -4763,7 +4771,7 @@ Json client_request(const BrokerContext& context, std::string_view method, std::
     // bounded by a deadline: ensure_daemon uses that deadline for its overall startup budget and
     // must be able to observe an absent pipe before spawning the daemon.
     const auto connection_deadline =
-        method == "status" || method == "stop"
+        method == "status" || method == "stop" || fast_connect
             ? IoDeadline{}
             : (deadline ? deadline : IoDeadline{Clock::now() + std::chrono::seconds(2)});
     const auto connection = connect_endpoint(endpoint, connection_deadline);
@@ -4785,7 +4793,10 @@ Json client_request(const BrokerContext& context, std::string_view method, std::
                     {"build", context.build},
                     {"protocol", context.protocol},
                     {"pid", nullptr}};
-        return {{"ok", false}, {"error", "daemon broker is not reachable"}};
+        // Distinguish a failed connection (nothing dispatched) from a broker
+        // or transport failure after dispatch, when replay is unsafe.
+        return {
+            {"ok", false}, {"error", "daemon broker is not reachable"}, {"connectionFailed", true}};
     }
     const Json request = {{"type", "request"},
                           {"requestId", request_id},
@@ -6824,9 +6835,9 @@ extern "C" std::uint64_t noveltea_tooling_daemon_json(const std::uint8_t* reques
                 daemon_handle = OpenProcess(SYNCHRONIZE, FALSE, daemon_pid);
             if (daemon_pid != GetCurrentProcessId() && !daemon_handle &&
                 GetLastError() != ERROR_INVALID_PARAMETER)
-                return write_response({{"ok", false},
-                                       {"error", "failed to open daemon process for shutdown wait"}},
-                                      response, response_capacity);
+                return write_response(
+                    {{"ok", false}, {"error", "failed to open daemon process for shutdown wait"}},
+                    response, response_capacity);
         }
 #endif
         result = client_request(*context, "stop", "stop");
@@ -6876,21 +6887,24 @@ extern "C" std::uint64_t noveltea_tooling_daemon_json(const std::uint8_t* reques
             if (parsed.contains("cancelAfterMs") && parsed["cancelAfterMs"].is_number_unsigned())
                 cancel_after = parsed["cancelAfterMs"].get<std::uint64_t>();
             result = client_request(*context, method, request_id,
-                                    parsed.value("payload", Json::object()), cancel_after);
+                                    parsed.value("payload", Json::object()), cancel_after,
+                                    std::nullopt, parsed.value("fastConnect", false));
             if (method == "invoke" && result.value("ok", false) && result.contains("result") &&
                 result["result"].is_object() &&
                 result["result"].value("kind", std::string{}) ==
                     "authoring-validation-exact-result" &&
                 result["result"].contains("result") && result["result"]["result"].is_object()) {
-                const auto& exact = result["result"]["result"];
+                auto& exact = result["result"]["result"];
                 if (exact.contains("success") && exact["success"].is_boolean() &&
                     exact.contains("exitCode") && exact["exitCode"].is_number_integer() &&
                     exact.contains("diagnostics") && exact["diagnostics"].is_array()) {
-                    result["retainedValidationResult"] = {
-                        {"success", exact["success"]},
-                        {"exitCode", exact["exitCode"]},
-                        {"diagnostics", exact["diagnostics"]},
-                    };
+                    // The public CLI needs just three fields. Move the
+                    // diagnostic tree, potentially hundreds of entries,
+                    // instead of copying the entire retained result again.
+                    Json compact{{"success", std::move(exact["success"])},
+                                 {"exitCode", std::move(exact["exitCode"])},
+                                 {"diagnostics", std::move(exact["diagnostics"])}};
+                    result["retainedValidationResult"] = std::move(compact);
                     result["result"] = nullptr;
                 }
             }

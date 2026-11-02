@@ -936,9 +936,6 @@ std::optional<int> route_native_project_owner(const std::vector<std::string>& ar
                                               std::optional<std::string> stdin_text)
 {
     auto context = broker_context();
-    const auto ready = broker_call(context, "ensure");
-    if (!ready.value("ok", false) || !ready.value("running", false))
-        return std::nullopt; // No dispatched request: safe native local execution.
     static std::atomic<std::uint64_t> sequence{1};
     const auto request_id =
         "native-owner-" + std::to_string(sequence.fetch_add(1, std::memory_order_relaxed));
@@ -961,9 +958,22 @@ std::optional<int> route_native_project_owner(const std::vector<std::string>& ar
                       : std::string{}}};
     if (stdin_text)
         payload["stdin"] = *stdin_text;
-    const auto reply =
-        broker_call(context, "request",
-                    {{"requestId", request_id}, {"method", "invoke"}, {"payload", payload}});
+    Json invocation{{"requestId", request_id},
+                    {"method", "invoke"},
+                    {"payload", std::move(payload)},
+                    {"fastConnect", true}};
+    // A healthy daemon does not need a separate status request before each
+    // command. Probe directly; only a failed *connection* permits bootstrap
+    // and re-dispatch. A failed send, closed connection or ambiguous reply may
+    // mean a mutation was committed and must never be replayed.
+    auto reply = broker_call(context, "request", invocation);
+    if (!reply.value("ok", false) && reply.value("connectionFailed", false)) {
+        const auto ready = broker_call(context, "ensure");
+        if (!ready.value("ok", false) || !ready.value("running", false))
+            return std::nullopt; // Not dispatched: safe local fallback.
+        invocation.erase("fastConnect");
+        reply = broker_call(context, "request", invocation);
+    }
     // A failed in-flight read is safe to re-execute locally. A mutation may
     // already have committed, so it must never be replayed after dispatch.
     // Cancellation is the caller's decision, not an acceleration failure.
@@ -972,7 +982,7 @@ std::optional<int> route_native_project_owner(const std::vector<std::string>& ar
         return std::nullopt;
     if (reply.value("ok", false) && reply.contains("retainedValidationResult") &&
         reply["retainedValidationResult"].is_object()) {
-        Json cached = reply["retainedValidationResult"];
+        Json cached = std::move(reply["retainedValidationResult"]);
         cached["projectRoot"] = project_root;
         cached["protocolVersion"] = 1;
         std::cout << cached.dump() << '\n';
