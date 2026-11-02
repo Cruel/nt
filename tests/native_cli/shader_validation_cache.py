@@ -102,6 +102,15 @@ with TemporaryDirectory(prefix="noveltea-shader-validation-") as temporary:
     assert work(changed, "shaderProgramsReused") > 0
     assert work(changed, "materialInterfaceValidations") >= 1
     assert work(changed, "materialInterfaceReuses") > 0
+    if sys.platform.startswith("linux"):
+        physical = changed["validationWork"]["endToEnd"]
+        # The stage was invalidated, but its unrelated output and materialized
+        # include files remain individually watched and SHA-256-certified.
+        # Re-hashing every cached program here is the #599 regression.
+        assert physical["shaderProofReads"] <= 20, physical
+        assert physical["shaderProofHashes"] <= 20, physical
+        assert physical["shaderBytesRead"] <= 1_000_000, physical
+        assert physical["shaderBytesHashed"] <= 1_000_000, physical
     assert signature(changed) == initial_diagnostics
     assert work(validate(), "shaderCompileRuns") == 0
 

@@ -30,12 +30,13 @@ output_file = None
 machine_label = None
 issue_number = 577
 offline_reconciliation = False
+project_sizes = ['feature-lab', 1, 101, 501]
 while options:
     flag = options.pop(0)
     if flag == '--offline-reconciliation':
         offline_reconciliation = True
         continue
-    if flag not in ('--output', '--machine', '--issue') or not options:
+    if flag not in ('--output', '--machine', '--issue', '--size') or not options:
         raise SystemExit(f'Unexpected or incomplete option: {flag}')
     value = options.pop(0)
     if flag == '--output':
@@ -44,6 +45,10 @@ while options:
         issue_number = int(value)
         if issue_number < 1:
             raise SystemExit('Issue number must be positive')
+    elif flag == '--size':
+        if value not in ('feature-lab', '1', '101', '501'):
+            raise SystemExit(f'Unknown fixture size: {value}')
+        project_sizes = [value if value == 'feature-lab' else int(value)]
     else:
         machine_label = value
 addon = source_root / "build/native-authoring-host/noveltea-authoring-node.node"
@@ -197,7 +202,7 @@ with tempfile.TemporaryDirectory(prefix='nt-validation-performance-') as tempora
         print(json.dumps(item), flush=True)
 
     try:
-        for size in ('feature-lab', 1, 101, 501):
+        for size in project_sizes:
             project = root / str(size)
             if size == 'feature-lab':
                 shutil.copytree(source_root / 'tests/projects/feature-lab', project)

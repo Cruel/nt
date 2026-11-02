@@ -1684,11 +1684,23 @@ RoomSessionSnapshot ProjectSession::validate_project(bool observed_at_entry,
         const bool inspected_matches_disk =
             working != records_.end() && verified &&
             verified->revision == working->second->snapshot().disk_source_revision;
+        const bool asset_source_missing =
+            validation_pending_asset_owners_.contains(owner) &&
+            (std::any_of(validation_pending_source_revisions_.begin(),
+                         validation_pending_source_revisions_.end(),
+                         [](const auto& entry) { return entry.second == "absent"; }) ||
+             (validation_records_.contains(owner) &&
+              !validation_records_.at(owner)->snapshot().valid));
         const bool physically_changed =
             saved == validation_source_revisions_.end() ||
-            revision != validation_pending_source_revisions_.end() ||
-            validation_pending_asset_owners_.contains(owner) ||
+            revision != validation_pending_source_revisions_.end() || asset_source_missing ||
             (!observation.authoritative && !observation.scoped_authority);
+        // Changing a referenced physical Asset invalidates its consumers and
+        // external stage proofs, not the unchanged Asset YAML. The recorded
+        // Asset contribution has already been parsed and normalized; its
+        // dependency impact is handled below using pending_asset_owners_.
+        // A missing source or previously invalid Asset still reopens its YAML
+        // so disappearance/repair diagnostics cannot survive on stale evidence.
         // A clean editor owner whose physical baseline was superseded must
         // not keep invalidating an already validated disk contributor. Dirty
         // owners still participate, so disk/working conflicts remain visible.
@@ -1931,7 +1943,10 @@ RoomSessionSnapshot ProjectSession::validate_project(bool observed_at_entry,
         std::all_of(validation_pending_source_revisions_.begin(),
                     validation_pending_source_revisions_.end(),
                     [](const auto& entry) { return analyzable_text_path(entry.first); }) &&
-        validation_pending_asset_owners_.empty() &&
+        (validation_pending_asset_owners_.empty() ||
+         std::all_of(validation_pending_source_revisions_.begin(),
+                     validation_pending_source_revisions_.end(),
+                     [](const auto& entry) { return analyzable_text_path(entry.first); })) &&
         validation_shader_overlays_ == shader_overlays_ &&
         validation_text_source_overlays_ == text_source_overlays_;
 
@@ -1987,6 +2002,8 @@ RoomSessionSnapshot ProjectSession::validate_project(bool observed_at_entry,
         // a Project-wide semantic invalidation.
         std::vector<std::pair<std::string, std::set<std::string>>> pending;
         for (const auto& owner : changed_owners) {
+            if (saved_text_only && validation_pending_asset_owners_.contains(owner))
+                continue; // Asset-backed text is validated by its text stage.
             if (saved_text_only &&
                 std::any_of(validation_pending_source_revisions_.begin(),
                             validation_pending_source_revisions_.end(), [&](const auto& entry) {
@@ -2069,7 +2086,10 @@ RoomSessionSnapshot ProjectSession::validate_project(bool observed_at_entry,
                              validation_text_source_overlays_ != text_source_overlays_;
     std::set<std::string> text_owners;
     for (const auto& [path, revision] : validation_pending_source_revisions_) {
-        if (!analyzable_text_path(path)) {
+        // A saved shader/include edit is an external compiler-stage input,
+        // not a new global authored YAML or Message input. Its affected
+        // Material compiler programs are checked separately downstream.
+        if (!analyzable_text_path(path) && !path.starts_with("shaders/")) {
             text_only_updates = false;
             break;
         }
@@ -2103,7 +2123,11 @@ RoomSessionSnapshot ProjectSession::validate_project(bool observed_at_entry,
         !validation_pending_uncertain_ &&
         (observation.authoritative || observation.scoped_authority) &&
         (text_only_updates || validation_invalidated_owners_ == presentation_only_updates) &&
-        validation_pending_asset_owners_.empty() &&
+        (validation_pending_asset_owners_.empty() ||
+         (!validation_pending_source_revisions_.empty() &&
+          std::all_of(validation_pending_source_revisions_.begin(),
+                      validation_pending_source_revisions_.end(),
+                      [](const auto& entry) { return analyzable_text_path(entry.first); }))) &&
         validation_shader_overlays_ == shader_overlays_ && localization_cache_ &&
         (text_only_updates ||
          std::all_of(presentation_only_updates.begin(), presentation_only_updates.end(),
@@ -3339,12 +3363,22 @@ const std::map<std::string, SourceAnalysis>& ProjectSession::source_analyses() c
     for (const auto& path : text_source_paths_) {
         const auto overlay = text_source_overlays_.find(path);
         const auto inlined = inline_text_sources_.find(path);
+        const auto cached = text_analysis_cache_.find(path);
+        // These are resident strings, not filesystem observations. An exact
+        // byte comparison against the already analyzed text establishes
+        // whether its cached revision/diagnostics remain usable without
+        // hashing every unchanged inline Layout source on each validation.
+        const auto* effective_text = inlined != inline_text_sources_.end()    ? &inlined->second
+                                     : overlay != text_source_overlays_.end() ? &overlay->second
+                                                                              : nullptr;
+        if (effective_text && cached != text_analysis_cache_.end() &&
+            cached->second.source_text == *effective_text)
+            continue;
         const auto expected =
             inlined != inline_text_sources_.end()    ? exact_source_revision(inlined->second)
             : overlay == text_source_overlays_.end() ? text_disk_revisions_.at(path)
                                                      : exact_source_revision(overlay->second);
-        if (const auto cached = text_analysis_cache_.find(path);
-            cached != text_analysis_cache_.end() && cached->second.source_revision == expected)
+        if (cached != text_analysis_cache_.end() && cached->second.source_revision == expected)
             continue;
         const auto source = inlined != inline_text_sources_.end()    ? inlined->second
                             : overlay == text_source_overlays_.end() ? read_bytes(root_ / path)
@@ -3354,6 +3388,9 @@ const std::map<std::string, SourceAnalysis>& ProjectSession::source_analyses() c
         text_analysis_cache_.insert_or_assign(path, analyze_project_text(path, source, true));
     }
     for (const auto& [path, content] : staged_sources) {
+        if (const auto cached = text_analysis_cache_.find(path);
+            cached != text_analysis_cache_.end() && cached->second.source_text == content)
+            continue;
         const auto revision = exact_source_revision(content);
         if (const auto cached = text_analysis_cache_.find(path);
             cached != text_analysis_cache_.end() && cached->second.source_revision == revision)

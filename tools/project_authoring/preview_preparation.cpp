@@ -250,7 +250,25 @@ ProjectSession::prepare_working(std::uint64_t expected_revision, std::string_vie
             prepared.error = "Requested authored Test does not exist in the working Project.";
             return prepared;
         }
+        // A clean public validation has already pinned each source's exact
+        // revision through SourceAuthority. The final generation fence still
+        // rejects writes during downstream preparation; do not reopen and
+        // hash every unrelated Layout/Lua/RML/RCSS file along the way.
+        const auto* verified =
+            reuse_validated_snapshot && validation_snapshot_ &&
+                    validation_snapshot_->working_revision == expected_revision &&
+                    !validation_pending_uncertain_ && validation_pending_source_revisions_.empty()
+                ? source_authority_->verified_revisions_view()
+                : nullptr;
+        const bool watched = verified && source_authority_->watcher_proof_available();
         for (const auto& [path, baseline] : text_disk_revisions_) {
+            if (watched) {
+                if (const auto it = verified->find(path);
+                    it != verified->end() && it->second == baseline) {
+                    prepared.source_revisions.emplace(path, baseline);
+                    continue;
+                }
+            }
             const auto actual = exact_source_revision(bytes_at(root_ / path));
             if (actual != baseline) {
                 prepared.error = "External source revision changed during preparation: " + path;
@@ -263,12 +281,6 @@ ProjectSession::prepare_working(std::uint64_t expected_revision, std::string_vie
         // rehashing the whole include tree. This inventory covers all shader
         // source extensions, not only .sc and .sh. The caller must still fence
         // the observed physical generation before publishing its result.
-        const auto* verified =
-            reuse_validated_snapshot && validation_snapshot_ &&
-                    validation_snapshot_->working_revision == expected_revision &&
-                    !validation_pending_uncertain_ && validation_pending_source_revisions_.empty()
-                ? source_authority_->verified_revisions_view()
-                : nullptr;
         if (verified) {
             for (const auto& [path, revision] : *verified)
                 if (path.starts_with("shaders/"))

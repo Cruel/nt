@@ -274,23 +274,53 @@ struct SourceAuthority::NativeWatch {
     void protect_sources(const std::map<std::string, std::string>& revisions,
                          const std::set<std::string>* hints = nullptr)
     {
-        for (auto it = physical_files.begin(); it != physical_files.end();) {
-            if (revisions.contains(it->first) && revisions.at(it->first).starts_with("physical:") &&
-                (!hints || !hints->contains(it->first))) {
-                ++it;
-                continue;
-            }
-            const int wd = it->second;
-            it = physical_files.erase(it);
+        const auto protects_inode = [](std::string_view path, std::string_view revision) {
+            return revision.starts_with("physical:") ||
+                   (revision != "absent" && path.starts_with("assets/") &&
+                    (path.ends_with(".lua") || path.ends_with(".rml") || path.ends_with(".rcss")));
+        };
+        const auto retire_unshared = [&](int wd) {
             const bool used = std::any_of(physical_files.begin(), physical_files.end(),
                                           [&](const auto& item) { return item.second == wd; }) ||
                               std::any_of(descriptors.begin(), descriptors.end(),
                                           [&](const auto& item) { return item.second == wd; });
             if (!used && inotify_rm_watch(fd, wd) == 0)
                 removed_watches.insert(wd);
+        };
+        for (auto it = physical_files.begin(); it != physical_files.end();) {
+            const auto source = revisions.find(it->first);
+            const bool physical =
+                source != revisions.end() && protects_inode(it->first, source->second);
+            if (physical && (!hints || !hints->contains(it->first))) {
+                ++it;
+                continue;
+            }
+            if (physical) {
+                // Re-arm the *current* inode before retiring the old one. An
+                // in-place update preserves the original watch descriptor:
+                // dropping and re-adding it needlessly produces IN_IGNORED
+                // and can recycle a descriptor before that event is drained.
+                // Atomic replacement gets a new inode watch while the parent
+                // directory continues to fence the rename.
+                const int next =
+                    inotify_add_watch(fd, (root_for_physical / it->first).c_str(), mask);
+                if (next < 0 || removed_watches.contains(next)) {
+                    physical_watch_failed = true;
+                    return;
+                }
+                const int previous = it->second;
+                it->second = next;
+                ++it;
+                if (previous != next)
+                    retire_unshared(previous);
+                continue;
+            }
+            const int wd = it->second;
+            it = physical_files.erase(it);
+            retire_unshared(wd);
         }
         for (const auto& [path, revision] : revisions) {
-            if (!revision.starts_with("physical:") || physical_files.contains(path))
+            if (!protects_inode(path, revision) || physical_files.contains(path))
                 continue;
             const auto wd = inotify_add_watch(fd, (root_for_physical / path).c_str(), mask);
             if (wd < 0 || removed_watches.contains(wd)) {
@@ -839,7 +869,13 @@ SourceAuthority::Capture SourceAuthority::capture(const std::set<std::string>* h
     }
     for (const auto& path : assets) {
         try {
-            add(path, true);
+            // Lua/RML/RCSS Asset sources are also tracked text owners. They
+            // need exact revisions and admitted bytes for text analysis and
+            // prepare_working(); physical:size:mtime is only an input hint for
+            // opaque binary Assets, never a valid text revision.
+            const bool text_source =
+                path.ends_with(".lua") || path.ends_with(".rml") || path.ends_with(".rcss");
+            add(path, !text_source);
         } catch (const std::exception&) {
             // An invalid reference is attributable to the owning YAML source,
             // not a reason to abandon observation of unrelated Project sources.

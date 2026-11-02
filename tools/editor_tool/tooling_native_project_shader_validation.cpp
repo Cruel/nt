@@ -279,6 +279,11 @@ struct MaterialShaderValidationCache::ArtifactProof {
 #endif
     }
     fs::path root;
+    bool lost = false;
+    // An output or materialized include is trusted only after a successful
+    // exact SHA-256 proof under its own live filesystem watch. These proofs
+    // outlive a changed shader program, unlike the whole-stage result.
+    std::map<fs::path, std::string> verified;
 #if defined(__linux__)
     int fd = -1;
     std::set<fs::path> watched;
@@ -289,6 +294,8 @@ struct MaterialShaderValidationCache::ArtifactProof {
 
     bool watch(const fs::path& file)
     {
+        if (lost)
+            return false;
         const auto relative = file.lexically_relative(root);
         if (relative.empty() || relative.is_absolute() || *relative.begin() != ".noveltea" ||
             relative != relative.lexically_normal())
@@ -327,8 +334,10 @@ struct MaterialShaderValidationCache::ArtifactProof {
 #endif
     }
 
-    bool quiet()
+    bool drain(bool& changed)
     {
+        if (lost)
+            return false;
 #if defined(__linux__)
         if (fd < 0)
             return false;
@@ -338,44 +347,117 @@ struct MaterialShaderValidationCache::ArtifactProof {
             if (count < 0) {
                 if (errno == EINTR)
                     continue;
-                return errno == EAGAIN;
-            }
-            if (count == 0)
+                if (errno == EAGAIN)
+                    return true;
+                verified.clear();
+                lost = true;
                 return false;
+            }
+            if (count == 0) {
+                verified.clear();
+                lost = true;
+                return false;
+            }
             for (std::size_t pos = 0; pos < static_cast<std::size_t>(count);) {
                 const auto* event = reinterpret_cast<const inotify_event*>(buffer + pos);
-                if (event->mask & (IN_Q_OVERFLOW | IN_IGNORED | IN_UNMOUNT | IN_DELETE_SELF |
-                                   IN_MOVE_SELF))
+                if (event->mask &
+                    (IN_Q_OVERFLOW | IN_IGNORED | IN_UNMOUNT | IN_DELETE_SELF | IN_MOVE_SELF)) {
+                    verified.clear();
+                    lost = true;
                     return false;
+                }
                 const auto paths = watch_paths.find(event->wd);
-                if (paths == watch_paths.end())
+                if (paths == watch_paths.end()) {
+                    verified.clear();
+                    lost = true;
                     return false;
+                }
                 for (const auto& watched_path : paths->second) {
-                    if (event->len == 0)
-                        return false; // The watched inode itself was altered.
-                    const auto changed = watched_path / event->name;
-                    for (const auto& protected_path : watched) {
-                        if (protected_path == changed ||
-                            protected_path.string().starts_with(changed.string() + "/"))
-                            return false;
+                    const auto affected =
+                        event->len == 0 ? watched_path : watched_path / event->name;
+                    for (auto it = verified.begin(); it != verified.end();) {
+                        const auto relative = it->first.lexically_relative(affected);
+                        if (it->first == affected ||
+                            (!relative.empty() && !relative.is_absolute() &&
+                             *relative.begin() != "..")) {
+                            changed = true;
+                            it = verified.erase(it);
+                        } else {
+                            ++it;
+                        }
                     }
+                    // A formerly certified whole-stage proof must also be
+                    // invalidated if one of its watched files was changed.
+                    if (watched.contains(affected))
+                        changed = true;
                 }
                 pos += sizeof(inotify_event) + event->len;
             }
         }
 #elif defined(_WIN32)
         const auto changes = monitor->fence();
-        return changes.reliable && changes.paths.empty() && changes.directories.empty();
+        if (!changes.reliable) {
+            verified.clear();
+            lost = true;
+            return false;
+        }
+        for (const auto& path : changes.paths) {
+            const auto absolute = root / ".noveltea" / path;
+            changed = true;
+            verified.erase(absolute);
+        }
+        if (!changes.directories.empty()) {
+            changed = true;
+            verified.clear();
+        }
+        return true;
 #else
+        verified.clear();
         return false;
 #endif
+    }
+
+    bool quiet()
+    {
+        bool changed = false;
+        return drain(changed) && !changed;
+    }
+
+    template<class Check> bool prove(const fs::path& path, const std::string& digest,
+                                     Check&& check, bool& physically_checked)
+    {
+        physically_checked = false;
+        bool changed = false;
+        // The watch precedes any hash. A changed sibling invalidates only its
+        // own proof; an overflow or lost watcher invalidates all proofs.
+        if (!watch(path) || !drain(changed)) {
+            physically_checked = true;
+            verified.erase(path);
+            return check(); // Unwatched fallback is an independent exact check.
+        }
+        if (const auto found = verified.find(path);
+            found != verified.end() && found->second == digest)
+            return true;
+        physically_checked = true;
+        if (!check()) {
+            verified.erase(path);
+            return false;
+        }
+        changed = false;
+        if (!drain(changed))
+            return false;
+        // A concurrent mutation during the read is never eligible for reuse.
+        if (changed)
+            return false;
+        verified.insert_or_assign(path, digest);
+        return true;
     }
 };
 
 MaterialShaderValidationCache::MaterialShaderValidationCache() = default;
 MaterialShaderValidationCache::~MaterialShaderValidationCache() = default;
-MaterialShaderValidationCache::MaterialShaderValidationCache(MaterialShaderValidationCache&&) noexcept =
-    default;
+MaterialShaderValidationCache::MaterialShaderValidationCache(
+    MaterialShaderValidationCache&&) noexcept = default;
 MaterialShaderValidationCache&
 MaterialShaderValidationCache::operator=(MaterialShaderValidationCache&&) noexcept = default;
 
@@ -384,13 +466,10 @@ void MaterialShaderValidationCache::clear()
     entries_.clear();
     reflection_entries_.clear();
     discard_certified_stage();
-}
-
-void MaterialShaderValidationCache::discard_certified_stage()
-{
-    certified_stage_.reset();
     artifact_proof_.reset();
 }
+
+void MaterialShaderValidationCache::discard_certified_stage() { certified_stage_.reset(); }
 
 std::optional<MaterialShaderValidationCache::Stage>
 MaterialShaderValidationCache::reuse_certified_stage(
@@ -403,7 +482,6 @@ MaterialShaderValidationCache::reuse_certified_stage(
         !source_matches(certified_stage_->dependencies, source_revisions) ||
         !artifact_proof_->quiet()) {
         certified_stage_.reset();
-        artifact_proof_.reset();
         return std::nullopt;
     }
     Stage stage = certified_stage_->result;
@@ -411,7 +489,6 @@ MaterialShaderValidationCache::reuse_certified_stage(
         output["cacheHit"] = true;
     if (!artifact_proof_->quiet()) {
         certified_stage_.reset();
-        artifact_proof_.reset();
         return std::nullopt;
     }
     return stage;
@@ -422,11 +499,12 @@ void MaterialShaderValidationCache::certify_stage(
     const std::map<std::string, std::string>& source_revisions, const Stage& stage, Work& work)
 {
     certified_stage_.reset();
-    artifact_proof_.reset();
     if (!stage.compiled.value("ok", false) || !stage.compiled.value("success", false))
         return;
 
-    auto proof = std::make_unique<ArtifactProof>(root);
+    if (!artifact_proof_ || artifact_proof_->root != root || artifact_proof_->lost)
+        artifact_proof_ = std::make_unique<ArtifactProof>(root);
+    auto& proof = *artifact_proof_;
     std::map<std::string, std::string> dependencies;
     std::map<fs::path, std::string> engine;
     std::set<std::string> canonical_programs;
@@ -466,37 +544,44 @@ void MaterialShaderValidationCache::certify_stage(
             return;
         const auto [existing, added] =
             binaries.emplace(fs::path(output.at("outputPath").get<std::string>()), output);
-        if (!added && (existing->second.value("byteHash", Json{}) !=
-                           output.value("byteHash", Json{}) ||
-                       existing->second.value("byteSize", Json{}) !=
-                           output.value("byteSize", Json{})))
+        if (!added &&
+            (existing->second.value("byteHash", Json{}) != output.value("byteHash", Json{}) ||
+             existing->second.value("byteSize", Json{}) != output.value("byteSize", Json{})))
             return;
     }
     if (binaries.empty())
         return;
     for (const auto& [path, _] : binaries)
-        if (!proof->watch(path))
+        if (!proof.watch(path))
             return;
     for (const auto& [path, _] : engine)
-        if (!proof->watch(path))
+        if (!proof.watch(path))
             return;
-    if (!proof->quiet())
+    bool changed_before_proof = false;
+    // The compiler may have replaced one of the previously watched outputs.
+    // Drain those notifications to revoke its old proof; only mutations
+    // during or after the new exact proof are publication conflicts.
+    if (!proof.drain(changed_before_proof))
         return;
     for (const auto& [path, output] : binaries) {
-        ++work.output_proofs;
-        if (!binary_current(root, output))
+        bool checked = false;
+        if (!proof.prove(
+                path, output.at("byteHash").get<std::string>(),
+                [&] { return binary_current(root, output); }, checked))
+            return;
+        work.output_proofs += checked;
+    }
+    for (const auto& [path, digest] : engine) {
+        bool checked = false;
+        if (!proof.prove(path, digest, [&] { return file_hash_matches(path, digest); }, checked))
             return;
     }
-    for (const auto& [path, digest] : engine)
-        if (!file_hash_matches(path, digest))
-            return;
-    if (!proof->quiet())
+    if (!proof.quiet())
         return;
     // The primary compiler cache remains the source of truth for a miss.
     // This resident shortcut is never serialized into the offline ledger.
-    artifact_proof_ = std::move(proof);
-    certified_stage_ = CertifiedStage{material_programs, effective_materials,
-                                      std::move(dependencies), stage};
+    certified_stage_ =
+        CertifiedStage{material_programs, effective_materials, std::move(dependencies), stage};
 }
 
 Json MaterialShaderValidationCache::validate(
@@ -522,6 +607,8 @@ Json MaterialShaderValidationCache::validate(
         }
 
     const auto all_shader_revisions = shader_inventory(source_revisions);
+    if (!artifact_proof_ || artifact_proof_->root != root || artifact_proof_->lost)
+        artifact_proof_ = std::make_unique<ArtifactProof>(root);
     Json result{{"ok", true},
                 {"success", true},
                 {"outputs", Json::array()},
@@ -534,18 +621,26 @@ Json MaterialShaderValidationCache::validate(
         if (reusable && cached->second.failed)
             reusable = cached->second.source_revisions == all_shader_revisions;
         if (reusable)
-            for (const auto& [path, revision] : cached->second.engine_revisions)
-                if (!file_hash_matches(path, revision)) {
+            for (const auto& [path, revision] : cached->second.engine_revisions) {
+                bool checked = false;
+                if (!artifact_proof_->prove(
+                        path, revision, [&] { return file_hash_matches(path, revision); },
+                        checked)) {
                     reusable = false;
                     break;
                 }
+            }
         if (reusable && !cached->second.failed)
             for (const auto& output : cached->second.response.at("outputs")) {
-                ++work.output_proofs;
-                if (!binary_current(root, output)) {
+                bool checked = false;
+                const auto path = fs::path(output.at("outputPath").get<std::string>());
+                if (!artifact_proof_->prove(
+                        path, output.at("byteHash").get<std::string>(),
+                        [&] { return binary_current(root, output); }, checked)) {
                     reusable = false;
                     break;
                 }
+                work.output_proofs += checked;
             }
 
         Json compiled;
@@ -698,10 +793,8 @@ bool MaterialShaderValidationCache::restore_ledger(const fs::path& root, const J
                 return false;
             for (const auto& diagnostic : item.at("diagnostics"))
                 if (!diagnostic.is_object() || diagnostic.size() != 4 ||
-                    !diagnostic.at("code").is_string() ||
-                    !diagnostic.at("severity").is_string() ||
-                    !diagnostic.at("path").is_string() ||
-                    !diagnostic.at("message").is_string())
+                    !diagnostic.at("code").is_string() || !diagnostic.at("severity").is_string() ||
+                    !diagnostic.at("path").is_string() || !diagnostic.at("message").is_string())
                     return false;
             reflections.emplace(key, ReflectionEntry{item.at("identity").get<std::string>(),
                                                      item.at("diagnostics")});
@@ -709,6 +802,7 @@ bool MaterialShaderValidationCache::restore_ledger(const fs::path& root, const J
         entries_ = std::move(entries);
         reflection_entries_ = std::move(reflections);
         discard_certified_stage();
+        artifact_proof_.reset(); // Persisted ledger does not carry watched authority.
         return true;
     } catch (...) {
         return false;

@@ -379,8 +379,12 @@ with tempfile.TemporaryDirectory(prefix="nt-dependency-mutation-") as directory:
             new = edit(old)
             assert new != old, (name, relative)
             path.write_text(new)
+            # The changed shader's own compiler outputs and materialized
+            # includes require exact physical checks; unrelated programs
+            # must remain reused. Text-only edits have a tighter read budget.
             mutation(project, f"feature-lab:{name}", expected_valid=True,
-                     owners=set(), max_yaml=0, max_reads=12,
+                     owners=set(), max_yaml=0,
+                     max_reads=20 if name == "shader" else 12,
                      max_global=0, max_spatial=0, max_admissions=admission,
                      shader_runs=expected_shader_runs)
             path.write_text(old)

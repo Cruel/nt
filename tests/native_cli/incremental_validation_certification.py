@@ -300,6 +300,82 @@ with tempfile.TemporaryDirectory(prefix="noveltea-incremental-certify-") as dire
                 warm_stage_proofs(unchanged)
             fresh_parity(project, saved)
 
+            # #599: changing one physical script/companion must not cause
+            # preparation to re-read or re-hash every unrelated text source.
+            # Room-only fixtures supply 1/101/501 independent YAML owners;
+            # Feature Lab also covers the RML and RCSS companion surfaces.
+            if size == "feature-lab":
+                edited_texts = [
+                    (project / "records/layouts/feature-lab-hud/layout.lua", "\n-- scoped-proof\n"),
+                    (project / "records/layouts/feature-lab-hud/layout.rml", "\n<!-- scoped-proof -->\n"),
+                    (project / "records/layouts/feature-lab-hud/layout.rcss", "\n/* scoped-proof */\n"),
+                ]
+            else:
+                scripts = project / "scripts"
+                scripts.mkdir(exist_ok=True)
+                source = scripts / "scoped-proof.lua"
+                source.write_text("-- Added script source for scoped validation\n")
+                assert validate_after_membership_change(project)["success"], size
+                edited_texts = [(source, "-- scoped-proof\n")]
+            for path, comment in edited_texts:
+                path.write_text(path.read_text() + comment)
+                changed_text = validate(project)
+                assert changed_text["success"], (size, path, changed_text)
+                fresh_parity(project, changed_text)
+                assert public(changed_text) == public(saved), (size, path, changed_text)
+                if sys.platform.startswith("linux"):
+                    physical = changed_text["validationWork"]["endToEnd"]
+                    assert physical["fileByteReads"] <= 12, (size, path, physical)
+                    assert physical["fileBytesRead"] <= (100_000 if size == "feature-lab" else 65_536), (
+                        size, path, physical)
+                    assert physical["contentHashes"] <= (160 if size == "feature-lab" else 40), (
+                        size, path, physical)
+                    # The in-memory source-generation identity includes every
+                    # admitted revision; its tiny metadata hash grows with the
+                    # 501-owner inventory, unlike physical file hashing.
+                    assert physical["contentBytesHashed"] <= 300_000, (
+                        size, path, physical)
+                    assert physical["directoryEnumerations"] == 0, (size, path, physical)
+                    assert physical["generationAssetProofReads"] == 0, (size, path, physical)
+                    assert physical["generationTextProofReads"] == 0, (size, path, physical)
+                    assert physical["shaderProofReads"] == 0, (size, path, physical)
+                    assert physical["shaderBytesRead"] == 0, (size, path, physical)
+                    assert physical["fontProofReads"] == 0, (size, path, physical)
+                    assert physical["fontBytesRead"] == 0, (size, path, physical)
+                    assert physical["sourceGenerationFences"] > 0, (size, path, physical)
+                    assert physical["materialShaderPreparations"] == 0, (size, path, physical)
+                    stages = changed_text["validationWork"].get("physicalStages", {})
+                    assert "sessionAndSourceAuthority" in stages, (size, path, stages)
+                    # A fully retained downstream projection skips this
+                    # stage altogether; an executed stage must have bounded
+                    # physical reads. Missing is stronger than zero reads.
+                    if "completePreparation" in stages:
+                        assert stages["completePreparation"]["fileByteReads"] <= 10, (
+                            size, path, stages)
+                    else:
+                        assert changed_text["validationWork"].get(
+                            "retainedStageProjections") == 1, (size, path, stages)
+                    assert "sourceGeneration" in stages, (size, path, stages)
+                    assert "finalPublicationProof" in stages, (size, path, stages)
+                    assert stages["sourceGeneration"]["fileByteReads"] == 0, (
+                        size, path, stages)
+                    assert stages["finalPublicationProof"]["fileByteReads"] == 0, (
+                        size, path, stages)
+                    if size == "feature-lab":
+                        assert stages["sessionAndSourceAuthority"]["contentHashes"] <= 12, (
+                            size, path, stages)
+                        assert stages["materialsAndShaders"]["fileByteReads"] == 0, (
+                            size, path, stages)
+                        assert stages["fonts"]["fileByteReads"] == 0, (
+                            size, path, stages)
+                    assert changed_text["validationWork"].get("shaderCompileRuns", 0) == 0, (
+                        size, path, changed_text["validationWork"])
+                    assert changed_text["validationWork"].get("materialInterfaceValidations", 0) == 0, (
+                        size, path, changed_text["validationWork"])
+                unchanged_text = validate(project)
+                no_stages(unchanged_text)
+                warm_stage_proofs(unchanged_text)
+
             if size == 1 and sys.platform.startswith("linux"):
                 # Cached exact diagnostics cannot survive a same-inode edit whose size and
                 # mtime are restored. This exercises the broker shortcut, not only the
@@ -367,7 +443,21 @@ with tempfile.TemporaryDirectory(prefix="noveltea-incremental-certify-") as dire
             cached = validate(project)
             assert public(cached) == public(saved), size
             assert work(cached, "recheckedRecords") == 0, (size, cached["validationWork"])
-            no_stages(cached)
+            if size == "feature-lab" and sys.platform.startswith("linux") and (
+                work(cached, "fontCoverageRuns") or work(cached, "shaderCompileRuns")
+            ):
+                # The external hard-link write above advanced the resident
+                # physical-generation event nonce even after restoring bytes
+                # and mtime. A fresh owner cannot inherit that watcher proof;
+                # its independently re-proved font/shader stages are a safe
+                # cache miss, not a semantic or diagnostic regression.
+                physical = cached["validationWork"]["endToEnd"]
+                assert physical["fontProofReads"] > 0, physical
+                assert physical["shaderProofReads"] > 0, physical
+                assert work(cached, "localizationRebuilds") == 0, cached["validationWork"]
+                assert physical["sourceGenerationFences"] > 0, physical
+            else:
+                no_stages(cached)
             fresh_parity(project, cached)
 
             # Corrupt optional evidence cannot make validation succeed with a

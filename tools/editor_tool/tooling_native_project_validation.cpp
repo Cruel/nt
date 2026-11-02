@@ -13,7 +13,10 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cctype>
+#include <chrono>
+#include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -759,6 +762,57 @@ Json work_counts_json(const noveltea::authoring::ValidationWorkCounters& counts)
 #endif
 }
 
+// Stage-local physical deltas, in addition to the existing whole-request
+// counters. Keep measurements observational: a stage can never infer cache
+// validity from these numbers. Outer stages may include nested stages, so
+// consumers must not sum these values to reconstruct endToEnd.
+class ScopedPhysicalValidationStage {
+public:
+    ScopedPhysicalValidationStage(noveltea::authoring::ValidationWorkCounters& counts, Json& stages,
+                                  std::string_view name)
+        : counts_(counts), stages_(stages), name_(name), started_(Clock::now()), before_(sample())
+    {
+    }
+    ~ScopedPhysicalValidationStage() noexcept
+    {
+#if NOVELTEA_ENABLE_VALIDATION_COUNTERS
+        try {
+            const auto after = sample();
+            stages_[name_] = {
+                {"fileByteReads", after[0] - before_[0]},
+                {"fileBytesRead", after[1] - before_[1]},
+                {"contentHashes", after[2] - before_[2]},
+                {"contentBytesHashed", after[3] - before_[3]},
+                {"parsedYaml", after[4] - before_[4]},
+                {"elapsedMicros",
+                 std::chrono::duration_cast<std::chrono::microseconds>(Clock::now() - started_)
+                     .count()}};
+        } catch (...) {
+            // Work instrumentation cannot make validation fail.
+        }
+#endif
+    }
+    ScopedPhysicalValidationStage(const ScopedPhysicalValidationStage&) = delete;
+    ScopedPhysicalValidationStage& operator=(const ScopedPhysicalValidationStage&) = delete;
+
+private:
+    using Clock = std::chrono::steady_clock;
+    std::array<std::size_t, 5> sample() const noexcept
+    {
+        using noveltea::authoring::WorkCounter;
+        return {counts_.get<WorkCounter::FileByteReads>(),
+                counts_.get<WorkCounter::FileBytesRead>(),
+                counts_.get<WorkCounter::ContentHashes>(),
+                counts_.get<WorkCounter::ContentBytesHashed>(),
+                counts_.get<WorkCounter::ParsedYaml>()};
+    }
+    noveltea::authoring::ValidationWorkCounters& counts_;
+    Json& stages_;
+    std::string name_;
+    Clock::time_point started_;
+    std::array<std::size_t, 5> before_;
+};
+
 Json response_for(const noveltea::authoring::RoomSessionSnapshot& snapshot, bool warm,
                   const ProjectSession::ValidationWork& work, bool cli_only = false)
 {
@@ -894,6 +948,7 @@ Json validate(std::string_view request_text)
     const auto root = std::filesystem::canonical(requested);
     noveltea::authoring::ValidationWorkCounters work_counts;
     noveltea::authoring::ScopedValidationWork work_scope(work_counts);
+    Json physical_stages = Json::object();
     auto& state = resident();
     std::scoped_lock lock(state.mutex);
     if (request.value("action", std::string("validate")) == "release") {
@@ -965,8 +1020,31 @@ Json validate(std::string_view request_text)
     auto source_hits_before =
         state.session ? state.session->localization_source_path_cache_hits() : 0;
     std::string readmission_reason;
+    bool font_independent_source_change = false;
     if (state.session) {
         const auto observed = state.session->observe_sources();
+        const auto shader_file = [](const std::string& path) {
+            return path.starts_with("shaders/");
+        };
+        // Shader code and opaque audio/video Asset bytes cannot affect a localization Message
+        // or a selected font face. Retain only the independent font stage;
+        // portable Asset checks and exact publication proofs still execute.
+        const auto font_independent_file = [&](const std::string& path) {
+            if (shader_file(path))
+                return true;
+            if (!path.starts_with("assets/"))
+                return false;
+            return path.ends_with(".mp3") || path.ends_with(".ogg") ||
+                   path.ends_with(".wav") || path.ends_with(".flac") ||
+                   path.ends_with(".opus") || path.ends_with(".mp4") ||
+                   path.ends_with(".webm");
+        };
+        font_independent_source_change = !observed.delta.changed.empty() &&
+            observed.delta.added.empty() && observed.delta.removed.empty() &&
+            std::all_of(observed.delta.changed.begin(), observed.delta.changed.end(),
+                        font_independent_file) &&
+            std::all_of(observed.watch_paths.begin(), observed.watch_paths.end(),
+                        font_independent_file);
         const bool unsafe_external_source = std::any_of(
             observed.invalid_sources.begin(), observed.invalid_sources.end(),
             [](const auto& source) {
@@ -1106,8 +1184,11 @@ Json validate(std::string_view request_text)
     }
     trace_native_validation("starting resident Project validation");
     const auto validated = [&] {
+        ScopedPhysicalValidationStage physical(work_counts, physical_stages,
+                                               "sessionAndSourceAuthority");
         noveltea::authoring::ScopedValidationStageTime<
-            noveltea::authoring::WorkCounter::SessionValidationMicros> timed;
+            noveltea::authoring::WorkCounter::SessionValidationMicros>
+            timed;
         return state.session->validate_clean_project(true, true);
     }();
     trace_native_validation("resident Project validation returned");
@@ -1117,10 +1198,11 @@ Json validate(std::string_view request_text)
     // Otherwise a later unchanged request could reuse the prior generation.
     const auto semantic_work = state.session->validation_work();
     if (!validated.snapshot.valid || semantic_work.localization_rebuilds != 0 ||
-        semantic_work.global_stage_executions != 0 ||
-        (semantic_work.global_stage_reuses == 0 &&
-         (semantic_work.rechecked_records != 0 || semantic_work.rechecked_contributions != 0 ||
-          semantic_work.reference_indexed_records != 0)))
+        (!font_independent_source_change &&
+         (semantic_work.global_stage_executions != 0 ||
+          (semantic_work.global_stage_reuses == 0 &&
+           (semantic_work.rechecked_records != 0 || semantic_work.rechecked_contributions != 0 ||
+            semantic_work.reference_indexed_records != 0)))))
         state.font_inputs.reset();
     auto result = response_for(validated.snapshot, warm, state.session->validation_work(),
                                request.value("compactValidationResponse", false));
@@ -1177,10 +1259,13 @@ Json validate(std::string_view request_text)
             (!readmission_reason.empty() ||
              !restore_stages(state, validated.stages_json, result, retain_stage_projections))) {
             const auto prepared = [&] {
+                ScopedPhysicalValidationStage physical(work_counts, physical_stages,
+                                                       "completePreparation");
                 noveltea::authoring::ScopedValidationStageTime<
-                    noveltea::authoring::WorkCounter::CompleteProjectPreparationMicros> timed;
-                return state.session->prepare_complete_working(
-                    state.session->working_revision(), {}, true, true);
+                    noveltea::authoring::WorkCounter::CompleteProjectPreparationMicros>
+                    timed;
+                return state.session->prepare_complete_working(state.session->working_revision(),
+                                                               {}, true, true);
             }();
             if (!prepared.accepted)
                 throw std::runtime_error("Native font coverage Project preparation failed: " +
@@ -1192,8 +1277,11 @@ Json validate(std::string_view request_text)
                 state.session->complete_project_snapshot_reads();
             const auto admitted = Json::parse(prepared.complete_project_json);
             const auto portable_key = [&] {
+                ScopedPhysicalValidationStage physical(work_counts, physical_stages,
+                                                       "portableInputs");
                 noveltea::authoring::ScopedValidationStageTime<
-                    noveltea::authoring::WorkCounter::PortableInputPreparationMicros> timed;
+                    noveltea::authoring::WorkCounter::PortableInputPreparationMicros>
+                    timed;
                 return portable_inputs(admitted);
             }();
             const bool portable_reuse = state.portable_check &&
@@ -1206,8 +1294,11 @@ Json validate(std::string_view request_text)
                 noveltea::authoring::count_validation_work<
                     noveltea::authoring::WorkCounter::PortableSourceChecks>();
                 const auto portable = [&] {
+                    ScopedPhysicalValidationStage physical(work_counts, physical_stages,
+                                                           "portableValidation");
                     noveltea::authoring::ScopedValidationStageTime<
-                        noveltea::authoring::WorkCounter::PortableSourceValidationMicros> timed;
+                        noveltea::authoring::WorkCounter::PortableSourceValidationMicros>
+                        timed;
                     return native_project_bundle(
                         {{"action", "validation-source-check"}, {"admittedProject", admitted}},
                         state.session.get(), root);
@@ -1226,6 +1317,7 @@ Json validate(std::string_view request_text)
                         portable_key, *watched, *state.session->verified_source_revisions_view());
             }
             const auto notice_key = [&] {
+                ScopedPhysicalValidationStage physical(work_counts, physical_stages, "noticeInputs");
                 noveltea::authoring::ScopedValidationStageTime<
                     noveltea::authoring::WorkCounter::NoticeInputPreparationMicros> timed;
                 return notice_inputs(admitted);
@@ -1239,6 +1331,7 @@ Json validate(std::string_view request_text)
                 state.notice_check.reset();
                 result["work"]["noticeValidationRuns"] = 1;
                 const auto notice_error = [&] {
+                    ScopedPhysicalValidationStage physical(work_counts, physical_stages, "noticeValidation");
                     noveltea::authoring::ScopedValidationStageTime<
                         noveltea::authoring::WorkCounter::NoticeValidationMicros> timed;
                     return native_distribution_notice_error(root, admitted);
@@ -1259,36 +1352,42 @@ Json validate(std::string_view request_text)
             } else {
                 result["work"]["noticeValidationRuns"] = 0;
             }
-            const auto work = state.session->validation_work();
-            // Only an unchanged validated generation or the independently
-            // certified Room/Map presentation-only path can reuse the exact
-            // effective Message/translation source projection. Other changes
-            // must rebuild it; font face bytes are proved separately below.
-            const bool retain_inputs =
-                state.font_inputs && work.localization_rebuilds == 0 &&
-                work.global_stage_executions == 0 &&
-                (work.global_stage_reuses == 1 ||
-                 (work.rechecked_records == 0 && work.rechecked_contributions == 0 &&
-                  work.reference_indexed_records == 0));
-            if (retain_inputs) {
-                result["fontCoverageInputs"] = *state.font_inputs;
-                result["work"]["fontInputReuses"] = 1;
-            } else {
-                noveltea::authoring::count_validation_work<
-                    noveltea::authoring::WorkCounter::FontPreparations>();
-                result["fontCoverageInputs"] =
-                    native_font_coverage_inputs(*state.session, admitted);
-                state.font_inputs = result["fontCoverageInputs"];
-                result["work"]["fontInputReuses"] = 0;
+            {
+                ScopedPhysicalValidationStage font_physical(work_counts, physical_stages, "fonts");
+                const auto work = state.session->validation_work();
+                // Only an unchanged validated generation or the independently
+                // certified Room/Map presentation-only path can reuse the exact
+                // effective Message/translation source projection. Other changes
+                // must rebuild it; font face bytes are proved separately below.
+                const bool retain_inputs =
+                    state.font_inputs && work.localization_rebuilds == 0 &&
+                    (font_independent_source_change ||
+                     (work.global_stage_executions == 0 &&
+                      (work.global_stage_reuses == 1 ||
+                       (work.rechecked_records == 0 && work.rechecked_contributions == 0 &&
+                        work.reference_indexed_records == 0))));
+                if (retain_inputs) {
+                    result["fontCoverageInputs"] = *state.font_inputs;
+                    result["work"]["fontInputReuses"] = 1;
+                } else {
+                    noveltea::authoring::count_validation_work<
+                        noveltea::authoring::WorkCounter::FontPreparations>();
+                    result["fontCoverageInputs"] =
+                        native_font_coverage_inputs(*state.session, admitted);
+                    state.font_inputs = result["fontCoverageInputs"];
+                    result["work"]["fontInputReuses"] = 0;
+                }
+                // Font shaping is executed in this same serialized resident owner,
+                // not anew in every short-lived public CLI client. The canonical
+                // font tool retains exact byte proofs only within this watched
+                // source authority; the public boundary still fences that epoch.
+                if (result["entrypointConfigured"].get<bool>() &&
+                    !result.contains("noticeValidationFailure")) {
+                    validate_or_reuse_font_result(state, result);
+                }
             }
-            // Font shaping is executed in this same serialized resident owner,
-            // not anew in every short-lived public CLI client. The canonical
-            // font tool retains exact byte proofs only within this watched
-            // source authority; the public boundary still fences that epoch.
-            if (result["entrypointConfigured"].get<bool>() &&
-                !result.contains("noticeValidationFailure")) {
-                validate_or_reuse_font_result(state, result);
-            }
+            ScopedPhysicalValidationStage material_physical(work_counts, physical_stages,
+                                                            "materialsAndShaders");
             const Json materials = admitted.value("materials", Json::object());
             const Json assets = admitted.value("assets", Json::object());
             const bool same_assets = state.material_assets && *state.material_assets == assets;
@@ -1433,8 +1532,11 @@ Json validate(std::string_view request_text)
                     {"error", "Project sources changed during validation preparation."}};
         std::map<std::string, std::string> post_revisions;
         try {
+            ScopedPhysicalValidationStage physical(work_counts, physical_stages,
+                                                   "sourceGeneration");
             noveltea::authoring::ScopedValidationStageTime<
-                noveltea::authoring::WorkCounter::SourceGenerationMicros> timed;
+                noveltea::authoring::WorkCounter::SourceGenerationMicros>
+                timed;
             result["sourceGeneration"] = native_project_source_generation(
                 *state.session, root, true, "validation-preparation-generation", &post_revisions,
                 &*validated.deferred_exact_revisions);
@@ -1451,13 +1553,17 @@ Json validate(std::string_view request_text)
         // The Project session owns the exact generation and elected quiet-window
         // publication. Its callback references resident, already-certified stage
         // inputs rather than building and serializing the ledger on every edit.
-        const bool stage_inputs_ready = request.value("includeFontCoverageInputs", false) &&
-            state.portable_check && state.notice_check && state.font_inputs &&
-            state.material_records && state.material_assets &&
-            !result.contains("portableFailure") && !result.contains("noticeValidationFailure");
+        const bool stage_inputs_ready =
+            request.value("includeFontCoverageInputs", false) && state.portable_check &&
+            state.notice_check && state.font_inputs && state.material_records &&
+            state.material_assets && !result.contains("portableFailure") &&
+            !result.contains("noticeValidationFailure");
         const bool published = [&] {
+            ScopedPhysicalValidationStage physical(work_counts, physical_stages,
+                                                   "deferredPublication");
             noveltea::authoring::ScopedValidationStageTime<
-                noveltea::authoring::WorkCounter::DeferredPublicationMicros> timed;
+                noveltea::authoring::WorkCounter::DeferredPublicationMicros>
+                timed;
             noveltea::authoring::count_validation_work<
                 noveltea::authoring::WorkCounter::DeferredPublications>();
             return state.session->publish_deferred_clean_validation(
@@ -1492,7 +1598,12 @@ Json validate(std::string_view request_text)
         state.session->localization_source_path_cache_hits() - source_hits_before;
     if (request.value("finalizeSourceGenerationProof", false) && validated.snapshot.valid) {
         const auto started = std::chrono::steady_clock::now();
-        if (!final_source_generation_matches(state, root, state.pending_generation)) {
+        const bool proven = [&] {
+            ScopedPhysicalValidationStage physical(work_counts, physical_stages,
+                                                   "finalPublicationProof");
+            return final_source_generation_matches(state, root, state.pending_generation);
+        }();
+        if (!proven) {
             noveltea::authoring::trace_source_proof_event("validation-final", "conflict");
             state.session.reset();
             state.clear_preparations(false, false);
@@ -1506,10 +1617,12 @@ Json validate(std::string_view request_text)
 #if NOVELTEA_ENABLE_VALIDATION_COUNTERS
         result["work"]["endToEnd"] = work_counts_json(work_counts);
         result["work"]["finalProofRequestMicros"] =
-            std::chrono::duration_cast<std::chrono::microseconds>(
-                std::chrono::steady_clock::now() - started).count();
+            std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() -
+                                                                  started)
+                .count();
 #endif
     }
+    result["work"]["physicalStages"] = std::move(physical_stages);
     if (request.value("compactValidationResponse", false)) {
         // The public CLI consumes final diagnostics/coverage/compiler evidence,
         // not the large intermediate Message and Material input projections.
