@@ -6,11 +6,12 @@ export const EDITOR_LOCAL_STATE_SCHEMA = 'noveltea.editor.local-state' as const;
 
 import type { AuthoringProject } from '../project-schema/authoring-project';
 import type { EditorProjectState } from '../project-schema/editor-project-state';
+import type { SourceRevisionDigest } from '../project-text-sources';
 import type { ProjectValidationDiagnostic } from '../project-schema/project-diagnostic-projection';
 import type { YamlCommentImpact } from './yaml-comment-impact';
 
 export interface ProjectWorkspaceFileRevision {
-  readonly contentHash: `sha256:${string}`;
+  readonly contentHash: SourceRevisionDigest;
   readonly byteSize: number;
 }
 
@@ -19,8 +20,8 @@ export interface ProjectWorkspaceSnapshot {
   readonly projectRoot: string | null;
   readonly manifestPath: string | null;
   readonly project: AuthoringProject;
-  readonly workspaceRevision: `sha256:${string}`;
-  readonly sourceRevision: `sha256:${string}`;
+  readonly workspaceRevision: SourceRevisionDigest;
+  readonly sourceRevision: SourceRevisionDigest;
   readonly canonicalSourceFiles: readonly string[];
   readonly fileRevisions: Readonly<Record<string, ProjectWorkspaceFileRevision>>;
   readonly scriptSourcePaths: Readonly<Record<string, string>>;
@@ -45,7 +46,7 @@ export interface ProjectWorkspaceSourceWork {
   readonly foregroundSerializations: number;
   readonly foregroundSerializedBytes: number;
   readonly localizationCoverageInputsChanged: boolean;
-  readonly localizationCoverageDependencyRevision: `sha256:${string}`;
+  readonly localizationCoverageDependencyRevision: SourceRevisionDigest;
 }
 
 export type ProjectWorkspaceOpenResult =

@@ -1795,6 +1795,8 @@ int project_read(const Arguments& args, std::string action)
     auto response = native_request(request);
     if (action == "project-validate") {
         Json work_profile = response.value("work", Json::object());
+        if (profile_work)
+            work_profile["residentWarm"] = response.value("warm", false);
 #if NOVELTEA_ENABLE_VALIDATION_COUNTERS
         if (profile_work)
             work_profile["nativeRequestMicros"] =

@@ -1,3 +1,5 @@
+import type { SourceRevisionDigest } from './project-text-sources';
+
 export type ToolSeverity = 'info' | 'warning' | 'error';
 export type EditorValidationAuthority = 'disk-authoritative' | 'session-local';
 
@@ -24,7 +26,7 @@ export interface OpenProjectResponse {
   savedContentProject?: unknown;
   editorState?: import('./project-schema/editor-project-state').EditorProjectState;
   repairs?: never[];
-  recoveryFileRevisions?: Record<string, `xxh3-128:${string}` | 'absent'>;
+  recoveryFileRevisions?: Record<string, SourceRevisionDigest | 'absent'>;
   scriptSourcePaths?: Record<string, string>;
   diagnostics: ToolDiagnostic[];
   error?: string;
@@ -205,7 +207,7 @@ export interface SaveProjectResponse {
   projectFilePath?: string;
   projectSessionId?: string;
   workspaceRevision?: string;
-  fileRevisions?: Record<string, `sha256:${string}`>;
+  fileRevisions?: Record<string, SourceRevisionDigest>;
   contentProject?: unknown;
   editorState?: import('./project-schema/editor-project-state').EditorProjectState;
   scriptSourcePaths?: Record<string, string>;
@@ -245,7 +247,7 @@ export interface ProjectContentSaveResponse {
   projectFilePath?: string;
   editorState?: import('./project-schema/editor-project-state').EditorProjectState;
   committedSaveUnitIds?: string[];
-  fileRevisions?: Record<string, `sha256:${string}` | 'absent'>;
+  fileRevisions?: Record<string, SourceRevisionDigest | 'absent'>;
   externalValueByPath?: Record<string, ProjectMutationPathValue>;
   scriptSourcePaths?: Record<string, string>;
   assetTrashMoves?: import('./project-asset-audit').ProjectAssetTrashMove[];
@@ -258,7 +260,7 @@ export interface ProjectWorkspaceCommitOptions {
   commentConfirmation?: ProjectContentSaveRequest['commentConfirmation'];
   sourceRestorations?: Record<string, string>;
   identityRemap?: Array<{ fromPath: string; toPath: string }>;
-  expectedFileRevisions: Record<string, `sha256:${string}`>;
+  expectedFileRevisions: Record<string, SourceRevisionDigest>;
   saveUnitIds?: string[];
   baselineProject?: unknown;
   affectedPaths?: string[];

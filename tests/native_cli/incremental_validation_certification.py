@@ -8,6 +8,7 @@ cache-free copy of the identical saved Project through the public direct CLI.
 
 import json
 import hashlib
+from contextlib import contextmanager
 import os
 from pathlib import Path
 import re
@@ -60,6 +61,37 @@ with tempfile.TemporaryDirectory(prefix="noveltea-incremental-certify-") as dire
         assert payload["exitCode"] == result.returncode, payload
         assert "validationWork" not in payload, payload
         return payload
+
+    @contextmanager
+    def exclusive_cache_lease(project):
+        # The daemon's stop acknowledgement can precede its owner's final
+        # shutdown flush. Hold its stable OS lock so a late writer cannot
+        # replace the deliberately corrupted ledger during the direct test.
+        lock = project / ".noveltea/cache/authoring/native-clean-writer.lock"
+        deadline = time.monotonic() + 15
+        with lock.open("a+b") as stream:
+            while True:
+                try:
+                    stream.seek(0)
+                    if os.name == "nt":
+                        import msvcrt
+                        msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+                    else:
+                        import fcntl
+                        fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except OSError:
+                    if time.monotonic() >= deadline:
+                        raise AssertionError(("Departing cache writer retained lease", project))
+                    time.sleep(.05)
+            try:
+                yield
+            finally:
+                stream.seek(0)
+                if os.name == "nt":
+                    msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
 
     def validate_after_membership_change(project):
         # A directory rename may race an inotify event and a pinned-generation
@@ -172,7 +204,9 @@ with tempfile.TemporaryDirectory(prefix="noveltea-incremental-certify-") as dire
         if sys.platform.startswith("linux"):
             for key in ("fontProofReads", "fontProofHashes", "fontBytesRead",
                         "fontBytesHashed"):
-                assert physical[key] == 0, (key, physical)
+                assert physical[key] == 0, (key, physical, counters.get("sessionAdmissions"),
+                                            counters.get("semanticFallbackReasons"),
+                                            counters.get("coldValidationFallback"))
         # A healthy resident source generation must not reread unchanged
         # binary Assets merely to validate a Room presentation-only edit.
         # Transaction CAS, uncertain watcher recovery and cold admission
@@ -183,6 +217,24 @@ with tempfile.TemporaryDirectory(prefix="noveltea-incremental-certify-") as dire
             assert physical["fileByteReads"] <= 1, physical
             assert physical["parsedYaml"] <= 1, physical
             assert physical["fontCoverageMicros"] == 0, physical
+
+    def certify_unchanged_resident(project, result):
+        no_stages(result)
+        if not work(result, "residentWarm"):
+            # A retired owner or conservatively readmitted watcher may serve
+            # a cold, unchanged Project from the persistent ledger. Its
+            # physical admission proofs are not healthy *warm* request work.
+            # Recheck the full public result independently, then require the
+            # same owner to retain the generation for the next warm call.
+            fresh_parity(project, result)
+            repeated = validate(project)
+            assert work(repeated, "residentWarm"), (
+                project, "Owner failed to remain resident", repeated["validationWork"])
+            assert public(repeated) == public(result), (project, repeated)
+            no_stages(repeated)
+            warm_stage_proofs(repeated)
+        else:
+            warm_stage_proofs(result)
 
     def set_label(path, value):
         source = path.read_text()
@@ -228,8 +280,7 @@ with tempfile.TemporaryDirectory(prefix="noveltea-incremental-certify-") as dire
             for _ in range(2):
                 unchanged = validate(project)
                 assert public(unchanged) == public(initial), size
-                no_stages(unchanged)
-                warm_stage_proofs(unchanged)
+                certify_unchanged_resident(project, unchanged)
 
             for index in range(2):
                 set_label(room, f"Certification label {index}")
@@ -296,8 +347,7 @@ with tempfile.TemporaryDirectory(prefix="noveltea-incremental-certify-") as dire
                     assert saved["validationWork"]["endToEnd"]["portableSourceChecks"] == 0
                     assert saved["validationWork"]["endToEnd"]["directoryEnumerations"] == 0
                 unchanged = validate(project)
-                no_stages(unchanged)
-                warm_stage_proofs(unchanged)
+                certify_unchanged_resident(project, unchanged)
             fresh_parity(project, saved)
 
             # #599: changing one physical script/companion must not cause
@@ -373,8 +423,7 @@ with tempfile.TemporaryDirectory(prefix="noveltea-incremental-certify-") as dire
                     assert changed_text["validationWork"].get("materialInterfaceValidations", 0) == 0, (
                         size, path, changed_text["validationWork"])
                 unchanged_text = validate(project)
-                no_stages(unchanged_text)
-                warm_stage_proofs(unchanged_text)
+                certify_unchanged_resident(project, unchanged_text)
 
             if size == 1 and sys.platform.startswith("linux"):
                 # Cached exact diagnostics cannot survive a same-inode edit whose size and
@@ -460,23 +509,48 @@ with tempfile.TemporaryDirectory(prefix="noveltea-incremental-certify-") as dire
                 no_stages(cached)
             fresh_parity(project, cached)
 
-            # Corrupt optional evidence cannot make validation succeed with a
-            # stale result or change the public diagnostics. Repeat the 101-Room
-            # restart that previously intermittently admitted zero contributors:
-            # a successful cold rebuild must not depend on the preceding owner
-            # having remained alive or its shutdown having republished a ledger.
+            # Prove that a truncated ledger cannot be admitted as clean evidence
+            # in a fresh, foreground-only CLI process. A resident daemon is
+            # tested separately: its elected writer may rebuild the corrupted
+            # ledger during idle maintenance before the first public command.
             for recovery_attempt in range(3 if size == 101 else 1):
                 stop()
                 ledger = project / ".noveltea/cache/authoring/native-clean-current.json"
                 assert ledger.is_file(), (size, recovery_attempt, ledger)
+                with exclusive_cache_lease(project):
+                    ledger.write_bytes(b"{truncated")
+                    assert ledger.read_bytes() == b"{truncated"
+                    direct_recovery = validate(project, direct=True)
+                    assert public(direct_recovery) == public(saved), (
+                        size, recovery_attempt, direct_recovery)
+                    assert work(direct_recovery, "recheckedRecords") >= expected_records, (
+                        size, recovery_attempt, "Direct validation admitted corrupt evidence",
+                        direct_recovery["validationWork"])
+                    assert ledger.read_bytes() == b"{truncated", (
+                        size, recovery_attempt, "Nonowner rewrote the cache")
+
+                # Start a new daemon against the *same corrupt ledger*, not
+                # evidence regenerated by the foreground direct command.
+                stop()
                 ledger.write_bytes(b"{truncated")
                 assert ledger.read_bytes() == b"{truncated", (
-                    size, recovery_attempt, "Ledger was republished after stop")
+                    size, recovery_attempt, "Ledger republished after stop")
                 recovered = validate(project)
                 assert public(recovered) == public(saved), (size, recovery_attempt, recovered)
-                assert work(recovered, "recheckedRecords") >= expected_records, (
-                    size, recovery_attempt, "Corrupt disk evidence was incorrectly admitted",
-                    recovered["validationWork"])
+                if work(recovered, "recheckedRecords") < expected_records:
+                    # The writer can proactively repair an old, quiet Project
+                    # before the queued foreground request. It must have
+                    # published a complete current snapshot, not reused the
+                    # truncated bytes or a stale diagnostics-only payload.
+                    repaired = json.loads(ledger.read_text())
+                    contributors = repaired["resident"]["contributions"]
+                    assert len(contributors) >= expected_records, (
+                        size, recovery_attempt, "Idle repair did not rebuild contributors",
+                        recovered["validationWork"])
+                    assert (contributors[expected_owner]["record"]["bytes"] ==
+                            room.read_text()), (size, recovery_attempt, "Stale idle repair")
+                    assert repaired["result"]["valid"] == saved["success"], (
+                        size, recovery_attempt, "Stale idle diagnostics")
                 fresh_parity(project, recovered)
 
             # An invalid saved source must carry the same complete diagnostic

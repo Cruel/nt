@@ -237,7 +237,7 @@ export class NativeResidentProjectOwner {
         sessionEpoch: previous?.identity.sessionEpoch ?? this.epoch,
         generation: (previous?.identity.generation ?? 0) + 1,
       };
-      const snapshot = {
+      const snapshot: LoadedProjectWorkspaceSnapshot = {
         snapshotKind: 'loaded',
         projectRoot: root,
         manifestPath: this.files.joinPath(root, 'project.yaml'),
@@ -247,7 +247,7 @@ export class NativeResidentProjectOwner {
         canonicalSourceFiles: paths,
         fileRevisions,
         scriptSourcePaths: {},
-      } as unknown as LoadedProjectWorkspaceSnapshot;
+      };
       const opened = {
         ok: true,
         snapshot,
@@ -271,7 +271,7 @@ export class NativeResidentProjectOwner {
           foregroundSerializations: 0,
           foregroundSerializedBytes: 0,
           localizationCoverageInputsChanged: true,
-          localizationCoverageDependencyRevision: native.sourceGeneration as `sha256:${string}`,
+          localizationCoverageDependencyRevision: native.sourceGeneration,
         },
       } as Extract<ProjectWorkspaceOpenResult, { ok: true }>;
       this.entries.set(root, {
@@ -528,8 +528,7 @@ export class NativeResidentProjectOwner {
         foregroundSerializations: 0,
         foregroundSerializedBytes: 0,
         localizationCoverageInputsChanged: false,
-        localizationCoverageDependencyRevision: portable.nativePreparation
-          .sourceGeneration as `sha256:${string}`,
+        localizationCoverageDependencyRevision: portable.nativePreparation.sourceGeneration,
       },
     } as Extract<ProjectWorkspaceOpenResult, { ok: true }>;
     this.entries.set(canonical, {

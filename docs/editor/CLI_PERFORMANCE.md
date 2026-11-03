@@ -1,5 +1,29 @@
 # Native CLI validation performance investigation
 
+## #576 final review: corrupted-cache certification and source-revision types (November 2, 2026)
+
+The native source-revision contract is XXH3-128 (32 lowercase hex digits).
+The active editor's typed Project Workspace snapshot, file revisions, localization
+coverage dependency generation, and save preconditions use that identity.
+SHA-256 remains the separate cryptographic identity for Asset bytes and package
+integrity, and for non-authoritative filesystem digest helpers.
+
+A corrupted-cache recovery check must not assume that daemon stop also means
+a departing owner has finished its best-effort shutdown publication. The
+public #594 certification now acquires the Project's existing stable native
+cache-writer OS lock before truncating the ledger. A direct no-daemon validation
+while that lock is held must rebuild every record and leave the corrupt cache
+untouched, proving it did not borrow a repaired snapshot. The independent
+daemon recovery then tests diagnostic parity; an idle writer may publish a
+complete current contributor bundle before the foreground request, so zero
+foreground rechecks alone are not evidence of corrupted cache admission.
+The daemon path checks current Room source bytes and complete contributor
+inventory if that occurs. The opt-in public work profile now exposes
+`residentWarm`: the certification requires zero physical proof work from a
+retained healthy resident, while a cold readmission must match fresh diagnostics
+and establish zero-work reuse on the next request. No new cache authority,
+debounce path, or elapsed-time threshold was introduced.
+
 ## #594: post-#596–#600 native test repairs and complete-Project input reuse (November 2, 2026)
 
 On current HEAD after `5a797427`, the native dependency graph records Room-exit
