@@ -120,18 +120,39 @@ bool ntproject_extension(const std::filesystem::path& file)
     return name.ends_with(".ntproject");
 }
 
-std::filesystem::path checked_source(const std::filesystem::path& root, std::string_view relative)
+// Missing or unsafe authored sources are validation results, not exceptional
+// control flow. Keep this check nonthrowing for resident validation (including
+// the macOS FSEvents path), where an absent notice is a normal negative case.
+std::optional<std::string> source_path_error(const std::filesystem::path& root,
+                                             std::string_view relative,
+                                             std::filesystem::path* checked = nullptr)
 {
     if (excluded(relative) || relative == "ntproject.json")
-        throw std::runtime_error("Project source is not portable: " + std::string(relative));
+        return "Project source is not portable: " + std::string(relative);
     const auto path = root / utf8_path(relative);
-    if (!std::filesystem::is_regular_file(path))
-        throw std::runtime_error("Portable Project source is missing: " + std::string(relative));
-    const auto resolved = std::filesystem::canonical(path);
-    const auto within = resolved.lexically_relative(std::filesystem::canonical(root));
+    std::error_code error;
+    if (!std::filesystem::is_regular_file(path, error) || error)
+        return "Portable Project source is missing: " + std::string(relative);
+    const auto resolved = std::filesystem::canonical(path, error);
+    if (error)
+        return "Portable Project source is missing: " + std::string(relative);
+    const auto canonical_root = std::filesystem::canonical(root, error);
+    if (error)
+        return "Portable Project source is missing: " + std::string(relative);
+    const auto within = resolved.lexically_relative(canonical_root);
     if (within.empty() || within == ".." || *within.begin() == "..")
-        throw std::runtime_error("Portable Project source escapes the Project root.");
-    return path;
+        return "Portable Project source escapes the Project root.";
+    if (checked)
+        *checked = path;
+    return std::nullopt;
+}
+
+std::filesystem::path checked_source(const std::filesystem::path& root, std::string_view relative)
+{
+    std::filesystem::path checked;
+    if (const auto error = source_path_error(root, relative, &checked))
+        throw std::runtime_error(*error);
+    return checked;
 }
 
 bool pinned_canonical_path(std::string_view path)
@@ -144,7 +165,8 @@ bool pinned_canonical_path(std::string_view path)
 
 void project_paths(const Json& effective, const ProjectSession* session,
                    const std::filesystem::path& root, std::set<std::string>& files,
-                   const Json* pinned_revisions = nullptr, bool observed_workflows = false)
+                   const Json* pinned_revisions = nullptr, bool observed_workflows = false,
+                   std::string* validation_error = nullptr)
 {
     if (session) {
         for (const auto& source : session->file_inventory()) {
@@ -248,8 +270,15 @@ void project_paths(const Json& effective, const ProjectSession* session,
             }
         }
     }
-    for (const auto& relative : files)
-        (void)checked_source(root, relative);
+    for (const auto& relative : files) {
+        if (const auto error = source_path_error(root, relative)) {
+            if (validation_error) {
+                *validation_error = *error;
+                return;
+            }
+            throw std::runtime_error(*error);
+        }
+    }
 }
 
 Json complete_project(ProjectSession& session)
@@ -689,7 +718,10 @@ Json native_project_bundle(const Json& request, ProjectSession* session,
                 if (!entry.is_string())
                     return failure("Portable incremental source path is malformed.");
                 const auto source = entry.get<std::string>();
-                std::ifstream input(checked_source(root, source), std::ios::binary);
+                std::filesystem::path checked;
+                if (const auto error = source_path_error(root, source, &checked))
+                    return failure(*error, "invalid-project");
+                std::ifstream input(checked, std::ios::binary);
                 if (!input)
                     return failure("Portable Project source cannot be read: " + source);
                 (void)input.peek();
@@ -724,8 +756,12 @@ Json native_project_bundle(const Json& request, ProjectSession* session,
                 "Cannot prepare Runtime Package without a valid native runtime profile.");
         std::set<std::string> paths;
         try {
+            std::string validation_error;
             project_paths(effective, session, root, paths, nullptr,
-                          action == "validation-source-check");
+                          action == "validation-source-check",
+                          action == "validation-source-check" ? &validation_error : nullptr);
+            if (!validation_error.empty())
+                return failure(validation_error, "invalid-project");
         } catch (const std::exception& error) {
             return failure(error.what(), "invalid-project");
         }
