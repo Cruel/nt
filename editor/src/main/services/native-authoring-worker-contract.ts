@@ -356,6 +356,7 @@ export const nativeAuthoringCommandSchema = z.discriminatedUnion('operation', [
       operation: z.literal('prepareCompleteWorking'),
       expectedRevision: z.number().int().nonnegative(),
       testId: z.string().max(256).default(''),
+      editorProjection: z.boolean().default(false),
     })
     .strict(),
   z

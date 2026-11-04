@@ -509,6 +509,7 @@ describe('FullGamePreviewEditor', () => {
           '11111111-1111-4111-8111-111111111111',
           8,
           'glsl-330',
+          null,
         ),
       );
       expect(window.noveltea.prepareEditorRuntime).not.toHaveBeenCalled();
@@ -690,6 +691,7 @@ describe('FullGamePreviewEditor', () => {
         '11111111-1111-4111-8111-111111111111',
         0,
         'glsl-330',
+        null,
       ),
     );
     await waitFor(() =>

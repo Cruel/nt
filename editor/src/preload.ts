@@ -124,8 +124,13 @@ const api: NovelTeaElectronApi = {
       diskRevision,
       text,
     ),
-  nativeProjectValidate: (projectSessionId, expectedRevision) =>
-    invokeGuarded(IPC_CHANNELS.NATIVE_PROJECT_VALIDATE, projectSessionId, expectedRevision),
+  nativeProjectValidate: (projectSessionId, expectedRevision, fullStages) =>
+    invokeGuarded(
+      IPC_CHANNELS.NATIVE_PROJECT_VALIDATE,
+      projectSessionId,
+      expectedRevision,
+      fullStages ?? false,
+    ),
   nativeProjectSemanticGraph: (projectSessionId, expectedRevision) =>
     invokeGuarded(IPC_CHANNELS.NATIVE_PROJECT_SEMANTIC_GRAPH, projectSessionId, expectedRevision),
   nativeProjectReconcile: (projectSessionId, expectedRevision, owner) =>
@@ -137,12 +142,18 @@ const api: NovelTeaElectronApi = {
       expectedRevision,
       saveUnitId,
     ),
-  nativeProjectPrepareRuntime: (projectSessionId, expectedRevision, shaderVariant) =>
+  nativeProjectPrepareRuntime: (
+    projectSessionId,
+    expectedRevision,
+    shaderVariant,
+    previewLocale = null,
+  ) =>
     invokeGuarded(
       IPC_CHANNELS.NATIVE_PROJECT_PREPARE_RUNTIME,
       projectSessionId,
       expectedRevision,
       shaderVariant,
+      previewLocale,
     ),
   nativeProjectTestReadiness: (projectSessionId, expectedRevision, testId) =>
     invokeGuarded(

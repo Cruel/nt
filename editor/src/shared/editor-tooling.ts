@@ -15,6 +15,9 @@ export interface ToolDiagnostic {
   path: string;
   message: string;
   category?: string;
+  sourcePath?: string;
+  line?: number;
+  column?: number;
   ownerPaths?: readonly string[];
   navigation?: ToolDiagnosticNavigation;
 }

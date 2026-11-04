@@ -57,7 +57,7 @@ describe('LocalizationEditor', () => {
 
     await user.click(screen.getByRole('combobox', { name: 'Preview locale' }));
     await user.click(await screen.findByRole('option', { name: /Pseudo-localized/u }));
-    await waitFor(() => expect(window.noveltea.nativeProjectPatch).toHaveBeenCalledOnce());
+    expect(window.noveltea.nativeProjectPatch).not.toHaveBeenCalled();
 
     await waitFor(() =>
       expect((useProjectStore.getState().document as AuthoringProject).editor.previewLocale).toBe(
@@ -68,11 +68,7 @@ describe('LocalizationEditor', () => {
     expect(project.localization.defaultLocale).toBe('en');
     expect(Object.keys(project.localization.locales)).toEqual(['en']);
     expect(project.localization.translations).toEqual({});
-    const historyEntry = useCommandStore.getState().history.entries.at(-1);
-    expect(historyEntry).toMatchObject({
-      originSaveUnitId: 'editor-local:preview-locale',
-      persistencePolicy: 'auto-commit',
-    });
+    expect(useCommandStore.getState().history.entries).toHaveLength(0);
     expect(currentRecoveryDirtySaveUnitIds()).not.toContain('project:localization');
   });
 
@@ -771,14 +767,14 @@ describe('LocalizationEditor', () => {
     });
     render(<LocalizationEditor tab={tab} />);
     await user.click(screen.getByRole('button', { name: 'Translations' }));
-    await waitFor(() => expect(native).toHaveBeenCalledWith('native-localization', 0));
+    await waitFor(() => expect(native).toHaveBeenCalledWith('native-localization', 0, false));
     expect(screen.getByRole('button', { name: 'Mark reviewed' })).toBeDisabled();
     native.mockResolvedValue({ diagnostics: [] });
     act(() => useCommandStore.setState({ nativeWorkingRevision: 1 }));
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Mark reviewed' })).toBeEnabled(),
     );
-    expect(native).toHaveBeenLastCalledWith('native-localization', 1);
+    expect(native).toHaveBeenLastCalledWith('native-localization', 1, false);
     Reflect.deleteProperty(window.noveltea, 'nativeProjectValidate');
   });
 

@@ -116,7 +116,12 @@ export class NativeDirtyCheckpointStore {
     return parsed.checkpoint as NativeDirtyCheckpoint;
   }
 
-  async write(root: string, projectId: string, checkpoint: NativeDirtyCheckpoint): Promise<void> {
+  async write(
+    root: string,
+    projectId: string,
+    checkpoint: NativeDirtyCheckpoint,
+    identityRoot = root,
+  ): Promise<void> {
     const canonicalRoot = await realpath(root);
     const filename = path.join(canonicalRoot, relativeFile);
     const directory = path.dirname(filename);
@@ -135,7 +140,8 @@ export class NativeDirtyCheckpointStore {
     const contents = JSON.stringify(
       documentSchema.parse({
         version: 1,
-        projectRoot: canonicalRoot,
+        // A staged Save Copy binds recovery to its final, already-selected destination.
+        projectRoot: await realpath(identityRoot),
         projectId,
         checkpoint,
       }),

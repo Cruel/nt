@@ -303,7 +303,10 @@ export class NativeAuthoringWorkingProject {
 
   /** All effective native records, with verified source revisions, for editor
    * cutover certification. No saved TypeScript Project is used to fill gaps. */
-  async prepareCompleteWorking(testId = ''): Promise<NativeAuthoringPreparation> {
+  async prepareCompleteWorking(
+    testId = '',
+    editorProjection = false,
+  ): Promise<NativeAuthoringPreparation> {
     return this.serial(async () => {
       if (!this.view) throw new Error('Native working Project has not opened.');
       const expectedRevision = this.view.workingRevision;
@@ -311,6 +314,7 @@ export class NativeAuthoringWorkingProject {
         operation: 'prepareCompleteWorking',
         expectedRevision,
         testId,
+        editorProjection,
       });
       if (result.workingRevision !== expectedRevision)
         throw new Error('Native complete Project preparation advanced the working generation.');

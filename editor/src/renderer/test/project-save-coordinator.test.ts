@@ -1446,7 +1446,7 @@ describe('project save coordinator', () => {
     Reflect.deleteProperty(window.noveltea, 'nativeProjectSaveUnit');
   });
 
-  it('blocks atomic native Save All when any selected unit has invalid pending input', async () => {
+  it('saves independent valid units while leaving pending-input units unsaved', async () => {
     const saved = projectWithRooms();
     const working = projectWithRooms();
     working.rooms.foyer!.label = 'New Foyer';
@@ -1475,14 +1475,67 @@ describe('project save coordinator', () => {
     const result = await saveAllSaveUnits();
 
     expect(result).toMatchObject({
-      success: false,
-      status: 'blocked',
-      savedSaveUnitIds: [],
+      success: true,
+      status: 'partially-saved',
+      savedSaveUnitIds: ['record:rooms:foyer'],
+      remainingDirtySaveUnitIds: ['record:rooms:kitchen'],
+    });
+    expect(result.diagnostics).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: 'editor.save.pending-input' })]),
+    );
+    expect(nativeSave).toHaveBeenCalledWith('test-project-session', 0, 'record:rooms:foyer', {
+      comments: 'keep',
+    });
+    expect(window.noveltea.saveProjectContent).not.toHaveBeenCalled();
+    Reflect.deleteProperty(window.noveltea, 'nativeProjectSaveUnit');
+  });
+
+  it('never splits an atomic group containing pending input, but saves unrelated units', async () => {
+    const saved = projectWithRooms();
+    const working = projectWithRooms();
+    saved.rooms.hall = { id: 'hall', label: 'Hall', data: defaultRoomData('Hall') };
+    working.rooms.hall = { id: 'hall', label: 'Hall', data: defaultRoomData('Hall') };
+    working.rooms.foyer!.label = 'New Foyer';
+    working.rooms.kitchen!.label = 'New Kitchen';
+    working.rooms.hall!.label = 'New Hall';
+    const editorState = recoveryState({
+      'record:rooms:foyer': {
+        sequence: 1,
+        patches: [{ op: 'replace', path: '/rooms/foyer/label', value: 'New Foyer' }],
+        affectedPaths: ['/rooms/foyer'],
+        pendingRawInputByPath: {},
+        atomicTransactionGroupIds: ['atomic:related'],
+      },
+      'record:rooms:kitchen': {
+        sequence: 2,
+        patches: [{ op: 'replace', path: '/rooms/kitchen/label', value: 'New Kitchen' }],
+        affectedPaths: ['/rooms/kitchen'],
+        pendingRawInputByPath: { '/rooms/kitchen/data/zoom': { value: 'invalid' } },
+        atomicTransactionGroupIds: ['atomic:related'],
+      },
+      'record:rooms:hall': {
+        sequence: 3,
+        patches: [{ op: 'replace', path: '/rooms/hall/label', value: 'New Hall' }],
+        affectedPaths: ['/rooms/hall'],
+        pendingRawInputByPath: {},
+        atomicTransactionGroupIds: [],
+      },
+    });
+    loadProject(saved, working, editorState);
+    const nativeSave = admitNativeSaveWithoutExternalChanges();
+
+    const result = await saveAllSaveUnits();
+
+    expect(result).toMatchObject({
+      success: true,
+      status: 'partially-saved',
+      savedSaveUnitIds: ['record:rooms:hall'],
       remainingDirtySaveUnitIds: ['record:rooms:foyer', 'record:rooms:kitchen'],
     });
-    expect(result.diagnostics[0]).toMatchObject({ code: 'editor.save.pending-input' });
-    expect(nativeSave).not.toHaveBeenCalled();
-    expect(window.noveltea.saveProjectContent).not.toHaveBeenCalled();
+    expect(nativeSave).toHaveBeenCalledOnce();
+    expect(result.diagnostics).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: 'editor.save.pending-input' })]),
+    );
     Reflect.deleteProperty(window.noveltea, 'nativeProjectSaveUnit');
   });
 

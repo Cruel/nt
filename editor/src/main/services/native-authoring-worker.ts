@@ -54,7 +54,12 @@ interface NativeBinding {
   ): string;
   save(handle: unknown, revision: string): string;
   prepareWorking(handle: unknown, revision: number, testId: string): string;
-  prepareCompleteWorking(handle: unknown, revision: number, testId: string): string;
+  prepareCompleteWorking(
+    handle: unknown,
+    revision: number,
+    testId: string,
+    editorProjection: boolean,
+  ): string;
   semanticGraph(handle: unknown, revision: number): string;
   stageTextSource(
     handle: unknown,
@@ -229,7 +234,12 @@ parent.on('message', (raw: unknown) => {
           requestId: command.requestId,
           result: nativeAuthoringPreparationSchema.parse(
             JSON.parse(
-              binding.prepareCompleteWorking(handle, command.expectedRevision, command.testId),
+              binding.prepareCompleteWorking(
+                handle,
+                command.expectedRevision,
+                command.testId,
+                command.editorProjection,
+              ),
             ),
           ),
         };

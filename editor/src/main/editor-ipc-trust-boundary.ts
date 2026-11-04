@@ -783,6 +783,11 @@ export const nativeProjectValidateArgumentsSchema = z.tuple([
   projectSessionIdSchema,
   z.number().int().nonnegative(),
 ]);
+export const nativeProjectFullValidateArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  z.number().int().nonnegative(),
+  z.boolean(),
+]);
 export const nativeProjectReconcileArgumentsSchema = z.tuple([
   projectSessionIdSchema,
   z.number().int().nonnegative(),
@@ -822,6 +827,7 @@ export const nativeProjectPrepareRuntimeArgumentsSchema = z.tuple([
   projectSessionIdSchema,
   z.number().int().nonnegative(),
   shaderVariantSchema,
+  z.string().max(128).nullable(),
 ]);
 export const nativeProjectRunTestArgumentsSchema = z.tuple([
   projectSessionIdSchema,

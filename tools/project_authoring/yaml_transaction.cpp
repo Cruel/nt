@@ -831,6 +831,7 @@ YamlTransactionService::prepare(const std::vector<YamlTransactionTarget>& target
             const bool raw_text = target.raw_text_source.has_value();
             const bool admitted_text_path =
                 layout_text ||
+                (target.path.starts_with("shaders/") && target.path.ends_with(".sc")) ||
                 ((target.path.starts_with("scripts/") || target.path.starts_with("assets/")) &&
                  (target.path.ends_with(".lua") || target.path.ends_with(".rml") ||
                   target.path.ends_with(".rcss")));

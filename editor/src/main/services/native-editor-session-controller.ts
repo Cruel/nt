@@ -30,6 +30,7 @@ import { diffJsonDocuments } from '../../renderer/project/project-external-recon
 import type { JsonValue } from '../../renderer/project/json-value';
 import { nativeAssetContentHashes, verifyNativeSourceBytes } from './native-authoring-source-proof';
 import { classifyProjectValidationDiagnostics } from '../../shared/project-schema/project-diagnostic-projection';
+import { validateNativeWorkingStages } from './native-working-stage-validation';
 
 export interface NativeCleanExportAdmission {
   readonly project: AuthoringProject;
@@ -62,7 +63,7 @@ export class NativeEditorSessionController {
       'isCurrent' | 'requireActiveProjectRoot'
     >,
     private readonly bridge: Pick<NativeAuthoringSessionBridge, 'close' | 'onFailure'> &
-      Partial<Pick<NativeAuthoringSessionBridge, 'sourceRevision'>>,
+      Partial<Pick<NativeAuthoringSessionBridge, 'sourceRevision' | 'validationWorkerOptions'>>,
     private readonly working: Pick<
       NativeAuthoringWorkingProject,
       | 'open'
@@ -227,7 +228,7 @@ export class NativeEditorSessionController {
       await this.working.open(projectSessionId);
       if (generation !== this.generation || !this.authority.isCurrent(projectSessionId))
         throw new Error('Native Project admission was superseded.');
-      const prepared = await this.working.prepareCompleteWorking();
+      const prepared = await this.working.prepareCompleteWorking('', true);
       if (generation !== this.generation || !this.authority.isCurrent(projectSessionId))
         throw new Error('Native Project admission was superseded.');
       if (!prepared.accepted)
@@ -253,7 +254,7 @@ export class NativeEditorSessionController {
         await this.working.restoreDirtyCheckpoint(projectSessionId, checkpoint);
         if (generation !== this.generation || !this.authority.isCurrent(projectSessionId))
           throw new Error('Native Project recovery was superseded.');
-        const recovered = await this.working.prepareCompleteWorking();
+        const recovered = await this.working.prepareCompleteWorking('', true);
         if (!recovered.accepted)
           throw new Error(
             `Native Project recovery cannot prepare dirty content: ${recovered.error}`,
@@ -268,14 +269,7 @@ export class NativeEditorSessionController {
         revision: finalRevision,
         savedProject: native,
         sourceRevisions: { ...prepared.sourceRevisions },
-        diagnostics: prepared.diagnostics.map((diagnostic) => ({
-          code: diagnostic.code,
-          severity: diagnostic.severity,
-          path: diagnostic.path,
-          message: diagnostic.sourcePath
-            ? `${diagnostic.message} [${diagnostic.sourcePath}${diagnostic.line ? `:${diagnostic.line}` : ''}]`
-            : diagnostic.message,
-        })),
+        diagnostics: prepared.diagnostics,
       };
     } catch (error) {
       if (generation === this.generation) this.close();
@@ -752,7 +746,7 @@ export class NativeEditorSessionController {
     return result;
   }
 
-  async validate(projectSessionId: string, expectedRevision: number) {
+  async validate(projectSessionId: string, expectedRevision: number, fullStages = false) {
     if (!this.isAdmitted(projectSessionId))
       throw new Error('Native Project is not admitted for this editor session.');
     const generation = this.generation;
@@ -767,22 +761,53 @@ export class NativeEditorSessionController {
       validated.workingRevision !== expectedRevision
     )
       throw new Error('Native Project validation was superseded by another edit or Project.');
-    const diagnostics = validated.diagnostics.map((diagnostic) => ({
-      code: diagnostic.code,
-      severity: diagnostic.severity,
-      category: 'Native authoring validation',
-      path: diagnostic.path,
-      message: diagnostic.sourcePath
-        ? `${diagnostic.message} [${diagnostic.sourcePath}${diagnostic.line ? `:${diagnostic.line}` : ''}]`
-        : diagnostic.message,
-    }));
+    const diagnostics = classifyProjectValidationDiagnostics(validated.diagnostics, {
+      producer: 'authoring',
+    });
+    if (validated.valid && fullStages) {
+      if (!this.bridge.validationWorkerOptions)
+        throw new Error('Native downstream validation tooling is unavailable.');
+      // Only the native worker's acknowledged recovery projection can enter
+      // this disposable C++ stage runner; no renderer Project is admissible.
+      const root = this.authority.requireActiveProjectRoot(projectSessionId);
+      const before = this.copyRecovery(projectSessionId);
+      const sourceBefore = await this.working.prepareCompleteWorking('', true);
+      if (!sourceBefore.accepted || !sourceBefore.completeProject)
+        throw new Error(sourceBefore.error || 'Native validation source proof is unavailable.');
+      const downstream = await validateNativeWorkingStages({
+        sourceRoot: root,
+        worker: this.bridge.validationWorkerOptions(),
+        checkpoint: before.checkpoint,
+      });
+      const sourceAfter = await this.working.prepareCompleteWorking('', true);
+      if (
+        JSON.stringify(sourceAfter.sourceRevisions) !== JSON.stringify(sourceBefore.sourceRevisions)
+      )
+        throw new Error('Physical Project sources changed during downstream validation.');
+      if (JSON.stringify(this.copyRecovery(projectSessionId)) !== JSON.stringify(before))
+        throw new Error('Native Project changed during downstream validation.');
+      // The full CLI result already includes native authoring diagnostics.
+      // Prefer its complete generation instead of duplicating retained warnings.
+      diagnostics.length = 0;
+      diagnostics.push(
+        ...classifyProjectValidationDiagnostics(downstream.diagnostics, {
+          producer: 'authoring',
+        }),
+      );
+      if (
+        !downstream.success &&
+        !downstream.diagnostics.some((entry) => entry.severity === 'error')
+      )
+        throw new Error('Native CLI downstream validation failed without diagnostics.');
+    }
     if (!validated.valid && !diagnostics.some((diagnostic) => diagnostic.severity === 'error')) {
       diagnostics.push({
         code: 'editor.native-validation.rejected',
         severity: 'error',
-        category: 'Native authoring validation',
         path: '/',
         message: 'Native working Project validation rejected the current revision.',
+        boundaries: ['authoring'],
+        ownerPaths: ['/'],
       });
     }
     return {
@@ -799,7 +824,7 @@ export class NativeEditorSessionController {
   async currentWorkingProject(projectSessionId: string): Promise<AuthoringProject> {
     const generation = this.generation;
     const revision = this.currentRevision(projectSessionId);
-    const prepared = await this.working.prepareCompleteWorking();
+    const prepared = await this.working.prepareCompleteWorking('', true);
     if (!prepared.accepted || !prepared.completeProject)
       throw new Error(prepared.error || 'Native working Project is unavailable.');
     if (
@@ -889,13 +914,23 @@ export class NativeEditorSessionController {
     return (await this.prepareCleanExportAdmission(projectSessionId)).project;
   }
 
+  copyRecovery(projectSessionId: string) {
+    if (!this.isAdmitted(projectSessionId) || !this.projectIdentity)
+      throw new Error('Project Copy requires an admitted native Project.');
+    return {
+      projectId: this.projectIdentity,
+      revision: this.currentRevision(projectSessionId),
+      checkpoint: this.working.dirtyCheckpoint(),
+    };
+  }
+
   /** Save Copy As copies saved physical sources, not the unsaved working
    * projection. Dirty editor edits are deliberately allowed: the caller
    * carries only their local recovery metadata to the copy. */
   async verifySavedCopySources(projectSessionId: string): Promise<void> {
     const generation = this.generation;
     const revision = this.currentRevision(projectSessionId);
-    const prepared = await this.working.prepareCompleteWorking();
+    const prepared = await this.working.prepareCompleteWorking('', true);
     if (!prepared.sourceRevisions || !Object.keys(prepared.sourceRevisions).length)
       throw new Error('Native saved source inventory is unavailable.');
     if (!prepared.accepted || !prepared.completeProject)
@@ -951,6 +986,7 @@ export class NativeEditorSessionController {
     projectSessionId: string,
     expectedRevision: number,
     shaderVariant: ShaderVariant,
+    previewLocale: string | null = null,
   ): Promise<EditorRuntimePreparationResult> {
     if (!this.isAdmitted(projectSessionId))
       throw new Error('Native Project is not admitted for this editor session.');
@@ -959,12 +995,13 @@ export class NativeEditorSessionController {
     if (this.working.snapshot()?.workingRevision !== expectedRevision)
       throw new Error('Stale native runtime preparation revision.');
     const prepared = await this.working.prepareCompleteWorking();
-    const project = prepared.accepted
-      ? projectWithPreviewLocale(projectFromNativeCompletePreparation(prepared))
+    const effective = prepared.accepted ? projectFromNativeCompletePreparation(prepared) : null;
+    const project = effective
+      ? projectWithPreviewLocale({ ...effective, editor: { ...effective.editor, previewLocale } })
       : null;
     const locale = project ? effectivePreviewLocale(project) : null;
     const buildContext: EditorRuntimePreparationResult['buildContext'] =
-      project && locale !== project.localization.defaultLocale && locale
+      effective && locale !== effective.localization.defaultLocale && locale
         ? locale === PSEUDO_PREVIEW_LOCALE
           ? { kind: 'pseudo-preview-locale', locale, shaderVariant }
           : { kind: 'preview-locale', locale, shaderVariant }
@@ -974,6 +1011,7 @@ export class NativeEditorSessionController {
       projectRoot: root,
       sourceRevisionFor: this.sourceRevisionFor(),
       shaderVariant,
+      previewLocale,
     });
     if (
       generation !== this.generation ||

@@ -1436,7 +1436,8 @@ std::unique_ptr<ProjectSession> ProjectSession::open_impl(const std::filesystem:
                                traits ? traits->snapshot().normalized_json : std::string{}));
         project->yaml_decode_cache_ = std::move(decoded);
         for (const auto& file : project->file_inventory()) {
-            if (!analyzable_text_path(file.path) ||
+            if (!(analyzable_text_path(file.path) ||
+                  (file.path.starts_with("shaders/") && file.path.ends_with(".sc"))) ||
                 (file.kind != ProjectFileKind::ProjectSource &&
                  !(file.kind == ProjectFileKind::TrackedSource &&
                    file.path.starts_with("records/layouts/"))))
@@ -3848,7 +3849,8 @@ RoomSessionResult ProjectSession::stage_text_source(std::uint64_t revision,
     }
     const std::string path(relative_path);
     const std::filesystem::path relative(path);
-    if (!analyzable_text_path(path) || !text_source_paths_.contains(path) ||
+    const bool shader = path.starts_with("shaders/") && path.ends_with(".sc");
+    if (!(analyzable_text_path(path) || shader) || !text_source_paths_.contains(path) ||
         relative != relative.lexically_normal() || path.find_first_of(":\\") != std::string::npos ||
         path.find("//") != std::string::npos || source_text.size() > 4 * 1024 * 1024) {
         response.error = "Text overlay requires an admitted canonical Lua/RML/RCSS Project source.";
@@ -3872,13 +3874,17 @@ RoomSessionResult ProjectSession::stage_text_source(std::uint64_t revision,
             response.accepted = true;
             return response;
         }
-        const auto previous_analysis = text_analysis_cache_.find(path);
-        const auto previous_managed =
-            previous_analysis == text_analysis_cache_.end()
-                ? text_affects_localization(analyze_project_text(path, prior, true))
-                : text_affects_localization(previous_analysis->second);
-        auto next_analysis = analyze_project_text(path, source_text, true);
-        const bool managed_changed = previous_managed || text_affects_localization(next_analysis);
+        bool managed_changed = false;
+        if (!shader) {
+            const auto previous_analysis = text_analysis_cache_.find(path);
+            const auto previous_managed =
+                previous_analysis == text_analysis_cache_.end()
+                    ? text_affects_localization(analyze_project_text(path, prior, true))
+                    : text_affects_localization(previous_analysis->second);
+            auto next_analysis = analyze_project_text(path, source_text, true);
+            managed_changed = previous_managed || text_affects_localization(next_analysis);
+            text_analysis_cache_.insert_or_assign(path, std::move(next_analysis));
+        }
         if (source_text == disk) {
             text_source_overlays_.erase(path);
             text_overlay_disk_revisions_.erase(path);
@@ -3886,7 +3892,14 @@ RoomSessionResult ProjectSession::stage_text_source(std::uint64_t revision,
             text_overlay_disk_revisions_.try_emplace(path, exact_source_revision(disk));
             text_source_overlays_.insert_or_assign(path, std::move(source_text));
         }
-        text_analysis_cache_.insert_or_assign(path, std::move(next_analysis));
+        if (shader) {
+            if (const auto overlay = text_source_overlays_.find(path);
+                overlay != text_source_overlays_.end())
+                shader_overlays_.insert_or_assign(path, overlay->second);
+            else
+                shader_overlays_.erase(path);
+            material_compiler_results_.clear();
+        }
         if (managed_changed)
             localization_cache_.reset();
         ++working_revision_;
@@ -3926,7 +3939,9 @@ ProjectSession::save_text_sources(std::uint64_t revision, const std::vector<std:
         std::set<std::string> used;
         std::vector<YamlTransactionTarget> targets;
         for (const auto& path : paths) {
-            if (!used.insert(path).second || !analyzable_text_path(path) ||
+            if (!used.insert(path).second ||
+                !(analyzable_text_path(path) ||
+                  (path.starts_with("shaders/") && path.ends_with(".sc"))) ||
                 !text_source_paths_.contains(path) || path.starts_with("inline/") ||
                 !text_disk_revisions_.contains(path))
                 throw std::runtime_error("Unknown or duplicate admitted text source: " + path);
@@ -3970,6 +3985,10 @@ ProjectSession::save_text_sources(std::uint64_t revision, const std::vector<std:
             text_disk_revisions_[target.path] = target.after_revision;
             text_source_overlays_.erase(target.path);
             text_overlay_disk_revisions_.erase(target.path);
+            if (target.path.starts_with("shaders/") && target.path.ends_with(".sc")) {
+                shader_overlays_.erase(target.path);
+                material_compiler_results_.clear();
+            }
             response.affected_records.push_back("source:" + target.path);
             if (!source_authority_->acknowledge_own_write(target.path, target.after_revision))
                 source_authority_->coverage_lost();
@@ -4987,7 +5006,9 @@ RoomSessionResult ProjectSession::save_owners(
         }
         std::set<std::string> selected_text;
         for (const auto& path : text_paths) {
-            if (!selected_text.insert(path).second || !analyzable_text_path(path) ||
+            if (!selected_text.insert(path).second ||
+                !(analyzable_text_path(path) ||
+                  (path.starts_with("shaders/") && path.ends_with(".sc"))) ||
                 !text_source_paths_.contains(path) || !text_disk_revisions_.contains(path) ||
                 path.starts_with("inline/"))
                 throw std::runtime_error("Unknown or duplicate native text Save source: " + path);
@@ -5414,6 +5435,10 @@ RoomSessionResult ProjectSession::save_owners(
             text_source_overlays_.erase(target.path);
             text_overlay_disk_revisions_.erase(target.path);
             text_analysis_cache_.erase(target.path);
+            if (target.path.starts_with("shaders/") && target.path.ends_with(".sc")) {
+                shader_overlays_.erase(target.path);
+                material_compiler_results_.clear();
+            }
             response.affected_records.push_back("source:" + target.path);
             if (!source_authority_->acknowledge_own_write(target.path, target.after_revision))
                 source_authority_->coverage_lost();

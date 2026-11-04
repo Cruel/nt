@@ -87,7 +87,11 @@ export function projectFromNativeCompletePreparation(
 }
 
 function nativeRuntimeProject(options: NativeWorkingRuntimeOptions): AuthoringProject {
-  return projectFromNativeCompletePreparation(options.prepared);
+  const project = projectFromNativeCompletePreparation(options.prepared);
+  return {
+    ...project,
+    editor: { ...project.editor, previewLocale: options.previewLocale ?? null },
+  };
 }
 
 function admittedPlaybackTestData(
@@ -191,6 +195,7 @@ export class NativeWorkingRuntimePreparationCache {
       Boolean(options.testId),
       Boolean(options.testSuite),
       options.shaderVariant ?? null,
+      options.previewLocale ?? null,
       { ...effective, tests: {} },
       prepared.project,
       runtimeOverrides,
@@ -300,6 +305,7 @@ export interface NativeWorkingRuntimeOptions {
   testId?: string;
   testSuite?: boolean;
   shaderVariant?: ShaderVariant;
+  previewLocale?: string | null;
   shaderCompiler?: RuntimeArtifactShaderCompilerAdapter;
   paths?: RuntimeArtifactPathAdapter;
 }

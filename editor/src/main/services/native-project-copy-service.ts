@@ -5,6 +5,8 @@ import { dialog, type BrowserWindow } from 'electron';
 import type { SaveProjectResponse } from '../../shared/editor-tooling';
 import { parseEditorProjectState } from '../../shared/project-schema/editor-project-state';
 import { projectWorkspaceLocalStateFile } from '../../shared/editor-local-state-file';
+import { NativeDirtyCheckpointStore } from './native-dirty-checkpoint-store';
+import type { NativeEditorSessionController } from './native-editor-session-controller';
 
 /** Copy verified native saved sources byte-for-byte; never serialize YAML in TypeScript. */
 export async function saveNativeProjectCopyAs(
@@ -12,6 +14,7 @@ export async function saveNativeProjectCopyAs(
   sourceProjectRoot: string,
   editorCopyDocument: unknown,
   verifyNativeSavedSources: () => Promise<void>,
+  recovery?: () => ReturnType<NativeEditorSessionController['copyRecovery']>,
 ): Promise<SaveProjectResponse> {
   if (!owner) return { ok: false, success: false, error: 'No editor window is available.' };
   const sourceRoot = await fs.realpath(sourceProjectRoot);
@@ -56,6 +59,7 @@ export async function saveNativeProjectCopyAs(
       if (answer.response !== 1) return { ok: false, success: false, error: 'Save canceled.' };
     }
     await verifyNativeSavedSources();
+    const recoverySnapshot = recovery?.();
     staged = true;
     await fs.cp(sourceRoot, staging, {
       recursive: true,
@@ -65,8 +69,14 @@ export async function saveNativeProjectCopyAs(
         const relative = path.relative(sourceRoot, item);
         if (relative === '') return true;
         const segments = relative.split(path.sep);
+        const nativeRecoveryTrash =
+          segments[0] === '.noveltea' &&
+          (segments.length === 1 ||
+            (segments[1] === 'trash' &&
+              (segments.length === 2 || ['assets', 'layouts'].includes(segments[2]!))));
         if (
-          segments.some((segment) => ['.git', '.noveltea'].includes(segment)) ||
+          segments.includes('.git') ||
+          (segments.includes('.noveltea') && !nativeRecoveryTrash) ||
           ['node_modules', 'dist', 'build', '.cache'].includes(segments[0]!)
         )
           return false;
@@ -90,6 +100,21 @@ export async function saveNativeProjectCopyAs(
       projectWorkspaceLocalStateFile(editor),
     );
     await verifyNativeSavedSources();
+    if (recoverySnapshot) {
+      if (JSON.stringify(recoverySnapshot) !== JSON.stringify(recovery?.()))
+        throw new Error('Native Project changed during Project Copy.');
+      await new NativeDirtyCheckpointStore().write(
+        staging,
+        recoverySnapshot.projectId,
+        recoverySnapshot.checkpoint,
+        target,
+      );
+      // Journal publication is asynchronous; recapture after the write, not
+      // only before it, so a mutation during staging cannot silently publish
+      // an obsolete recovery generation.
+      if (JSON.stringify(recoverySnapshot) !== JSON.stringify(recovery?.()))
+        throw new Error('Native Project changed during recovery journal publication.');
+    }
     if (existing.length) {
       const additions = await fs.readdir(staging);
       for (const entry of additions) {

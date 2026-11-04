@@ -138,16 +138,28 @@ try {
       opened.projectSessionId,
       opened.nativeWorkingRevision,
     );
+    const fullValidation = await api.nativeProjectValidate(
+      opened.projectSessionId,
+      opened.nativeWorkingRevision,
+      true,
+    );
     const sources = await api.listProjectSourceFiles({ projectSessionId: opened.projectSessionId });
     await api.closeActiveProject();
     return {
       rendered,
       nativeSession: Boolean(opened.nativeWorkingRevision !== undefined),
       validated: Boolean(validation),
+      fullValidated: Boolean(fullValidation),
       sourceInventory: Array.isArray(sources.files),
     };
   })()`);
-  if (!result.rendered || !result.nativeSession || !result.validated || !result.sourceInventory)
+  if (
+    !result.rendered ||
+    !result.nativeSession ||
+    !result.validated ||
+    !result.fullValidated ||
+    !result.sourceInventory
+  )
     throw new Error(`Incomplete Electron candidate smoke: ${JSON.stringify(result)}`);
   // Exercise the React workspace's *own* New Project command as well as the
   // preload boundary above: this must admit the native Project into the

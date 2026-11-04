@@ -1,5 +1,29 @@
 # Native authoring Project worker (#496)
 
+## Current production editor integration (post native-CLI cutover)
+
+The native worker now backs production Project admission, revisioned commands, scoped Save,
+source staging, and durable recovery. The original #496–#498 sections below document earlier
+certification phases and must not be read as the current runtime routing policy. Native
+`prepareCompleteWorking` accepts an `editorProjection` flag: admission and dirty recovery use the
+non-authoritative, editor-visible projection even when a record is semantically invalid, while
+runtime/package preparation retains strict validation and can return `blocked`. This permits an
+invalid Room or missing Asset to be edited and recovered without writing it to disk.
+
+Native Save Copy As preserves its acknowledged journal with the destination Project identity and
+checks for intervening edits. Renderer Project switches request candidate admission without first
+closing the incumbent, and only discard incumbent tabs after success. Native diagnostic source
+locations survive main classification and can navigate to the source-file editor.
+
+The explicit Editor Validate action runs the standalone native CLI's downstream physical stages
+against a disposable copy with acknowledged native dirty revisions replayed and committed by a
+separate native worker. The original Project files remain untouched. Automatic per-edit native
+diagnostics continue to use fast semantic `validateWorking`, not full shader/font/portable-source
+validation. The source generation and Project identity are rechecked on completion. See
+`PROJECT_VALIDATION_DIAGNOSTIC_MATRIX.md` for the readiness and performance distinction.
+Native staged shader `.sc` files share the same recovery and exact-revision Save transport as
+Lua/RML/RCSS; shader Material compiler evidence is invalidated when those bytes change.
+
 The host-only Node-API Project adapter lives in
 `tools/project_authoring/authoring_node_addon.cpp`. It owns the current
 `ProjectSession` on a dedicated Node worker thread and exposes only the native

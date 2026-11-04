@@ -318,19 +318,9 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
   }
 
   function setPreviewLocale(locale: string | null) {
-    void executeCommand({
-      type: 'project.applyPatch',
-      label: t('localizationEditor.commands.setPreviewLocale'),
-      payload: [
-        {
-          op: 'replace',
-          path: '/editor/previewLocale',
-          value: locale,
-        },
-      ],
-      originSaveUnitId: 'editor-local:preview-locale',
-      persistencePolicy: 'auto-commit',
-    });
+    if (!project) return;
+    const editorState = { ...project.editor, previewLocale: locale };
+    useProjectStore.getState().markEditorMetadataPersisted(editorState);
   }
 
   async function addLanguage() {

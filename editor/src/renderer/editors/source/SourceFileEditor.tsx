@@ -11,7 +11,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { EditorPreviewSplit } from '@/components/editor-preview-split';
-import { SourceEditor } from '@/components/source/SourceEditor';
+import { SourceEditor, type SourceEditorHandle } from '@/components/source/SourceEditor';
+import { registerWorkbenchTargetHandler } from '@/workbench/workbench-navigation';
 import { MaterialPreview } from '@/material-preview/MaterialPreview';
 import { resolveMaterialPreviewAssetUrl } from '@/material-preview/material-preview-provider';
 import {
@@ -71,6 +72,21 @@ export function SourceFileEditor({ tab }: WorkbenchEditorProps) {
   const setTabDirty = useWorkbenchStore((state) => state.setTabDirty);
   const openTab = useWorkbenchStore((state) => state.openTab);
   const [saving, setSaving] = useState(false);
+  const sourceEditorRef = useRef<SourceEditorHandle | null>(null);
+  useEffect(
+    () =>
+      registerWorkbenchTargetHandler(tab.id, 'source.line', (target) => {
+        const { line, column } = target.payload as { line?: unknown; column?: unknown };
+        if (typeof line !== 'number' || !Number.isSafeInteger(line) || line < 1) return false;
+        if (!sourceEditorRef.current) return false;
+        sourceEditorRef.current.revealLine(
+          line,
+          typeof column === 'number' && Number.isSafeInteger(column) && column > 0 ? column : 1,
+        );
+        return true;
+      }),
+    [tab.id],
+  );
   const [attachedMaterialIds, setAttachedMaterialIds] = useState<string[]>([]);
   const [previewDiagnostics, setPreviewDiagnostics] = useState<
     readonly { severity: string; message: string }[]
@@ -276,6 +292,7 @@ export function SourceFileEditor({ tab }: WorkbenchEditorProps) {
         </div>
       ) : null}
       <SourceEditor
+        ref={sourceEditorRef}
         value={buffer.text}
         onChange={(text) => setText(sourceId, text)}
         language={sourceFileLanguage(source)}

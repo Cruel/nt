@@ -10,6 +10,31 @@ import {
 } from '../../shared/project-schema/project-diagnostic-projection';
 
 describe('project validation diagnostic contract', () => {
+  it('retains physical source provenance through classification and collection', () => {
+    const diagnostic = classifyProjectValidationDiagnostic(
+      {
+        code: 'native.source.syntax',
+        severity: 'error',
+        path: '/shaders',
+        message: 'Invalid shader syntax',
+        sourcePath: 'shaders/effects/blur.sc',
+        line: 17,
+        column: 9,
+      },
+      { producer: 'authoring' },
+    );
+    expect(diagnostic).toMatchObject({
+      sourcePath: 'shaders/effects/blur.sc',
+      line: 17,
+      column: 9,
+    });
+    expect(collectProjectValidationDiagnostics([diagnostic])[0]).toMatchObject({
+      sourcePath: 'shaders/effects/blur.sc',
+      line: 17,
+      column: 9,
+    });
+  });
+
   it('normalizes runtime-package blockers to also block platform export', () => {
     expect(normalizeProjectValidationBoundaries(['runtime-package'])).toEqual([
       'runtime-package',

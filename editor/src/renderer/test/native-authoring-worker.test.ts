@@ -281,11 +281,13 @@ describe('native worker session bridge (main-owned authority)', () => {
       operation: 'prepareCompleteWorking',
       expectedRevision: 0,
       testId: '',
+      editorProjection: false,
     });
     expect(workers[0]!.sent.at(-1)).toEqual({
       operation: 'prepareCompleteWorking',
       expectedRevision: 0,
       testId: '',
+      editorProjection: false,
       requestId: 3,
     });
     workers[0]!.emit('message', {

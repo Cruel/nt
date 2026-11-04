@@ -73,6 +73,11 @@ export class NativeAuthoringSessionBridge {
     private readonly options: NativeAuthoringSessionOptions,
   ) {}
 
+  /** Host-owned matching native worker for disposable read-only validation copies. */
+  validationWorkerOptions(): Pick<NativeAuthoringSessionOptions, 'addonPath' | 'workerScript'> {
+    return { addonPath: this.options.addonPath, workerScript: this.options.workerScript };
+  }
+
   /** The same pinned native algorithm used by SourceAuthority, without a
    * second JavaScript digest implementation or an extra filesystem read. */
   sourceRevision(bytes: Uint8Array): string {

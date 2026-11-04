@@ -62,6 +62,7 @@ import {
   nativeProjectSaveUnitArgumentsSchema,
   nativeProjectUseDiskUnitArgumentsSchema,
   nativeProjectValidateArgumentsSchema,
+  nativeProjectFullValidateArgumentsSchema,
   noArgumentsSchema,
   openExternalArgumentsSchema,
   openProjectArgumentsSchema,
@@ -1347,11 +1348,11 @@ void app.whenReady().then(async () => {
 
   guardedIpc.handle(
     IPC_CHANNELS.NATIVE_PROJECT_VALIDATE,
-    (arguments_) => nativeProjectValidateArgumentsSchema.parse(arguments_),
-    (projectSessionId, expectedRevision) => {
+    (arguments_) => nativeProjectFullValidateArgumentsSchema.parse(arguments_),
+    (projectSessionId, expectedRevision, fullStages) => {
       if (!nativeEditorAdmission)
         throw new Error('Native Project validation is not enabled for this editor.');
-      return nativeEditorAdmission.validate(projectSessionId, expectedRevision);
+      return nativeEditorAdmission.validate(projectSessionId, expectedRevision, fullStages);
     },
   );
 
@@ -1368,13 +1369,14 @@ void app.whenReady().then(async () => {
   guardedIpc.handle(
     IPC_CHANNELS.NATIVE_PROJECT_PREPARE_RUNTIME,
     (arguments_) => nativeProjectPrepareRuntimeArgumentsSchema.parse(arguments_),
-    (projectSessionId, expectedRevision, shaderVariant) => {
+    (projectSessionId, expectedRevision, shaderVariant, previewLocale) => {
       if (!nativeEditorAdmission)
         throw new Error('Native runtime preparation is not enabled for this editor.');
       return nativeEditorAdmission.prepareRuntime(
         projectSessionId,
         expectedRevision,
         shaderVariant,
+        previewLocale,
       );
     },
   );
@@ -1661,8 +1663,12 @@ void app.whenReady().then(async () => {
         if (!nativeEditorAdmission?.isAdmitted(projectSessionId))
           throw new Error('Native Project Copy requires an admitted Project.');
         const controller = nativeEditorAdmission;
-        return await saveNativeProjectCopyAs(mainWindow, projectRoot, project, () =>
-          controller.verifySavedCopySources(projectSessionId),
+        return await saveNativeProjectCopyAs(
+          mainWindow,
+          projectRoot,
+          project,
+          () => controller.verifySavedCopySources(projectSessionId),
+          () => controller.copyRecovery(projectSessionId),
         );
       } catch (error) {
         return {

@@ -749,8 +749,11 @@ napi_value call(napi_env env, napi_callback_info info)
                              session.project->semantic_graph(static_cast<std::uint64_t>(revision)));
         }
         if (name == "prepareWorking" || name == "prepareCompleteWorking") {
-            if (argc != 3)
+            if (argc != 3 && argc != 4)
                 throw std::runtime_error("Working preparation requires revision and Test ID.");
+            bool editor_projection = false;
+            if (argc == 4 && napi_get_value_bool(env, argv[3], &editor_projection) != napi_ok)
+                throw std::runtime_error("Invalid editor projection selection.");
             std::int64_t revision = -1;
             if (napi_get_value_int64(env, argv[1], &revision) != napi_ok || revision < 0)
                 throw std::runtime_error("Invalid working preparation revision.");
@@ -759,7 +762,8 @@ napi_value call(napi_env env, napi_callback_info info)
                 throw std::runtime_error("Invalid authored Test ID.");
             const auto prepared = name == "prepareCompleteWorking"
                                       ? session.project->prepare_complete_working(
-                                            static_cast<std::uint64_t>(revision), test_id)
+                                            static_cast<std::uint64_t>(revision), test_id, false,
+                                            false, editor_projection)
                                       : session.project->prepare_working(
                                             static_cast<std::uint64_t>(revision), test_id);
             Json result = Json::object();

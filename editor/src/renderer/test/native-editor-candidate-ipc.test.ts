@@ -11,6 +11,7 @@ import {
   nativeProjectPrepareRuntimeArgumentsSchema,
   nativeProjectRunTestArgumentsSchema,
   nativeProjectSaveUnitArgumentsSchema,
+  nativeProjectFullValidateArgumentsSchema,
   nativeProjectValidateArgumentsSchema,
   noArgumentsSchema,
   openProjectArgumentsSchema,
@@ -115,8 +116,8 @@ describe.skipIf(!process.env.NOVELTEA_AUTHORING_NODE_ADDON)(
       );
       registrar.handle(
         IPC_CHANNELS.NATIVE_PROJECT_VALIDATE,
-        (args) => nativeProjectValidateArgumentsSchema.parse(args),
-        (id, revision) => handoff.current()!.validate(id, revision),
+        (args) => nativeProjectFullValidateArgumentsSchema.parse(args),
+        (id, revision, fullStages) => handoff.current()!.validate(id, revision, fullStages),
       );
       registrar.handle(
         IPC_CHANNELS.NATIVE_PROJECT_SEMANTIC_GRAPH,
@@ -126,8 +127,8 @@ describe.skipIf(!process.env.NOVELTEA_AUTHORING_NODE_ADDON)(
       registrar.handle(
         IPC_CHANNELS.NATIVE_PROJECT_PREPARE_RUNTIME,
         (args) => nativeProjectPrepareRuntimeArgumentsSchema.parse(args),
-        (id, revision, shaderVariant) =>
-          handoff.current()!.prepareRuntime(id, revision, shaderVariant),
+        (id, revision, shaderVariant, previewLocale) =>
+          handoff.current()!.prepareRuntime(id, revision, shaderVariant, previewLocale),
       );
       registrar.handle(
         IPC_CHANNELS.NATIVE_PROJECT_RUN_TEST,
@@ -159,7 +160,16 @@ describe.skipIf(!process.env.NOVELTEA_AUTHORING_NODE_ADDON)(
           { op: 'replace', path: '/project/name', value: 'IPC native edit' },
         ]);
         expect(patched).toMatchObject({ accepted: true, snapshot: { workingRevision: 1 } });
-        const validated = await ipc.invoke(IPC_CHANNELS.NATIVE_PROJECT_VALIDATE, trusted, id, 1);
+        await expect(
+          ipc.invoke(IPC_CHANNELS.NATIVE_PROJECT_VALIDATE, trusted, id, 1),
+        ).rejects.toThrow();
+        const validated = await ipc.invoke(
+          IPC_CHANNELS.NATIVE_PROJECT_VALIDATE,
+          trusted,
+          id,
+          1,
+          false,
+        );
         expect(validated).toBeDefined();
         await expect(
           ipc.invoke(IPC_CHANNELS.NATIVE_PROJECT_SEMANTIC_GRAPH, untrusted, id, 1),
@@ -262,6 +272,7 @@ describe.skipIf(!process.env.NOVELTEA_AUTHORING_NODE_ADDON)(
           reopenedId,
           savedRevision,
           'glsl-330',
+          null,
         );
         expect(nativePreview).toMatchObject({ status: 'prepared' });
         expect(nativePreview).toHaveProperty('artifact.compiledProject');

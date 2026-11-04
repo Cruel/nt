@@ -121,6 +121,7 @@ interface NovelTeaElectronApiContract {
   nativeProjectValidate(
     projectSessionId: string,
     expectedRevision: number,
+    fullStages?: boolean,
   ): Promise<ValidationResponse>;
   nativeProjectSemanticGraph(
     projectSessionId: string,
@@ -144,6 +145,7 @@ interface NovelTeaElectronApiContract {
     projectSessionId: string,
     expectedRevision: number,
     shaderVariant: import('./shader-variants').ShaderVariant,
+    previewLocale?: string | null,
   ): Promise<import('./editor-runtime-cache').EditorRuntimePreparationResult>;
   nativeProjectTestReadiness(
     projectSessionId: string,

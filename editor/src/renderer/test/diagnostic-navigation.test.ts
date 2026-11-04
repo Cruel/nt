@@ -93,6 +93,43 @@ function projectWithRecords(): AuthoringProject {
 }
 
 describe('diagnostic navigation', () => {
+  it('opens a physical source diagnostic at its native line and column', () => {
+    const project = projectWithRecords();
+    const source = {
+      id: 'shaders/effects/blur.sc',
+      displayPath: 'shaders/effects/blur.sc',
+      projectRelativePath: 'shaders/effects/blur.sc',
+      kind: 'shader' as const,
+      text: true,
+    };
+    expect(
+      resolveProjectDiagnosticTarget(
+        project,
+        {
+          path: '/shaders',
+          sourcePath: source.projectRelativePath,
+          line: 17,
+          column: 9,
+        },
+        [source],
+      ),
+    ).toMatchObject({
+      tab: { editorType: 'source-file', resource: { sourceId: source.id } },
+      target: { id: 'source.line', payload: { line: 17, column: 9 } },
+    });
+    expect(
+      resolveProjectDiagnosticTarget(
+        project,
+        {
+          path: '/shaders',
+          sourcePath: 'shaders/outside.sc',
+          line: 1,
+        },
+        [source],
+      ),
+    ).toBeNull();
+  });
+
   it('navigates Asset attachment diagnostics to the exact associated file', () => {
     const project = projectWithRecords();
     expect(

@@ -859,6 +859,65 @@ describe('WorkspacePage new project modal', () => {
     expect(useWorkspaceStore.getState().statusMessage).toBe('Could not open Project');
   });
 
+  it('retains the incumbent workbench and native session after rejected Open, then switches on success', async () => {
+    const incumbent = createAuthoringProject({ id: 'incumbent', name: 'Existing Project' });
+    useProjectStore.getState().loadProjectDocument({
+      document: incumbent,
+      savedDocument: incumbent,
+      projectPath: '/mock/incumbent',
+      projectFilePath: '/mock/incumbent/project.yaml',
+      projectSessionId: 'incumbent-session',
+    });
+    useWorkspaceStore.setState({
+      project: incumbent,
+      projectPath: '/mock/incumbent',
+      projectFilePath: '/mock/incumbent/project.yaml',
+    });
+    useCommandStore.getState().enableNativeCommandMode(4);
+    useWorkbenchStore.getState().openTab(buildProjectSettingsTab());
+    const tabsBefore = Object.keys(useWorkbenchStore.getState().tabsById);
+    vi.mocked(window.noveltea.openProject).mockResolvedValueOnce({
+      ok: false,
+      success: false,
+      projectPath: '/mock/invalid',
+      projectFilePath: '/mock/invalid/project.yaml',
+      diagnostics: [{ severity: 'error', path: '/', message: 'Candidate invalid' }],
+    });
+    render(<WorkspacePage />);
+    dispatchOpenProject('/mock/invalid');
+    await waitFor(() =>
+      expect(useWorkspaceStore.getState().statusMessage).toBe('Candidate invalid'),
+    );
+    expect(useProjectStore.getState().document).toMatchObject({ project: { id: 'incumbent' } });
+    expect(useProjectStore.getState().projectSessionId).toBe('incumbent-session');
+    expect(useCommandStore.getState().nativeWorkingRevision).toBe(4);
+    expect(Object.keys(useWorkbenchStore.getState().tabsById)).toEqual(tabsBefore);
+    expect(window.noveltea.closeActiveProject).not.toHaveBeenCalled();
+
+    const next = createAuthoringProject({ id: 'next', name: 'Next Project' });
+    vi.mocked(window.noveltea.openProject).mockResolvedValueOnce({
+      ok: true,
+      success: true,
+      projectPath: '/mock/next',
+      projectFilePath: '/mock/next/project.yaml',
+      projectSessionId: 'next-session',
+      contentProject: stripEditorProjectState(next),
+      savedContentProject: stripEditorProjectState(next),
+      nativeWorkingRevision: 0,
+      editorState: emptyEditorProjectState(),
+      diagnostics: [],
+    });
+    dispatchOpenProject('/mock/next');
+    await waitFor(() =>
+      expect(useProjectStore.getState().document).toMatchObject({
+        project: { id: 'next' },
+      }),
+    );
+    expect(useProjectStore.getState().projectSessionId).toBe('next-session');
+    expect(useCommandStore.getState().nativeWorkingRevision).toBe(0);
+    expect(window.noveltea.closeActiveProject).not.toHaveBeenCalled();
+  });
+
   it('opens and closes a native recovered Project without legacy semantic admission', async () => {
     const clean = createAuthoringProject({ id: 'native-recovery', name: 'Saved title' });
     const dirty = structuredClone(clean);
@@ -942,7 +1001,9 @@ describe('WorkspacePage new project modal', () => {
         new CustomEvent(WORKSPACE_TOOLBAR_COMMAND_EVENT, { detail: 'validate' }),
       );
     });
-    await waitFor(() => expect(nativeValidate).toHaveBeenCalledWith('opened-project-session', 4));
+    await waitFor(() =>
+      expect(nativeValidate).toHaveBeenCalledWith('opened-project-session', 4, true),
+    );
     await waitFor(() =>
       expect(useWorkspaceStore.getState().diagnostics).toContainEqual(
         expect.objectContaining({ code: 'native.room.invalid', severity: 'error' }),
@@ -959,12 +1020,12 @@ describe('WorkspacePage new project modal', () => {
     );
     act(() => useCommandStore.setState({ nativeWorkingRevision: 5 }));
     await waitFor(() =>
-      expect(nativeValidate).toHaveBeenLastCalledWith('opened-project-session', 5),
+      expect(nativeValidate).toHaveBeenLastCalledWith('opened-project-session', 5, false),
     );
     nativeValidate.mockResolvedValue({ ok: true, success: true, diagnostics: [] });
     act(() => useCommandStore.setState({ nativeWorkingRevision: 6 }));
     await waitFor(() =>
-      expect(nativeValidate).toHaveBeenLastCalledWith('opened-project-session', 6),
+      expect(nativeValidate).toHaveBeenLastCalledWith('opened-project-session', 6, false),
     );
     await act(async () =>
       release({
@@ -1042,7 +1103,7 @@ describe('WorkspacePage new project modal', () => {
     await waitFor(() =>
       expect(useWorkspaceStore.getState().statusMessage).toBe('Unsupported project schema'),
     );
-    expect(window.noveltea.closeActiveProject).toHaveBeenCalledOnce();
+    expect(window.noveltea.closeActiveProject).not.toHaveBeenCalled();
     expect(useProjectStore.getState().document).toBeNull();
     expect(useWorkspaceStore.getState().project).toBeNull();
     expect(useWorkbenchStore.getState().tabsById).toEqual({});
@@ -1345,7 +1406,7 @@ describe('WorkspacePage new project modal', () => {
     );
   });
 
-  it('cancels running ComfyUI work before revoking the Project session on switch', async () => {
+  it('cancels running ComfyUI work after successful candidate admission on switch', async () => {
     const project = createAuthoringProject({ id: 'my-story', name: 'My Story' });
     useProjectStore.getState().loadProjectDocument({
       document: project,
@@ -1381,8 +1442,9 @@ describe('WorkspacePage new project modal', () => {
       'opened-project-session',
       expect.any(Object),
     );
-    expect(vi.mocked(window.noveltea.cancelComfyUiJob).mock.invocationCallOrder[0]).toBeLessThan(
-      vi.mocked(window.noveltea.closeActiveProject).mock.invocationCallOrder[0]!,
+    expect(window.noveltea.closeActiveProject).not.toHaveBeenCalled();
+    expect(vi.mocked(window.noveltea.cancelComfyUiJob).mock.invocationCallOrder[0]).toBeGreaterThan(
+      vi.mocked(window.noveltea.openProject).mock.invocationCallOrder[0]!,
     );
   });
 
@@ -1635,6 +1697,48 @@ describe('WorkspacePage new project modal', () => {
         await Promise.resolve();
       });
       expect(window.noveltea.saveProjectEditorMetadata).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('persists an editor-only Preview locale without a native patch or dirty content Save', async () => {
+    vi.useFakeTimers();
+    try {
+      const project = createAuthoringProject({ id: 'my-story', name: 'My Story' });
+      admitNativeRendererCommandFixture(project, 'opened-project-session');
+      useWorkspaceStore.setState({
+        projectPath: '/mock/project',
+        projectFilePath: '/mock/project/project.yaml',
+        project,
+      });
+      render(<WorkspacePage />);
+
+      await act(async () => {
+        useProjectStore.getState().markEditorMetadataPersisted({
+          ...emptyEditorProjectState(),
+          previewLocale: 'fr',
+        });
+      });
+      expect(useProjectStore.getState().document).toMatchObject({
+        editor: { previewLocale: 'fr' },
+      });
+      expect(window.noveltea.nativeProjectPatch).not.toHaveBeenCalled();
+      expect(window.noveltea.saveProjectContent).not.toHaveBeenCalled();
+      expect(window.noveltea.saveProjectEditorMetadata).not.toHaveBeenCalled();
+
+      await act(async () => {
+        vi.advanceTimersByTime(500);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(window.noveltea.saveProjectEditorMetadata).toHaveBeenCalledWith(
+        'opened-project-session',
+        expect.objectContaining({ previewLocale: 'fr' }),
+        {},
+      );
+      expect(window.noveltea.saveProjectContent).not.toHaveBeenCalled();
+      expect(useCommandStore.getState().history.entries).toHaveLength(0);
     } finally {
       vi.useRealTimers();
     }

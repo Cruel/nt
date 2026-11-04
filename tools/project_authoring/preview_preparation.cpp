@@ -17,6 +17,7 @@ struct ProjectSession::CompleteProjectCache {
     std::string base_project_json;
     std::string override_json;
     bool only_test_errors = false;
+    bool editor_projection = false;
     jsoncons::ojson complete;
     std::map<std::string, Contributor> contributors;
     std::size_t reused = 0;
@@ -95,8 +96,8 @@ std::string bytes_at(const std::filesystem::path& path)
 
 ProjectSession::WorkingPreparation
 ProjectSession::prepare_working(std::uint64_t expected_revision, std::string_view test_id,
-                                bool allow_invalid_test_semantics,
-                                bool reuse_validated_snapshot) const
+                                bool allow_invalid_test_semantics, bool reuse_validated_snapshot,
+                                bool editor_projection) const
 {
     WorkingPreparation prepared;
     prepared.working_revision = working_revision_;
@@ -121,7 +122,7 @@ ProjectSession::prepare_working(std::uint64_t expected_revision, std::string_vie
                                  ? *validation_snapshot_
                                  : snapshot();
         prepared.diagnostics = current.diagnostics;
-        if (!current.valid && !allow_invalid_test_semantics) {
+        if (!current.valid && !allow_invalid_test_semantics && !editor_projection) {
             prepared.error = "Active working Project has validation errors.";
             return prepared;
         }
@@ -159,7 +160,7 @@ ProjectSession::prepare_working(std::uint64_t expected_revision, std::string_vie
             }
             if (!state.dirty && !source_dirty)
                 continue;
-            if (!state.valid || state.normalized_json.empty()) {
+            if ((!state.valid && !editor_projection) || state.normalized_json.empty()) {
                 prepared.error = "Cannot prepare invalid working record " + owner;
                 return prepared;
             }
@@ -262,6 +263,11 @@ ProjectSession::prepare_working(std::uint64_t expected_revision, std::string_vie
                 : nullptr;
         const bool watched = verified && source_authority_->watcher_proof_available();
         for (const auto& [path, baseline] : text_disk_revisions_) {
+            // Shader sources are observed as a live physical inventory below.
+            // Their editing baseline is only a Save conflict fence: an external
+            // .sc edit must invalidate previews, not reject preparation as stale.
+            if (path.starts_with("shaders/") && path.ends_with(".sc"))
+                continue;
             if (watched) {
                 if (const auto it = verified->find(path);
                     it != verified->end() && it->second == baseline) {
@@ -315,7 +321,8 @@ ProjectSession::prepare_working(std::uint64_t expected_revision, std::string_vie
 
 ProjectSession::WorkingPreparation
 ProjectSession::prepare_complete_working(std::uint64_t expected_revision, std::string_view test_id,
-                                         bool reuse_clean_validation, bool defer_final_observation)
+                                         bool reuse_clean_validation, bool defer_final_observation,
+                                         bool editor_projection)
 {
     count_validation_work<WorkCounter::CompleteProjectPreparations>();
     WorkingPreparation prepared;
@@ -354,21 +361,24 @@ ProjectSession::prepare_complete_working(std::uint64_t expected_revision, std::s
         std::all_of(validated.diagnostics.begin(), validated.diagnostics.end(), [](const auto& d) {
             return d.severity != "error" || d.path.starts_with("/tests/");
         });
-    if (!validated.valid && !only_test_errors) {
+    if (!validated.valid && !only_test_errors && !editor_projection) {
         prepared.diagnostics = validated.diagnostics;
         prepared.error = "Full native working Project validation failed.";
         return prepared;
     }
     prepared = prepare_working(expected_revision, test_id, only_test_errors,
-                               reuse_clean_validation && test_id.empty());
+                               reuse_clean_validation && test_id.empty(), editor_projection);
     if (!prepared.accepted)
         return prepared;
+    if (editor_projection)
+        prepared.diagnostics = validated.diagnostics;
     try {
         const bool reuse_assembly =
             complete_project_cache_ &&
             complete_project_cache_->base_project_json == prepared.project_json &&
             complete_project_cache_->override_json == prepared.record_overrides_json &&
-            complete_project_cache_->only_test_errors == only_test_errors;
+            complete_project_cache_->only_test_errors == only_test_errors &&
+            complete_project_cache_->editor_projection == editor_projection;
         auto cache =
             reuse_assembly ? complete_project_cache_ : std::make_shared<CompleteProjectCache>();
         cache->reused = 0;
@@ -378,6 +388,7 @@ ProjectSession::prepare_complete_working(std::uint64_t expected_revision, std::s
             cache->base_project_json = prepared.project_json;
             cache->override_json = prepared.record_overrides_json;
             cache->only_test_errors = only_test_errors;
+            cache->editor_projection = editor_projection;
             cache->complete = Json::parse(prepared.project_json);
         }
         Json& complete = cache->complete;
@@ -418,7 +429,8 @@ ProjectSession::prepare_complete_working(std::uint64_t expected_revision, std::s
             }
             ++cache->snapshot_reads;
             const auto record = session->snapshot();
-            if ((!record.valid && !(only_test_errors && owner.starts_with("tests/"))) ||
+            if ((!record.valid && !editor_projection &&
+                 !(only_test_errors && owner.starts_with("tests/"))) ||
                 record.normalized_json.empty())
                 throw std::runtime_error("Invalid native full-Project contributor: " + owner);
             if (retained != cache->contributors.end() &&

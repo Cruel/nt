@@ -7,6 +7,7 @@ import { useCommandStore } from '@/commands/command-store';
 import { DiagnosticList } from '@/diagnostics/DiagnosticList';
 import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
 import { useProjectStore } from '@/project/project-store';
+import { useProjectSourceStore } from '@/project/project-source-store';
 import { useEntityUsagesStore } from '@/project/entity-usages-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { usePreferencesStore } from '@/stores/preferences-store';
@@ -36,14 +37,15 @@ function ProblemsPanel() {
   const diagnostics = useWorkspaceStore((state) => state.diagnostics);
   const developerMode = usePreferencesStore((state) => state.developerMode);
   const projectDocument = useProjectStore((state) => state.document);
+  const sourceFiles = useProjectSourceStore((state) => state.files);
   const project = isAuthoringProjectView(projectDocument) ? projectDocument : null;
   const diagnosticItems = useMemo(
     () =>
       diagnostics.map((diagnostic) => ({
         ...diagnostic,
-        target: project ? resolveProjectDiagnosticTarget(project, diagnostic) : null,
+        target: project ? resolveProjectDiagnosticTarget(project, diagnostic, sourceFiles) : null,
       })),
-    [diagnostics, project],
+    [diagnostics, project, sourceFiles],
   );
   if (diagnostics.length === 0) {
     return <p className="p-3 text-xs text-muted-foreground">{t('bottomPanel.empty.problems')}</p>;

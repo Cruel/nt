@@ -44,6 +44,8 @@ field-level pending input in recovery metadata.
   independently valid set, and leaves
   blocked units dirty with their recovery overlays intact. It intentionally has no shortcut that
   conflicts with Save As.
+  A pending invalid input or external conflict blocks its entire transitive atomic transaction
+  group, not unrelated Save units. A partial Save does not clear the blocked group's dirty state.
 - Scoped commits send selected save-unit IDs plus the exact logical baseline/local values for the
   affected JSON paths. The main-owned active workspace session already owns the authoritative disk
   project and exact physical revisions. It overlays the selected logical mutation onto that cached
@@ -88,6 +90,22 @@ TypeScript Project Workspace. As with native Open, linked recovery directories/d
 rejected, including links whose targets are inside the Project. Revoked session authority and
 unreadable existing state fail without replacing the recovery file. The writer never touches
 tracked Project files or the independently owned `native-dirty-state.json` checkpoint.
+
+Native Project Copy As copies the saved source bytes and preserves an independently acknowledged,
+unsaved native recovery checkpoint in `.noveltea/editor/native-dirty-state.json`. The checkpoint is
+rebased to the destination Project root, and the native working revision is checked before and after
+the copy to avoid publishing mixed generations. Reopening the destination replays those edits in
+memory; its tracked source files remain saved-baseline copies. The original Project and its dirty
+journal remain unchanged. A failed native candidate Open likewise leaves the incumbent native
+session and workbench in place until admission succeeds.
+Native Copy As retains `.noveltea/trash/{assets,layouts}` so archived sources remain available for
+native recovery and Undo. It excludes `.noveltea/transactions`, cache/build output, and existing
+editor-local journals, replacing the last with the destination-bound checkpoint only.
+
+Localization preview locale is ignored editor metadata, not tracked localization content or a
+native authoring patch. A preview passes the selected locale explicitly through the revision-bound
+native runtime preparation request; selecting another preview language does not create a dirty
+content Save unit.
 
 The renderer exposes only scoped content Save, metadata-only persistence, and Save As copy IPC.
 For YAML owners, Save and Save All first perform a non-mutating source-aware comment preflight

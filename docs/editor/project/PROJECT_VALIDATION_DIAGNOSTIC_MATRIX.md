@@ -40,6 +40,22 @@ Native Save/Save All, structural commit/Undo/Redo, comment decisions, Keep Mine,
 recovery remain native revision-bound operations; the legacy structural persistence path is rejected
 in native mode rather than falling back to TypeScript validation.
 
+**Full Validate versus live diagnostics:** The automatic native worker `validateWorking` remains
+fast and semantic-only; it supplies revision-pinned record diagnostics during editing. The explicit
+Editor Validate command additionally invokes `native-working-stage-validation.ts`. A disposable
+Project copy receives the exact acknowledged native dirty recovery journal, which is replayed and
+committed **only in that copy** using the native C++ authoring worker. Direct C++ `noveltea
+--no-daemon validate` then runs shader compilation, font coverage, distribution notices and portable
+source checks on that effective working generation. The original tracked sources and unsaved journal
+remain unchanged. The controller rechecks source revisions and active session/revision before
+publishing results, and rejects rather than silently falling back if stage admission fails. This
+full stage path is deliberately explicit because compilation and physical source copying are too
+expensive to trigger on each editor keystroke. It is not the warm CLI daemon benchmark path.
+
+The renderer retains native `code`, `sourcePath`, `line`, and `column` through diagnostic
+classification. Physical `project:/` source URLs are normalized to Project-relative paths, never
+temporary validation-copy paths. Known sources navigate from Problems to their editor location.
+
 **Production renderer legacy semantic authority inventory (delete together in #521):**
 
 | Consumer | Legacy-only validation/decode | Native-session disposition |

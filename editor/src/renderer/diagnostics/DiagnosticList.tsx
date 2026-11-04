@@ -13,6 +13,9 @@ export interface EditorDiagnosticItem {
   message: string;
   path?: string;
   category?: string;
+  sourcePath?: string;
+  line?: number;
+  column?: number;
   target?: WorkbenchNavigationRequest | null;
 }
 
@@ -46,6 +49,9 @@ export function DiagnosticCard({
 }) {
   const { t } = useTranslation('workspace');
   const message = localizedDiagnosticMessage(item, t);
+  const sourceLocation = item.sourcePath
+    ? [item.sourcePath, item.line, item.column].filter((part) => part !== undefined).join(':')
+    : null;
   if (compact) {
     const targetTab = item.target?.tab;
     const targetVisual = targetTab
@@ -66,7 +72,14 @@ export function DiagnosticCard({
             <span className="truncate">{targetLabel}</span>
           </span>
         ) : null}
-        <span className="min-w-0 truncate">{message}</span>
+        <span className="min-w-0 truncate">
+          {message}
+          {sourceLocation ? (
+            <span className="ml-1 font-mono text-[10px] text-muted-foreground">
+              {sourceLocation}
+            </span>
+          ) : null}
+        </span>
         {showPath && item.path ? (
           <span className="min-w-0 truncate font-mono text-[10px] text-muted-foreground">
             {item.path}
@@ -100,6 +113,9 @@ export function DiagnosticCard({
         ) : null}
       </div>
       <div>{message}</div>
+      {sourceLocation ? (
+        <div className="font-mono text-[10px] text-muted-foreground">{sourceLocation}</div>
+      ) : null}
     </>
   );
 

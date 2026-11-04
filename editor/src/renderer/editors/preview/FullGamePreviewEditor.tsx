@@ -565,6 +565,7 @@ async function compiledProjectDiagnosticEntries(
       projectSessionId,
       nativeRevision,
       activeShaderVariant,
+      project?.editor.previewLocale ?? null,
     );
     if (shared.status === 'prepared') {
       const diagnostics = collectProjectValidationDiagnostics(shared.artifact.diagnostics);

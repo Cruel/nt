@@ -356,7 +356,8 @@ public:
     WorkingPreparation prepare_working(std::uint64_t expected_revision,
                                        std::string_view test_id = {},
                                        bool allow_invalid_test_semantics = false,
-                                       bool reuse_validated_snapshot = false) const;
+                                       bool reuse_validated_snapshot = false,
+                                       bool editor_projection = false) const;
     std::uint64_t working_revision() const noexcept { return working_revision_; }
     // A caller that just completed clean validation may reuse its resident
     // snapshot. By default complete preparation checks physical sources again;
@@ -365,7 +366,8 @@ public:
     WorkingPreparation prepare_complete_working(std::uint64_t expected_revision,
                                                 std::string_view test_id = {},
                                                 bool reuse_clean_validation = false,
-                                                bool defer_final_observation = false);
+                                                bool defer_final_observation = false,
+                                                bool editor_projection = false);
     std::pair<std::size_t, std::size_t> complete_project_assembly_work() const;
     std::size_t complete_project_snapshot_reads() const;
     // Read-only, revision-pinned semantic evidence from the resident native

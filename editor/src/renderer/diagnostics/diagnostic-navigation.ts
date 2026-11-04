@@ -11,9 +11,11 @@ import {
   buildSceneDetailTabForRecord,
   buildTestDetailTabForRecord,
   buildVariablesEditorTab,
+  buildProjectSourceTab,
 } from '@/workbench/editor-registry';
 import type { WorkbenchNavigationRequest } from '@/workbench/workbench-navigation';
 import type { ToolDiagnostic } from '../../shared/editor-tooling';
+import type { ProjectSourceFile } from '../../shared/project-source-files';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
 import { parseRoomData } from '../../shared/project-schema/authoring-rooms';
 import { parseAssetData } from '../../shared/project-schema/authoring-assets';
@@ -88,8 +90,27 @@ function arrayItemId(
 
 export function resolveProjectDiagnosticTarget(
   project: AuthoringProject,
-  diagnosticOrPath: Pick<ToolDiagnostic, 'path' | 'navigation'> | string | null | undefined,
+  diagnosticOrPath:
+    | Pick<ToolDiagnostic, 'path' | 'navigation' | 'sourcePath' | 'line' | 'column'>
+    | string
+    | null
+    | undefined,
+  sourceFiles: readonly ProjectSourceFile[] = [],
 ): WorkbenchNavigationRequest | null {
+  if (typeof diagnosticOrPath === 'object' && diagnosticOrPath?.sourcePath) {
+    const source = sourceFiles.find(
+      (file) => file.text && file.projectRelativePath === diagnosticOrPath.sourcePath,
+    );
+    if (source) {
+      const tab = buildProjectSourceTab(source);
+      return diagnosticOrPath.line
+        ? rowTarget(tab, 'source.line', {
+            line: diagnosticOrPath.line,
+            column: diagnosticOrPath.column ?? 1,
+          })
+        : { tab };
+    }
+  }
   const path = typeof diagnosticOrPath === 'string' ? diagnosticOrPath : diagnosticOrPath?.path;
   const navigation =
     typeof diagnosticOrPath === 'object' && diagnosticOrPath !== null

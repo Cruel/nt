@@ -90,7 +90,7 @@ export function refreshNativeProjectDiagnostics(force = false): Promise<void> {
     return Promise.resolve();
   }
   pending = Promise.resolve()
-    .then(() => window.noveltea.nativeProjectValidate(current.session, current.revision))
+    .then(() => window.noveltea.nativeProjectValidate(current.session, current.revision, force))
     .then((reply) => {
       if (token !== generation || key !== JSON.stringify(identity())) return;
       diagnostics = reply.diagnostics;

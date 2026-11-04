@@ -68,7 +68,7 @@ describe('native validation findings during edits', () => {
       act(() =>
         useCommandStore.setState({ nativeMutationPending: false, nativeWorkingRevision: 1 }),
       );
-      await waitFor(() => expect(validate).toHaveBeenCalledWith(session, 1));
+      await waitFor(() => expect(validate).toHaveBeenCalledWith(session, 1, false));
       expect(nativeProjectDiagnosticsReady()).toBe(false);
       expect(currentNativeProjectDiagnostics()).toEqual([previous]);
 

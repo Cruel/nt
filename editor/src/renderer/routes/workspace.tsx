@@ -252,6 +252,11 @@ export function WorkspacePage() {
   const externalAssetDiagnosticsRef = useRef<ToolDiagnostic[]>([]);
   const metadataFlushPromiseRef = useRef<Promise<boolean>>(Promise.resolve(true));
   const metadataFlushTimerRef = useRef<number | null>(null);
+  const previewLocaleMetadataRef = useRef<{
+    projectSessionId: string | null;
+    locale: string | null;
+    pending: boolean;
+  } | null>(null);
   const imageThumbnailPrewarmRef = useRef<ImageThumbnailPrewarmCoordinator | null>(null);
   const flushProjectEditorMetadataRef = useRef<
     (reason: 'debounce' | 'close-project' | 'window-close' | 'switch-project') => Promise<boolean>
@@ -277,6 +282,7 @@ export function WorkspacePage() {
   const previewConnectionState = useWorkspaceStore((state) => state.previewConnectionState);
   const statusMessage = useWorkspaceStore((state) => state.statusMessage);
   const project = useProjectStore((state) => state.document);
+  const previewLocale = project ? editorProjectStateFromProject(project).previewLocale : null;
   const projectContentSnapshot = project ? canonicalProjectPersistenceContentJson(project) : null;
   const projectPath = useProjectStore((state) => state.projectPath);
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
@@ -633,6 +639,13 @@ export function WorkspacePage() {
     const persistedEditorState = result.editorState ?? editorState;
     setLoadedEditorProjectState(persistedEditorState);
     markEditorMetadataPersisted(persistedEditorState);
+    if (previewLocaleMetadataRef.current?.projectSessionId === latestProjectSessionId) {
+      previewLocaleMetadataRef.current = {
+        projectSessionId: latestProjectSessionId,
+        locale: persistedEditorState.previewLocale,
+        pending: false,
+      };
+    }
     if (reason !== 'debounce') {
       const message =
         reason === 'close-project'
@@ -754,36 +767,25 @@ export function WorkspacePage() {
     const dir = projectPathOverride ?? (await window.noveltea.selectProjectDirectory());
     if (!dir) return;
     setProjectOpening(true);
+    let candidateAdmitted = false;
     try {
       // Let the loading indicator render before potentially expensive Project work.
       await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
       if (!(await flushProjectEditorMetadata('switch-project'))) return;
       if (Object.keys(useWorkbenchStore.getState().tabsById).length > 0)
         saveLocalEditorSessionSnapshot(projectFilePath ?? null);
-      await cancelAndClearComfyUiProjectJobs(projectFilePath);
-      await window.noveltea.closeActiveProject();
-      externalSourceDiagnosticsRef.current = [];
-      externalAssetDiagnosticsRef.current = [];
       const loaded = await window.noveltea.openProject(dir);
       await useTemplateRegistryStore
         .getState()
         .ensureLoaded()
         .catch(() => []);
       if (!loaded.success || !loaded.contentProject || !loaded.editorState) {
-        clearProjectDocument();
-        usePendingInputStore.getState().resetPendingInputs();
-        resetCommandHistory();
-        closeProjectTabs();
-        setProjectPath(null);
-        setProjectFilePath(null);
-        setProject(null);
-        setDiagnostics(
-          loaded.diagnostics.length > 0 ? loaded.diagnostics : unsupportedProjectDiagnostics(),
-        );
-        setPlaybackTests([]);
-        setLastPlaybackReport(null);
-        setLastExportResult(null);
-        setLastProjectPath(null);
+        if (!useProjectStore.getState().document) {
+          closeProjectTabs();
+          setDiagnostics(
+            loaded.diagnostics.length > 0 ? loaded.diagnostics : unsupportedProjectDiagnostics(),
+          );
+        }
         const reason = loaded.diagnostics.find((entry) => entry.severity === 'error')?.message;
         const unsupported = loaded.diagnostics.some((entry) =>
           /unsupported.*(?:schema|format)|(?:schema|format).*unsupported/iu.test(entry.message),
@@ -799,6 +801,8 @@ export function WorkspacePage() {
         });
         return;
       }
+      candidateAdmitted = true;
+      await cancelAndClearComfyUiProjectJobs(projectFilePath);
       let reconstructed = reconstructEditorProject(
         toJsonValue(loaded.savedContentProject ?? loaded.contentProject),
         toJsonValue(loaded.contentProject),
@@ -864,19 +868,21 @@ export function WorkspacePage() {
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Project open failed';
-      clearProjectDocument();
-      usePendingInputStore.getState().resetPendingInputs();
-      resetCommandHistory();
-      closeProjectTabs();
-      setProjectPath(null);
-      setProjectFilePath(null);
-      setProject(null);
-      setDiagnostics([]);
-      setPlaybackTests([]);
+      if (candidateAdmitted) {
+        clearProjectDocument();
+        usePendingInputStore.getState().resetPendingInputs();
+        resetCommandHistory();
+        closeProjectTabs();
+        setProjectPath(null);
+        setProjectFilePath(null);
+        setProject(null);
+        setDiagnostics([]);
+        setPlaybackTests([]);
+      }
       if (message.includes('Native Project') || message.includes('Native recovery')) {
         setAlert({
           title: 'Native project recovery requires attention',
-          message: `${message}\n\nUnsaved recovery files were preserved. Resolve any changed source on disk, or reopen without native-edit certification to inspect local recovery.`,
+          message: `${message}\n\nUnsaved recovery files were preserved. Resolve any changed source on disk and reopen the Project.`,
         });
       } else if (projectPathOverride) {
         removeRecentProject(projectPathOverride);
@@ -1402,6 +1408,15 @@ export function WorkspacePage() {
   });
 
   useEffect(() => {
+    const previous = previewLocaleMetadataRef.current;
+    if (!previous || previous.projectSessionId !== projectSessionId)
+      previewLocaleMetadataRef.current = {
+        projectSessionId,
+        locale: previewLocale,
+        pending: false,
+      };
+    else if (previous.locale !== previewLocale)
+      previewLocaleMetadataRef.current = { ...previous, locale: previewLocale, pending: true };
     if (
       !projectContentSnapshot ||
       !projectFilePath ||
@@ -1409,7 +1424,8 @@ export function WorkspacePage() {
         !hasSourceDirty &&
         !hasPersistedSourceRecovery &&
         !hasDraftDirty &&
-        !hasPendingInput)
+        !hasPendingInput &&
+        !previewLocaleMetadataRef.current?.pending)
     )
       return;
     const timer = window.setTimeout(() => {
@@ -1433,6 +1449,8 @@ export function WorkspacePage() {
     sourceBuffersById,
     projectDirty,
     projectFilePath,
+    projectSessionId,
+    previewLocale,
   ]);
 
   useEffect(() =>

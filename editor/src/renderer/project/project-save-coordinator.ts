@@ -590,7 +590,11 @@ export async function saveAllSaveUnits(): Promise<ProjectSaveCoordinatorResult> 
       ...(entry.externalConflict ? [externalConflictSaveDiagnostic(id, entry)] : []),
       ...Object.keys(entry.pendingRawInputByPath).map((path) => pendingInputDiagnostic(id, path)),
     ]);
-    if (failures.length > 0)
+    for (const [id, entry] of entries) {
+      if (entry.externalConflict || Object.keys(entry.pendingRawInputByPath).length)
+        for (const linked of atomicClosure(snapshot.recovery, id)) ids.delete(linked);
+    }
+    if (!ids.size && !sourceIds.length)
       return {
         success: false,
         status: 'blocked',
@@ -608,7 +612,8 @@ export async function saveAllSaveUnits(): Promise<ProjectSaveCoordinatorResult> 
       // atomically. Revalidating the candidate with the retired TypeScript
       // Project engine would introduce a second, potentially contradictory
       // semantic authority and could reject a native-valid Save.
-      return commitSelectedNativeSaveUnits(ids, snapshot, candidate, sourceIds);
+      const result = await commitSelectedNativeSaveUnits(ids, snapshot, candidate, sourceIds);
+      return { ...result, diagnostics: [...failures, ...result.diagnostics] };
     } catch (error) {
       return {
         success: false,

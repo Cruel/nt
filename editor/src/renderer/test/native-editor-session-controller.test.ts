@@ -471,8 +471,9 @@ describe('native admission at the editor main Project lifecycle', () => {
         expect.objectContaining({
           code: 'room.bounds.invalid',
           severity: 'error',
-          category: 'Native authoring validation',
-          message: expect.stringContaining('records/rooms/start.yaml:7'),
+          sourcePath: 'records/rooms/start.yaml',
+          line: 7,
+          message: 'Room invalid',
         }),
       ],
     });
@@ -789,7 +790,7 @@ describe('native admission at the editor main Project lifecycle', () => {
     await test.controller.admit('one', test.saved);
     expect(test.controller.isAdmitted('one')).toBe(true);
     expect(test.open).toHaveBeenCalledWith('one');
-    expect(test.prepareCompleteWorking).toHaveBeenCalledWith();
+    expect(test.prepareCompleteWorking).toHaveBeenCalledWith('', true);
     test.setActive('two');
     expect(test.controller.isAdmitted('one')).toBe(false);
     await expect(test.controller.admit('one', test.saved)).rejects.toThrow('stale');
@@ -845,6 +846,184 @@ describe('native admission at the editor main Project lifecycle', () => {
 
 const nativeAddon = process.env.NOVELTEA_AUTHORING_NODE_ADDON;
 describe.skipIf(!nativeAddon)('real native worker admission of the editor Project', () => {
+  it('rejects a broken unsaved shader source without modifying saved bytes', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'native-editor-shader-validation-'));
+    await cp(path.resolve(process.cwd(), '../tests/projects/feature-lab'), root, {
+      recursive: true,
+    });
+    const sessions = new ActiveProjectSessionService();
+    const bridge = new NativeAuthoringSessionBridge(sessions, {
+      addonPath: nativeAddon!,
+      workerScript: path.resolve(
+        process.cwd(),
+        'dist-electron/authoring-worker/native-authoring-worker.cjs',
+      ),
+      pollIntervalMs: 100,
+    });
+    const controller = new NativeEditorSessionController(
+      sessions,
+      bridge,
+      new NativeAuthoringWorkingProject(bridge),
+    );
+    try {
+      const { id } = await admitNativeSession(sessions, controller, root);
+      const shaderPath = path.join(root, 'shaders/lab-invert.fs.sc');
+      expect((await controller.validate(id, 0, true)).success).toBe(true);
+      const edited = await controller.applyRevisionedPatches(id, 0, [
+        { op: 'replace', path: '/project/name', value: 'Unsaved working validation' },
+      ]);
+      expect(edited.accepted, edited.error).toBe(true);
+      const original = await readFile(shaderPath, 'utf8');
+      const staged = await controller.stageText(
+        id,
+        edited.snapshot.workingRevision,
+        'shaders/lab-invert.fs.sc',
+        bridge.sourceRevision(Buffer.from(original)),
+        'THIS IS NOT VALID SHADER CODE\n',
+      );
+      expect(staged.accepted, staged.error).toBe(true);
+      expect((await controller.validate(id, staged.snapshot.workingRevision)).success).toBe(true);
+      const invalid = await controller.validate(id, staged.snapshot.workingRevision, true);
+      expect(invalid.success).toBe(false);
+      expect(
+        invalid.diagnostics.some((diagnostic) => diagnostic.code.startsWith('native.shader.')),
+      ).toBe(true);
+      expect(invalid.diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            code: expect.stringMatching(/^native\.shader\./u),
+            sourcePath: 'shaders/lab-invert.fs.sc',
+          }),
+        ]),
+      );
+      expect(await readFile(shaderPath, 'utf8')).toBe(original);
+      expect(await readFile(path.join(root, 'project.yaml'), 'utf8')).not.toContain(
+        'Unsaved working validation',
+      );
+      expect(controller.copyRecovery(id).checkpoint.batches.length).toBeGreaterThan(0);
+      const savedText = await controller.saveText(
+        id,
+        staged.snapshot.workingRevision,
+        'shaders/lab-invert.fs.sc',
+        bridge.sourceRevision(Buffer.from(original)),
+        'THIS IS NOT VALID SHADER CODE\n',
+      );
+      expect(savedText.accepted, savedText.error).toBe(true);
+      expect(await readFile(shaderPath, 'utf8')).toBe('THIS IS NOT VALID SHADER CODE\n');
+    } finally {
+      controller.dispose();
+      sessions.dispose();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it('keeps a semantically invalid Room editable and replays its unsaved edit on reopen', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'native-editor-invalid-recovery-'));
+    await cp(path.resolve(process.cwd(), '../tests/projects/feature-lab'), root, {
+      recursive: true,
+    });
+    const sessions = new ActiveProjectSessionService();
+    const makeController = () => {
+      const bridge = new NativeAuthoringSessionBridge(sessions, {
+        addonPath: nativeAddon!,
+        workerScript: path.resolve(
+          process.cwd(),
+          'dist-electron/authoring-worker/native-authoring-worker.cjs',
+        ),
+        pollIntervalMs: 100,
+      });
+      return new NativeEditorSessionController(
+        sessions,
+        bridge,
+        new NativeAuthoringWorkingProject(bridge),
+      );
+    };
+    let controller = makeController();
+    try {
+      const { id } = await admitNativeSession(sessions, controller, root);
+      const patched = await controller.applyRevisionedPatches(id, 0, [
+        {
+          op: 'replace',
+          path: '/rooms/active-text/data/background/asset',
+          value: 'missing-review-asset',
+        },
+      ]);
+      expect(patched.accepted, patched.error).toBe(true);
+      expect((await controller.currentWorkingProject(id)).rooms['active-text']?.data).toBeDefined();
+      const invalid = await controller.validate(id, patched.snapshot.workingRevision);
+      expect(invalid.success).toBe(false);
+      const strict = await controller.prepareRuntime(
+        id,
+        patched.snapshot.workingRevision,
+        'glsl-330',
+      );
+      expect(strict.status).toBe('blocked');
+      if (strict.status !== 'blocked') throw new Error('Invalid runtime unexpectedly prepared.');
+      expect(
+        strict.diagnostics.some((diagnostic) =>
+          diagnostic.message.includes('missing-review-asset'),
+        ),
+      ).toBe(true);
+      controller.dispose();
+      sessions.closeActiveProject();
+      controller = makeController();
+      const { admitted } = await admitNativeSession(sessions, controller, root);
+      expect(admitted.revision).toBeGreaterThan(0);
+      expect(controller.recoveredContentProject()?.rooms['active-text']?.data).toBeDefined();
+      expect(
+        await readFile(path.join(root, 'records/rooms/active-text.yaml'), 'utf8'),
+      ).not.toContain('missing-review-asset');
+    } finally {
+      controller.dispose();
+      sessions.dispose();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it('opens an already-saved, semantically invalid Room for native repair', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'native-editor-invalid-saved-'));
+    await cp(path.resolve(process.cwd(), '../tests/projects/feature-lab'), root, {
+      recursive: true,
+    });
+    const roomPath = path.join(root, 'records/rooms/active-text.yaml');
+    await writeFile(
+      roomPath,
+      (await readFile(roomPath, 'utf8')).replace(
+        'asset: pilot-room-backdrop',
+        'asset: missing-review-asset',
+      ),
+    );
+    const sessions = new ActiveProjectSessionService();
+    const bridge = new NativeAuthoringSessionBridge(sessions, {
+      addonPath: nativeAddon!,
+      workerScript: path.resolve(
+        process.cwd(),
+        'dist-electron/authoring-worker/native-authoring-worker.cjs',
+      ),
+      pollIntervalMs: 100,
+    });
+    const controller = new NativeEditorSessionController(
+      sessions,
+      bridge,
+      new NativeAuthoringWorkingProject(bridge),
+    );
+    try {
+      const { id, admitted } = await admitNativeSession(sessions, controller, root);
+      expect(admitted.savedProject.rooms['active-text']).toBeDefined();
+      const validation = await controller.validate(id, admitted.revision);
+      expect(validation.success).toBe(false);
+      expect(
+        validation.diagnostics.some((diagnostic) =>
+          diagnostic.message.includes('missing-review-asset'),
+        ),
+      ).toBe(true);
+    } finally {
+      controller.dispose();
+      sessions.dispose();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 120_000);
+
   it('preserves a running native Project worker when a second native admission is invalid', async () => {
     const original = await mkdtemp(path.join(tmpdir(), 'noveltea-native-incumbent-'));
     const candidate = await mkdtemp(path.join(tmpdir(), 'noveltea-native-candidate-'));
