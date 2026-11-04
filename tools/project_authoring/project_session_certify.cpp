@@ -10,6 +10,7 @@
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <algorithm>
@@ -3204,13 +3205,16 @@ int main(int argc, char** argv)
             session->enable_resident_cache_maintenance();
             std::size_t stage_builds = 0;
             const auto report = [&](bool validated = false, bool valid = false,
-                                    bool cache_hit = false) {
+                                    bool cache_hit = false,
+                                    std::optional<bool> deferred_proven = std::nullopt) {
                 Json result = Json::object();
                 result["writer"] = session->owns_clean_cache_lease();
                 result["validated"] = validated;
                 result["valid"] = valid;
                 result["cacheHit"] = cache_hit;
                 result["stageBuilds"] = stage_builds;
+                if (deferred_proven)
+                    result["deferredProven"] = *deferred_proven;
                 std::cout << result.to_string() << std::endl;
             };
             report();
@@ -3233,15 +3237,23 @@ int main(int argc, char** argv)
                     report(true, result.snapshot.valid, result.cache_hit);
                 } else if (command == "validate-deferred") {
                     const auto result = session->validate_clean_project(false, true);
-                    require(result.deferred_exact_revisions.has_value(),
-                            "Probe must have a proven deferred generation");
+                    require(result.snapshot.valid, "Probe takeover validation must be valid");
+                    if (!result.deferred_exact_revisions) {
+                        // A Windows USN/FSEvents watcher recovery can require
+                        // a full rescan. That validation is valid, but must
+                        // not publish until a subsequent stable observation
+                        // proves the generation. Expose the temporary miss so
+                        // the process-level test can bound recovery.
+                        report(true, true, result.cache_hit, false);
+                        continue;
+                    }
                     const bool accepted = session->publish_deferred_clean_validation(
                         result, *result.deferred_exact_revisions, "null", [&stage_builds] {
                             ++stage_builds;
                             return std::string{"{\"testStage\":\"certified\"}"};
                         });
                     require(accepted, "Probe must accept its own exact generation");
-                    report(true, result.snapshot.valid, result.cache_hit);
+                    report(true, true, result.cache_hit, true);
                 } else if (command == "dirty") {
                     const auto result = session->patch(
                         session->snapshot().working_revision,

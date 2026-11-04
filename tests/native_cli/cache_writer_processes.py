@@ -171,7 +171,25 @@ with tempfile.TemporaryDirectory(prefix="noveltea-cache-election-") as directory
         assert (lock.stat().st_dev, lock.stat().st_ino) == lock_identity
         # A takeover must register a new exact physical generation for
         # deferred publication, not merely return valid foreground diagnostics.
-        assert c.send("validate-deferred")["valid"]
+        # Force the same watcher-loss interval observed on Windows so this
+        # recovery contract is exercised on every CI host, not just by chance.
+        assert c.send("lose-coverage")["writer"]
+        unproven = c.send("validate-deferred")
+        assert unproven["valid"] and not unproven["deferredProven"], unproven
+        assert unproven["stageBuilds"] == 0, unproven
+        assert ledger.read_bytes() == before_private, "Unproven generation cannot publish"
+        # A watcher/journal recovery may complete a full physical rescan on
+        # the first takeover request. Its valid result is not a publication
+        # token: the next stable observation must prove the generation before
+        # the new writer can stage and publish anything. Retry only this
+        # explicit unproven state, with a hard deadline.
+        def prove_takeover():
+            reply = c.send("validate-deferred")
+            assert reply["valid"], reply
+            assert reply["writer"], reply
+            return reply
+
+        until(prove_takeover, lambda reply: reply["deferredProven"])
         until(lambda: c.send("tick"), lambda _: ledger.read_bytes() != flushed)
         assert json.loads(ledger.read_bytes())["sources"]["records/rooms/unrelated.yaml"] != \
             json.loads(flushed)["sources"]["records/rooms/unrelated.yaml"]
