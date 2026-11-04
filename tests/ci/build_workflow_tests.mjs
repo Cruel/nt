@@ -422,7 +422,10 @@ test('CI publishes distinct informational coverage summaries and detailed artifa
   assert.match(step(native, 'Build Node coverage driver'), /vp pack/);
   assert.match(lab, /NOVELTEA_NATIVE_TOOL_BRIDGE: .*build\/linux-debug\/tools\/editor_tool\/noveltea-tooling-bridge/);
   assert.match(lab, /NOVELTEA_UI_TEST_RUNNER: .*build\/linux-debug\/tools\/editor_tool\/noveltea-ui-test-runner/);
-  assert.match(lab, /--project tests\/projects\/feature-lab --json test run/);
+  assert.match(lab, /--no-daemon --project tests\/projects\/feature-lab --json test run/);
+  assert.match(lab, /export GCOV_PREFIX=/);
+  assert.match(lab, /export GCOV_PREFIX_STRIP=0/);
+  assert.match(lab, /cp -a .*gcov_build.*build\/linux-debug/);
   assert.ok(native.indexOf(step(native, 'Reset CTest coverage counters')) < native.indexOf(ctest));
   assert.ok(native.indexOf(ctest) < native.indexOf(ctestReport));
   assert.ok(native.indexOf(ctestReport) < native.indexOf(cliReset));

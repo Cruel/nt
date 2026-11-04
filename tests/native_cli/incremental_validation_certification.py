@@ -542,8 +542,11 @@ with tempfile.TemporaryDirectory(
             # A deferred writer must publish the latest changed Room source,
             # not preserve the pre-edit contributor bundle from a cache hit.
             expected_owner = "rooms/" + room.stem
+            # Resident cache bytes are the *raw disk source*, including CRLF
+            # on Windows. Path.read_text() performs universal-newline decoding
+            # and would report LF even for a correct raw source snapshot.
             assert (published["resident"]["contributions"][expected_owner]["record"]["bytes"] ==
-                    room.read_text()), (size, "Stale cached Room after shutdown")
+                    room.read_bytes().decode("utf-8")), (size, "Stale cached Room after shutdown")
             cached = validate(project)
             assert public(cached) == public(saved), size
             assert work(cached, "recheckedRecords") == 0, (size, cached["validationWork"])

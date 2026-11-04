@@ -1270,11 +1270,15 @@ SourceObservation SourceAuthority::observe()
     // Only recover the whole inventory if directory metadata changed *without*
     // a corresponding tracked Material-directory event. Full rescans for
     // ordinary additions would needlessly discard independent shader proofs.
-    if (material_directory_stamp() != material_directory_stamp_ &&
-        std::none_of(hinted_paths_.begin(), hinted_paths_.end(), [](const auto& path) {
-            return path == "records/materials" || path.starts_with("records/materials/");
-        }))
-        coverage_lost();
+    if (material_directory_stamp() != material_directory_stamp_) {
+        // Directory metadata proves that Material membership may have
+        // changed. An inotify hint for *another* Material in the same batch
+        // cannot prove this entire directory's new inventory. Re-enumerate
+        // just this family even if some Material hints were already queued.
+        // Otherwise a newly added inherited Material can be missed and an
+        // old, otherwise valid stage projection reused for the new Project.
+        hinted_paths_.insert("records/materials");
+    }
 #endif
     // Unwatched resolved targets must never be silently reused on a warm
     // observation, even when no event reached the lexical source directory.

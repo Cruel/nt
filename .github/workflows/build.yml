@@ -431,9 +431,23 @@ jobs:
           NOVELTEA_UI_TEST_RUNNER: ${{ github.workspace }}/build/linux-debug/tools/editor_tool/noveltea-ui-test-runner
         run: |
           mkdir -p build/reports/coverage/cpp/feature-lab
+          # Run the authored test without a detached validation daemon. An
+          # instrumented broker still alive after this command can rewrite
+          # .gcda while gcovr reads it, yielding a corrupt platform-stage
+          # counter and a failed *coverage reporter* after valid gameplay.
+          # Isolate this suite's coverage from late writes of prior CTest
+          # daemons, then snapshot only the completed foreground process.
+          gcov_root="$(mktemp -d)"
+          trap 'rm -rf "$gcov_root"' EXIT
+          export GCOV_PREFIX="$gcov_root"
+          export GCOV_PREFIX_STRIP=0
           xvfb-run -a build/linux-debug/tools/editor_tool/native-cli/noveltea \
-            --project tests/projects/feature-lab --json test run \
+            --no-daemon --project tests/projects/feature-lab --json test run \
             > build/reports/coverage/cpp/feature-lab/test-results.json
+          gcov_build="$gcov_root/$GITHUB_WORKSPACE/build/linux-debug"
+          node scripts/native-coverage.mjs reset build/linux-debug
+          test -d "$gcov_build"
+          cp -a "$gcov_build/." "$GITHUB_WORKSPACE/build/linux-debug/"
 
       - name: Report Feature Lab coverage
         if: ${{ !cancelled() }}

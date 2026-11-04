@@ -243,14 +243,16 @@ with private_daemon_fixture() as root:
     workflows = project / "workflows"
     workflows.mkdir(exist_ok=True)
     workflow = workflows / "source.json"
-    workflow.write_text('{"value":1}\n')
+    # Archives contain the exact source bytes. Windows text-mode writes would
+    # silently translate LF to CRLF and make this byte-level assertion wrong.
+    workflow.write_bytes(b'{"value":1}\n')
     added = validate()
     assert added["diagnostics"] == diagnostics
     assert work(added, "portableSourceReuses") == 0
     with ZipFile(export("workflow-present.ntproject")) as archive:
         assert archive.read("workflows/source.json") == b'{"value":1}\n'
     assert work(validate(), "portableSourceReuses") == 1
-    workflow.write_text('{"value":2}\n')
+    workflow.write_bytes(b'{"value":2}\n')
     changed = validate()
     assert work(changed, "portableSourceReuses") == 0, changed["validationWork"]
     if sys.platform.startswith("linux"):

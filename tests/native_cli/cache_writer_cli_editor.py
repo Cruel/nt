@@ -72,12 +72,18 @@ def change_label(project, label):
                     encoding="utf-8")
 
 
-with tempfile.TemporaryDirectory(prefix="noveltea-cache-real-hosts-") as directory:
+# Darwin limits the entire AF_UNIX sun_path to 104 bytes. The regular
+# /var/folders/... temporary root plus the private daemon identity exceeds
+# that limit even before the editor creates a Project. Keep the test's
+# private root short, just like the other macOS native CLI certifications.
+macos = sys.platform == "darwin"
+with tempfile.TemporaryDirectory(prefix="nt-ch-" if macos else "noveltea-cache-real-hosts-",
+                                 dir="/tmp" if macos else None) as directory:
     temp = Path(directory)
     env = os.environ.copy()
     env.pop("NOVELTEA_NO_DAEMON", None)
     env.update(NOVELTEA_CLI_CERTIFICATION="1",
-               NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT=str(temp / "daemon"))
+               NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT=str(temp / ("d" if macos else "daemon")))
     editors = []
 
     def run(*argv, expected=0):
