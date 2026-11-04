@@ -153,20 +153,48 @@ async function checkCache(root, paths) {
   assert.equal(value.projectRoot, (await realpath(root)).replaceAll(path.sep, '/'));
   assert.equal(value.sourceRevisionAlgorithm, 'xxh3-128');
   assert.equal(value.assetProofAlgorithm, 'xxh3-128');
-  for (const revision of Object.values(value.revisions))
+  assert.ok(value.sources && typeof value.sources === 'object', 'Native source proof missing');
+  const revisions = Object.fromEntries(
+    Object.entries(value.sources).map(([source, evidence]) => [source, evidence.revision]),
+  );
+  for (const revision of Object.values(revisions))
     assert.match(
       revision,
       /^(?:absent|xxh3-128:[0-9a-f]{32})$/,
       'Cache contains an invalid native source revision',
     );
   for (const file of paths) {
-    assert.match(value.revisions[file], /^xxh3-128:[0-9a-f]{32}$/, file);
+    assert.match(revisions[file], /^xxh3-128:[0-9a-f]{32}$/, file);
     assert.ok((await stat(path.join(root, file))).isFile(), file);
   }
   // Source byte-exact revision functions are independently certified by the
   // native source-hash suite. Here the cross-system contract is that neither
   // host silently reinterprets or republishes the other host's cached proof.
-  return value;
+  return { ...value, revisions };
+}
+
+async function waitForCache(root, paths, changedFrom) {
+  const deadline = Date.now() + 20000;
+  let lastError;
+  while (Date.now() < deadline) {
+    try {
+      const pending = JSON.parse(await readFile(cacheFile(root), 'utf8'));
+      if (!paths.every((file) => pending.sources?.[file]?.revision)) {
+        lastError = new Error('The cache still reflects the previous source inventory');
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        continue;
+      }
+      const value = await checkCache(root, paths);
+      if (!changedFrom || JSON.stringify(value.revisions) !== JSON.stringify(changedFrom.revisions))
+        return value;
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+      lastError = error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  const detail = lastError instanceof Error ? lastError.message : 'generation unchanged';
+  throw new Error(`Native editor/CLI clean cache was not published within 20 seconds: ${detail}`);
 }
 
 async function main() {
@@ -197,7 +225,9 @@ async function main() {
     const cold = await editor.request('validateClean');
     assert.equal(cold.valid, true, JSON.stringify(cold.diagnostics));
     assert.equal(cold.cacheHit, false, 'First editor session must validate disk, not fake a hit');
-    const originalCache = await checkCache(project, ['project.yaml', 'records/rooms/intro.yaml']);
+    // Resident cache writers publish after a quiet interval, not synchronously
+    // from the user-facing validateClean request.
+    const originalCache = await waitForCache(project, ['project.yaml', 'records/rooms/intro.yaml']);
 
     // The independently launched CLI must admit the editor's exact semantic
     // and physical cache entry; a miss would republish and change its mtime.
@@ -259,17 +289,19 @@ async function main() {
     );
     assert.equal(changed.snapshot.dirty, true);
     runCli(scratch, project, ['validate']);
-    const cliCache = await checkCache(project, ['project.yaml', addedPath]);
-    assert.equal(cliCache.semanticKey, originalCache.semanticKey);
-    assert.equal(cliCache.semanticFingerprint, originalCache.semanticFingerprint);
-    assert.notDeepEqual(cliCache.revisions, originalCache.revisions);
+    // An unsaved editor still owns the cache-writer lease. Neither the
+    // independently validating CLI nor the second nonowner editor may
+    // publish their newer physical generation over that owner.
+    const withheld = await checkCache(project, ['project.yaml', 'records/rooms/intro.yaml']);
+    assert.deepEqual(withheld.revisions, originalCache.revisions);
 
     const cleanEditor = editorSession(project, 'independent-clean-editor');
     sessions.push(cleanEditor);
     const cleanOpened = await cleanEditor.open();
     assert.equal(cleanOpened.snapshot.dirty, false);
     const imported = await cleanEditor.request('validateClean');
-    assert.equal(imported.cacheHit, true, "Independent editor missed CLI's clean cache");
+    assert.equal(imported.valid, true);
+    assert.equal(imported.cacheHit, false, 'Nonowner editor borrowed stale cache evidence');
 
     // The editor's revision-checked Save is the only operation that publishes
     // its dirty name. A fresh CLI must see the new disk revision, not old cache.
@@ -281,10 +313,14 @@ async function main() {
     });
     assert.equal(saved.accepted, true, saved.error);
     assert.match(await readFile(manifestPath, 'utf8'), /Unsaved editor draft/);
+    const cliCache = await waitForCache(project, ['project.yaml', addedPath], originalCache);
+    assert.equal(cliCache.semanticKey, originalCache.semanticKey);
+    assert.equal(cliCache.semanticFingerprint, originalCache.semanticFingerprint);
+    assert.notDeepEqual(cliCache.revisions, originalCache.revisions);
     runCli(scratch, project, ['validate'], true);
     const newCache = await checkCache(project, ['project.yaml', addedPath]);
     assert.equal(newCache.semanticFingerprint, cliCache.semanticFingerprint);
-    assert.notEqual(newCache.revisions['project.yaml'], cliCache.revisions['project.yaml']);
+    assert.notEqual(newCache.revisions['project.yaml'], originalCache.revisions['project.yaml']);
     const reopened = editorSession(project, 'after-editor-save');
     sessions.push(reopened);
     const reopenedInitial = await reopened.open();

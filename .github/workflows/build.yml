@@ -947,7 +947,10 @@ jobs:
     name: Windows C++ policy
     runs-on: windows-2025
     needs: shader-assets
-    timeout-minutes: 90
+    # A cold MSVC/vcpkg build plus the full native CLI cache certifications can
+    # exceed 90 minutes on GitHub-hosted runners. Keep this temporary headroom
+    # until the Windows build and test stages can be shortened.
+    timeout-minutes: 150
 
     steps:
       - name: Checkout

@@ -418,6 +418,12 @@ void certify()
                 !writer.commit(busy_plan, TransactionDecision::KeepComments).accepted &&
                 read(first) == busy_source,
             "Concurrent live writer lock blocks mutation, without unsafe lock reclamation");
+    fs::remove(busy / "owner.json");
+    const auto initializing_writer = writer.commit(busy_plan, TransactionDecision::KeepComments);
+    require(!initializing_writer.accepted &&
+                initializing_writer.error.find("WORKSPACE_BUSY") != std::string::npos &&
+                read(first) == busy_source,
+            "Concurrent writer without an installed owner is busy, not a failed YAML read");
     fs::remove_all(busy);
 
 #ifndef _WIN32

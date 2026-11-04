@@ -692,7 +692,20 @@ public:
                 throw std::runtime_error("WORKSPACE_BUSY: writer reclaim started concurrently.");
             }
         } else {
-            const auto [prior_owner, prior_pid] = read_owner(lock);
+            // Another writer may have created the lock directory but not
+            // installed owner.json yet, or may have just removed that owner
+            // while releasing it. This is ordinary cross-process contention,
+            // not a corrupt Project transaction source.
+            std::pair<std::string, std::uint64_t> prior;
+            try {
+                prior = read_owner(lock);
+            } catch (const std::runtime_error&) {
+                std::error_code missing;
+                if (!fs::exists(lock / "owner.json", missing) && !missing)
+                    throw std::runtime_error("WORKSPACE_BUSY: writer lock owner is changing.");
+                throw;
+            }
+            const auto& [prior_owner, prior_pid] = prior;
             if (!proven_dead(prior_pid))
                 throw std::runtime_error("WORKSPACE_BUSY: another Project writer is active.");
             const auto guard_token = token();

@@ -216,6 +216,15 @@ std::string path_text(const std::filesystem::path& path)
     return {text.begin(), text.end()};
 }
 
+// Runtime cache inventories are portable Project-relative identifiers, not
+// host filesystem paths. In particular, Windows native .u8string() inserts
+// backslashes, while the independent cache validator uses generic '/' paths.
+std::string relative_path_text(const std::filesystem::path& path)
+{
+    const auto text = path.generic_u8string();
+    return {text.begin(), text.end()};
+}
+
 std::filesystem::path project_root(const std::string& selected)
 {
     auto current =
@@ -531,7 +540,8 @@ Json cache_input_paths(const std::filesystem::path& root, bool tests,
     if (!tests) {
         paths.insert("project.yaml");
         for (const auto& path : physical_paths) {
-            const auto relative = path.get<std::string>();
+            const auto relative =
+                relative_path_text(native_path_from_utf8(path.get<std::string>()));
             if (relative == "editor.yaml" || relative == "editor.json" ||
                 relative.starts_with("records/tests/"))
                 continue;
@@ -560,7 +570,7 @@ Json cache_input_paths(const std::filesystem::path& root, bool tests,
                                          path_text(it->path()));
             if (!std::filesystem::is_regular_file(entry_status))
                 continue;
-            const auto relative = path_text(std::filesystem::relative(it->path(), root));
+            const auto relative = relative_path_text(std::filesystem::relative(it->path(), root));
             const auto extension = it->path().extension().string();
             const bool authored_test = relative.starts_with("records/tests/");
             if (tests ? (authored_test && (extension == ".yaml" || extension == ".json"))
