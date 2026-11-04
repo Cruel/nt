@@ -52,12 +52,14 @@ class Resident:
 
 def until(action, predicate, *, timeout=20):
     deadline = time.monotonic() + timeout
+    state = None
     while time.monotonic() < deadline:
         state = action()
         if predicate(state):
             return state
         time.sleep(0.12)
-    raise AssertionError("Timed out waiting for native validation cache election/debounce")
+    raise AssertionError(
+        f"Timed out waiting for native validation cache election/debounce: {state}")
 
 
 with tempfile.TemporaryDirectory(prefix="noveltea-cache-election-") as directory:
@@ -92,7 +94,11 @@ with tempfile.TemporaryDirectory(prefix="noveltea-cache-election-") as directory
         assert not ledger.exists(), "Nonowner direct validation cannot publish"
         assert a.send("validate-deferred")["stageBuilds"] == 0, (
             "Foreground validation must not construct pending stage evidence")
-
+        # Force loss/recovery of the source watcher before its first idle
+        # publication. Windows USN journal errors used to revoke the deferred
+        # stage builder even when the complete rescan proved unchanged bytes,
+        # allowing a stage-less clean ledger with stageBuilds == 0.
+        assert a.send("lose-coverage")["stageBuilds"] == 0
         # Idle owner publishes without a user request. The write is stable if
         # the same source generation is polled repeatedly.
         until(lambda: a.send("tick"), lambda _: ledger.is_file())
@@ -126,7 +132,9 @@ with tempfile.TemporaryDirectory(prefix="noveltea-cache-election-") as directory
         assert b.send("validate")["valid"]
         assert ledger.read_bytes() == initial, "A nonowner cannot race the current writer"
         until(lambda: a.send("tick"), lambda _: ledger.read_bytes() != initial)
-        assert a.status["stageBuilds"] == 2, "New generation builds one replacement stage"
+        assert a.status["stageBuilds"] == 2, (
+            "New generation must build exactly one replacement stage", a.status,
+            json.loads(ledger.read_bytes())["sources"]["records/rooms/unrelated.yaml"])
         first_edit = ledger.read_bytes()
         assert json.loads(first_edit)["sources"]["records/rooms/unrelated.yaml"] != \
             json.loads(initial)["sources"]["records/rooms/unrelated.yaml"]
@@ -161,7 +169,9 @@ with tempfile.TemporaryDirectory(prefix="noveltea-cache-election-") as directory
         b.kill()
         until(lambda: c.send("tick"), lambda reply: reply["writer"])
         assert (lock.stat().st_dev, lock.stat().st_ino) == lock_identity
-        assert c.send("validate")["valid"]
+        # A takeover must register a new exact physical generation for
+        # deferred publication, not merely return valid foreground diagnostics.
+        assert c.send("validate-deferred")["valid"]
         until(lambda: c.send("tick"), lambda _: ledger.read_bytes() != flushed)
         assert json.loads(ledger.read_bytes())["sources"]["records/rooms/unrelated.yaml"] != \
             json.loads(flushed)["sources"]["records/rooms/unrelated.yaml"]

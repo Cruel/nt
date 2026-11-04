@@ -7,6 +7,7 @@
 #include <jsoncons/json.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <array>
 #include <chrono>
 #include <cctype>
@@ -24,6 +25,8 @@
 #ifdef __linux__
 #include <sys/inotify.h>
 #include <unistd.h>
+#elif defined(__APPLE__)
+#include <sys/stat.h>
 #endif
 
 namespace noveltea::authoring {
@@ -204,8 +207,14 @@ struct SourceAuthority::NativeWatch {
 
     bool drain(bool& observed, std::set<std::string>& hinted_paths)
     {
-        if (fd < 0 || physical_watch_failed)
+        if (fd < 0)
             return true;
+        // An unreadable binary Asset cannot acquire an inode watch, but its
+        // metadata can still be admitted without reading its bytes. Such a
+        // session never has a reliable watcher fence: every subsequent source
+        // observation uses the complete physical scan instead.
+        if (physical_watch_failed)
+            return false;
         alignas(inotify_event) std::array<char, 32768> buffer{};
         while (true) {
             const auto count = read(fd, buffer.data(), buffer.size());
@@ -331,26 +340,55 @@ struct SourceAuthority::NativeWatch {
         }
     }
 #else
+    // NTFS journals can become unprovable because an unrelated file on the
+    // same volume was deleted while decoding its parent. Do not open a fresh
+    // optimistic USN watcher on every replacement ProjectSession after the
+    // first journal failure: the read-only CLI could otherwise exhaust its
+    // bounded recovery attempts with no Project source change at all.
+    // Exact source inventories remain authoritative without journal coverage.
+#if defined(_WIN32)
+    static std::atomic<bool>& windows_journal_unavailable()
+    {
+        static std::atomic<bool> unavailable{false};
+        return unavailable;
+    }
+#endif
     explicit NativeWatch(const std::filesystem::path& root)
         : root(root), monitor(std::make_unique<PlatformSourceMonitor>(root))
     {
+#if defined(_WIN32)
+        require_physical_scans = windows_journal_unavailable().load();
+#endif
     }
     std::filesystem::path root;
     std::unique_ptr<PlatformSourceMonitor> monitor;
     bool healthy = false;
+    // Once a platform journal fails a synchronous proof, subsequent journal
+    // resets could repeatedly lose authority under unrelated volume activity.
+    // Keep exact full-inventory scans for the rest of this session instead.
+    // This is a fail-closed performance fallback, never a substitute proof.
+    bool require_physical_scans = false;
     bool reset()
     {
-        monitor = std::make_unique<PlatformSourceMonitor>(root);
+        if (!require_physical_scans)
+            monitor = std::make_unique<PlatformSourceMonitor>(root);
         healthy = false;
         return true;
     }
     bool drain(bool& observed, std::set<std::string>& paths)
     {
+        if (require_physical_scans)
+            return false;
         const auto changes = monitor->fence();
         const bool coverage_was_healthy = healthy;
         healthy = changes.reliable;
-        if (!healthy)
-            return coverage_was_healthy; // Lost coverage revokes a former proof; no monitor scans.
+        if (!healthy) {
+            require_physical_scans = true;
+#if defined(_WIN32)
+            windows_journal_unavailable().store(true);
+#endif
+            return coverage_was_healthy; // Revoke the last fast proof, then scan exact sources.
+        }
         observed = !changes.paths.empty();
         paths.insert(changes.paths.begin(), changes.paths.end());
         return false;
@@ -361,6 +399,8 @@ struct SourceAuthority::NativeWatch {
     void protect_sources(const std::map<std::string, std::string>& revisions,
                          const std::set<std::string>* hints = nullptr)
     {
+        if (require_physical_scans)
+            return;
         for (const auto& [path, revision] : revisions)
             if (revision != "absent" && (!hints || hints->contains(path)))
                 monitor->protect_source(path);
@@ -563,6 +603,37 @@ SourceAuthority::Capture SourceAuthority::capture(const std::set<std::string>* h
                     .count();
             auto physical_revision =
                 "physical:" + std::to_string(size) + ":" + std::to_string(modified_ns);
+#if defined(__APPLE__)
+            // FSEvents cannot provide a synchronous, inode-authoritative
+            // fence. A full macOS scan must distinguish an in-place binary
+            // write whose size and mtime were deliberately restored. POSIX
+            // ctime advances on that write and cannot be reset by utime;
+            // treat it as a physical invalidation hint, not a content proof.
+            // The portable/runtime consumer still checks the exact bytes.
+            struct stat attributes {};
+            if (::stat(absolute.c_str(), &attributes) != 0)
+                throw std::runtime_error("Cannot inspect Project Asset change time: " + relative);
+            physical_revision += ":ctime:" + std::to_string(attributes.st_ctimespec.tv_sec) + ":" +
+                                 std::to_string(attributes.st_ctimespec.tv_nsec);
+#elif defined(_WIN32)
+            // USN journal coverage may be unavailable on a hosted Windows
+            // runner. A full inventory scan then needs the NTFS change time
+            // as an invalidation hint for a same-size, restored-mtime write;
+            // C++ filesystem's last_write_time does not report that change.
+            const HANDLE handle =
+                CreateFileW(absolute.c_str(), FILE_READ_ATTRIBUTES,
+                            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                            OPEN_EXISTING, 0, nullptr);
+            if (handle == INVALID_HANDLE_VALUE)
+                throw std::runtime_error("Cannot inspect Project Asset change time: " + relative);
+            FILE_BASIC_INFO attributes{};
+            const bool inspected = GetFileInformationByHandleEx(handle, FileBasicInfo, &attributes,
+                                                                sizeof(attributes)) != 0;
+            CloseHandle(handle);
+            if (!inspected)
+                throw std::runtime_error("Cannot inspect Project Asset change time: " + relative);
+            physical_revision += ":change:" + std::to_string(attributes.ChangeTime.QuadPart);
+#endif
             if (hints && dirty && baseline_.contains(relative)) {
                 // An observed write is a new physical generation even when
                 // the writer restores size and mtime. A metadata-only hint
@@ -917,18 +988,34 @@ void SourceAuthority::arm(const std::set<std::string>& directories)
         uncertain_ = true;
 }
 
+#ifdef __linux__
+std::optional<std::filesystem::file_time_type> SourceAuthority::material_directory_stamp() const
+{
+    std::error_code ec;
+    const auto stamp = std::filesystem::last_write_time(root_ / "records/materials", ec);
+    return ec ? std::nullopt : std::optional{stamp};
+}
+#endif
+
 bool SourceAuthority::initialize(std::string& error, bool allow_invalid_sources)
 {
     try {
         Capture captured;
         bool stable = false;
         for (int attempt = 0; attempt < 3; ++attempt) {
+#ifdef __linux__
+            const auto material_before = material_directory_stamp();
+#endif
             captured = capture();
             native_->protect_sources(captured.revisions);
             bool changed_during_admission = false;
             if (native_->drain(changed_during_admission, hinted_paths_))
                 throw std::runtime_error("Project watcher lost coverage during admission.");
-            if (!changed_during_admission) {
+            if (!changed_during_admission
+#ifdef __linux__
+                && material_before == material_directory_stamp()
+#endif
+            ) {
                 stable = true;
                 break;
             }
@@ -953,6 +1040,9 @@ bool SourceAuthority::initialize(std::string& error, bool allow_invalid_sources)
             throw std::runtime_error("Project watcher could not cover all source directories.");
         ++watch_epoch_;
         hinted_paths_.clear();
+#ifdef __linux__
+        material_directory_stamp_ = material_directory_stamp();
+#endif
         error.clear();
         return true;
     } catch (const std::exception& e) {
@@ -1091,6 +1181,15 @@ bool SourceAuthority::fence()
         coverage_lost();
         return false;
     }
+#ifdef __linux__
+    // File creation/removal changes the directory's own metadata. Fence
+    // Material membership even if an inode watch was briefly unarmed or a
+    // notification was not yet present in the drained event queue.
+    if (material_directory_stamp() != material_directory_stamp_) {
+        coverage_lost();
+        return false;
+    }
+#endif
     // A lexical watch on the source parent cannot observe writes made via an
     // in-root symlink target in an otherwise untracked directory. Reprove only
     // those target bytes, including contained binary aliases, before accepting
@@ -1166,6 +1265,17 @@ SourceObservation SourceAuthority::observe()
     bool observed = false;
     if (native_->drain(observed, hinted_paths_))
         uncertain_ = true;
+#ifdef __linux__
+    // Normal inotify membership events already provide targeted invalidation.
+    // Only recover the whole inventory if directory metadata changed *without*
+    // a corresponding tracked Material-directory event. Full rescans for
+    // ordinary additions would needlessly discard independent shader proofs.
+    if (material_directory_stamp() != material_directory_stamp_ &&
+        std::none_of(hinted_paths_.begin(), hinted_paths_.end(), [](const auto& path) {
+            return path == "records/materials" || path.starts_with("records/materials/");
+        }))
+        coverage_lost();
+#endif
     // Unwatched resolved targets must never be silently reused on a warm
     // observation, even when no event reached the lexical source directory.
     for (const auto& [relative, _] : symlink_revisions_)
@@ -1184,6 +1294,9 @@ SourceObservation SourceAuthority::observe()
         Capture captured;
         bool stable = false;
         for (int attempt = 0; attempt < 3; ++attempt) {
+#ifdef __linux__
+            const auto material_before = material_directory_stamp();
+#endif
             const bool complete_capture = uncertain_ || !native_->reliable();
             captured = capture(complete_capture ? nullptr : &hinted_paths_);
             native_->protect_sources(captured.revisions,
@@ -1196,6 +1309,13 @@ SourceObservation SourceAuthority::observe()
                     throw std::runtime_error("Cannot restore Project watcher coverage.");
                 during_scan = true;
             }
+#ifdef __linux__
+            if (material_before != material_directory_stamp()) {
+                coverage_lost();
+                observation.full_rescan = true;
+                during_scan = true;
+            }
+#endif
             if (!during_scan) {
                 stable = true;
                 break;
@@ -1240,6 +1360,9 @@ SourceObservation SourceAuthority::observe()
         symlink_revisions_ = std::move(captured.symlink_revisions);
         invalid_sources_ = observation.invalid_sources;
         uncertain_ = false;
+#ifdef __linux__
+        material_directory_stamp_ = material_directory_stamp();
+#endif
         arm(captured.directories);
         if (uncertain_)
             throw std::runtime_error("Project watcher could not cover all source directories.");

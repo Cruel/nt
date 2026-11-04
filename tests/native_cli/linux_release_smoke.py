@@ -5,6 +5,7 @@ both the portable launcher and opt-in AppImage from unrelated working directorie
 """
 
 import hashlib
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
@@ -51,8 +52,39 @@ def launch(path, cwd, environment):
     return proc.returncode
 
 
-with tempfile.TemporaryDirectory(prefix='noveltea-native-linux-release-') as temporary:
-    root = Path(temporary)
+@contextmanager
+def isolated_release_fixture():
+    with tempfile.TemporaryDirectory(prefix='noveltea-native-linux-release-') as temporary:
+        root = Path(temporary)
+        try:
+            yield root
+        finally:
+            # A successful export can schedule clean-cache publication after
+            # its CLI command has returned. Stop this fixture's private daemon
+            # before deleting the Project on Linux or Windows.
+            daemon_env = {
+                **os.environ,
+                'NOVELTEA_CLI_CERTIFICATION': '1',
+                'NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT': str(root / 'daemon'),
+            }
+            daemon_env.pop('NOVELTEA_NO_DAEMON', None)
+            command = [str(cli), '--json', 'daemon']
+            stopped = subprocess.run(command + ['stop'], env=daemon_env,
+                                     cwd=root, capture_output=True, text=True, timeout=30)
+            assert stopped.returncode == 0, (stopped.stdout, stopped.stderr)
+            deadline = time.monotonic() + 15
+            while True:
+                result = subprocess.run(command + ['status'], env=daemon_env,
+                                        cwd=root, capture_output=True, text=True, timeout=15)
+                assert result.returncode == 0, (result.stdout, result.stderr)
+                if not json.loads(result.stdout)['daemon']['running']:
+                    break
+                if time.monotonic() >= deadline:
+                    raise AssertionError('Release fixture daemon did not terminate')
+                time.sleep(.1)
+
+
+with isolated_release_fixture() as root:
     project = root / 'project'
     shutil.copytree(repository / 'tests/fixtures/native-platform-export-web', project)
     for name in ('app-icon', 'backdrop', 'backdrop-fr'):
@@ -94,7 +126,9 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-linux-release-') as tem
     assert 'target: linux' in original and 'target: web' not in original
     (project / 'project.yaml').write_text(original)
 
-    environment = {**os.environ, 'NOVELTEA_TEMPLATE_REGISTRY_ROOT': str(root / 'registry'),
+    environment = {**os.environ, 'NOVELTEA_CLI_CERTIFICATION': '1',
+                   'NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT': str(root / 'daemon'),
+                   'NOVELTEA_TEMPLATE_REGISTRY_ROOT': str(root / 'registry'),
                    'NOVELTEA_USER_CONFIG_ROOT': str(root / 'user'), 'HOME': str(root),
                    'NOVELTEA_PLAYER_HEADLESS_ERRORS': '1', 'APPIMAGE_EXTRACT_AND_RUN': '1'}
 

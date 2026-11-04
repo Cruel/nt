@@ -6,6 +6,9 @@
 #include <noveltea/core/player_bootstrap.hpp>
 
 #include <nlohmann/json.hpp>
+#if defined(_WIN32)
+#include <jsoncons/json.hpp>
+#endif
 
 #include <algorithm>
 #include <array>
@@ -2872,7 +2875,12 @@ private:
 #endif
         if (process_already_dead)
             release_child_process(process);
-        else {
+        else if (process.simulated) {
+            // Certification-only workers have no executable or Project cache
+            // to flush. Simulated liveness cannot respond to graceful
+            // retirement, so do not occupy a scheduler slot for eight seconds.
+            terminate_child_process(process);
+        } else {
             // The resident owner is responsible for the clean disk-ledger
             // shutdown flush. It observes 'retiring' through owner-next and
             // releases its OS cache lock before exiting. Give that serialized
@@ -6714,8 +6722,25 @@ std::string result_event_json(std::string_view request_id, bool ok, std::string_
     // The completion can also originate from a worker. Validate its syntax
     // without materializing a second JSON tree, preserving the old malformed
     // response -> null behavior and never emitting a broken protocol frame.
+    // MSVC's nlohmann parser/acceptor has crashed with heap corruption when
+    // JSON_NOEXCEPTION is enabled and a worker returns malformed JSON. Use
+    // the independently pinned jsoncons parser for this untrusted Windows
+    // boundary, catching syntax errors before assembling the event. Normal
+    // hosts keep the allocation-free nlohmann acceptor.
+#if defined(_WIN32)
+    if (result_json.empty()) {
+        result_json = "null";
+    } else {
+        try {
+            (void)jsoncons::json::parse(result_json.data(), result_json.size());
+        } catch (const jsoncons::json_exception&) {
+            result_json = "null";
+        }
+    }
+#else
     if (result_json.empty() || !Json::accept(result_json))
         result_json = "null";
+#endif
     const auto id = Json(std::string(request_id)).dump();
     std::string event;
     event.reserve(result_json.size() + id.size() + error.size() + 85);
@@ -6933,16 +6958,44 @@ extern "C" std::uint64_t noveltea_tooling_daemon_json(const std::uint8_t* reques
             }
         }
 #else
-        if (was_running || !result.value("ok", false)) {
-            const auto deadline = Clock::now() + std::chrono::seconds(2);
-            while (Clock::now() < deadline) {
-                const auto status = client_request(*context, "status", "stop-status");
-                if (status.value("ok", false) && !status.value("running", false)) {
-                    result = status;
-                    break;
-                }
-                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        // The native broker test harness can serve in this very process.
+        // Waiting for our own lifetime lock would deadlock that harness.
+        const bool external_broker =
+            !before_stop.contains("pid") || !before_stop["pid"].is_number_integer() ||
+            before_stop["pid"].get<std::uint64_t>() != static_cast<std::uint64_t>(::getpid());
+        if (was_running && external_broker && result.value("ok", false)) {
+            // The broker closes its socket before the resident writer/owner
+            // releases the process lifetime lock. Waiting only for a failed
+            // status connection lets the next command race the departing
+            // broker and silently fall back to cold foreground execution.
+            // Lock the *same stable inode* before acknowledging stop.
+            const auto endpoint = make_endpoint(*context);
+            const auto descriptor =
+                ::open(endpoint.lifetime_lock_path.c_str(), O_CREAT | O_RDWR | O_CLOEXEC, 0600);
+            bool released = false;
+            if (descriptor >= 0) {
+                const auto deadline = Clock::now() + std::chrono::seconds(10);
+                do {
+                    if (::flock(descriptor, LOCK_EX | LOCK_NB) == 0) {
+                        ::flock(descriptor, LOCK_UN);
+                        released = true;
+                        break;
+                    }
+                    if (errno != EWOULDBLOCK && errno != EAGAIN)
+                        break;
+                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                } while (Clock::now() < deadline);
+                ::close(descriptor);
             }
+            if (!released)
+                result = {{"ok", false},
+                          {"error", "daemon broker did not release its lifetime lock after stop"}};
+        }
+        if (was_running || !result.value("ok", false)) {
+            const auto status = client_request(*context, "status", "stop-status");
+            if (status.value("ok", false) && !status.value("running", false) &&
+                result.value("ok", false))
+                result = status;
         }
 #endif
         result["stopped"] = was_running && result.value("ok", false);

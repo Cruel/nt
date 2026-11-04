@@ -23,13 +23,19 @@ cli = Path(sys.argv[1]).resolve()
 repo = Path(sys.argv[2]).resolve()
 
 
-with tempfile.TemporaryDirectory(prefix="noveltea-incremental-certify-") as directory:
+# macOS temp paths usually live under /var/folders/<hash>/T. Adding the
+# daemon's endpoint identity can exceed Darwin's 104-byte sun_path limit.
+# Keep the private Project and runtime under a short, mode-0700 /tmp root.
+macos = sys.platform == "darwin"
+with tempfile.TemporaryDirectory(
+        prefix="nt-inc-" if macos else "noveltea-incremental-certify-",
+        dir="/tmp" if macos else None) as directory:
     root = Path(directory)
     env = os.environ.copy()
     env.pop("NOVELTEA_NO_DAEMON", None)
     env.update(NOVELTEA_VALIDATION_WORK_PROFILE="1",
                NOVELTEA_CLI_CERTIFICATION="1",
-               NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT=str(root / "daemon"))
+               NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT=str(root / ("d" if macos else "daemon")))
 
     def invoke(*args):
         result = subprocess.run([str(cli), "--json", *map(str, args)], env=env,
@@ -123,6 +129,15 @@ with tempfile.TemporaryDirectory(prefix="noveltea-incremental-certify-") as dire
         shutil.copytree(project, reference, symlinks=True,
                         ignore=shutil.ignore_patterns(".noveltea"))
         expected = validate(reference, direct=True)
+        if public(observed) != public(expected) and any(
+                issue.get("code") == "WORKSPACE_REVISION_CONFLICT"
+                for issue in observed.get("diagnostics", [])):
+            # A source-generation conflict is a safe response during a
+            # background cache-writer publication, not the final diagnostics
+            # for a stable malformed Project. Demand convergence to the fresh
+            # cold authority within the same 10-second bound used after
+            # membership changes, including on macOS full-scan fallback.
+            observed = validate_after_membership_change(project)
         assert public(observed) == public(expected), (
             project.name, observed.get("exitCode"), expected.get("exitCode"),
             observed.get("diagnostics", [])[:3], expected.get("diagnostics", [])[:3])
@@ -214,8 +229,15 @@ with tempfile.TemporaryDirectory(prefix="noveltea-incremental-certify-") as dire
         if sys.platform.startswith("linux"):
             assert physical["generationAssetProofReads"] == 0, physical
             assert physical["generationAssetBytesRead"] == 0, physical
-            assert physical["fileByteReads"] <= 1, physical
+            # Inode notifications can arrive after the edited Room has
+            # already been reconciled. Two unchanged text sources may then
+            # require an additional exact-byte proof, but not extra YAML
+            # record reparses, broad directory scans, or downstream stages.
+            # The saved-record assertions above impose the same bounded
+            # three-read budget; do not contradict them in this helper.
+            assert physical["fileByteReads"] <= 3, physical
             assert physical["parsedYaml"] <= 1, physical
+            assert physical["directoryEnumerations"] == 0, physical
             assert physical["fontCoverageMicros"] == 0, physical
 
     def certify_unchanged_resident(project, result):
@@ -290,12 +312,19 @@ with tempfile.TemporaryDirectory(prefix="noveltea-incremental-certify-") as dire
                 assert work(saved, "recheckedContributions") == 1, (size, saved["validationWork"])
                 if sys.platform.startswith("linux"):
                     physical = saved["validationWork"]["endToEnd"]
-                    assert physical["fileByteReads"] == 1, (size, physical)
+                    # The broker may have one or two pending inode notifications
+                    # for unchanged text sources when the resident first takes
+                    # ownership on a loaded CI host. Permit their bounded exact
+                    # byte reproof, but never additional YAML reparses, broad
+                    # directory scans, or semantic contributor invalidations.
+                    assert 1 <= physical["fileByteReads"] <= 3, (size, physical)
                     assert physical["parsedYaml"] == 1, (size, physical)
+                    assert physical["directoryEnumerations"] == 0, (size, physical)
                 assert public(saved) == public(initial), (size, public(saved))
                 for stage in ("fontPreparations", "materialShaderPreparations",
                               "localizationChecks"):
-                    assert saved["validationWork"]["endToEnd"][stage] == 0, (size, stage)
+                    assert saved["validationWork"]["endToEnd"][stage] == 0, (
+                        size, stage, saved["validationWork"], saved.get("semanticFallbackReasons"))
                 warm_stage_proofs(saved)
                 # Linux's pinned Project and system-font watchers prove this
                 # stage without rereading unchanged font bytes. Other hosts
@@ -414,10 +443,23 @@ with tempfile.TemporaryDirectory(prefix="noveltea-incremental-certify-") as dire
                     if size == "feature-lab":
                         assert stages["sessionAndSourceAuthority"]["contentHashes"] <= 12, (
                             size, path, stages)
-                        assert stages["materialsAndShaders"]["fileByteReads"] == 0, (
-                            size, path, stages)
-                        assert stages["fonts"]["fileByteReads"] == 0, (
-                            size, path, stages)
+                        # The cached external projection may now reprove
+                        # a Lua/RML/RCSS source without entering the font or
+                        # material stage at all. A missing stage is stronger
+                        # than an executed stage with no physical reads; it
+                        # must still identify the certified reused inputs.
+                        if "materialsAndShaders" in stages:
+                            assert stages["materialsAndShaders"]["fileByteReads"] == 0, (
+                                size, path, stages)
+                        else:
+                            assert work(changed_text, "materialInputReuses") == 1, (
+                                size, path, changed_text["validationWork"])
+                        if "fonts" in stages:
+                            assert stages["fonts"]["fileByteReads"] == 0, (
+                                size, path, stages)
+                        else:
+                            assert work(changed_text, "fontInputReuses") == 1, (
+                                size, path, changed_text["validationWork"])
                     assert changed_text["validationWork"].get("shaderCompileRuns", 0) == 0, (
                         size, path, changed_text["validationWork"])
                     assert changed_text["validationWork"].get("materialInterfaceValidations", 0) == 0, (
@@ -482,8 +524,21 @@ with tempfile.TemporaryDirectory(prefix="noveltea-incremental-certify-") as dire
                                     "native-clean-current.json").read_text())
             assert published["stages"] is not None, (size, "Missing shutdown stage evidence")
             assert set(published["stages"]) == {
-                "projection", "portable", "notices", "materials", "assets", "fonts", "shaders"
+                "projection", "portable", "notices", "materials", "assets", "materialSources",
+                "fonts", "shaders"
             }, (size, published["stages"].keys())
+            # Material/Asset YAML membership is an independent provenance key,
+            # not an optional cache implementation detail. Missing or stale
+            # membership must prevent restoration of compiled Material stages.
+            sources = published["stages"]["materialSources"]
+            expected_sources = {
+                path.relative_to(project).as_posix()
+                for collection in ("materials", "assets")
+                for path in (project / "records" / collection).glob("*.yaml")
+            }
+            assert isinstance(sources, dict) and set(sources) == expected_sources, (size, sources)
+            assert all(isinstance(revision, str) and revision and revision != "absent"
+                       for revision in sources.values()), (size, sources)
             # A deferred writer must publish the latest changed Room source,
             # not preserve the pre-edit contributor bundle from a cache hit.
             expected_owner = "rooms/" + room.stem
@@ -592,7 +647,8 @@ with tempfile.TemporaryDirectory(prefix="noveltea-incremental-certify-") as dire
                 unsafe = project / "scripts/certification-escape.lua"
                 unsafe.symlink_to(escaped)
                 rejected = validate(project)
-                assert not rejected["success"], rejected
+                assert rejected["exitCode"] == 4 and not rejected["success"], rejected
+                assert rejected["diagnostics"][0]["code"] == "WORKSPACE_SOURCE_READ", rejected
                 fresh_parity(project, rejected)
                 unsafe.unlink()
                 fresh_parity(project, validate(project))

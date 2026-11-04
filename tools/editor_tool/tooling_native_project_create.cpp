@@ -66,7 +66,9 @@ void publish_exclusive(const fs::path& stage, const fs::path& destination)
     // process can create the destination between the check and rename.
 #if defined(_WIN32)
     if (!MoveFileExW(stage.c_str(), destination.c_str(), MOVEFILE_WRITE_THROUGH))
-        throw std::runtime_error("Could not publish Project without replacing destination.");
+        throw std::runtime_error(
+            "Could not publish Project without replacing destination (Windows error " +
+            std::to_string(GetLastError()) + ").");
 #elif defined(__linux__)
     if (::syscall(SYS_renameat2, AT_FDCWD, stage.c_str(), AT_FDCWD, destination.c_str(),
                   RENAME_NOREPLACE) != 0)
@@ -176,6 +178,11 @@ Json native_project_create(const Json& request)
                                           : result.diagnostics.front().code + " " +
                                                 result.diagnostics.front().path + " " +
                                                 result.diagnostics.front().message));
+        // Close the Project owner, watcher and cache-writer handles before
+        // publishing its staging directory. Unix permits renaming an open
+        // directory, but Windows rejects this move while a resident handle
+        // lacks delete sharing.
+        validated.reset();
         if (fs::exists(destination))
             return failure("Project destination was created while preparing the Project.",
                            "conflict");

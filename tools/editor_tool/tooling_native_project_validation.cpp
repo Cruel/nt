@@ -46,6 +46,41 @@ void trace_native_validation(const char* stage)
     }
 }
 
+// Physical Material/Asset YAML membership is part of the Material projection,
+// even when a resident idle cache writer observed the event before the next
+// public request. Compare the entire current map: checking only previously
+// watched paths cannot detect a newly added Material.
+std::map<std::string, std::string>
+material_source_revisions(const std::map<std::string, std::string>* revisions)
+{
+    std::map<std::string, std::string> inputs;
+    if (!revisions)
+        return inputs;
+    for (const auto& [path, revision] : *revisions)
+        if ((path.starts_with("records/materials/") || path.starts_with("records/assets/")) &&
+            path.ends_with(".yaml") && revision != "absent")
+            inputs.emplace(path, revision);
+    return inputs;
+}
+
+// Unlike the Material shader projection, the complete normalized Project
+// depends on *all* authored record, manifest and localization source members.
+// An idle writer can consume those changes before foreground semantic work is
+// measured, so work counters alone cannot certify a retained Project object.
+std::map<std::string, std::string>
+complete_project_source_revisions(const std::map<std::string, std::string>* revisions)
+{
+    std::map<std::string, std::string> inputs;
+    if (!revisions)
+        return inputs;
+    for (const auto& [path, revision] : *revisions)
+        if (revision != "absent" &&
+            (path.ends_with(".yaml") || path.ends_with(".yml") ||
+             (path.starts_with("i18n/") && path.ends_with(".json"))))
+            inputs.emplace(path, revision);
+    return inputs;
+}
+
 // Each existing daemon Project-owner process is single-root. This native state
 // lives inside that owner, not in a parallel daemon or a persistent cache.
 struct OwnerValidation {
@@ -85,8 +120,8 @@ struct OwnerValidation {
         // changed physical source is rechecked individually before advancing
         // its proof; missing sources and new workflow members force the full
         // portable check and its attributable diagnostics.
-        std::optional<std::vector<std::string>> portable_changed_paths(
-            const std::map<std::string, std::string>* current) const
+        std::optional<std::vector<std::string>>
+        portable_changed_paths(const std::map<std::string, std::string>* current) const
         {
             if (!current)
                 return std::nullopt;
@@ -134,10 +169,12 @@ struct OwnerValidation {
     // per-program compiler cache.
     std::optional<Json> material_records;
     std::optional<Json> material_assets;
+    std::map<std::string, std::string> material_sources;
     // Canonical complete Project input, distinct from the independently
     // watched portable/notice/font/shader proofs. Text-only source changes
     // cannot change this YAML projection, but still recheck their own bytes.
     std::optional<Json> complete_project;
+    std::map<std::string, std::string> complete_project_sources;
     Json material_programs = Json::object();
     Json material_effective = Json::object();
     noveltea::tooling::MaterialShaderValidationCache shader_cache;
@@ -146,6 +183,7 @@ struct OwnerValidation {
     void clear_preparations(bool clear_shaders = true, bool clear_materials = true)
     {
         complete_project.reset();
+        complete_project_sources.clear();
         font_inputs.reset();
         certified_font_result.reset();
         certified_font_inputs.reset();
@@ -153,6 +191,7 @@ struct OwnerValidation {
         if (clear_materials) {
             material_records.reset();
             material_assets.reset();
+            material_sources.clear();
             material_programs = Json::object();
             material_effective = Json::object();
         }
@@ -193,7 +232,8 @@ void validate_or_reuse_font_result(OwnerValidation& state, Json& result)
     }
     const auto coverage = [&] {
         noveltea::authoring::ScopedValidationStageTime<
-            noveltea::authoring::WorkCounter::FontCoverageMicros> timed;
+            noveltea::authoring::WorkCounter::FontCoverageMicros>
+            timed;
         return noveltea::tooling::validate_font_coverage(
             Json{{"projectRoot", state.root.string()}, {"locales", *state.font_inputs}}.dump(),
             state.session->verified_source_revisions_view(), state.current_font_proofs());
@@ -232,9 +272,9 @@ void validate_or_reuse_font_result(OwnerValidation& state, Json& result)
     state.certified_font_result = result["fontCoverageResult"];
 }
 
-OwnerValidation::ExternalCheck capture_external_check(
-    Json inputs, std::set<std::string> watched,
-    const std::map<std::string, std::string>& revisions)
+OwnerValidation::ExternalCheck
+capture_external_check(Json inputs, std::set<std::string> watched,
+                       const std::map<std::string, std::string>& revisions)
 {
     OwnerValidation::ExternalCheck check{std::move(inputs), std::move(watched), {}};
     for (const auto& path : check.watched_paths)
@@ -245,9 +285,11 @@ OwnerValidation::ExternalCheck capture_external_check(
 Json stage_ledger(const OwnerValidation& state)
 {
     noveltea::authoring::ScopedValidationStageTime<
-        noveltea::authoring::WorkCounter::StageLedgerMicros> timed;
+        noveltea::authoring::WorkCounter::StageLedgerMicros>
+        timed;
     noveltea::authoring::ScopedValidationStageTime<
-        noveltea::authoring::WorkCounter::StageLedgerConstructionMicros> construction;
+        noveltea::authoring::WorkCounter::StageLedgerConstructionMicros>
+        construction;
     if (!state.portable_check || !state.notice_check || !state.font_inputs ||
         !state.material_records || !state.material_assets)
         return nullptr;
@@ -255,13 +297,17 @@ Json stage_ledger(const OwnerValidation& state)
                        {"materialCompilerPrograms", state.material_programs},
                        {"materialEffectiveInputs", state.material_effective}};
     return {{"projection", projection},
-            {"portable", {{"inputs", state.portable_check->inputs},
-                           {"paths", state.portable_check->watched_paths},
-                           {"revisions", state.portable_check->source_revisions}}},
-            {"notices", {{"inputs", state.notice_check->inputs},
-                          {"paths", state.notice_check->watched_paths},
-                          {"revisions", state.notice_check->source_revisions}}},
-            {"materials", *state.material_records}, {"assets", *state.material_assets},
+            {"portable",
+             {{"inputs", state.portable_check->inputs},
+              {"paths", state.portable_check->watched_paths},
+              {"revisions", state.portable_check->source_revisions}}},
+            {"notices",
+             {{"inputs", state.notice_check->inputs},
+              {"paths", state.notice_check->watched_paths},
+              {"revisions", state.notice_check->source_revisions}}},
+            {"materials", *state.material_records},
+            {"assets", *state.material_assets},
+            {"materialSources", state.material_sources},
             {"fonts", Json::parse(noveltea::tooling::font_coverage_ledger())},
             {"shaders", state.shader_cache.ledger()}};
 }
@@ -270,7 +316,8 @@ std::string serialize_stage_ledger(const OwnerValidation& state)
 {
     const auto stages = stage_ledger(state);
     noveltea::authoring::ScopedValidationStageTime<
-        noveltea::authoring::WorkCounter::StageLedgerJsonSerializationMicros> timed;
+        noveltea::authoring::WorkCounter::StageLedgerJsonSerializationMicros>
+        timed;
     noveltea::authoring::count_validation_work<
         noveltea::authoring::WorkCounter::StageLedgerSerializations>();
     auto serialized = stages.dump();
@@ -284,12 +331,14 @@ void validate_material_stage(OwnerValidation& state, const std::filesystem::path
                              const std::map<std::string, std::string>& revisions, Json& result)
 {
     noveltea::tooling::MaterialShaderValidationCache::Work shader_work;
-    const auto stage = state.shader_cache.reuse_certified_stage(root, programs, effective, revisions);
+    const auto stage =
+        state.shader_cache.reuse_certified_stage(root, programs, effective, revisions);
     result["work"]["shaderStageReuses"] = stage ? 1 : 0;
     result["work"]["shaderValidationCalls"] = stage ? 0 : 1;
     result["materialCompilerResult"] = stage ? stage->compiled : [&] {
         noveltea::authoring::ScopedValidationStageTime<
-            noveltea::authoring::WorkCounter::ShaderValidationMicros> timed;
+            noveltea::authoring::WorkCounter::ShaderValidationMicros>
+            timed;
         return state.shader_cache.validate(root, programs, revisions, shader_work);
     }();
     const auto& compiled = result.at("materialCompilerResult");
@@ -299,8 +348,8 @@ void validate_material_stage(OwnerValidation& state, const std::filesystem::path
                   : state.shader_cache.reflected_materials(compiled, effective, shader_work);
         if (!stage)
             state.shader_cache.certify_stage(root, programs, effective, revisions,
-                                            {compiled, result.at("materialReflectionDiagnostics")},
-                                            shader_work);
+                                             {compiled, result.at("materialReflectionDiagnostics")},
+                                             shader_work);
     }
     result["work"]["shaderCompileRuns"] = shader_work.compiler_runs;
     result["work"]["shaderProgramsReused"] = shader_work.reused_programs;
@@ -321,9 +370,10 @@ bool restore_stages(OwnerValidation& state, std::string_view serialized, Json& r
         // the host monitor is unavailable. Font and shader byte proofs are
         // checked by their own stages below.
         const auto* current = state.session->verified_source_revisions_view();
-        if (!current || !state.portable_check ||
-            !state.notice_check || !state.font_inputs || !state.material_records ||
-            !state.material_assets || !state.portable_check->matches_portable(current) ||
+        if (!current || !state.portable_check || !state.notice_check || !state.font_inputs ||
+            !state.material_records || !state.material_assets ||
+            state.material_sources != material_source_revisions(current) ||
+            !state.portable_check->matches_portable(current) ||
             !state.notice_check->matches(current))
             return false;
         result["fontCoverageInputs"] = *state.font_inputs;
@@ -335,9 +385,9 @@ bool restore_stages(OwnerValidation& state, std::string_view serialized, Json& r
             return false;
         try {
             const auto ledger = Json::parse(serialized);
-            if (!ledger.is_object() || ledger.size() != 7 ||
-                !ledger.at("projection").is_object() || ledger.at("projection").size() != 3 ||
-                !ledger.at("materials").is_object() || !ledger.at("assets").is_object())
+            if (!ledger.is_object() || ledger.size() != 8 || !ledger.at("projection").is_object() ||
+                ledger.at("projection").size() != 3 || !ledger.at("materials").is_object() ||
+                !ledger.at("assets").is_object() || !ledger.at("materialSources").is_object())
                 throw std::runtime_error("Malformed external validation ledger.");
             const auto& projection = ledger.at("projection");
             if (!projection.at("fontCoverageInputs").is_array() ||
@@ -347,6 +397,15 @@ bool restore_stages(OwnerValidation& state, std::string_view serialized, Json& r
             const auto* revisions = state.session->verified_source_revisions_view();
             if (!revisions)
                 throw std::runtime_error("No verified external validation source revision.");
+            // The saved Material program projection is valid only for the
+            // exact physical set of Material and Asset YAML inputs it was
+            // built against. Other external stages have independent keys.
+            // Without this comparison, a cold or background validation can
+            // import the old programs after adding a Material record.
+            const auto sources =
+                ledger.at("materialSources").get<std::map<std::string, std::string>>();
+            if (sources != material_source_revisions(revisions))
+                throw std::runtime_error("Stale Material stage source generation.");
             const auto check = [&](const Json& value) -> OwnerValidation::ExternalCheck {
                 if (!value.is_object() || value.size() != 3 || !value.at("inputs").is_object() ||
                     !value.at("paths").is_array() || !value.at("revisions").is_object())
@@ -376,6 +435,7 @@ bool restore_stages(OwnerValidation& state, std::string_view serialized, Json& r
             state.notice_check = notices;
             state.material_records = ledger.at("materials");
             state.material_assets = ledger.at("assets");
+            state.material_sources = sources;
             state.material_programs = projection.at("materialCompilerPrograms");
             state.material_effective = projection.at("materialEffectiveInputs");
             state.font_inputs = projection.at("fontCoverageInputs");
@@ -396,9 +456,11 @@ bool restore_stages(OwnerValidation& state, std::string_view serialized, Json& r
         validate_or_reuse_font_result(state, result);
         const auto& font = result.at("fontCoverageResult");
         const auto font_diagnostics = font.value("diagnostics", Json::array());
-        const bool coverage_valid = font.value("ok", false) && font.value("success", false) &&
-            std::none_of(font_diagnostics.begin(), font_diagnostics.end(),
-                         [](const Json& item) { return item.value("severity", "error") == "error"; });
+        const bool coverage_valid =
+            font.value("ok", false) && font.value("success", false) &&
+            std::none_of(font_diagnostics.begin(), font_diagnostics.end(), [](const Json& item) {
+                return item.value("severity", "error") == "error";
+            });
         if (coverage_valid && !state.material_programs.empty()) {
             validate_material_stage(state, state.root, state.material_programs,
                                     state.material_effective,
@@ -416,7 +478,7 @@ void restore_independent_stage_evidence(OwnerValidation& state, std::string_view
     // Never import the old portable, notice or Material projection here.
     try {
         const auto ledger = Json::parse(serialized);
-        if (!ledger.is_object() || ledger.size() != 7)
+        if (!ledger.is_object() || ledger.size() != 8)
             return;
         state.shader_cache.restore_ledger(state.root, ledger.at("shaders"));
         noveltea::tooling::restore_font_coverage_ledger(ledger.at("fonts").dump());
@@ -438,7 +500,7 @@ OwnerValidation& resident()
     return value;
 }
 
-bool fence_resident_sources(ProjectSession& session)
+bool fence_resident_sources(ProjectSession& session, bool invalid_result = false)
 {
     noveltea::authoring::count_validation_work<
         noveltea::authoring::WorkCounter::SourceGenerationFences>();
@@ -448,7 +510,24 @@ bool fence_resident_sources(ProjectSession& session)
     if (session.source_watcher_proof_available())
         return session.fence_observed_sources();
     const auto observation = session.observe_sources();
-    return observation.authoritative && observation.unchanged && !observation.full_rescan;
+    if (observation.full_rescan || !observation.scoped_authority ||
+        !observation.delta.added.empty() || !observation.delta.changed.empty() ||
+        !observation.delta.removed.empty())
+        return false;
+    if (observation.authoritative)
+        return observation.unchanged;
+    // A malformed YAML record is still an exact, physically observed source.
+    // An invalid Project's public diagnostics can be returned when a second
+    // capture proves the same bytes and membership. No successful Project,
+    // compiler result, or clean ledger can be published from this path.
+    // Reject unsafe references instead of treating escaped targets as stable
+    // attributable YAML errors.
+    return invalid_result && !observation.invalid_sources.empty() &&
+           std::none_of(observation.invalid_sources.begin(), observation.invalid_sources.end(),
+                        [](const auto& source) {
+                            return source.error.find("not contained in the Project") !=
+                                   std::string::npos;
+                        });
 }
 
 // Distribution notices are physical authored inputs, not YAML fragments.
@@ -561,8 +640,8 @@ std::optional<std::string> native_distribution_notice_error(const std::filesyste
             return "Distribution notice '" + relative + "' is missing, unsafe, or invalid UTF-8.";
         noveltea::authoring::count_validation_work<
             noveltea::authoring::WorkCounter::FileByteReads>();
-        noveltea::authoring::count_validation_work<
-            noveltea::authoring::WorkCounter::FileBytesRead>(bytes.size());
+        noveltea::authoring::count_validation_work<noveltea::authoring::WorkCounter::FileBytesRead>(
+            bytes.size());
         bool prohibited_controls = false;
         if (!valid_notice_utf8(bytes, prohibited_controls))
             return "Distribution notice '" + relative + "' is missing, unsafe, or invalid UTF-8.";
@@ -830,11 +909,10 @@ private:
     std::array<std::size_t, 5> sample() const noexcept
     {
         using noveltea::authoring::WorkCounter;
-        return {counts_.get<WorkCounter::FileByteReads>(),
-                counts_.get<WorkCounter::FileBytesRead>(),
-                counts_.get<WorkCounter::ContentHashes>(),
-                counts_.get<WorkCounter::ContentBytesHashed>(),
-                counts_.get<WorkCounter::ParsedYaml>()};
+        return {
+            counts_.get<WorkCounter::FileByteReads>(), counts_.get<WorkCounter::FileBytesRead>(),
+            counts_.get<WorkCounter::ContentHashes>(),
+            counts_.get<WorkCounter::ContentBytesHashed>(), counts_.get<WorkCounter::ParsedYaml>()};
     }
     noveltea::authoring::ValidationWorkCounters& counts_;
     Json& stages_;
@@ -904,28 +982,28 @@ Json response_for(const noveltea::authoring::RoomSessionSnapshot& snapshot, bool
         cli_diagnostics.push_back(std::move(projected));
     }
     Json result{{"ok", true},
-            {"valid", snapshot.valid},
-            {"exitCode", snapshot.valid ? 0 : 1},
-            {"warm", warm},
-            {"cliDiagnostics", std::move(cli_diagnostics)},
-            {"work",
-             {{"recheckedRecords", work.rechecked_records},
-              {"retainedRecords", work.retained_records},
-              {"recheckedContributions", work.rechecked_contributions},
-              {"retainedContributions", work.retained_contributions},
-              {"referenceIndexedRecords", work.reference_indexed_records},
-              {"localizationRebuilds", work.localization_rebuilds},
-              {"globalStageExecutions", work.global_stage_executions},
-              {"globalStageReuses", work.global_stage_reuses},
-              {"spatialOwnerEvaluations", work.spatial_owner_evaluations},
-              {"spatialOwnerReuses", work.spatial_owner_reuses},
-              {"diagnosticAssemblies", work.diagnostic_assemblies},
-              {"sourceLocationRebuilds", work.source_location_rebuilds},
-              {"semanticFallbackReasons", work.semantic_fallback_reasons},
-              {"coldValidationFallback", false},
-              {"recheckedRecordOwners", work.rechecked_record_owners},
-              {"recheckedContributionOwners", work.rechecked_contribution_owners},
-              {"invalidatedOwners", work.invalidated_owners}}}};
+                {"valid", snapshot.valid},
+                {"exitCode", snapshot.valid ? 0 : 1},
+                {"warm", warm},
+                {"cliDiagnostics", std::move(cli_diagnostics)},
+                {"work",
+                 {{"recheckedRecords", work.rechecked_records},
+                  {"retainedRecords", work.retained_records},
+                  {"recheckedContributions", work.rechecked_contributions},
+                  {"retainedContributions", work.retained_contributions},
+                  {"referenceIndexedRecords", work.reference_indexed_records},
+                  {"localizationRebuilds", work.localization_rebuilds},
+                  {"globalStageExecutions", work.global_stage_executions},
+                  {"globalStageReuses", work.global_stage_reuses},
+                  {"spatialOwnerEvaluations", work.spatial_owner_evaluations},
+                  {"spatialOwnerReuses", work.spatial_owner_reuses},
+                  {"diagnosticAssemblies", work.diagnostic_assemblies},
+                  {"sourceLocationRebuilds", work.source_location_rebuilds},
+                  {"semanticFallbackReasons", work.semantic_fallback_reasons},
+                  {"coldValidationFallback", false},
+                  {"recheckedRecordOwners", work.rechecked_record_owners},
+                  {"recheckedContributionOwners", work.rechecked_contribution_owners},
+                  {"invalidatedOwners", work.invalidated_owners}}}};
     if (!cli_only)
         result["diagnostics"] = std::move(diagnostics);
     return result;
@@ -934,14 +1012,14 @@ Json response_for(const noveltea::authoring::RoomSessionSnapshot& snapshot, bool
 bool final_source_generation_matches(OwnerValidation& state, const std::filesystem::path& root,
                                      std::string_view expected)
 {
-    if (!state.session || state.pending_generation.empty() ||
-        state.pending_generation != expected)
+    if (!state.session || state.pending_generation.empty() || state.pending_generation != expected)
         return false;
     const auto unchanged = [&]() {
         noveltea::authoring::count_validation_work<
             noveltea::authoring::WorkCounter::DiskSafetyChecks>();
         noveltea::authoring::ScopedValidationStageTime<
-            noveltea::authoring::WorkCounter::DiskSafetyMicros> timed;
+            noveltea::authoring::WorkCounter::DiskSafetyMicros>
+            timed;
         return native_project_disk_safety(root).value("ok", false) &&
                fence_resident_sources(*state.session);
     };
@@ -950,7 +1028,8 @@ bool final_source_generation_matches(OwnerValidation& state, const std::filesyst
         // earlier preparation proof alone cannot certify public publication.
         return unchanged() && [&] {
             noveltea::authoring::ScopedValidationStageTime<
-                noveltea::authoring::WorkCounter::SourceGenerationMicros> timed;
+                noveltea::authoring::WorkCounter::SourceGenerationMicros>
+                timed;
             return native_project_source_generation(*state.session, root, true,
                                                     "validation-final-generation", nullptr,
 #if defined(__APPLE__)
@@ -1065,13 +1144,13 @@ Json validate(std::string_view request_text)
                 return true;
             if (!path.starts_with("assets/"))
                 return false;
-            return path.ends_with(".mp3") || path.ends_with(".ogg") ||
-                   path.ends_with(".wav") || path.ends_with(".flac") ||
-                   path.ends_with(".opus") || path.ends_with(".mp4") ||
+            return path.ends_with(".mp3") || path.ends_with(".ogg") || path.ends_with(".wav") ||
+                   path.ends_with(".flac") || path.ends_with(".opus") || path.ends_with(".mp4") ||
                    path.ends_with(".webm");
         };
-        font_independent_source_change = !observed.delta.changed.empty() &&
-            observed.delta.added.empty() && observed.delta.removed.empty() &&
+        font_independent_source_change =
+            !observed.delta.changed.empty() && observed.delta.added.empty() &&
+            observed.delta.removed.empty() &&
             std::all_of(observed.delta.changed.begin(), observed.delta.changed.end(),
                         font_independent_file) &&
             std::all_of(observed.watch_paths.begin(), observed.watch_paths.end(),
@@ -1088,7 +1167,7 @@ Json validate(std::string_view request_text)
         // other resident owners and their attributable diagnostics.
         if (observed.full_rescan || (!observed.authoritative && !observed.scoped_authority) ||
             unsafe_external_source) {
-            readmission_reason = observed.full_rescan   ? "source-authority-recovery"
+            readmission_reason = observed.full_rescan     ? "source-authority-recovery"
                                  : unsafe_external_source ? "unsafe-external-source"
                                                           : "source-authority-unproven";
             state.session.reset();
@@ -1140,8 +1219,10 @@ Json validate(std::string_view request_text)
             const auto asset_record = [](const std::string& path) {
                 return path.starts_with("records/assets/") && path.ends_with(".yaml");
             };
-            if (std::any_of(observed.delta.added.begin(), observed.delta.added.end(), asset_record) ||
-                std::any_of(observed.delta.removed.begin(), observed.delta.removed.end(), asset_record))
+            if (std::any_of(observed.delta.added.begin(), observed.delta.added.end(),
+                            asset_record) ||
+                std::any_of(observed.delta.removed.begin(), observed.delta.removed.end(),
+                            asset_record))
                 state.notice_check.reset();
             const auto revoke = [&](std::optional<OwnerValidation::ExternalCheck>& cached) {
                 if (!cached)
@@ -1214,7 +1295,8 @@ Json validate(std::string_view request_text)
         trace_native_validation("cold invalid-Project validation returned");
         if (!cold)
             return {{"ok", false}, {"error", error}};
-        auto result = response_for(*cold, false, {}, request.value("compactValidationResponse", false));
+        auto result =
+            response_for(*cold, false, {}, request.value("compactValidationResponse", false));
         result["work"]["coldValidationFallback"] = true;
         result["work"]["semanticFallbackReasons"] = Json::array({"cold-invalid-project-admission"});
         if (!readmission_reason.empty())
@@ -1242,12 +1324,32 @@ Json validate(std::string_view request_text)
     // projection *now*, not only on the next request asking for coverage.
     // Otherwise a later unchanged request could reuse the prior generation.
     const auto semantic_work = state.session->validation_work();
+    // The resident background writer may consume source events and revalidate
+    // before this foreground request. Its semantic work counters then report
+    // zero rechecks even though the previously certified Material projection
+    // refers to a different physical YAML generation. Revoke the stale complete
+    // Project and portable/notice inputs using exact observed membership,
+    // without disturbing reusable per-program shader compiler outputs.
+    if (state.material_records &&
+        state.material_sources !=
+            material_source_revisions(state.session->verified_source_revisions_view())) {
+        state.complete_project.reset();
+        state.portable_check.reset();
+        state.notice_check.reset();
+    }
+    // A previous idle validation may have already consumed a YAML source
+    // mutation before the public request. Compare the authoritative input
+    // generation, not just this request's semantic work counters. Binary
+    // Asset edits do not alter this input projection.
+    if (state.complete_project &&
+        state.complete_project_sources != complete_project_source_revisions(
+                                              state.session->verified_source_revisions_view()))
+        state.complete_project.reset();
     // Even a presentation-only YAML mutation must retire the complete
     // Project projection: a later text edit must not accidentally reuse the
     // version from before that saved record change. Physical text-source
     // reindexing alone does not affect normalized YAML fields.
-    if (semantic_work.rechecked_records != 0 || semantic_work.global_stage_executions != 0 ||
-        semantic_work.localization_rebuilds != 0 || semantic_work.global_stage_reuses == 0)
+    if (semantic_work.rechecked_records != 0 || semantic_work.localization_rebuilds != 0)
         state.complete_project.reset();
     if (!validated.snapshot.valid || semantic_work.localization_rebuilds != 0 ||
         (!font_independent_source_change &&
@@ -1286,15 +1388,13 @@ Json validate(std::string_view request_text)
         // these downstream input projections. Reuse the *resident* proofs
         // rather than reassembling/serializing the entire Project. The watcher
         // separately revokes portable/notice paths changed outside semantics.
-        const bool unchanged_semantics = semantic_work.rechecked_records == 0 &&
-            semantic_work.rechecked_contributions == 0 &&
+        const bool unchanged_semantics =
+            semantic_work.rechecked_records == 0 && semantic_work.rechecked_contributions == 0 &&
             semantic_work.reference_indexed_records == 0 &&
-            semantic_work.localization_rebuilds == 0 &&
-            semantic_work.global_stage_executions == 0;
-        const bool presentation_only = semantic_work.rechecked_records != 0 &&
-            semantic_work.global_stage_reuses == 1 &&
-            semantic_work.global_stage_executions == 0 &&
-            semantic_work.localization_rebuilds == 0;
+            semantic_work.localization_rebuilds == 0 && semantic_work.global_stage_executions == 0;
+        const bool presentation_only =
+            semantic_work.rechecked_records != 0 && semantic_work.global_stage_reuses == 1 &&
+            semantic_work.global_stage_executions == 0 && semantic_work.localization_rebuilds == 0;
         // Every host has either an authoritative watched source generation or
         // an exact full observation. Neither permits retained projections if
         // an external path changed or its proof is missing.
@@ -1303,24 +1403,65 @@ Json validate(std::string_view request_text)
             state.session->verified_source_revisions_view() && state.portable_check &&
             state.notice_check && state.font_inputs && state.material_records &&
             state.material_assets;
+        // A resident may have retained the certified external projections
+        // after a presentation-only Room edit while retiring its complete
+        // YAML Project assembly. A subsequent Lua/RML/RCSS byte edit needs a
+        // source recheck, not reconstruction of every unrelated YAML record.
+        // Reuse only when the semantic/global generation is unchanged, the
+        // complete watched portable membership is known, and the notice,
+        // font and Material projections remain independently certified.
+        bool incremental_text_restored = false;
+        if (request.value("includeFontCoverageInputs", false) && readmission_reason.empty() &&
+            !retain_stage_projections && !state.complete_project && state.portable_check &&
+            state.notice_check && state.font_inputs && state.material_records &&
+            state.material_assets && semantic_work.rechecked_records == 0 &&
+            semantic_work.global_stage_executions == 0 &&
+            semantic_work.localization_rebuilds == 0 && semantic_work.global_stage_reuses == 1 &&
+            state.session->source_watcher_proof_available()) {
+            const auto* revisions = state.session->verified_source_revisions_view();
+            if (revisions && state.notice_check->matches(revisions)) {
+                const auto changes = state.portable_check->portable_changed_paths(revisions);
+                if (changes && !changes->empty() &&
+                    std::all_of(changes->begin(), changes->end(), [](const std::string& path) {
+                        return path.ends_with(".lua") || path.ends_with(".rml") ||
+                               path.ends_with(".rcss");
+                    })) {
+                    const auto rechecked = [&] {
+                        ScopedPhysicalValidationStage physical(work_counts, physical_stages,
+                                                               "portableIncrementalValidation");
+                        return native_project_bundle(
+                            {{"action", "validation-source-recheck"}, {"sourcePaths", *changes}},
+                            state.session.get(), root);
+                    }();
+                    if (rechecked.value("ok", false)) {
+                        for (const auto& path : *changes)
+                            state.portable_check->source_revisions[path] = revisions->at(path);
+                        incremental_text_restored = restore_stages(state, {}, result, true);
+                        if (incremental_text_restored) {
+                            result["work"]["portableSourceReuses"] = 0;
+                            result["work"]["portableSourceIncrementalRechecks"] = changes->size();
+                        }
+                    }
+                }
+            }
+        }
         // A failed watcher epoch is not a license to re-admit external stage
         // results from an older disk ledger, even if the resulting path set
         // happens to match again (e.g. create, rename, then remove workflow).
         // Rebuild against the freshly certified physical generation instead.
         if (request.value("includeFontCoverageInputs", false) &&
             (!readmission_reason.empty() ||
-             !restore_stages(state, validated.stages_json, result, retain_stage_projections))) {
+             (!incremental_text_restored &&
+              !restore_stages(state, validated.stages_json, result, retain_stage_projections)))) {
             // No record source or global/localization generation changed: the
             // previously assembled YAML Project remains authoritative. The
             // physical source generation and independent external stages are
             // still checked below. In particular, a changed Lua/RML/RCSS file
             // must *not* inherit its previous portable source proof.
             const bool reuse_complete = state.complete_project &&
-                semantic_work.rechecked_records == 0 &&
-                semantic_work.global_stage_executions == 0 &&
-                semantic_work.localization_rebuilds == 0 &&
-                semantic_work.global_stage_reuses == 1 &&
-                state.session->verified_source_revisions_view();
+                                        semantic_work.rechecked_records == 0 &&
+                                        semantic_work.localization_rebuilds == 0 &&
+                                        state.session->verified_source_revisions_view();
             if (!reuse_complete) {
                 const auto prepared = [&] {
                     ScopedPhysicalValidationStage physical(work_counts, physical_stages,
@@ -1340,6 +1481,8 @@ Json validate(std::string_view request_text)
                 result["work"]["completeProjectSnapshotReads"] =
                     state.session->complete_project_snapshot_reads();
                 state.complete_project = Json::parse(prepared.complete_project_json);
+                state.complete_project_sources = complete_project_source_revisions(
+                    state.session->verified_source_revisions_view());
             }
             result["work"]["completeProjectInputReuses"] = reuse_complete ? 1 : 0;
             const auto& admitted = *state.complete_project;
@@ -1406,23 +1549,27 @@ Json validate(std::string_view request_text)
                         portable_key, *watched, *state.session->verified_source_revisions_view());
             }
             const auto notice_key = [&] {
-                ScopedPhysicalValidationStage physical(work_counts, physical_stages, "noticeInputs");
+                ScopedPhysicalValidationStage physical(work_counts, physical_stages,
+                                                       "noticeInputs");
                 noveltea::authoring::ScopedValidationStageTime<
-                    noveltea::authoring::WorkCounter::NoticeInputPreparationMicros> timed;
+                    noveltea::authoring::WorkCounter::NoticeInputPreparationMicros>
+                    timed;
                 return notice_inputs(admitted);
             }();
-            const bool notice_reuse = state.notice_check &&
-                                      state.notice_check->matches(
-                                          state.session->verified_source_revisions_view()) &&
-                                      state.notice_check->inputs == notice_key;
+            const bool notice_reuse =
+                state.notice_check &&
+                state.notice_check->matches(state.session->verified_source_revisions_view()) &&
+                state.notice_check->inputs == notice_key;
             result["work"]["noticeValidationReuses"] = notice_reuse ? 1 : 0;
             if (!notice_reuse) {
                 state.notice_check.reset();
                 result["work"]["noticeValidationRuns"] = 1;
                 const auto notice_error = [&] {
-                    ScopedPhysicalValidationStage physical(work_counts, physical_stages, "noticeValidation");
+                    ScopedPhysicalValidationStage physical(work_counts, physical_stages,
+                                                           "noticeValidation");
                     noveltea::authoring::ScopedValidationStageTime<
-                        noveltea::authoring::WorkCounter::NoticeValidationMicros> timed;
+                        noveltea::authoring::WorkCounter::NoticeValidationMicros>
+                        timed;
                     return native_distribution_notice_error(root, admitted);
                 }();
                 if (notice_error) {
@@ -1580,6 +1727,8 @@ Json validate(std::string_view request_text)
             }
             state.material_records = materials;
             state.material_assets = assets;
+            state.material_sources =
+                material_source_revisions(state.session->verified_source_revisions_view());
             state.material_programs = material_programs;
             state.material_effective = material_effective;
             result["materialCompilerPrograms"] = material_programs;
@@ -1615,10 +1764,29 @@ Json validate(std::string_view request_text)
         // Validate the source generation after all source-derived work. The
         // observation certifies exact text hashes used by the fast generator;
         // the generator still hashes binary Assets independently.
-        if (!fence_resident_sources(*state.session))
+        const auto preparation_conflict = [&]() -> Json {
+            // A subsequent public read-only retry must enter through new
+            // authority, not reuse an unpinned deferred snapshot.
+            state.session.reset();
+            state.clear_preparations();
+            state.pending_generation.clear();
+            state.pending_exact_revisions.clear();
             return {{"ok", false},
                     {"kind", "conflict"},
                     {"error", "Project sources changed during validation preparation."}};
+        };
+        if (std::getenv("NOVELTEA_CLI_CERTIFICATION") &&
+            std::getenv("NOVELTEA_CLI_CERTIFICATION_LOSE_WATCHER_ONCE")) {
+            // Certify the public recovery path for a lost USN/FSEvents/inotify
+            // epoch after semantic validation but before publication.
+            static bool injected = false;
+            if (!injected) {
+                injected = true;
+                state.session->source_watch_coverage_lost();
+            }
+        }
+        if (!fence_resident_sources(*state.session))
+            return preparation_conflict();
         std::map<std::string, std::string> post_revisions;
         try {
             ScopedPhysicalValidationStage physical(work_counts, physical_stages,
@@ -1631,14 +1799,10 @@ Json validate(std::string_view request_text)
                 &*validated.deferred_exact_revisions);
         } catch (const std::exception&) {
             state.session->source_watch_coverage_lost();
-            return {{"ok", false},
-                    {"kind", "conflict"},
-                    {"error", "Project sources changed during validation preparation."}};
+            return preparation_conflict();
         }
         if (!fence_resident_sources(*state.session))
-            return {{"ok", false},
-                    {"kind", "conflict"},
-                    {"error", "Project sources changed during validation preparation."}};
+            return preparation_conflict();
         // The Project session owns the exact generation and elected quiet-window
         // publication. Its callback references resident, already-certified stage
         // inputs rather than building and serializing the ledger on every edit.
@@ -1657,17 +1821,15 @@ Json validate(std::string_view request_text)
                 noveltea::authoring::WorkCounter::DeferredPublications>();
             return state.session->publish_deferred_clean_validation(
                 validated, post_revisions, "null",
-                stage_inputs_ready ? std::function<std::string()>([&state] {
-                    return serialize_stage_ledger(state);
-                }) : std::function<std::string()>{});
+                stage_inputs_ready ? std::function<std::string()>(
+                                         [&state] { return serialize_stage_ledger(state); })
+                                   : std::function<std::string()>{});
         }();
         if (!published)
-            return {{"ok", false},
-                    {"kind", "conflict"},
-                    {"error", "Project sources changed during validation preparation."}};
+            return preparation_conflict();
         state.pending_generation = result.at("sourceGeneration").get<std::string>();
         state.pending_exact_revisions = std::move(post_revisions);
-    } else if (!fence_resident_sources(*state.session)) {
+    } else if (!fence_resident_sources(*state.session, true)) {
         return {{"ok", false},
                 {"kind", "conflict"},
                 {"error", "Project sources changed during validation."}};
@@ -1719,8 +1881,7 @@ Json validate(std::string_view request_text)
         if (result.contains("fontCoverageResult"))
             result.erase("fontCoverageInputs");
         if (result.contains("materialCompilerPrograms")) {
-            result["hasMaterialCompilerPrograms"] =
-                !result.at("materialCompilerPrograms").empty();
+            result["hasMaterialCompilerPrograms"] = !result.at("materialCompilerPrograms").empty();
             result.erase("materialCompilerPrograms");
         }
         result.erase("materialEffectiveInputs");

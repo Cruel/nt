@@ -351,6 +351,16 @@ target_link_libraries(noveltea_daemon_test_support PRIVATE
     miniz::miniz
 )
 if(WIN32)
+    # This test support library compiles the same daemon broker translation unit
+    # as noveltea_tooling_native. Keep its Windows JSON syntax verifier bound to
+    # the same pinned jsoncons headers (not just the production target).
+    include(FetchContent)
+    FetchContent_GetProperties(noveltea_jsoncons)
+    if(NOT noveltea_jsoncons_SOURCE_DIR)
+        message(FATAL_ERROR "Pinned jsoncons source is unavailable for daemon tests")
+    endif()
+    target_include_directories(noveltea_daemon_test_support SYSTEM PRIVATE
+        "${noveltea_jsoncons_SOURCE_DIR}/include")
     target_link_libraries(noveltea_daemon_test_support PRIVATE advapi32)
 endif()
 noveltea_apply_policy_warnings(noveltea_daemon_test_support)

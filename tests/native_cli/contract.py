@@ -447,6 +447,17 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-cli-') as temporary:
                      if d['code'] == 'native.shader.contract_violation']
     assert len(shader_errors) == 1
     assert shader_errors[0]['message'].startswith("Author Material uniform 'u_strength'")
+    # A watcher may lose its proof during a cold validation (notably a Windows
+    # USN journal under unrelated volume activity). A stable invalid shader
+    # must still produce its authored diagnostic after fresh source recovery.
+    recovered = subprocess.run(
+        [str(installed), '--json', '--project', str(shader_root), 'validate'],
+        cwd=root, env={**environment, 'NOVELTEA_CLI_CERTIFICATION': '1',
+                       'NOVELTEA_CLI_CERTIFICATION_LOSE_WATCHER_ONCE': '1'},
+        capture_output=True, text=True, timeout=180)
+    assert recovered.returncode == 6, recovered
+    assert recovered.stderr == '', recovered.stderr
+    assert json.loads(recovered.stdout) == invalid_shader, recovered.stdout
     if len(sys.argv) > 3:
         reference = subprocess.run(
             [str(Path(sys.argv[3]).resolve()), '--json', '--project', str(shader_root),

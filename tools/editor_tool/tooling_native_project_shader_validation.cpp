@@ -48,9 +48,13 @@ struct SuppressCompilerStdout {
     {
         std::fflush(stdout);
 #if defined(_WIN32)
-        saved = _dup(_fileno(stdout));
+        // A detached Windows daemon may have no CRT stdout FILE descriptor
+        // (_fileno(stdout) == -2), although the native dispatch capture has
+        // installed a valid fd 1. Silence that captured descriptor directly.
+        constexpr int output_fd = 1;
+        saved = _dup(output_fd);
         const auto sink = _open("NUL", _O_WRONLY);
-        const auto redirected = saved >= 0 && sink >= 0 ? _dup2(sink, _fileno(stdout)) : -1;
+        const auto redirected = saved >= 0 && sink >= 0 ? _dup2(sink, output_fd) : -1;
         if (sink >= 0)
             _close(sink);
 #else
@@ -75,7 +79,7 @@ struct SuppressCompilerStdout {
     {
         std::fflush(stdout);
 #if defined(_WIN32)
-        _dup2(saved, _fileno(stdout));
+        _dup2(saved, 1);
         _close(saved);
 #else
         dup2(saved, fileno(stdout));

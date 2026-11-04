@@ -807,14 +807,21 @@ This slice implements one-process restoration/publication, not cross-process
 writer election or periodic publication.
 With the #593 elected-writer cadence, successful foreground validations now
 retain references to their already-certified external-stage inputs rather than
-eagerly constructing or JSON-serializing the seven-part stage ledger. The
+eagerly constructing or JSON-serializing the external stage ledger. The
 matching generation's stage payload is materialized only by the elected owner
 at an actual quiet-window publication or orderly shutdown, after an exact
 source-proof fence. A later edit clears the pending stage builder; nonowners
 never materialize it for disk publication. The public profiling counters for
 stage-ledger construction, serialization count and serialized-byte count should
-therefore remain zero on ordinary warm saved-file edits. The disk schema and cold stage restoration
-contract are unchanged.
+therefore remain zero on ordinary warm saved-file edits.
+
+The stage subdocument now also binds its cached Material compiler projections
+to the complete exact Material/Asset YAML source revision map, including added
+and removed records. A warm resident or cold cache admission must reassemble
+stale Material inputs rather than adopting program evidence from a different
+physical record generation. Older seven-field stage subdocuments fail closed
+and rebuild; the surrounding clean-ledger schema and independent font/shader
+proof contracts are unchanged.
 On hosts without Linux inotify, external-stage evidence may be recorded and
 used on a **cold byte-exact admission**; subsequent warm validations still rerun
 portable-source and notice checks because they lack watcher event evidence.

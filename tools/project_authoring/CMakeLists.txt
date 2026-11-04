@@ -320,6 +320,10 @@ if(BUILD_TESTING)
         --source-analysis "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
     add_test(NAME native_authoring_project_validation COMMAND noveltea-project-session-certify
         --project-validation "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
+    # The ASan/UBSan differential Project suite can exceed 300 seconds on
+    # saturated runners. Preserve the job's default timeout and run the full
+    # test with a dedicated bound rather than excluding it from sanitizer CI.
+    set_tests_properties(native_authoring_project_validation PROPERTIES TIMEOUT 900)
     add_test(NAME native_authoring_text_stage_matrix COMMAND noveltea-project-session-certify
         --text-stage-matrix "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
     add_test(NAME native_authoring_typed_reference_invalidation COMMAND noveltea-project-session-certify

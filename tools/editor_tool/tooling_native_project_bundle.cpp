@@ -31,7 +31,8 @@ using namespace noveltea::authoring;
 
 std::string bundle_sha256(std::string_view bytes)
 {
-    return "sha256:" + noveltea::core::sha256_hex(std::as_bytes(std::span(bytes.data(), bytes.size())));
+    return "sha256:" +
+           noveltea::core::sha256_hex(std::as_bytes(std::span(bytes.data(), bytes.size())));
 }
 
 Json failure(std::string message, std::string_view kind = "mutation")
@@ -651,8 +652,13 @@ Json import_bundle(const Json& request)
             if (identity.at("id") != manifest.at("project").at("id") || identity.at("name") != name)
                 return failure("Renamed native Project identity changed unexpectedly.",
                                "invalid-project");
+            renamed.reset();
         }
     }
+    // Release every source-authority watcher and clean-cache writer handle
+    // before renaming the staging directory. Windows denies moving a folder
+    // while its resident has open handles without delete sharing.
+    session.reset();
     if (std::filesystem::exists(destination) || std::filesystem::is_symlink(destination))
         return failure("Portable Project import destination changed during validation.",
                        "conflict");
@@ -676,8 +682,7 @@ Json native_project_bundle(const Json& request, ProjectSession* session,
         // the owner's portable input projection has remained identical. The
         // full Project path walk was certified previously: re-prove just the
         // physically changed sources, including readability and containment.
-        if (!session || !request.contains("sourcePaths") ||
-            !request.at("sourcePaths").is_array())
+        if (!session || !request.contains("sourcePaths") || !request.at("sourcePaths").is_array())
             return failure("Portable incremental source check requires an admitted Project.");
         try {
             for (const auto& entry : request.at("sourcePaths")) {

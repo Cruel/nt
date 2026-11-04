@@ -201,7 +201,8 @@ public:
     // Only for a caller that just established an authoritative physical
     // observation and will require a fresh post-validation observation.
     RoomSessionSnapshot validate_project(bool observed_at_entry = false,
-                                         bool defer_publication_proof = false);
+                                         bool defer_publication_proof = false,
+                                         bool retry_recovered_authority = true);
     // Electron's serialized worker can validate an unsaved working generation
     // against the resident physical observation. An intact watcher fence
     // replaces redundant scans; physical mutations still take the full path.

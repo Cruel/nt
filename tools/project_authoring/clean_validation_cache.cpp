@@ -172,10 +172,10 @@ Json source_metadata(const fs::path& root, const std::map<std::string, std::stri
         source["revision"] = revision;
         source["type"] = static_cast<int>(status.type());
         source["size"] = fs::is_regular_file(status) ? fs::file_size(physical) : 0;
-        source["modified"] =
-            fs::exists(status)
-                ? std::to_string(fs::last_write_time(physical).time_since_epoch().count())
-                : std::string{};
+        source["modified"] = fs::exists(status)
+                                 ? std::to_string(static_cast<long long>(
+                                       fs::last_write_time(physical).time_since_epoch().count()))
+                                 : std::string{};
         value[path] = std::move(source);
     }
     return value;

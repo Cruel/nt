@@ -244,6 +244,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      # Coverage duplicates every instrumented native object and retains
+      # .gcno/.gcda alongside full Debug binaries. Hosted ubuntu runners
+      # have filled their workspace volume before even finishing compilation.
+      # These unrelated toolchains are not used by the Linux desktop job.
+      - name: Reclaim disk for native coverage build
+        run: |
+          df -h "$GITHUB_WORKSPACE"
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /opt/hostedtoolcache/CodeQL
+          df -h "$GITHUB_WORKSPACE"
+
       - name: Install pnpm
         uses: pnpm/action-setup@v6
 
@@ -371,9 +382,30 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           mkdir -p build/reports/coverage/cpp/ctest-cli
+          # Background CTest owners can exit after the previous counter reset,
+          # writing old-format .gcda into CLI targets. Redirect this suite's
+          # instrumented processes to a distinct gcov tree, then copy the
+          # counters back next to their matching .gcno for normal gcovr.
+          # This preserves CLI coverage and all strict stdout/stderr assertions.
+          gcov_root="$(mktemp -d)"
+          export GCOV_PREFIX="$gcov_root"
+          export GCOV_PREFIX_STRIP=0
+          result=0
           xvfb-run -a ctest --test-dir build/linux-debug --output-on-failure \
             -R '^(native_cli_|native_authoring_cli_commands$)' \
-            --output-junit "$GITHUB_WORKSPACE/build/reports/coverage/cpp/ctest-cli/test-results.xml"
+            --output-junit "$GITHUB_WORKSPACE/build/reports/coverage/cpp/ctest-cli/test-results.xml" || result=$?
+          gcov_build="$gcov_root/$GITHUB_WORKSPACE/build/linux-debug"
+          # Revoke any late default-tree counter writes from the earlier suite.
+          # The only authority for this suite is the isolated execution tree.
+          node scripts/native-coverage.mjs reset build/linux-debug
+          if [[ -d "$gcov_build" ]]; then
+            cp -a "$gcov_build/." "$GITHUB_WORKSPACE/build/linux-debug/"
+          else
+            echo 'Native CLI suite did not produce isolated gcov counters' >&2
+            result=1
+          fi
+          rm -rf "$gcov_root"
+          exit "$result"
 
       - name: Report native CLI CTest coverage
         if: ${{ !cancelled() }}
@@ -884,6 +916,8 @@ jobs:
           # unoptimized, instrumented Debug serially exceeded the CI budget
           # before reaching test 30. Full functional/differential coverage is
           # provided by the regular Linux/native authoring test jobs.
+          # The 300-second default bounds ordinary smoke/fuzz hangs. The
+          # heavyweight native Project test has its own per-test CTest TIMEOUT.
           xvfb-run -a ctest --test-dir build/linux-sanitize --output-on-failure \
             -L '^(asan-smoke|fuzz-smoke)$' --parallel 2 --timeout 300
 
@@ -1420,13 +1454,7 @@ jobs:
           key: ${{ runner.os }}-android-sdk-android${{ env.ANDROID_API_LEVEL }}-buildtools${{ env.ANDROID_BUILD_TOOLS_VERSION }}-cmake${{ env.ANDROID_CMAKE_VERSION }}-ndk${{ env.ANDROID_NDK_VERSION }}
 
       - name: Install Android SDK packages
-        run: |
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
-            "platform-tools" \
-            "platforms;android-${ANDROID_API_LEVEL}" \
-            "build-tools;${ANDROID_BUILD_TOOLS_VERSION}" \
-            "ndk;${ANDROID_NDK_VERSION}" \
-            "cmake;${ANDROID_CMAKE_VERSION}"
+        run: scripts/ci/install-android-sdk-packages.sh
 
       - name: Download SDL3 Android AAR
         run: |
@@ -1610,13 +1638,7 @@ jobs:
           key: ${{ runner.os }}-android-sdk-android${{ env.ANDROID_API_LEVEL }}-buildtools${{ env.ANDROID_BUILD_TOOLS_VERSION }}-cmake${{ env.ANDROID_CMAKE_VERSION }}-ndk${{ env.ANDROID_NDK_VERSION }}
 
       - name: Install Android SDK packages
-        run: |
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
-            "platform-tools" \
-            "platforms;android-${ANDROID_API_LEVEL}" \
-            "build-tools;${ANDROID_BUILD_TOOLS_VERSION}" \
-            "ndk;${ANDROID_NDK_VERSION}" \
-            "cmake;${ANDROID_CMAKE_VERSION}"
+        run: scripts/ci/install-android-sdk-packages.sh
 
       - name: Download SDL3 Android AAR
         run: |

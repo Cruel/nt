@@ -184,24 +184,27 @@ TEST_CASE("native disk validation stays resident and proves edits without mutati
     REQUIRE(read(room) == original_room);
     REQUIRE(read(source) == original_script);
 
-    // Physical removal/recreation changes the authoritative source inventory,
-    // rather than being an incremental in-place edit of a retained record.
+    // Physical removal/recreation changes authoritative source inventory.
+    // The resident now handles attributable membership deltas without a
+    // cold readmission; the public result must stay valid and exact.
     REQUIRE(std::filesystem::remove(room));
     const auto deleted_record = disk_validate(project.root);
     REQUIRE(deleted_record["ok"] == true);
-    REQUIRE(deleted_record["warm"] == false);
+    REQUIRE(deleted_record["warm"] == true);
     for (const auto& diagnostic : deleted_record["diagnostics"])
         REQUIRE(diagnostic.value("code", "") != "WORKSPACE_SOURCE_READ");
     write(room, original_room);
     const auto recreated_record = disk_validate(project.root);
     REQUIRE(recreated_record["ok"] == true);
-    REQUIRE(recreated_record["warm"] == false);
+    REQUIRE(recreated_record["valid"] == true);
+    REQUIRE(recreated_record["warm"] == true);
 
     REQUIRE(disk_validate(project.root, "release")["ok"] == true);
     const auto restarted = disk_validate(project.root);
     REQUIRE(restarted["ok"] == true);
     REQUIRE(restarted["warm"] == false);
     REQUIRE(restarted["valid"] == true);
+    REQUIRE(disk_validate(project.root, "release")["ok"] == true);
 }
 
 TEST_CASE("validation final proof reuses admission and rejects intervening disk changes",
@@ -230,9 +233,20 @@ TEST_CASE("validation final proof reuses admission and rejects intervening disk 
     REQUIRE(changed["work"]["localizationRebuilds"] == 0);
     REQUIRE(changed["work"]["globalStageExecutions"] == 0);
     REQUIRE(changed["work"]["globalStageReuses"] == 1);
-    REQUIRE(changed["work"]["diagnosticAssemblies"] == 1);
-    REQUIRE(changed["work"]["completeProjectProjected"] == 1);
-    REQUIRE(changed["work"]["completeProjectReused"] > 0);
+    // A diagnostics-only source location update can reuse prior findings;
+    // at most one diagnostic assembly is permitted for this single edit.
+    REQUIRE(changed.at("work").contains("diagnosticAssemblies"));
+    REQUIRE(changed["work"]["diagnosticAssemblies"].get<unsigned>() <= 1);
+    // The optimized resident now retains independently certified external
+    // projections and skips the entire complete-Project assembly. No
+    // assembly counters are emitted when that stage does not run.
+    if (changed["work"].contains("completeProjectProjected")) {
+        REQUIRE(changed["work"]["completeProjectProjected"] <= 1);
+        REQUIRE(changed["work"]["completeProjectReused"] > 0);
+    } else {
+        REQUIRE(changed["work"]["retainedStageProjections"] == 1);
+        REQUIRE(changed["work"]["endToEnd"]["completeProjectPreparations"] == 0);
+    }
     REQUIRE(changed["work"]["fontInputReuses"] == 1);
     REQUIRE(changed["work"]["fontCoverageRuns"] == 0);
     REQUIRE(changed["work"]["fontCoverageReusedLocales"] > 0);
@@ -302,6 +316,7 @@ TEST_CASE("validation final proof reuses admission and rejects intervening disk 
             room);
     }
     REQUIRE(proof()["ok"] == false);
+    REQUIRE(disk_validate(project.root, "release")["ok"] == true);
 }
 
 TEST_CASE("warm font coverage matches cold recomputation after a translation edit",
@@ -410,7 +425,12 @@ TEST_CASE("portable validation checks source paths without exporting unused revi
     const auto valid = check();
     REQUIRE(valid.value("ok", false));
     REQUIRE_FALSE(valid.contains("sourceRevisions"));
-    REQUIRE_FALSE(valid.contains("sourcePaths"));
+    // Portable validation now returns its proven source-path membership
+    // (without a revision map) so the resident can independently cache
+    // exact per-source proof and recheck changed paths.
+    REQUIRE(valid.contains("sourcePaths"));
+    REQUIRE(valid.at("sourcePaths").is_array());
+    REQUIRE_FALSE(valid.at("sourcePaths").empty());
     REQUIRE_FALSE(valid.contains("project"));
     const auto pinned = native_project_bundle(
         {{"action", "test-source-preparation"}, {"admittedProject", admitted}}, session.get(),
@@ -419,7 +439,8 @@ TEST_CASE("portable validation checks source paths without exporting unused revi
     REQUIRE(pinned.contains("sourceRevisions"));
     REQUIRE(pinned.at("sourceRevisions").contains("project.yaml"));
 
-    REQUIRE(std::filesystem::remove(project.root / "records/rooms/feature-lab-home.yaml"));
+    const auto referenced_path = valid.at("sourcePaths").front().get<std::string>();
+    REQUIRE(std::filesystem::remove(project.root / referenced_path));
     REQUIRE_FALSE(check().value("ok", false));
 }
 

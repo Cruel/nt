@@ -91,7 +91,7 @@ const imported = path.join(scratch, 'reimported');
 const stages = [];
 const sha = (bytes) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 const exactRevision = (revisions, relative) => {
-  const revision = revisions[relative];
+  const revision = revisions[relative]?.revision;
   assert.match(revision, /^xxh3-128:[0-9a-f]{32}$/, `${relative} lacks an exact source revision.`);
   return revision;
 };
@@ -154,21 +154,11 @@ try {
   const cache = JSON.parse(await readFile(cacheFile, 'utf8'));
   assert.equal(cache.contract, 'noveltea.native-clean-validation.v1');
   assert.ok(cache.semanticKey && cache.semanticFingerprint);
-  const initialManifestRevision = exactRevision(cache.revisions, 'project.yaml');
-  const initialYamlRevision = exactRevision(
-    cache.revisions,
-    'records/rooms/world-composition.yaml',
-  );
-  const initialLuaRevision = exactRevision(cache.revisions, 'scripts/feature-lab-bootstrap.lua');
-  const warm = expectSuccess(
-    run(project, ['validate'], true),
-    'warm independent daemon validation',
-  );
-  assert.deepEqual(
-    warm.diagnostics,
-    cold.diagnostics,
-    'Local and daemon Project diagnostics differ.',
-  );
+  const initialManifestRevision = exactRevision(cache.sources, 'project.yaml');
+  const initialYamlRevision = exactRevision(cache.sources, 'records/rooms/world-composition.yaml');
+  const initialLuaRevision = exactRevision(cache.sources, 'scripts/feature-lab-bootstrap.lua');
+  // Exercise standalone cache recovery before starting a long-lived daemon
+  // that may retain the exclusive Project cache writer lease.
   expectSuccess(run(project, ['validate']), 'reused native clean validation');
   await writeFile(cacheFile, '{ corrupt disposable cache');
   expectSuccess(run(project, ['validate']), 'corrupt native clean-cache regeneration');
@@ -182,13 +172,13 @@ try {
   expectSuccess(run(project, ['validate']), 'changed Room YAML validation');
   const changedYamlCache = JSON.parse(await readFile(cacheFile, 'utf8'));
   assert.notEqual(
-    exactRevision(changedYamlCache.revisions, 'records/rooms/world-composition.yaml'),
+    exactRevision(changedYamlCache.sources, 'records/rooms/world-composition.yaml'),
     initialYamlRevision,
     'A changed Room record must invalidate its exact source revision.',
   );
-  assert.equal(exactRevision(changedYamlCache.revisions, 'project.yaml'), initialManifestRevision);
+  assert.equal(exactRevision(changedYamlCache.sources, 'project.yaml'), initialManifestRevision);
   assert.equal(
-    exactRevision(changedYamlCache.revisions, 'scripts/feature-lab-bootstrap.lua'),
+    exactRevision(changedYamlCache.sources, 'scripts/feature-lab-bootstrap.lua'),
     initialLuaRevision,
   );
   await writeFile(yamlPath, yamlBefore);
@@ -199,12 +189,12 @@ try {
   expectSuccess(run(project, ['validate']), 'changed Lua source validation');
   const changedLuaCache = JSON.parse(await readFile(cacheFile, 'utf8'));
   assert.notEqual(
-    exactRevision(changedLuaCache.revisions, 'scripts/feature-lab-bootstrap.lua'),
+    exactRevision(changedLuaCache.sources, 'scripts/feature-lab-bootstrap.lua'),
     initialLuaRevision,
     'A changed Lua script must invalidate its exact source revision.',
   );
   assert.equal(
-    exactRevision(changedLuaCache.revisions, 'records/rooms/world-composition.yaml'),
+    exactRevision(changedLuaCache.sources, 'records/rooms/world-composition.yaml'),
     initialYamlRevision,
     'Restored Room bytes must recover the original exact source revision.',
   );
@@ -217,10 +207,20 @@ try {
     ['scripts/feature-lab-bootstrap.lua', initialLuaRevision],
   ])
     assert.equal(
-      exactRevision(restoredCache.revisions, relative),
+      exactRevision(restoredCache.sources, relative),
       expected,
       `Restoring ${relative} must recover its original source revision.`,
     );
+
+  const warm = expectSuccess(
+    run(project, ['validate'], true),
+    'warm independent daemon validation',
+  );
+  assert.deepEqual(
+    warm.diagnostics,
+    cold.diagnostics,
+    'Local and daemon Project diagnostics differ.',
+  );
 
   const included = [];
   const missing = [];

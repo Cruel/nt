@@ -15,6 +15,9 @@
 #include <utility>
 
 #if defined(_WIN32)
+// MinGW's winioctl.h lacks the versioned USN journal records used below.
+// A missing platform monitor always returns an unreliable fence, forcing
+// full source proof instead of silently certifying an incomplete watch.
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -43,9 +46,15 @@ class PlatformSourceMonitor {
 public:
     using EventCallback = std::function<void(std::string, bool)>;
     explicit PlatformSourceMonitor(const std::filesystem::path& root, EventCallback on_event = {})
+#if defined(__APPLE__)
+        // FSEvents reports physical paths even when the subscribed Project
+        // was opened via /var -> /private/var or another directory alias.
+        : root_(std::filesystem::canonical(root)), on_event_(std::move(on_event))
+#else
         : root_(root), on_event_(std::move(on_event))
+#endif
     {
-#if defined(_WIN32)
+#if defined(_WIN32) && !defined(__MINGW32__)
         initialize_windows();
 #elif defined(__APPLE__)
         initialize_macos();
@@ -54,7 +63,7 @@ public:
 
     ~PlatformSourceMonitor()
     {
-#if defined(_WIN32)
+#if defined(_WIN32) && !defined(__MINGW32__)
         if (volume_ != INVALID_HANDLE_VALUE)
             CloseHandle(volume_);
 #elif defined(__APPLE__)
@@ -77,7 +86,7 @@ public:
     // Do not admit an incremental proof if a tracked source has multiple hard links.
     void protect_source(std::string_view relative)
     {
-#if defined(_WIN32)
+#if defined(_WIN32) && !defined(__MINGW32__)
         std::scoped_lock lock(mutex_);
         if (link_unsafe_ || volume_ == INVALID_HANDLE_VALUE)
             return;
@@ -104,7 +113,7 @@ public:
     [[nodiscard]] PlatformSourceChanges fence()
     {
         PlatformSourceChanges changes;
-#if defined(_WIN32)
+#if defined(_WIN32) && !defined(__MINGW32__)
         std::scoped_lock lock(mutex_);
         if (volume_ == INVALID_HANDLE_VALUE || link_unsafe_)
             return changes;
@@ -226,15 +235,20 @@ public:
         std::scoped_lock lock(mutex_);
         if (unknown_)
             return changes;
-        changes.reliable = true;
+        // FSEvents cannot certify all physical writes through external hard
+        // links, and runner delivery may lag a same-size same-mtime edit.
+        // Keep notifications as hints but never promote them to a source
+        // authority fence: the resident will reprove complete source bytes
+        // on each observation until a stronger macOS inode proof exists.
         changes.paths.swap(paths_);
         changes.directories.swap(directories_);
+        changes.reliable = false;
 #endif
         return changes;
     }
 
 private:
-#if defined(_WIN32)
+#if defined(_WIN32) && !defined(__MINGW32__)
     void initialize_windows()
     {
         std::array<wchar_t, MAX_PATH> mount{};
@@ -309,6 +323,19 @@ private:
                 continue;
             }
             const std::string_view path(paths[i]);
+            if (path == self->root_.generic_string()) {
+                // A root directory notification is attributable, but cannot
+                // identify which child changed. Invalidate its membership
+                // rather than permanently poisoning the entire event stream.
+                self->paths_.insert(".");
+                self->directories_.insert(".");
+                if (self->on_event_) {
+                    lock.unlock();
+                    self->on_event_(".", true);
+                    lock.lock();
+                }
+                continue;
+            }
             if (!path.starts_with(prefix)) {
                 self->unknown_ = true;
                 continue;
@@ -363,7 +390,19 @@ private:
             }
             auto* loop = CFRunLoopGetCurrent();
             CFRetain(loop);
+            // This watcher intentionally owns a dedicated CFRunLoop and joins
+            // it on teardown. The SDK deprecates this scheduling API in favor
+            // of dispatch queues, but switching execution models here needs
+            // a separate callback-lifetime audit. Suppress only the one
+            // deprecated invocation under the current Xcode -Werror policy.
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#endif
             FSEventStreamScheduleWithRunLoop(stream, loop, kCFRunLoopDefaultMode);
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
             const bool started = FSEventStreamStart(stream);
             {
                 std::scoped_lock lock(mutex_);

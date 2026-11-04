@@ -1,6 +1,8 @@
 """Resident public-validation shader reuse, dependency and integrity certification."""
 
 import json
+from contextlib import contextmanager
+import time
 import os
 from pathlib import Path
 import shutil
@@ -12,8 +14,64 @@ from tempfile import TemporaryDirectory
 cli = Path(sys.argv[1]).resolve()
 fixture = Path(sys.argv[2]).resolve()
 
-with TemporaryDirectory(prefix="noveltea-shader-validation-") as temporary:
-    root = Path(temporary)
+@contextmanager
+def private_daemon_fixture():
+    # The broker's five-second idle cache writer may still publish while
+    # Python tears down the temporary Project. Stop and await the exact
+    # private daemon before removing its cache and runtime directories.
+    # macOS Unix-domain sockets have a 104-byte sun_path limit. The default
+    # runner's /var/folders/.../T path plus the private broker socket exceeds it.
+    # Keep the private daemon under a short, unique /tmp root on that host.
+    with TemporaryDirectory(prefix="nt-sh-", dir="/tmp" if sys.platform == "darwin" else None) as temporary:
+        root = Path(temporary)
+        try:
+            yield root
+        finally:
+            environment = {
+                **os.environ,
+                "NOVELTEA_CLI_CERTIFICATION": "1",
+                "NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT": str(root / "daemon"),
+            }
+            environment.pop("NOVELTEA_NO_DAEMON", None)
+            command = [str(cli), "--json", "daemon"]
+            stopped = subprocess.run(command + ["stop"], env=environment,
+                                     capture_output=True, text=True, timeout=30)
+            assert stopped.returncode == 0, (stopped.stdout, stopped.stderr)
+            deadline = time.monotonic() + 15
+            while True:
+                status = subprocess.run(command + ["status"], env=environment,
+                                        capture_output=True, text=True, timeout=15)
+                assert status.returncode == 0, (status.stdout, status.stderr)
+                if not json.loads(status.stdout)["daemon"]["running"]:
+                    break
+                if time.monotonic() >= deadline:
+                    raise AssertionError("Private certification daemon survived stop")
+                time.sleep(.1)
+            # A stopped broker can briefly leave an owner completing its
+            # final disk-ledger write. Do not tear down the same Project
+            # directory until the elected writer has released its OS lock.
+            lock_path = root / "project/.noveltea/cache/authoring/native-clean-writer.lock"
+            if lock_path.exists():
+                with lock_path.open("r+b") as lock:
+                    while True:
+                        try:
+                            if os.name == "nt":
+                                import msvcrt
+                                lock.seek(0)
+                                msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
+                                msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
+                            else:
+                                import fcntl
+                                fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+                            break
+                        except OSError:
+                            if time.monotonic() >= deadline:
+                                raise AssertionError("Departing shader cache writer retained lock")
+                            time.sleep(.1)
+
+
+with private_daemon_fixture() as root:
     project = root / "project"
     shutil.copytree(fixture, project, ignore=shutil.ignore_patterns(".noveltea"))
     env = {

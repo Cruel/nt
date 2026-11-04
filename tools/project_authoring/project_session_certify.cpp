@@ -1780,8 +1780,15 @@ void typed_reference_invalidation_roundtrip(const std::filesystem::path& fixture
     require(resident->validate_clean_project().snapshot.valid,
             "Typed Test reference fixture publishes a portable valid generation");
     auto imported = ProjectSession::open(temp.root, error);
-    require(imported && imported->validate_clean_project().cache_hit,
-            "An independent native session hydrates typed Test edges from portable cache");
+    const bool imported_hit = imported && imported->validate_clean_project().cache_hit;
+    require(
+        imported_hit,
+        "An independent native session hydrates typed Test edges from portable cache: " + error +
+            " writer=" + std::to_string(resident->owns_clean_cache_lease()) + " ledger=" +
+            std::to_string(std::filesystem::is_regular_file(
+                temp.root / ".noveltea/cache/authoring/native-clean-current.json")) +
+            " rebuilt=" +
+            std::to_string(imported ? imported->validation_work().rechecked_records : 0));
     const auto signature = [](const RoomSessionSnapshot& snapshot) {
         std::vector<std::string> result;
         for (const auto& issue : snapshot.diagnostics)
@@ -2722,6 +2729,38 @@ void malformed_sibling_scoped_read_roundtrip(const std::filesystem::path& fixtur
 
 void clean_cache_recovery_roundtrip(const std::filesystem::path& fixture)
 {
+    {
+        // The first cache import deliberately remains lazy. A Room label
+        // mutation *before* the next semantic validation must hydrate the
+        // old contributors before deciding whether localization/global
+        // stages can be reused. This is a real-world race when the daemon
+        // returns a disk ledger hit and an editor Save follows immediately.
+        TemporaryProject label_temp(fixture);
+        std::string label_error;
+        auto publisher = ProjectSession::open(label_temp.root, label_error);
+        require(publisher && publisher->validate_clean_project().snapshot.valid,
+                "Lazy-label fixture publishes its exact clean generation");
+        publisher.reset();
+        auto lazy = ProjectSession::open(label_temp.root, label_error);
+        require(lazy && lazy->validate_clean_project().cache_hit,
+                "Lazy-label fixture imports exact contributor evidence");
+        const auto room_path = label_temp.root / "records/rooms/dependent.yaml";
+        const auto before = read(room_path);
+        auto after = before;
+        const auto label = after.find("label: ");
+        require(label != std::string::npos, "Lazy-label fixture has a Room label");
+        const auto end = after.find('\n', label);
+        after.replace(label, end == std::string::npos ? std::string::npos : end - label,
+                      "label: Updated title");
+        write(room_path, after);
+        const auto edited = lazy->validate_clean_project();
+        const auto work = lazy->validation_work();
+        require(edited.snapshot.valid && !edited.cache_hit && work.rechecked_records == 1 &&
+                    work.rechecked_contributions == 1 && work.global_stage_reuses == 1 &&
+                    work.global_stage_executions == 0 && work.localization_rebuilds == 0,
+                "Lazy clean-ledger hydration preserves presentation-only Room semantics "
+                "without rebuilding localization/global stages");
+    }
     TemporaryProject temp(fixture);
     std::string error;
     auto daemon_owner = ProjectSession::open(temp.root, error);
@@ -2886,6 +2925,16 @@ void clean_cache_offline_roundtrip(const std::filesystem::path& fixture)
         require(restored.valid == actual.valid &&
                     exact_diagnostics(restored) == exact_diagnostics(actual),
                 "Offline restored validation must exactly match uncached ordered diagnostics");
+        if (phase == "renamed") {
+            // The earlier Windows USN monitor could lose its proof while
+            // comparing an invalid post-rename Project. A complete, stable
+            // reobservation must retain the same error locations and ordering.
+            fresh->source_watch_coverage_lost();
+            const auto recovered = fresh->validate_project();
+            require(recovered.valid == restored.valid &&
+                        exact_diagnostics(recovered) == exact_diagnostics(restored),
+                    "Recovered physical watcher preserves offline rename diagnostic parity");
+        }
     };
     constexpr std::array changed_rooms{"room-lifecycle-roundtrip", "director-annex",
                                        "feature-lab-home"};
@@ -3172,6 +3221,12 @@ int main(int argc, char** argv)
                     report();
                 } else if (command == "observe") {
                     (void)session->observe_sources();
+                    report();
+                } else if (command == "lose-coverage") {
+                    // Reproduce a Windows USN journal recovery even on Linux.
+                    // The pending, exact-byte-bound stage evidence must survive
+                    // an unchanged full physical scan, not be silently dropped.
+                    session->source_watch_coverage_lost();
                     report();
                 } else if (command == "validate") {
                     const auto result = session->validate_clean_project();

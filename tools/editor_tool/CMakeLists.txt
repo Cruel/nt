@@ -108,6 +108,19 @@ target_link_libraries(noveltea_tooling_native PUBLIC
             noveltea_bimg_texturec_embedded nlohmann_json::nlohmann_json miniz::miniz
             noveltea_text_freetype)
 target_compile_definitions(noveltea_tooling_native PRIVATE ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
+# The Windows daemon protocol must reject malformed worker JSON without
+# entering nlohmann's MSVC JSON_NOEXCEPTION parser path.
+if(WIN32)
+    include(FetchContent)
+    # Project authoring declares the pinned jsoncons source in a sibling
+    # directory; obtain its populated path from FetchContent's global state.
+    FetchContent_GetProperties(noveltea_jsoncons)
+    if(NOT noveltea_jsoncons_SOURCE_DIR)
+        message(FATAL_ERROR "Pinned jsoncons source is unavailable for Windows daemon parsing")
+    endif()
+    target_include_directories(noveltea_tooling_native SYSTEM PRIVATE
+        "${noveltea_jsoncons_SOURCE_DIR}/include")
+endif()
 if(WIN32)
     target_link_libraries(noveltea_tooling_native PRIVATE advapi32)
 elseif(APPLE)

@@ -141,6 +141,12 @@ private:
     };
     Capture capture(const std::set<std::string>* hints = nullptr) const;
     void arm(const std::set<std::string>& directories);
+#ifdef __linux__
+    // Cheap, independent membership check for Material files. An inotify
+    // notification cannot be the sole evidence that a new Material appeared.
+    std::optional<std::filesystem::file_time_type> material_directory_stamp() const;
+    std::optional<std::filesystem::file_time_type> material_directory_stamp_;
+#endif
 
     std::filesystem::path root_;
     std::filesystem::path canonical_root_;

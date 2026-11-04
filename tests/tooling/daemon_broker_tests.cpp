@@ -15,6 +15,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <iostream>
 #include <future>
 #include <optional>
 #include <string>
@@ -1261,6 +1262,11 @@ TEST_CASE("daemon Project owner accepts equivalent Windows path spellings",
 TEST_CASE("daemon protocol event shapes preserve request identity")
 {
     using namespace noveltea::tooling::daemon;
+#ifdef _WIN32
+    // A crash before Catch2 can report its assertion needs an observable
+    // stage boundary in Windows CI; narrow protocol-framing regressions.
+    std::cerr << "[protocol-events] simple result\n";
+#endif
     const auto result = Json::parse(result_event_json("req-1", true, R"({"value":4})"));
     CHECK(result == Json{{"type", "result"},
                          {"requestId", "req-1"},
@@ -1271,6 +1277,9 @@ TEST_CASE("daemon protocol event shapes preserve request identity")
     // The broker embeds an already-serialized result without constructing
     // another diagnostic tree. Its framing must still escape externally
     // supplied IDs and reject malformed worker JSON.
+#ifdef _WIN32
+    std::cerr << "[protocol-events] large result\n";
+#endif
     const std::string id = "request-\"quoted\"\\suffix";
     Json large{{"diagnostics", Json::array()}};
     for (int index = 0; index < 512; ++index)
@@ -1280,15 +1289,24 @@ TEST_CASE("daemon protocol event shapes preserve request identity")
     CHECK(escaped.at("requestId") == id);
     CHECK(escaped.at("result") == large);
     CHECK(escaped.at("error") == "bad \"input\"");
+#ifdef _WIN32
+    std::cerr << "[protocol-events] malformed result\n";
+#endif
     const auto malformed = Json::parse(result_event_json(id, false, "{broken", "invalid result"));
     CHECK(malformed.at("result").is_null());
     CHECK(malformed.at("requestId") == id);
 
+#ifdef _WIN32
+    std::cerr << "[protocol-events] text events\n";
+#endif
     const auto stdout_event = Json::parse(text_event_json("stdout", "req-2", "hello"));
     CHECK(stdout_event == Json{{"type", "stdout"}, {"requestId", "req-2"}, {"text", "hello"}});
     const auto stderr_event = Json::parse(text_event_json("stderr", "req-2", "warning"));
     CHECK(stderr_event["type"] == "stderr");
 
+#ifdef _WIN32
+    std::cerr << "[protocol-events] progress events\n";
+#endif
     const auto progress = Json::parse(progress_event_json("req-3", "loading", 2, 5));
     CHECK(progress == Json{{"type", "progress"},
                            {"requestId", "req-3"},
@@ -1296,6 +1314,9 @@ TEST_CASE("daemon protocol event shapes preserve request identity")
                            {"completed", 2},
                            {"total", 5}});
 
+#ifdef _WIN32
+    std::cerr << "[protocol-events] cancellation\n";
+#endif
     const auto cancellation = Json::parse(cancellation_event_json("req-4"));
     CHECK(cancellation == Json{{"type", "cancel"}, {"requestId", "req-4"}});
 }
@@ -1585,8 +1606,12 @@ TEST_CASE("daemon scheduler bounds owners and prioritizes queued Project admissi
     REQUIRE(owner_results.front().wait_for(std::chrono::seconds(2)) == std::future_status::ready);
     CHECK(owner_results.front().get()["ok"] == true);
 
+    // A saturated Windows host must finish retiring the released process
+    // handle before it can admit the queued ninth owner. The priority and
+    // worker-count assertions below still prohibit admitting heavy work first.
     REQUIRE(wait_until(
-        [&] { return owner_worker_for_root(daemon_status(request), ninth_root).has_value(); }));
+        [&] { return owner_worker_for_root(daemon_status(request), ninth_root).has_value(); },
+        std::chrono::seconds(8)));
     const auto admitted = daemon_status(request);
     CHECK(admitted["engineeringWorkerProcesses"] == 8);
     CHECK(admitted["disposableWorkers"] == 0);

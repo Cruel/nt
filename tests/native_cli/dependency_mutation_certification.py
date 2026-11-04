@@ -115,7 +115,21 @@ with tempfile.TemporaryDirectory(prefix="nt-dependency-mutation-") as directory:
                     case + ":semantic-owners", work.get("recheckedContributionOwners", "<missing>"))
         if max_yaml is not None:
             require(physical.get("parsedYaml", 10**9) <= max_yaml,
-                    case + ":yaml-work", physical.get("parsedYaml", "<missing>"))
+                    case + ":yaml-work",
+                    {"parsedYaml": physical.get("parsedYaml", "<missing>"),
+                     "residentWarm": work.get("residentWarm"),
+                     "cacheHit": work.get("cacheHit"),
+                     "completeProjectInputReuses": work.get("completeProjectInputReuses"),
+                     "retainedStageProjections": work.get("retainedStageProjections"),
+                     "completeProjectPreparations": physical.get("completeProjectPreparations"),
+                     "globalStageReuses": work.get("globalStageReuses"),
+                     "recheckedRecords": work.get("recheckedRecords"),
+                     "sourceCaptures": work.get("sourceCaptures"),
+                     "fileByteReads": physical.get("fileByteReads"),
+                     "sessionAdmissions": work.get("sessionAdmissions"),
+                     "fallbackReasons": work.get("semanticFallbackReasons"),
+                     "coldValidationFallback": work.get("coldValidationFallback"),
+                     "invalidatedOwners": work.get("invalidatedOwners")})
         if max_reads is not None and sys.platform.startswith("linux"):
             require(physical.get("fileByteReads", 10**9) <= max_reads,
                     case + ":read-work", physical.get("fileByteReads", "<missing>"))

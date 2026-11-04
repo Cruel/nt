@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -431,6 +431,9 @@ test('CI publishes distinct informational coverage summaries and detailed artifa
   assert.ok(native.indexOf(cliReport) < native.indexOf(resetLab));
   assert.match(ctest, /-E '\^\(native_cli_\|native_authoring_cli_commands\$\)'/);
   assert.match(cliCtest, /-R '\^\(native_cli_\|native_authoring_cli_commands\$\)'/);
+  assert.match(cliCtest, /export GCOV_PREFIX=/);
+  assert.match(cliCtest, /export GCOV_PREFIX_STRIP=0/);
+  assert.match(cliCtest, /cp -a .*gcov_build.*build\/linux-debug/);
   assert.match(step(native, 'Build excluded native CLI certification target'), /--target noveltea-cli-native-certify/);
   assert.ok(native.indexOf(resetLab) < native.indexOf(lab));
   assert.ok(native.indexOf(lab) < native.indexOf(labReport));
@@ -918,4 +921,86 @@ test('CI leaves compile concurrency automatic while serializing heavyweight Linu
   assert.equal(presets.get('linux-sanitize')?.inherits, 'linux-debug');
   assert.match(releaseWorkflow, /preset: linux-release/);
   assert.doesNotMatch(step(job('linux'), 'Build'), /--parallel|\s-j\d*/);
+});
+
+
+test('Linux native coverage reserves runner disk before its instrumented build', () => {
+  const build = job('linux');
+  const reclaim = step(build, 'Reclaim disk for native coverage build');
+  assert.match(reclaim, /sudo rm -rf \/usr\/share\/dotnet \/usr\/local\/lib\/android/);
+  assert.match(reclaim, /\/opt\/hostedtoolcache\/CodeQL/);
+  assert.ok(
+    build.indexOf('Reclaim disk for native coverage build') <
+      build.indexOf('Set up vcpkg'),
+    'unrelated runner toolchains must be removed before native dependencies',
+  );
+});
+
+test('Android Release reclaims unrelated runner toolchains before multi-ABI builds', () => {
+  const android = releaseJob('android');
+  const reclaim = step(android, 'Reclaim disk for Android release builds');
+  assert.match(reclaim, /sudo rm -rf \/usr\/share\/dotnet \/opt\/ghc/);
+  assert.match(reclaim, /\/opt\/hostedtoolcache\/CodeQL/);
+  assert.doesNotMatch(reclaim, /rm -rf[^\n]*\/usr\/local\/lib\/android/);
+  assert.ok(
+    android.indexOf('Reclaim disk for Android release builds') <
+      android.indexOf('Cache Android SDK packages'),
+    'free disk before the pinned SDK/NDK is restored',
+  );
+  const templateBuild = step(android, 'Build unsigned Android player template source');
+  assert.match(templateBuild, /:app:assembleRelease -PnovelteaAbi=arm64-v8a/);
+  assert.match(templateBuild, /:app:assembleDebug -PnovelteaAbi=x86_64/);
+});
+
+test('Android SDK installation retries a broken NDK archive without preserving incomplete packages', () => {
+  const script = fileURLToPath(new URL('../../scripts/ci/install-android-sdk-packages.sh', import.meta.url));
+  const install = step(job('android-cooperative'), 'Install Android SDK packages');
+  assert.match(install, /scripts\/ci\/install-android-sdk-packages\.sh/);
+  assert.equal(
+    workflow.match(/run: scripts\/ci\/install-android-sdk-packages\.sh/g)?.length,
+    2,
+    'Android and coverage jobs share the same archive integrity policy',
+  );
+  const root = mkdtempSync(path.join(tmpdir(), 'noveltea-android-sdk-retry-'));
+  try {
+    const cmdline = path.join(root, 'cmdline-tools/latest/bin');
+    const mockBin = path.join(root, 'bin');
+    mkdirSync(cmdline, { recursive: true });
+    mkdirSync(mockBin);
+    const manager = path.join(cmdline, 'sdkmanager');
+    writeFileSync(manager, `#!/usr/bin/env bash
+set -euo pipefail
+count_file="$ANDROID_HOME/attempts"
+count=0
+if [[ -f "$count_file" ]]; then count=$(cat "$count_file"); fi
+count=$((count + 1))
+printf '%s' "$count" > "$count_file"
+if (( count == 1 )); then
+  mkdir -p "$ANDROID_HOME/.temp" "$ANDROID_HOME/ndk/$ANDROID_NDK_VERSION"
+  printf 'corrupt' > "$ANDROID_HOME/.temp/download.zip"
+  exit 7
+fi
+[[ ! -e "$ANDROID_HOME/.temp/download.zip" ]] || exit 8
+mkdir -p "$ANDROID_HOME/ndk/$ANDROID_NDK_VERSION" "$ANDROID_HOME/cmake/$ANDROID_CMAKE_VERSION"
+touch "$ANDROID_HOME/ndk/$ANDROID_NDK_VERSION/source.properties"
+touch "$ANDROID_HOME/cmake/$ANDROID_CMAKE_VERSION/source.properties"
+`);
+    chmodSync(manager, 0o755);
+    writeFileSync(path.join(mockBin, 'sleep'), '#!/usr/bin/env sh\nexit 0\n');
+    chmodSync(path.join(mockBin, 'sleep'), 0o755);
+    execFileSync('bash', [script], {
+      env: {
+        ...process.env,
+        PATH: `${mockBin}:${process.env.PATH}`,
+        ANDROID_HOME: root,
+        ANDROID_API_LEVEL: '35',
+        ANDROID_BUILD_TOOLS_VERSION: '35.0.0',
+        ANDROID_NDK_VERSION: '28.2.13676358',
+        ANDROID_CMAKE_VERSION: '3.31.6',
+      },
+    });
+    assert.equal(readFileSync(path.join(root, 'attempts'), 'utf8'), '2');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

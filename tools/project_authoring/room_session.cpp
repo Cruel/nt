@@ -822,8 +822,15 @@ std::optional<std::vector<ProjectFile>> inventory_project(const std::filesystem:
             // A source path must not escape the admitted canonical Project root, even via symlinks.
             const auto target = std::filesystem::weakly_canonical(it->path());
             const auto subpath = target.lexically_relative(canonical_root);
-            if (subpath.empty() || subpath == ".." || *subpath.begin() == "..")
-                throw std::runtime_error("Project source escapes root: " + relative);
+            if (subpath.empty() || subpath == ".." || *subpath.begin() == "..") {
+                // An escaped authored source is an invalid Project, not an
+                // exceptional worker failure. Return through the session's
+                // ordinary admission error channel even on macOS, where
+                // throwing across the resident worker boundary can terminate
+                // the process before a public diagnostic is emitted.
+                error = "Project source escapes root: " + relative;
+                return std::nullopt;
+            }
         }
         if (it->is_directory()) {
             const auto canonical_directory = std::filesystem::canonical(it->path());
@@ -1500,7 +1507,8 @@ RoomSessionSnapshot ProjectSession::validate_working_project()
 }
 
 RoomSessionSnapshot ProjectSession::validate_project(bool observed_at_entry,
-                                                     bool defer_publication_proof)
+                                                     bool defer_publication_proof,
+                                                     bool retry_recovered_authority)
 {
     ScopedYamlDecodeCache decoding(*yaml_decode_cache_);
     ScopedVerifiedProjectSources observed(*source_authority_);
@@ -2360,6 +2368,18 @@ RoomSessionSnapshot ProjectSession::validate_project(bool observed_at_entry,
     } else
 #endif
         final_observation = observe_sources();
+    // A synchronous Windows USN journal can lose proof during a cold scan
+    // because unrelated processes mutate the same volume. A successful
+    // physical recovery with no byte/member delta is not itself a Project
+    // diagnostic. However, the just-built contributors may have relied on
+    // the revoked watcher epoch; rebuild once from the recovered authority.
+    // A real changed source or a second failed recovery must still be
+    // reported as a source conflict, never silently accepted.
+    if (retry_recovered_authority && final_observation.full_rescan &&
+        final_observation.authoritative && final_observation.delta_revisions.empty() &&
+        !source_->snapshot().dirty && deleted_records_.empty() && shader_overlays_.empty() &&
+        text_source_overlays_.empty())
+        return validate_project(false, defer_publication_proof, false);
     if (final_observation.full_rescan ||
         (!final_observation.authoritative && !final_observation.scoped_authority)) {
         result.valid = false;
@@ -3626,9 +3646,30 @@ void ProjectSession::reindex_asset_consumers(std::string_view asset_id)
 SourceObservation ProjectSession::observe_sources()
 {
     auto observed = source_authority_->observe();
-    if (observed.full_rescan || !observed.authoritative || !observed.delta.added.empty() ||
-        !observed.delta.changed.empty() || !observed.delta.removed.empty())
+    // A clean-ledger hit intentionally defers materializing its contributor
+    // graph while the sources are unchanged. On the first physical mutation,
+    // however, the old YAML owners must be available *before* we decide
+    // whether a Room/Map edit is presentation-only for localization. Hydrating
+    // later in validate_project() would classify a harmless label edit as an
+    // unknown semantic change and rebuild global, Lua and font stages.
+    if (pending_clean_hydration_ &&
+        (observed.full_rescan || !observed.authoritative || !observed.delta.added.empty() ||
+         !observed.delta.changed.empty() || !observed.delta.removed.empty()))
+        hydrate_clean_validation();
+    const bool physical_source_delta = !observed.delta.added.empty() ||
+                                       !observed.delta.changed.empty() ||
+                                       !observed.delta.removed.empty();
+    if (!observed.authoritative || physical_source_delta) {
         note_disk_cache_change();
+    } else if (observed.full_rescan) {
+        // The old watcher epoch was lost, but a complete, stable physical
+        // capture proved exactly the previous source generation. The deferred
+        // stage builder still describes those bytes. Keep it until the
+        // independent exact-Asset publication proof rather than silently
+        // publishing a stage-less cache on the next quiet tick.
+        cache_maintenance_pending_ = true;
+        cache_next_maintenance_attempt_ = {};
+    }
     for (const auto& path : source_authority_->affected_asset_records(observed.delta)) {
         constexpr std::string_view prefix = "records/";
         if (path.starts_with(prefix) && path.ends_with(".yaml"))

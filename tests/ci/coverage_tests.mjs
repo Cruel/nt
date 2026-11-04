@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync, copyFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -59,7 +59,20 @@ test('native suite snapshots remain independent and merge their coverage union',
     run(process.execPath, [reporter, 'reset', build]);
     assert.ok(!existsSync(counters));
     assert.ok(existsSync(notes));
-    run(path.join(build, 'engine/probe'), []);
+    // The CLI suite redirects gcov output away from counters that a departing
+    // earlier CTest daemon may still be writing. Restore the matching .gcda
+    // next to .gcno before reporting coverage; never drop the CLI coverage.
+    const isolated = path.join(root, 'isolated-gcov');
+    const cli = spawnSync(path.join(build, 'engine/probe'), [], {
+      env: { ...process.env, GCOV_PREFIX: isolated, GCOV_PREFIX_STRIP: '0' },
+      encoding: 'utf8',
+    });
+    assert.equal(cli.status, 0, cli.stderr);
+    assert.ok(!existsSync(counters));
+    const redirected = path.join(isolated, build.replace(/^\/+/, ''),
+      'engine/CMakeFiles/model.dir/src/model.cpp.gcda');
+    assert.ok(existsSync(redirected));
+    copyFileSync(redirected, counters);
     run(process.execPath, [reporter, 'report', build, path.join(reports, 'ctest-cli')]);
     run(process.execPath, [reporter, 'reset', build]);
     run(path.join(build, 'engine/probe'), ['other-branch']);

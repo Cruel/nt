@@ -402,7 +402,38 @@ normalized value; missing declared Lua/RML files fail closed. Source-owner
 navigation uses Project-relative physical paths and sparse YAML source
 locations when the diagnostic has an attributable saved node. A general loss of
 watcher authority invalidates prior certified results until a new physical
-observation succeeds. The complete output remains diagnostic-only; it never
+observation succeeds. An unreadable binary Asset may prevent Linux from installing
+an inode watch; it must not prevent metadata-only Project admission or trigger
+reads of its protected media. The resident then reports no reliable watcher
+proof and uses complete physical source observation on subsequent requests.
+MinGW's older USN-journal headers similarly select that conservative, unproved
+monitor path rather than building partial Windows journal coverage. macOS
+FSEvents also remains hint-only: delivery is not a hard-link/inode fence, so
+the resident reproves the complete physical source set instead of trusting a
+missed or delayed notification. On native Windows, a previously reliable USN
+journal that loses coverage is permanently demoted to complete physical scans
+for that resident session and subsequent sessions in the same process, rather
+than repeatedly discarding successful scans during bounded CLI recovery.
+On Linux, the Material-record directory's modification timestamp supplies a
+secondary membership fence. Added/removed Material files cannot be hidden by
+a missed or delayed inotify directory event; changed membership forces a new
+physical source admission instead of reusing the prior Material projection.
+A retained complete Project independently compares its YAML input revisions:
+binary-only Asset repairs need not reparse unrelated YAML, but background
+writer changes still revoke stale inputs.
+An unchanged full rescan preserves a pending deferred stage builder only for
+its exact source generation; clean-cache publication still performs an
+independent full binary Asset proof before using that builder. None of these
+fallbacks may claim a fast-path source-generation fence.
+The public native `validate` command retries only once if a watcher loses
+authority during downstream validation preparation. The first attempt's
+unproved result is discarded; the native owner must revalidate against its
+recovered physical source inventory. Another preparation conflict still
+returns `WORKSPACE_REVISION_CONFLICT`. Mutating commands and other source
+conflicts are not retried. The relocated CLI contract certifies this boundary
+by forcing watcher loss during invalid-Shader validation and requiring the
+original attributable Shader diagnostic after recovery.
+The complete output remains diagnostic-only; it never
 writes source or becomes the editor/CLI's production validator before #474's
 coordinated cutover.
 

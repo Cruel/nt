@@ -185,18 +185,20 @@ try {
     `${originalManifest}\nentrypoint:\n  kind: room\n  id: start\n`,
   );
   const cold = success(json(['validate']), 'Cold native validation');
-  const warm = success(json(['validate'], { daemon: true }), 'Daemon native validation');
-  assert.deepEqual(warm.diagnostics, cold.diagnostics, 'Local and daemon diagnostics diverged.');
   assert.deepEqual(success(json(['validate'])).diagnostics, cold.diagnostics);
+  // Do not acquire a resident daemon writer lease before testing that a
+  // standalone CLI process can independently recover a corrupt disk ledger.
   const cacheFile = path.join(project, '.noveltea/cache/authoring/native-clean-current.json');
   const cache = JSON.parse(await readFile(cacheFile, 'utf8'));
   assert.equal(cache.contract, 'noveltea.native-clean-validation.v1');
-  const manifestRevision = exactRevision(cache.revisions['project.yaml'], 'project.yaml');
-  const roomRevision = exactRevision(cache.revisions['records/rooms/start.yaml'], 'rooms/start');
+  const manifestRevision = exactRevision(cache.sources['project.yaml'].revision, 'project.yaml');
+  const roomRevision = exactRevision(
+    cache.sources['records/rooms/start.yaml'].revision,
+    'rooms/start',
+  );
   await writeFile(cacheFile, '{not a native cache');
   success(json(['validate']), 'Rejected corrupt disposable cache');
   assert.equal(JSON.parse(await readFile(cacheFile, 'utf8')).contract, cache.contract);
-
   const needsFormat = json(['fmt', 'project.yaml', '--check']);
   assert.equal(needsFormat.success, false);
   assert.notEqual(needsFormat.exitCode, 0);
@@ -210,15 +212,22 @@ try {
   success(json(['validate']), 'Validation after formatting');
   const formattedCache = JSON.parse(await readFile(cacheFile, 'utf8'));
   assert.notEqual(
-    exactRevision(formattedCache.revisions['project.yaml'], 'formatted project.yaml'),
+    exactRevision(formattedCache.sources['project.yaml'].revision, 'formatted project.yaml'),
     manifestRevision,
     'Formatting a source must invalidate its previous cached revision.',
   );
   assert.equal(
-    exactRevision(formattedCache.revisions['records/rooms/start.yaml'], 'unchanged rooms/start'),
+    exactRevision(
+      formattedCache.sources['records/rooms/start.yaml'].revision,
+      'unchanged rooms/start',
+    ),
     roomRevision,
     'Unchanged sources retain their exact cached revisions.',
   );
+  // The standalone writer must publish its formatted generation before a
+  // long-lived daemon acquires the exclusive clean-cache publication lease.
+  const warm = success(json(['validate'], { daemon: true }), 'Daemon native validation');
+  assert.deepEqual(warm.diagnostics, cold.diagnostics, 'Local and daemon diagnostics diverged.');
   const fmt = success(json(['fmt', 'project.yaml', '--check']), 'Formatting check');
   assert.deepEqual(
     { checked: fmt.checked, changed: fmt.changed, files: fmt.files },

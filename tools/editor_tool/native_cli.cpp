@@ -339,9 +339,11 @@ Json native_material_compile(const std::string& root, const Json& programs,
         {
             std::fflush(stdout);
 #if defined(_WIN32)
-            saved = _dup(_fileno(stdout));
+            // The dispatch layer can capture fd 1 even when a detached
+            // Windows worker has no CRT stdout stream descriptor.
+            saved = _dup(1);
             const int sink = _open("NUL", _O_WRONLY);
-            const int redirected = saved >= 0 && sink >= 0 ? _dup2(sink, _fileno(stdout)) : -1;
+            const int redirected = saved >= 0 && sink >= 0 ? _dup2(sink, 1) : -1;
             if (sink >= 0)
                 _close(sink);
 #else
@@ -366,7 +368,7 @@ Json native_material_compile(const std::string& root, const Json& programs,
         {
             std::fflush(stdout);
 #if defined(_WIN32)
-            _dup2(saved, _fileno(stdout));
+            _dup2(saved, 1);
             _close(saved);
 #else
             dup2(saved, fileno(stdout));
@@ -1794,6 +1796,16 @@ int project_read(const Arguments& args, std::string action)
 #endif
     auto response = native_request(request);
     if (action == "project-validate") {
+        if (!response.value("ok", false) && response.value("kind", std::string{}) == "conflict" &&
+            response.value("error", std::string{}) ==
+                "Project sources changed during validation preparation.") {
+            // A host journal can lose its source-generation proof during
+            // preparation even when all Project bytes remain stable. The
+            // native owner has already revoked that proof and re-observed the
+            // physical sources. Revalidate once from the recovered authority;
+            // never retry write operations or suppress a second conflict.
+            response = native_request(request);
+        }
         Json work_profile = response.value("work", Json::object());
         if (profile_work)
             work_profile["residentWarm"] = response.value("warm", false);
@@ -1810,8 +1822,12 @@ int project_read(const Arguments& args, std::string action)
             return failure(args.json, 5, "WORKSPACE_REVISION_CONFLICT", "/", message, message);
         }
         if (!response.value("ok", false) &&
-            response.value("error", std::string{})
-                .starts_with("Portable Project source is missing:")) {
+            (response.value("error", std::string{})
+                 .starts_with("Portable Project source is missing:") ||
+             response.value("error", std::string{}).starts_with("Project source escapes root:"))) {
+            // A safely rejected filesystem escape is an authored source
+            // error, not an unavailable CLI runtime. In particular, an
+            // invalid symlink must never abort the macOS broker process.
             const auto message = response.at("error").get<std::string>();
             return validation_source_failure(args, root_text, message);
         }
