@@ -465,10 +465,17 @@ Catalog read_catalog(const std::filesystem::path& root,
     }
     return catalog;
 }
-Json validate(const std::filesystem::path& root, const std::string& base)
+Json validate(const std::filesystem::path& root, const std::string& base,
+              const ReadinessRequest* readiness)
 {
     auto catalog = read_catalog(root);
     const auto coverage = analyze(catalog);
+    // Readiness observes the same analyzed catalog before baseline-specific
+    // diagnostics are appended, matching the standalone readiness contract.
+    const auto readiness_result =
+        readiness ? readiness_from_catalog(catalog, readiness->stage, readiness->view,
+                                           readiness->milestones)
+                  : Json(nullptr);
     const auto contract = Json::parse(contract_source);
     Json records = Json::array();
     for (const auto& r : catalog.records)
@@ -511,6 +518,8 @@ Json validate(const std::filesystem::path& root, const std::string& base)
                    {"authorization", authorization}};
     if (!base.empty())
         result["protection"] = protection;
+    if (readiness)
+        result["readiness"] = readiness_result;
     return result;
 }
 } // namespace noveltea::narrative

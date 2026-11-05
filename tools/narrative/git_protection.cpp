@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <filesystem>
 #include <cstdlib>
 #include <map>
@@ -9,6 +10,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 #if defined(_WIN32)
@@ -19,6 +21,7 @@
 #else
 #include <cerrno>
 #include <csignal>
+#include <pthread.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -64,24 +67,36 @@ std::wstring quote_arg(const std::wstring& arg)
 
 // Argument-vector execution; never interpolate refs or source paths into a shell command.
 // Git objects are read from stdout only, without touching the index or worktree.
-std::string run_git(const fs::path& cwd, const std::vector<std::string>& args)
+std::string run_git(const fs::path& cwd, const std::vector<std::string>& args,
+                    const std::string* input = nullptr)
 {
     std::vector<std::string> argv{"git", "-C", utf8_path(cwd)};
     argv.insert(argv.end(), args.begin(), args.end());
     std::string output;
     constexpr std::size_t output_limit = 128 * 1024 * 1024;
+    if (input && input->size() > 4 * 1024 * 1024)
+        throw std::runtime_error("Git baseline request exceeds the input safety limit.");
 #if defined(_WIN32)
     SECURITY_ATTRIBUTES attributes{sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE};
     HANDLE reader = nullptr, writer = nullptr;
     if (!CreatePipe(&reader, &writer, &attributes, 0))
         throw std::runtime_error("Cannot create Git output pipe.");
     (void)SetHandleInformation(reader, HANDLE_FLAG_INHERIT, 0);
+    HANDLE input_reader = nullptr, input_writer = nullptr;
+    if (input) {
+        if (!CreatePipe(&input_reader, &input_writer, &attributes, 0)) {
+            CloseHandle(reader);
+            CloseHandle(writer);
+            throw std::runtime_error("Cannot create Git request pipe.");
+        }
+        (void)SetHandleInformation(input_writer, HANDLE_FLAG_INHERIT, 0);
+    }
     STARTUPINFOW startup{};
     startup.cb = sizeof(startup);
     startup.dwFlags = STARTF_USESTDHANDLES;
     startup.hStdOutput = writer;
     startup.hStdError = writer;
-    startup.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+    startup.hStdInput = input ? input_reader : GetStdHandle(STD_INPUT_HANDLE);
     std::wstring command;
     for (const auto& arg : argv) {
         if (!command.empty())
@@ -94,6 +109,10 @@ std::string run_git(const fs::path& cwd, const std::vector<std::string>& args)
     if (!inherited) {
         CloseHandle(reader);
         CloseHandle(writer);
+        if (input) {
+            CloseHandle(input_reader);
+            CloseHandle(input_writer);
+        }
         throw std::runtime_error("Cannot inspect environment for Git baseline read.");
     }
     std::vector<std::wstring> entries;
@@ -126,9 +145,32 @@ std::string run_git(const fs::path& cwd, const std::vector<std::string>& args)
                                          CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT,
                                          environment.data(), nullptr, &startup, &process) != 0;
     CloseHandle(writer);
+    if (input)
+        CloseHandle(input_reader);
     if (!launched) {
         CloseHandle(reader);
+        if (input)
+            CloseHandle(input_writer);
         throw std::runtime_error("Cannot launch Git for Story baseline inspection.");
+    }
+    // Read and write simultaneously: a large blob can fill stdout before Git
+    // consumes every request, so a synchronous stdin write can deadlock.
+    std::thread sender;
+    if (input) {
+        sender = std::thread([input, input_writer] {
+            std::size_t offset = 0;
+            while (offset < input->size()) {
+                DWORD written = 0;
+                if (!WriteFile(
+                        input_writer, input->data() + offset,
+                        static_cast<DWORD>(std::min<std::size_t>(input->size() - offset, 8192)),
+                        &written, nullptr) ||
+                    !written)
+                    break;
+                offset += written;
+            }
+            CloseHandle(input_writer);
+        });
     }
     std::array<char, 8192> buffer{};
     DWORD count = 0;
@@ -143,6 +185,8 @@ std::string run_git(const fs::path& cwd, const std::vector<std::string>& args)
         output.append(buffer.data(), count);
     }
     CloseHandle(reader);
+    if (sender.joinable())
+        sender.join();
     (void)WaitForSingleObject(process.hProcess, INFINITE);
     DWORD status = 0;
     const bool finished = GetExitCodeProcess(process.hProcess, &status) != 0;
@@ -156,13 +200,28 @@ std::string run_git(const fs::path& cwd, const std::vector<std::string>& args)
     int fds[2]{};
     if (pipe(fds) != 0)
         throw std::runtime_error("Cannot create Git output pipe.");
+    int input_fds[2]{};
+    if (input && pipe(input_fds) != 0) {
+        close(fds[0]);
+        close(fds[1]);
+        throw std::runtime_error("Cannot create Git request pipe.");
+    }
     const pid_t pid = fork();
     if (pid < 0) {
         close(fds[0]);
         close(fds[1]);
+        if (input) {
+            close(input_fds[0]);
+            close(input_fds[1]);
+        }
         throw std::runtime_error("Cannot launch Git for Story baseline inspection.");
     }
     if (pid == 0) {
+        if (input) {
+            (void)close(input_fds[1]);
+            (void)dup2(input_fds[0], STDIN_FILENO);
+            (void)close(input_fds[0]);
+        }
         (void)close(fds[0]);
         (void)dup2(fds[1], STDOUT_FILENO);
         (void)dup2(fds[1], STDERR_FILENO);
@@ -179,6 +238,30 @@ std::string run_git(const fs::path& cwd, const std::vector<std::string>& args)
         _exit(127);
     }
     (void)close(fds[1]);
+    std::thread sender;
+    if (input) {
+        (void)close(input_fds[0]);
+        sender = std::thread([input, fd = input_fds[1]] {
+            // The batch subprocess may exit on a missing object. EPIPE must
+            // not terminate the host CLI when its stdin reader has closed.
+            sigset_t blocked{};
+            sigemptyset(&blocked);
+            sigaddset(&blocked, SIGPIPE);
+            sigset_t prior{};
+            (void)pthread_sigmask(SIG_BLOCK, &blocked, &prior);
+            std::size_t offset = 0;
+            while (offset < input->size()) {
+                const auto count = write(fd, input->data() + offset, input->size() - offset);
+                if (count < 0 && errno == EINTR)
+                    continue;
+                if (count <= 0)
+                    break;
+                offset += static_cast<std::size_t>(count);
+            }
+            (void)close(fd);
+            // Pending thread-directed SIGPIPE is discarded when this thread exits.
+        });
+    }
     std::array<char, 8192> buffer{};
     ssize_t count = 0;
     bool oversized = false;
@@ -191,6 +274,8 @@ std::string run_git(const fs::path& cwd, const std::vector<std::string>& args)
         output.append(buffer.data(), static_cast<std::size_t>(count));
     }
     (void)close(fds[0]);
+    if (sender.joinable())
+        sender.join();
     int status = 0;
     pid_t waited = 0;
     do {
@@ -230,6 +315,8 @@ Snapshot baseline(const fs::path& root, const std::string& revision)
         tree_args.push_back(prefix);
     const auto tree = run_git(story, tree_args);
     std::map<std::string, std::string> sources;
+    std::vector<std::pair<std::string, std::string>> requested;
+    std::string batch_input;
     std::size_t start = 0;
     while (start < tree.size()) {
         const auto end = tree.find('\0', start);
@@ -256,9 +343,46 @@ Snapshot baseline(const fs::path& root, const std::string& revision)
         if (!regular_blob)
             throw std::runtime_error("Git baseline contains an unsupported Story file mode.");
         const auto object_id = std::string(header.substr(12));
-        if (object_id.size() != 40 && object_id.size() != 64)
+        if ((object_id.size() != 40 && object_id.size() != 64) ||
+            !std::all_of(object_id.begin(), object_id.end(), [](unsigned char c) {
+                return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+            }))
             throw std::runtime_error("Git baseline tree has an invalid object ID.");
-        sources.emplace(path_in_story, run_git(story, {"cat-file", "blob", object_id}));
+        if (relative_path.empty() || relative_path.is_absolute() ||
+            relative_path.lexically_normal() != relative_path ||
+            std::any_of(relative_path.begin(), relative_path.end(),
+                        [](const auto& component) { return component == ".."; }))
+            throw std::runtime_error("Git baseline contains an unsafe Story path.");
+        if (!sources.emplace(path_in_story, "").second)
+            throw std::runtime_error("Git baseline contains a duplicate Story path.");
+        requested.emplace_back(path_in_story, object_id);
+        batch_input += object_id + "\n";
+    }
+    if (!requested.empty()) {
+        // One subprocess reads exact Git blobs, independent of export-ignore or
+        // export-subst attributes. Each response is length-delimited binary data.
+        const auto output = run_git(story, {"cat-file", "--batch"}, &batch_input);
+        std::size_t offset = 0;
+        for (const auto& [path, object_id] : requested) {
+            const auto line_end = output.find('\n', offset);
+            if (line_end == std::string::npos)
+                throw std::runtime_error("Git batch response has no object header.");
+            const auto header = std::string_view(output).substr(offset, line_end - offset);
+            const auto expected = object_id + " blob ";
+            if (!header.starts_with(expected))
+                throw std::runtime_error("Git baseline object is missing or not a blob.");
+            const auto length = header.substr(expected.size());
+            std::size_t size = 0;
+            const auto [end, error] =
+                std::from_chars(length.data(), length.data() + length.size(), size);
+            if (error != std::errc{} || end != length.data() + length.size() ||
+                size >= output.size() - (line_end + 1) || output[line_end + 1 + size] != '\n')
+                throw std::runtime_error("Git batch response has invalid blob framing.");
+            sources.at(path) = output.substr(line_end + 1, size);
+            offset = line_end + 1 + size + 1;
+        }
+        if (offset != output.size())
+            throw std::runtime_error("Git batch response contains unexpected trailing bytes.");
     }
     // A verified commit may predate this Story root. With no historical
     // Markdown there are no records or decisions to check; applying today's

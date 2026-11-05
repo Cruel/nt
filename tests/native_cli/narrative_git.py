@@ -67,6 +67,13 @@ with tempfile.TemporaryDirectory(prefix='nt-narrative-git-') as temporary:
                                     capture_output=True, text=True)
         assert positioned.returncode == 0 and positioned.stderr == '', positioned
         assert json.loads(positioned.stdout) == untouched
+    combined = invoke(repo, story, '--base', base, '--readiness',
+                      '--stage', 'review', '--view', 'design')
+    assert combined['catalog'] == untouched['catalog']
+    assert combined['readiness']['stage'] == 'review'
+    assert combined['readiness']['view'] == 'design'
+    assert combined['readiness']['design']['stages']
+    assert combined['diagnostics'] == untouched['diagnostics']
     protection = untouched['catalog']['protection']
     assert protection['status'] == 'checked' and protection['base'] == base
     assert protection['checkedDecisions'] == 1 and protection['findings'] == []
@@ -116,6 +123,9 @@ with tempfile.TemporaryDirectory(prefix='nt-narrative-git-') as temporary:
 
     update(milestone, 'permission rather than trespass', 'trespass rather than permission')
     changed = invoke(repo, story, '--base', base, code=1)
+    combined_changed = invoke(repo, story, '--base', base, '--readiness', code=1)
+    assert combined_changed['catalog'] == changed['catalog']
+    assert combined_changed['readiness']['stage'] == 'review'
     assert changed['diagnostics'] == []  # Authorization is distinct from structural failure.
     assert changed['catalog']['authorization']['status'] == 'approval-required'
     finding = changed['catalog']['protection']['findings'][0]
@@ -175,6 +185,28 @@ with tempfile.TemporaryDirectory(prefix='nt-narrative-git-') as temporary:
     no_git = invoke(outside, outside / 'story', '--base', base, code=1)
     assert any(d['code'] == 'baseline-invalid' for d in no_git['diagnostics'])
     assert invoke(outside, outside / 'story')['catalog']['authorization']['status'] == 'not-assessed'
+
+    # Git export attributes must never suppress or rewrite authoritative
+    # historical blobs. An archive-based optimization would silently erase
+    # the protected Story here, but cat-file --batch sees the real tree data.
+    attributed = repo.parent / 'archive-attributes-story'
+    attributed.mkdir()
+    attributed_story = attributed / 'story'
+    shutil.copytree(source / 'tests/fixtures/narrative/reference-story', attributed_story)
+    attributed_milestone = attributed_story / 'milestones' / 'accept-investigation.md'
+    update(attributed_milestone, 'authority: delegated', 'authority: user-protected')
+    (attributed / '.gitattributes').write_text('*.md export-ignore export-subst\n')
+    git(attributed, 'init', '-q')
+    git(attributed, 'config', 'user.name', 'Test Author')
+    git(attributed, 'config', 'user.email', 'test@example.invalid')
+    git(attributed, 'add', '.')
+    git(attributed, 'commit', '-qm', 'Story with export filters')
+    attributed_sha = git(attributed, 'rev-parse', 'HEAD')
+    assert invoke(attributed, attributed_story, '--base', attributed_sha)['catalog']['protection']['checkedDecisions'] == 1
+    update(attributed_milestone, 'permission rather than trespass',
+           'trespass rather than permission')
+    filtered = invoke(attributed, attributed_story, '--base', attributed_sha, code=1)
+    assert filtered['catalog']['protection']['findings'][0]['category'] == 'changed'
 
     # A standalone Story repository can itself be the Git worktree root.
     independent = repo.parent / 'standalone-story-repo'

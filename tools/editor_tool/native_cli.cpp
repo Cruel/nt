@@ -3068,28 +3068,87 @@ int run(const std::vector<std::string>& argv)
                               : "Narrative context has invalid targets or catalog errors.");
         }
         if (family == "narrative" && operation == "validate") {
-            if (!args.project.empty() || (args.command.size() != 3 && args.command.size() != 5) ||
-                args.command[2].empty() || args.command[2].starts_with("--") ||
-                (args.command.size() == 5 &&
-                 (args.command[3] != "--base" || args.command[4].empty() ||
-                  args.command[4].starts_with("--"))))
+            if (!args.project.empty() || args.command.size() < 3 || args.command[2].empty() ||
+                args.command[2].starts_with("--"))
                 return usage(args.json,
-                             "Expected narrative validate <catalog-root> [--base <commit>]; "
-                             "--project is not supported.");
-            auto catalog = narrative::validate(native_path_from_utf8(args.command[2]),
-                                               args.command.size() == 5 ? args.command[4] : "");
+                             "Expected narrative validate <catalog-root> [--base <commit>] "
+                             "[--readiness [--stage <stage>] [--view <design|approved>] "
+                             "[--milestone <milestone-id>]...]; --project is not supported.");
+            std::string base;
+            bool selected_base = false, with_readiness = false;
+            bool selected_stage = false, selected_view = false;
+            narrative::ReadinessRequest options;
+            for (std::size_t i = 3; i < args.command.size();) {
+                const auto option = args.command[i++];
+                if (option == "--readiness" && !with_readiness) {
+                    with_readiness = true;
+                    continue;
+                }
+                if (i == args.command.size() || args.command[i].starts_with("--"))
+                    return usage(args.json,
+                                 "Narrative validate option '" + option + "' requires a value.");
+                const auto value = args.command[i++];
+                if (option == "--base" && !selected_base) {
+                    base = value;
+                    selected_base = true;
+                } else if (option == "--stage" && !selected_stage) {
+                    options.stage = value;
+                    selected_stage = true;
+                } else if (option == "--view" && !selected_view) {
+                    options.view = value;
+                    selected_view = true;
+                } else if (option == "--milestone" && options.milestones.size() < 16 &&
+                           std::find(options.milestones.begin(), options.milestones.end(), value) ==
+                               options.milestones.end()) {
+                    options.milestones.push_back(value);
+                } else {
+                    return usage(args.json,
+                                 "Unknown or repeated narrative validate option '" + option + "'.");
+                }
+            }
+            if ((!with_readiness &&
+                 (selected_stage || selected_view || !options.milestones.empty())) ||
+                (options.stage != "foundation" && options.stage != "architecture" &&
+                 options.stage != "interactive" && options.stage != "composition" &&
+                 options.stage != "review") ||
+                (options.view != "design" && options.view != "approved"))
+                return usage(args.json, "Narrative validate readiness requires --readiness "
+                                        "and a declared stage/status view.");
+            auto catalog = narrative::validate(native_path_from_utf8(args.command[2]), base,
+                                               with_readiness ? &options : nullptr);
             auto diagnostics = catalog.at("diagnostics");
             for (auto& item : diagnostics)
                 item["sourceUrl"] = item.at("path");
+            Json combined_readiness = nullptr;
+            if (with_readiness) {
+                combined_readiness = catalog.at("readiness");
+                catalog.erase("readiness");
+                for (auto item : combined_readiness.at("diagnostics")) {
+                    if (item.contains("path"))
+                        item["sourceUrl"] = item.at("path");
+                    if (std::find(diagnostics.begin(), diagnostics.end(), item) ==
+                        diagnostics.end())
+                        diagnostics.push_back(std::move(item));
+                }
+                for (const auto& cluster : combined_readiness["clusters"])
+                    if (cluster.value("diagnostic", "") == "invalid-milestone-id")
+                        diagnostics.push_back(
+                            diagnostic("invalid-milestone-id", "/",
+                                       "Expected an existing unique Milestone ID: " +
+                                           cluster["id"].get<std::string>()));
+                combined_readiness.erase("diagnostics");
+            }
             const bool valid =
                 diagnostics.empty() &&
                 catalog.value("authorization", Json::object()).value("status", "not-assessed") !=
                     "approval-required";
-            return emit({{"success", valid},
-                         {"exitCode", valid ? 0 : 1},
-                         {"diagnostics", diagnostics},
-                         {"catalog", catalog}},
-                        args.json,
+            Json result = {{"success", valid},
+                           {"exitCode", valid ? 0 : 1},
+                           {"diagnostics", diagnostics},
+                           {"catalog", catalog}};
+            if (with_readiness)
+                result["readiness"] = combined_readiness;
+            return emit(result, args.json,
                         valid ? "Narrative catalog analyzed; inspect coverage and Git protection "
                                 "if a baseline was requested."
                               : "Narrative catalog has structural or protected-decision findings.");

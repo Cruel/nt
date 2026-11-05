@@ -289,6 +289,40 @@ Independent fictional occurrence.
         assert value['protocolVersion'] == 1 and value['success'] == (code == 0)
         return value
 
+    def combined(path, *options, code=0):
+        run = subprocess.run([str(binary), '--json', 'narrative', 'validate',
+                              str(path), '--readiness', *options],
+                             cwd=root, env=env, capture_output=True, text=True)
+        assert run.returncode == code, (run.returncode, run.stdout, run.stderr)
+        assert not run.stderr, run.stderr
+        return json.loads(run.stdout)
+
+    # Opt-in combined validation must be semantically identical to the
+    # standalone results without re-reading and analyzing a second catalog.
+    for stage, view in [('review', 'design'), ('interactive', 'approved')]:
+        consolidated = combined(story, '--stage', stage, '--view', view)
+        separate = readiness(story, '--stage', stage, '--view', view)
+        assert consolidated['catalog'] == report['catalog']
+        assert consolidated['readiness'] == separate['readiness']
+        assert consolidated['diagnostics'] == report['diagnostics']
+    focused = combined(story, '--stage', 'composition', '--milestone',
+                       'milestone.accept-investigation')
+    assert focused['readiness'] == readiness(
+        story, '--stage', 'composition', '--milestone',
+        'milestone.accept-investigation')['readiness']
+    invalid_focus = combined(story, '--milestone', 'event.question-ivo', code=1)
+    assert any(d['code'] == 'invalid-milestone-id' for d in invalid_focus['diagnostics'])
+    for options in [('--stage', 'review'), ('--view', 'design'),
+                    ('--readiness', '--readiness'),
+                    ('--readiness', '--stage', 'unknown'),
+                    ('--readiness', '--milestone')]:
+        run = subprocess.run([str(binary), '--json', 'narrative', 'validate',
+                              str(story), *options], cwd=root, env=env,
+                             capture_output=True, text=True)
+        assert run.returncode == 2, (options, run.stdout, run.stderr)
+        assert json.loads(run.stdout)['diagnostics'][0]['code'] == 'CLI_USAGE'
+    print('Combined native validation/readiness matches independent reports and rejects malformed options.')
+
     # Private idea files are not canonical Story records, even when they use
     # the Markdown extension and contain invalid Story frontmatter.
     task = ('--kind', 'event', '--id', 'event.question-ivo', '--scope', 'related')

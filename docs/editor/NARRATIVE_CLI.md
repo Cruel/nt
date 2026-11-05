@@ -60,7 +60,8 @@ content Event to precede a solution, not actual player presentation or fairness.
 
 All declared statuses participate in this structural coverage. The `minimumProgress`
 field is only the declared-Milestone reachability summary, not a readiness gate.
-Use `narrative readiness` for status-scoped staged minimums and planning obligations.
+Use `narrative readiness` for status-scoped staged minimums and planning obligations,
+or add `--readiness` to `narrative validate` to return both from one analyzed catalog.
 Git-baseline protected-decision comparison is opt-in via `--base`. The CLI does not
 accept a permission acknowledgement as proof of human approval.
 Narrative Events and predicates are not engine Scene Events or gameplay Conditions.
@@ -72,7 +73,11 @@ Use `noveltea --json narrative validate story --base <verified-commit>` to compa
 working Story with an explicitly selected commit in the same Git worktree. The
 Story may be a standalone Git repository or a directory inside a monorepo or
 game Project. The command reads committed blobs directly through Git; it neither
-checks out the baseline nor updates Git state or Story files. Current working
+checks out the baseline nor updates Git state or Story files. Historical Markdown
+is discovered with one Git tree read and fetched with a single binary-safe
+`git cat-file --batch` request rather than one Git subprocess per record. This
+preserves original committed contents even when export attributes would omit or
+rewrite files; missing, non-blob or malformed batch responses fail closed. Current working
 files are read as they are, including staged, unstaged and untracked Markdown.
 Git must be installed and the commit must resolve to a commit object. A valid
 commit with no tracked Story Markdown at the selected root (including a commit
@@ -131,7 +136,21 @@ SQLite, Node, Git, daemon or source mutation is necessary. Options:
 - repeated `--milestone <milestone-id>` (up to 16, unique) requests bounded
   downstream implementation-handoff clusters.
 
-For example:
+For callers that need structural validation, Git protection and readiness
+together, `narrative validate` accepts `--readiness` plus optional `--stage`,
+`--view` and `--milestone` selectors. Its combined default is
+`--stage review --view design` (the standalone readiness default remains
+`--stage interactive`). The JSON envelope then includes both `catalog`
+and `readiness`, computed from one canonical catalog read and full analysis;
+`catalog` retains its existing shape. Readiness diagnostics participate in the
+top-level exit status; duplicate catalog errors are not repeated. A protected
+change still returns exit 1 without an authorization bypass.
+
+```sh
+noveltea --json narrative validate story --base <verified-commit> --readiness
+```
+
+For standalone readiness, for example:
 
 ```sh
 noveltea --json narrative readiness story --stage interactive \

@@ -500,13 +500,9 @@ Cluster cluster(const Catalog& source, const std::string& milestone)
 }
 } // namespace
 
-Json readiness_report(const std::filesystem::path& root, const std::string& stage,
-                      const std::string& view, const std::vector<std::string>& milestones)
+Json readiness_from_catalog(const Catalog& source, const std::string& stage,
+                            const std::string& view, const std::vector<std::string>& milestones)
 {
-    auto source = read_catalog(root);
-    // Validation has to happen once against the full canonical Story; scoped
-    // progression is then computed independently per authority/status view.
-    static_cast<void>(analyze(source));
     const auto contract = Json::parse(contract_source);
     auto design = assess(source, false);
     auto approved = assess(source, true);
@@ -571,5 +567,14 @@ Json readiness_report(const std::filesystem::path& root, const std::string& stag
               {"unverified", Json::array({"editorial-quality", "vn-presentation-feasibility",
                                           "asset-availability", "engine-playability"})}}},
             {"authorization", {{"status", "not-assessed"}}}};
+}
+
+Json readiness_report(const std::filesystem::path& root, const std::string& stage,
+                      const std::string& view, const std::vector<std::string>& milestones)
+{
+    auto source = read_catalog(root);
+    // One full-catalog analysis precedes each independently scoped readiness view.
+    static_cast<void>(analyze(source));
+    return readiness_from_catalog(source, stage, view, milestones);
 }
 } // namespace noveltea::narrative
