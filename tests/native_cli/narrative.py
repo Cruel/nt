@@ -174,7 +174,7 @@ Independent fictional occurrence.
     # Context Manifest reuses native catalog parsing but never exports narrative text.
     def context(path, *options, code=0):
         run = subprocess.run([str(binary), '--json', 'narrative', 'context', str(path),
-                              *options], cwd=root, env=env, capture_output=True, text=True)
+                              *options], cwd=root, env=env, capture_output=True, encoding='utf-8')
         assert run.returncode == code, (run.returncode, run.stdout, run.stderr)
         assert not run.stderr, run.stderr
         result = json.loads(run.stdout)
@@ -282,7 +282,7 @@ Independent fictional occurrence.
 
     def readiness(path, *options, code=0):
         run = subprocess.run([str(binary), '--json', 'narrative', 'readiness', str(path),
-                              *options], cwd=root, env=env, capture_output=True, text=True)
+                              *options], cwd=root, env=env, capture_output=True, encoding='utf-8')
         assert run.returncode == code, (run.returncode, run.stdout, run.stderr)
         assert not run.stderr, run.stderr
         value = json.loads(run.stdout)
@@ -292,7 +292,7 @@ Independent fictional occurrence.
     def combined(path, *options, code=0):
         run = subprocess.run([str(binary), '--json', 'narrative', 'validate',
                               str(path), '--readiness', *options],
-                             cwd=root, env=env, capture_output=True, text=True)
+                             cwd=root, env=env, capture_output=True, encoding='utf-8')
         assert run.returncode == code, (run.returncode, run.stdout, run.stderr)
         assert not run.stderr, run.stderr
         return json.loads(run.stdout)
@@ -318,7 +318,7 @@ Independent fictional occurrence.
                     ('--readiness', '--milestone')]:
         run = subprocess.run([str(binary), '--json', 'narrative', 'validate',
                               str(story), *options], cwd=root, env=env,
-                             capture_output=True, text=True)
+                             capture_output=True, encoding='utf-8')
         assert run.returncode == 2, (options, run.stdout, run.stderr)
         assert json.loads(run.stdout)['diagnostics'][0]['code'] == 'CLI_USAGE'
     print('Combined native validation/readiness matches independent reports and rejects malformed options.')

@@ -597,8 +597,12 @@ if(NOVELTEA_ENABLE_COVERAGE AND BUILD_TESTING)
         if(_native_cli_test MATCHES "^native_cli_" OR
            _native_cli_test MATCHES "^native_authoring_cli_")
             set_tests_properties("${_native_cli_test}" PROPERTIES
-                RESOURCE_LOCK "noveltea_gcov_cli"
-                ENVIRONMENT "GCOV_PREFIX=${CMAKE_BINARY_DIR}.gcov-cli/${_native_cli_test};GCOV_PREFIX_STRIP=0")
+                RESOURCE_LOCK "noveltea_gcov_cli")
+            # Append rather than replace test-specific settings such as the
+            # public contract's pinned runtime compiler identity.
+            set_property(TEST "${_native_cli_test}" APPEND PROPERTY ENVIRONMENT
+                "GCOV_PREFIX=${CMAKE_BINARY_DIR}.gcov-cli/${_native_cli_test}"
+                "GCOV_PREFIX_STRIP=0")
         endif()
     endforeach()
 endif()

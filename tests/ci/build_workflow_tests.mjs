@@ -454,7 +454,8 @@ test('CI publishes distinct informational coverage summaries and detailed artifa
   assert.match(cliCtest, /native-coverage\.mjs restore-isolated build\/linux-debug/);
   assert.doesNotMatch(cliCtest, /export GCOV_PREFIX=/);
   assert.match(editorToolCmake, /RESOURCE_LOCK "noveltea_gcov_cli"/);
-  assert.match(editorToolCmake, /ENVIRONMENT "GCOV_PREFIX=\$\{CMAKE_BINARY_DIR\}\.gcov-cli\/\$\{_native_cli_test\};GCOV_PREFIX_STRIP=0"/);
+  assert.match(editorToolCmake, /ENVIRONMENT "NOVELTEA_TEST_COMPILER_IDENTITY=\$\{NOVELTEA_NATIVE_CLI_COMPILER_IDENTITY\}"/);
+  assert.match(editorToolCmake, /set_property\(TEST "\$\{_native_cli_test\}" APPEND PROPERTY ENVIRONMENT\s+"GCOV_PREFIX=\$\{CMAKE_BINARY_DIR\}\.gcov-cli\/\$\{_native_cli_test\}"\s+"GCOV_PREFIX_STRIP=0"\)/);
   assert.match(step(native, 'Build excluded native CLI certification target'), /--target noveltea-cli-native-certify/);
   assert.ok(native.indexOf(resetLab) < native.indexOf(lab));
   assert.ok(native.indexOf(lab) < native.indexOf(labReport));
