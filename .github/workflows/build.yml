@@ -362,8 +362,11 @@ jobs:
       - name: CTest
         run: |
           mkdir -p build/reports/coverage/cpp/ctest
+          # Independent CTests share an atomic gcov runtime. Keep GPU tests
+          # marked RUN_SERIAL and capture/verify dependencies in CMake.
           xvfb-run -a ctest --test-dir build/linux-debug --output-on-failure \
             -E '^(native_cli_|native_authoring_cli_commands$)' \
+            --parallel 2 \
             --output-junit "$GITHUB_WORKSPACE/build/reports/coverage/cpp/ctest/test-results.xml"
 
       - name: Report CTest coverage
@@ -382,29 +385,27 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           mkdir -p build/reports/coverage/cpp/ctest-cli
-          # Background CTest owners can exit after the previous counter reset,
-          # writing old-format .gcda into CLI targets. Redirect this suite's
-          # instrumented processes to a distinct gcov tree, then copy the
-          # counters back next to their matching .gcno for normal gcovr.
-          # This preserves CLI coverage and all strict stdout/stderr assertions.
-          gcov_root="$(mktemp -d)"
-          export GCOV_PREFIX="$gcov_root"
-          export GCOV_PREFIX_STRIP=0
+          # Each CLI CTest has an isolated GCOV_PREFIX (registered by CMake).
+          # A detached daemon from an earlier test can finish after CTest
+          # moves on, so even serial CTests cannot safely share one .gcda tree.
+          # Merge completed per-test counters offline, preserving CLI coverage
+          # and every strict stdout/stderr contract.
+          # Keep instrumented CLI tests serial to avoid competing live daemons
+          # while the ordinary CTest suite runs independently at --parallel 2.
+          # Full multi-fixture parity and external-stage certifications run
+          # against the optimized native CLI in the Linux host CLI job. Here,
+          # representative CTests collect instrumented CLI/dependency paths
+          # without doing dozens of independent cold Feature Lab validations.
           result=0
           xvfb-run -a ctest --test-dir build/linux-debug --output-on-failure \
             -R '^(native_cli_|native_authoring_cli_commands$)' \
+            -E '^(native_cli_(incremental_validation_certification|dependency_mutation_certification|shader_validation_cache|portable_validation_cache)|native_authoring_cli_commands)$' \
+            --parallel 1 \
             --output-junit "$GITHUB_WORKSPACE/build/reports/coverage/cpp/ctest-cli/test-results.xml" || result=$?
-          gcov_build="$gcov_root/$GITHUB_WORKSPACE/build/linux-debug"
-          # Revoke any late default-tree counter writes from the earlier suite.
-          # The only authority for this suite is the isolated execution tree.
-          node scripts/native-coverage.mjs reset build/linux-debug
-          if [[ -d "$gcov_build" ]]; then
-            cp -a "$gcov_build/." "$GITHUB_WORKSPACE/build/linux-debug/"
-          else
-            echo 'Native CLI suite did not produce isolated gcov counters' >&2
-            result=1
-          fi
-          rm -rf "$gcov_root"
+          # This merges snapshots via gcov-tool, then restores the .gcda next
+          # to the matching .gcno before gcovr. Live per-test roots remain
+          # untouched until runner teardown.
+          node scripts/native-coverage.mjs restore-isolated build/linux-debug
           exit "$result"
 
       - name: Report native CLI CTest coverage
@@ -437,8 +438,9 @@ jobs:
           # counter and a failed *coverage reporter* after valid gameplay.
           # Isolate this suite's coverage from late writes of prior CTest
           # daemons, then snapshot only the completed foreground process.
-          gcov_root="$(mktemp -d)"
-          trap 'rm -rf "$gcov_root"' EXIT
+          # Keep the foreground suite's private tree until runner teardown;
+          # late native workers must never race a destructive cleanup.
+          gcov_root="$(mktemp -d "$RUNNER_TEMP/noveltea-feature-lab-gcov.XXXXXXXX")"
           export GCOV_PREFIX="$gcov_root"
           export GCOV_PREFIX_STRIP=0
           xvfb-run -a build/linux-debug/tools/editor_tool/native-cli/noveltea \
@@ -570,9 +572,10 @@ jobs:
       - name: Build NovelTea host CLI
         run: pnpm -C editor run noveltea:build
 
-      - name: Certify Release incremental validation and external stage parity
+      - name: Certify optimized incremental, dependency mutation and external stage parity
         run: |
           python3 tests/native_cli/incremental_validation_certification.py "$PWD/build/cli/linux/noveltea" "$PWD"
+          python3 tests/native_cli/dependency_mutation_certification.py "$PWD/build/cli/linux/noveltea" "$PWD"
           python3 tests/native_cli/shader_validation_cache.py "$PWD/build/cli/linux/noveltea" "$PWD/tests/projects/feature-lab"
           python3 tests/native_cli/portable_validation_cache.py "$PWD/build/cli/linux/noveltea" "$PWD/tests/projects/feature-lab"
 
@@ -582,6 +585,11 @@ jobs:
       - name: Certify native CLI Project mutation parity
         run: |
           cmake --build --preset linux-authoring-release --target noveltea-cli-native-certify
+          # The host CLI release preset does not register CTests. Invoke the
+          # optimized certification executable directly, so this cannot
+          # silently succeed with "No tests were found".
+          build/linux-authoring-release/tools/editor_tool/noveltea-cli-native-certify \
+            "$PWD/tests/projects/feature-lab"
           node editor/scripts/certify-native-cli-mutations.mjs \
             "$PWD/build/cli/linux/noveltea" \
             "$PWD/build/linux-authoring-release/tools/editor_tool/noveltea-cli-native-certify" \
@@ -1026,6 +1034,18 @@ jobs:
       - name: Test Windows lightweight native suites
         shell: pwsh
         run: ctest --test-dir build/windows-release --output-on-failure -L early-windows
+
+      - name: Diagnose Windows lightweight native crash
+        if: failure()
+        shell: pwsh
+        run: |
+          # CTest reports a Windows fast-fail code but not the faulting module.
+          # Preserve the crash evidence without turning the failed job green.
+          ctest --test-dir build/windows-release --output-on-failure --rerun-failed
+          Get-WinEvent -FilterHashtable @{LogName='Application'; StartTime=(Get-Date).AddMinutes(-20)} -ErrorAction SilentlyContinue |
+            Where-Object { $_.ProviderName -in @('Application Error', 'Windows Error Reporting') } |
+            Select-Object -First 12 TimeCreated, Id, ProviderName, Message |
+            Format-List | Out-String -Width 240 | Write-Host
 
       - name: Build Windows native Project transaction certifications
         shell: pwsh

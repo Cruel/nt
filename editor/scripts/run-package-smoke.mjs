@@ -51,17 +51,25 @@ const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), 'noveltea-editor-pack
 const argumentsList = [
   executable,
   '--noveltea-package-smoke',
+  // CI's virtual X11 display has no hardware GPU. Match the already-certified
+  // native editor GUI smoke instead of initializing Electron's GPU process.
+  ...(process.platform === 'linux' ? ['--disable-gpu', '--ozone-platform=x11'] : []),
   `--user-data-dir=${path.join(temporaryRoot, 'user-data')}`,
   '--no-sandbox',
 ];
-const command = process.platform === 'linux' ? 'xvfb-run' : executable;
+// Electron's GLib/GTK stack expects a usable session bus. GitHub's headless
+// runners do not necessarily expose one; keep the smoke in its own session.
+const command = process.platform === 'linux' ? 'dbus-run-session' : executable;
 const commandArguments =
-  process.platform === 'linux' ? ['-a', ...argumentsList] : argumentsList.slice(1);
+  process.platform === 'linux'
+    ? ['--', 'xvfb-run', '-a', ...argumentsList]
+    : argumentsList.slice(1);
 const child = spawn(command, commandArguments, {
   cwd: temporaryRoot,
   env: {
     ...process.env,
     ELECTRON_ENABLE_LOGGING: '1',
+    ...(process.platform === 'linux' ? { GDK_BACKEND: 'x11' } : {}),
     NOVELTEA_FFMPEG: undefined,
     NOVELTEA_EDITOR_PACKAGE_SMOKE_CACHE_ROOT: path.join(temporaryRoot, 'editor-cache'),
   },

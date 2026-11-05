@@ -114,9 +114,25 @@ with tempfile.TemporaryDirectory(prefix="nt-dependency-mutation-") as directory:
             require(set(work.get("recheckedContributionOwners", ())) == set(contributions),
                     case + ":semantic-owners", work.get("recheckedContributionOwners", "<missing>"))
         if max_yaml is not None:
-            require(physical.get("parsedYaml", 10**9) <= max_yaml,
+            parsed_yaml = physical.get("parsedYaml", 10**9)
+            font_yaml = work.get("physicalStages", {}).get("fonts", {}).get("parsedYaml", 0)
+            # The independent font-coverage engine can refresh its verified
+            # system-font inputs during an otherwise source-only validation.
+            # Those YAML parses are not Project/record rechecks. In particular,
+            # an opaque audio Asset must not reopen any YAML Project owner.
+            # Count the font work separately, and keep the existing strict
+            # whole-request budget for every other mutation family.
+            asset_only = case in ("feature-lab:asset-bytes", "feature-lab:asset-repair")
+            owner_yaml = parsed_yaml - font_yaml if asset_only else parsed_yaml
+            if asset_only:
+                require(0 <= font_yaml <= 4,
+                        case + ":font-proof-yaml-work", work.get("physicalStages", {}))
+            require(owner_yaml <= max_yaml,
                     case + ":yaml-work",
-                    {"parsedYaml": physical.get("parsedYaml", "<missing>"),
+                    {"parsedYaml": parsed_yaml,
+                     "ownerYaml": owner_yaml,
+                     "fontYaml": font_yaml,
+                     "physicalStages": work.get("physicalStages"),
                      "residentWarm": work.get("residentWarm"),
                      "cacheHit": work.get("cacheHit"),
                      "completeProjectInputReuses": work.get("completeProjectInputReuses"),

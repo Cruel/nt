@@ -606,6 +606,33 @@ async function pruneTypeOnlyOptionalPeerClosure(appRoot) {
   }
 }
 
+async function preferWasmSharpOnLinux(appRoot) {
+  if (process.platform !== 'linux') return;
+  const virtualStoreRoot = path.join(appRoot, 'node_modules', '.pnpm');
+  const wasmModule = path.join(appRoot, 'node_modules', '@img', 'sharp-wasm32');
+  if (!(await pathExists(wasmModule))) {
+    throw new Error('Linux Electron distribution requires pinned WebAssembly sharp.');
+  }
+  // sharp's native Linux libvips and Electron both load GLib into the main
+  // process. Their incompatible symbols can segfault Chromium before it
+  // produces the smoke marker. The supported sharp WASM backend avoids this
+  // shared-library collision while retaining the same sharp API.
+  const entries = await readdir(virtualStoreRoot);
+  for (const nativePackage of ['sharp-linux-x64', 'sharp-libvips-linux-x64']) {
+    for (const entry of entries.filter((name) => name.startsWith(`@img+${nativePackage}@`))) {
+      await rm(path.join(virtualStoreRoot, entry), { recursive: true, force: true });
+    }
+    await rm(path.join(virtualStoreRoot, 'node_modules', '@img', nativePackage), {
+      force: true,
+    });
+    for (const entry of entries.filter((name) => name.startsWith('sharp@'))) {
+      await rm(path.join(virtualStoreRoot, entry, 'node_modules', '@img', nativePackage), {
+        force: true,
+      });
+    }
+  }
+}
+
 async function pruneProductionSourceMaps(appRoot) {
   const records = await listTree(appRoot);
   await Promise.all(
@@ -993,6 +1020,7 @@ export async function createStage(options = {}) {
         .map((entry) => rm(path.join(appRoot, entry), { recursive: true, force: true })),
     );
     await pruneTypeOnlyOptionalPeerClosure(appRoot);
+    await preferWasmSharpOnLinux(appRoot);
     await pruneForeignNodePtyPrebuilds(
       path.join(appRoot, 'node_modules', 'node-pty'),
       process.platform,

@@ -56,6 +56,9 @@ dump_startup_diagnostics() {
   echo '--- Android process state ---' >&2
   printf '%s\n' "${pid:-not running}" >&2
   echo '--- NovelTea process logcat ---' >&2
+  # A native abort may have no live PID by the time we collect diagnostics.
+  # Preserve Android's crash buffer independently of package-name filtering.
+  "$adb" logcat -b crash -d >&2 || true
   if [[ -n "$pid" ]]; then
     "$adb" logcat -d --pid="$pid" >&2 || "$adb" logcat -d | grep -Ei 'noveltea|SDL|org\.noveltea\.platformexportacceptance' >&2 || true
   else
@@ -65,6 +68,48 @@ dump_startup_diagnostics() {
   "$adb" shell run-as "$application_id" cat files/logs/player.log >&2 || true
   echo '--- NovelTea app files ---' >&2
   "$adb" shell run-as "$application_id" find files -maxdepth 4 -type f -print >&2 || true
+}
+
+launch_player_after_install() {
+  # API 35's package scan can update ApplicationInfo a moment after a
+  # streamed install reports success, destroying the just-created SDL
+  # Activity without a native exception. One subsequent launch must reach
+  # full player readiness; a persistent startup defect still fails the job.
+  local attempts=1
+  if [[ "$android_api" =~ ^[0-9]+$ ]] && (( android_api >= 35 )); then
+    attempts=2
+  fi
+  local attempt
+  for (( attempt=1; attempt<=attempts; attempt++ )); do
+    "$adb" shell am start -W -n "$application_id/org.noveltea.player.MainActivity"
+    if wait_for_player_ready; then
+      return 0
+    fi
+    if (( attempt == attempts )); then
+      return 1
+    fi
+    # On a freshly booted API-35 hosted emulator, the Google launcher can
+    # itself ANR, leaving an ANR dialog in front of a live, resumed player.
+    # NovelTea correctly waits for window focus before initializing EGL.
+    # Recover only this *observable emulator infrastructure* failure, and
+    # still require full player readiness on the single subsequent launch.
+    local focused_window
+    focused_window=$("$adb" shell dumpsys window | grep -F 'mCurrentFocus=' || true)
+    if [[ "$focused_window" == *'Application Not Responding: com.google.android.apps.nexuslauncher'* ]]; then
+      echo "API $android_api launcher ANR stole player focus; restarting the launcher before one retry." >&2
+      "$adb" shell am force-stop com.google.android.apps.nexuslauncher
+      "$adb" shell input keyevent KEYCODE_BACK
+      sleep 2
+    elif "$adb" logcat -d | grep -F "ApplicationInfo updating for $application_id" >/dev/null; then
+      echo "API $android_api initial launch ended during package setup; waiting for the package manager before one retry." >&2
+      wait_for_package_manager_idle
+      sleep 5
+    else
+      echo "No known emulator lifecycle interruption was observed; refusing to mask a player startup failure." >&2
+      return 1
+    fi
+    "$adb" logcat -c
+  done
 }
 
 wait_for_player_ready() {
@@ -149,8 +194,7 @@ echo "NovelTea emulator smoke: API $android_api, ABI $abi"
 "$adb" install -r "$apk_v1"
 wait_for_package_manager_idle
 "$adb" shell pm path "$application_id" >/dev/null
-"$adb" shell am start -W -n "$application_id/org.noveltea.player.MainActivity"
-wait_for_player_ready
+launch_player_after_install
 
 "$adb" shell run-as "$application_id" mkdir -p files/saves
 printf ci-save | "$adb" shell run-as "$application_id" tee files/saves/ci-save-marker >/dev/null
@@ -167,8 +211,7 @@ check_materialized_package 'Initial APK' "$package_sha_v1"
 "$adb" install -r "$apk_v2"
 wait_for_package_manager_idle
 "$adb" logcat -c
-"$adb" shell am start -W -n "$application_id/org.noveltea.player.MainActivity"
-wait_for_player_ready
+launch_player_after_install
 if [[ "$("$adb" shell run-as "$application_id" cat files/saves/ci-save-marker | tr -d '\r')" != ci-save ]]; then
   echo 'APK update did not preserve the saved game marker.' >&2
   dump_startup_diagnostics

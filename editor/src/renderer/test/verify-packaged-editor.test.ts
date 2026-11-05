@@ -148,13 +148,24 @@ describe('packaged Sharp native closure', () => {
     });
   });
 
-  it('still requires a separate libvips package on Linux', async () => {
+  it('rejects native Linux libvips inside the Electron process', async () => {
     const { root, imageRoot } = await createUnpackedRoot();
     const sharpRoot = path.join(imageRoot, 'sharp-linux-x64');
     await writeNativeFile(sharpRoot, 'lib/sharp-linux-x64.node');
 
     await expect(findSharpNativeClosure(root, 'linux')).rejects.toThrow(
-      'Packaged @img closure is incomplete',
+      'Linux Electron must package only sharp-wasm32',
     );
+  });
+
+  it('requires the WASM backend files without native Linux GLib dependencies', async () => {
+    const { root, imageRoot } = await createUnpackedRoot();
+    const wasm = path.join(imageRoot, 'sharp-wasm32');
+    await writeNativeFile(wasm, 'lib/sharp-wasm32-0.35.5.node.js');
+    await writeNativeFile(wasm, 'lib/sharp-wasm32-0.35.5.node.wasm');
+    await expect(findSharpNativeClosure(root, 'linux')).resolves.toEqual({
+      sharpPackages: ['sharp-wasm32'],
+      libvipsPackages: [],
+    });
   });
 });

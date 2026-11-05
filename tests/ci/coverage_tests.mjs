@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync, copyFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -59,21 +59,30 @@ test('native suite snapshots remain independent and merge their coverage union',
     run(process.execPath, [reporter, 'reset', build]);
     assert.ok(!existsSync(counters));
     assert.ok(existsSync(notes));
-    // The CLI suite redirects gcov output away from counters that a departing
-    // earlier CTest daemon may still be writing. Restore the matching .gcda
-    // next to .gcno before reporting coverage; never drop the CLI coverage.
-    const isolated = path.join(root, 'isolated-gcov');
-    const cli = spawnSync(path.join(build, 'engine/probe'), [], {
-      env: { ...process.env, GCOV_PREFIX: isolated, GCOV_PREFIX_STRIP: '0' },
-      encoding: 'utf8',
-    });
-    assert.equal(cli.status, 0, cli.stderr);
+    // CTest A and CTest B must not write the same .gcda, including if the
+    // first test has a late-exiting daemon. Their offline merge must retain
+    // counters from both tests without introducing runtime merge errors.
+    const isolated = build + '.gcov-cli';
+    const isolatedRun = (name, args) => {
+      const cli = spawnSync(path.join(build, 'engine/probe'), args, {
+        env: { ...process.env, GCOV_PREFIX: path.join(isolated, name), GCOV_PREFIX_STRIP: '0' },
+        encoding: 'utf8',
+      });
+      assert.equal(cli.status, 0, cli.stderr);
+    };
+    isolatedRun('native_cli_test_a', []);
+    isolatedRun('native_cli_test_b', ['other-branch']);
     assert.ok(!existsSync(counters));
-    const redirected = path.join(isolated, build.replace(/^\/+/, ''),
+    const redirected = path.join(isolated, 'native_cli_test_a', build.replace(/^\/+/, ''),
       'engine/CMakeFiles/model.dir/src/model.cpp.gcda');
     assert.ok(existsSync(redirected));
-    copyFileSync(redirected, counters);
+    assert.ok(existsSync(redirected.replace('native_cli_test_a', 'native_cli_test_b')));
+    run(process.execPath, [reporter, 'restore-isolated', build]);
+    assert.ok(existsSync(counters));
     run(process.execPath, [reporter, 'report', build, path.join(reports, 'ctest-cli')]);
+    const first = JSON.parse(readFileSync(path.join(reports, 'ctest/summary.json'), 'utf8'));
+    const isolatedMerged = JSON.parse(readFileSync(path.join(reports, 'ctest-cli/summary.json'), 'utf8'));
+    assert.ok(isolatedMerged.branch_covered > first.branch_covered);
     run(process.execPath, [reporter, 'reset', build]);
     run(path.join(build, 'engine/probe'), ['other-branch']);
     run(process.execPath, [reporter, 'report', build, path.join(reports, 'feature-lab')]);

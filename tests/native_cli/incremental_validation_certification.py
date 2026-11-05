@@ -1,6 +1,7 @@
 """#594: public incremental validation parity, avoided work, and recovery.
 
 Usage: python3 incremental_validation_certification.py <noveltea> <repo-root>
+       [feature-lab|1|101|501 ...]
 
 No wall-clock assertions. Every reference validation opens an independent,
 cache-free copy of the identical saved Project through the public direct CLI.
@@ -21,6 +22,8 @@ import time
 
 cli = Path(sys.argv[1]).resolve()
 repo = Path(sys.argv[2]).resolve()
+selected = set(sys.argv[3:]) if len(sys.argv) > 3 else {"feature-lab", "1", "101", "501"}
+assert selected and selected <= {"feature-lab", "1", "101", "501"}, selected
 
 
 # macOS temp paths usually live under /var/folders/<hash>/T. Adding the
@@ -47,7 +50,8 @@ with tempfile.TemporaryDirectory(
         return payload
 
     def stop():
-        assert invoke("daemon", "stop")["success"]
+        stopped = invoke("daemon", "stop")
+        assert stopped["success"], ("Daemon shutdown failed", stopped)
         # A cache-corruption test must not accidentally exercise a still-live
         # resident owner (or race its final clean-ledger publication).
         status = invoke("daemon", "status")["daemon"]
@@ -241,21 +245,51 @@ with tempfile.TemporaryDirectory(
             assert physical["fontCoverageMicros"] == 0, physical
 
     def certify_unchanged_resident(project, result):
-        no_stages(result)
-        if not work(result, "residentWarm"):
+        # A retained ProjectSession does not necessarily mean its external
+        # stage projections survived host watcher recovery. On Windows and
+        # macOS, an unchanged request can conservatively rebuild that input
+        # once even though the semantic session is resident. Require public
+        # parity and a truly stage-free subsequent request, rather than
+        # treating residentWarm alone as a complete-stage cache-hit flag.
+        physical = result["validationWork"]["endToEnd"]
+        stages_readmitted = (not sys.platform.startswith("linux") and
+                            physical["completeProjectPreparations"] != 0)
+        if stages_readmitted:
+            # An external-stage readmission is not permission to reparse or
+            # reevaluate unchanged Project records and semantic contributors.
+            assert work(result, "recheckedRecords") == 0, result["validationWork"]
+            assert work(result, "recheckedContributions") == 0, result["validationWork"]
+        if not work(result, "residentWarm") or stages_readmitted:
             # A retired owner or conservatively readmitted watcher may serve
-            # a cold, unchanged Project from the persistent ledger. Its
-            # physical admission proofs are not healthy *warm* request work.
-            # Recheck the full public result independently, then require the
-            # same owner to retain the generation for the next warm call.
+            # a cold, unchanged Project from the persistent ledger. Cold
+            # admission can reconstruct downstream inputs and reprove font
+            # bytes without reparsing any YAML. Those physical admission
+            # proofs are not healthy *warm* request work and must not be
+            # subjected to no_stages() before the owner has been retained.
+            # Recheck the full public result independently. An NTFS USN
+            # journal can become unprovable immediately after a fresh owner
+            # opens: that first observation retires the journal-backed owner
+            # and switches to conservative full physical scans for the
+            # remaining daemon lifetime. Permit exactly one attributable
+            # Windows readmission, never an unbounded series of cold owners.
             fresh_parity(project, result)
             repeated = validate(project)
+            if not work(repeated, "residentWarm") and sys.platform == "win32":
+                reasons = work(repeated, "semanticFallbackReasons")
+                assert "source-authority-recovery" in reasons, (
+                    project, "Unexpected cold Windows readmission", repeated["validationWork"])
+                assert work(repeated, "recheckedRecords") == 0, repeated["validationWork"]
+                assert work(repeated, "recheckedContributions") == 0, repeated["validationWork"]
+                assert public(repeated) == public(result), (project, repeated)
+                fresh_parity(project, repeated)
+                repeated = validate(project)
             assert work(repeated, "residentWarm"), (
                 project, "Owner failed to remain resident", repeated["validationWork"])
             assert public(repeated) == public(result), (project, repeated)
             no_stages(repeated)
             warm_stage_proofs(repeated)
         else:
+            no_stages(result)
             warm_stage_proofs(result)
 
     def set_label(path, value):
@@ -266,6 +300,9 @@ with tempfile.TemporaryDirectory(
 
     try:
         for size in ("feature-lab", 1, 101, 501):
+            if str(size) not in selected:
+                continue
+            print(f"START: {size}: incremental validation certification", flush=True)
             project = root / str(size)
             if size == "feature-lab":
                 shutil.copytree(repo / "tests/projects/feature-lab", project,
@@ -301,8 +338,28 @@ with tempfile.TemporaryDirectory(
             fresh_parity(project, initial)
             for _ in range(2):
                 unchanged = validate(project)
-                assert public(unchanged) == public(initial), size
+                # A watcher recovery can conservatively return a temporary
+                # generation conflict when another process has just admitted
+                # the newly created Project. Do not accept a different public
+                # result; require convergence to the exact cold baseline.
+                if public(unchanged) != public(initial) and any(
+                        diagnostic.get("code") == "WORKSPACE_REVISION_CONFLICT"
+                        for diagnostic in unchanged.get("diagnostics", [])):
+                    unchanged = validate_after_membership_change(project)
+                assert public(unchanged) == public(initial), (
+                    size, public(unchanged), public(initial))
                 certify_unchanged_resident(project, unchanged)
+
+            if size == 1:
+                # Exercise the cold-owner branch deterministically on every
+                # host, instead of relying on Windows watcher recovery or
+                # runner pressure to evict the resident owner between calls.
+                stop()
+                readmitted = validate(project)
+                assert not work(readmitted, "residentWarm"), readmitted["validationWork"]
+                assert public(readmitted) == public(initial), (
+                    size, public(readmitted), public(initial))
+                certify_unchanged_resident(project, readmitted)
 
             for index in range(2):
                 set_label(room, f"Certification label {index}")
@@ -661,6 +718,15 @@ with tempfile.TemporaryDirectory(
             print(f"PASS: {size}: warm/unchanged/cold, fresh parity, corruption, "
                   "invalid diagnostics, negative lookup, recovery, export parity", flush=True)
     finally:
-        stop()
+        # A teardown failure must not replace the original certification
+        # exception. Windows previously reported only the final daemon-stop
+        # assertion, hiding the validation step that actually failed first.
+        if sys.exc_info()[0] is None:
+            stop()
+        else:
+            try:
+                stop()
+            except Exception as cleanup_error:
+                print(f"Daemon cleanup also failed: {cleanup_error!r}", file=sys.stderr)
 
 print("Public incremental native validation certification passed")

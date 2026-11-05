@@ -259,6 +259,15 @@ jobs:
         env:
           VCPKG_ROOT: ${{ github.workspace }}/.cache/vcpkg
         run: pnpm -C editor run noveltea:build
+      - name: Verify Windows CLI ships without GNU runtime DLL imports
+        shell: pwsh
+        run: |
+          foreach ($exe in @("build/cli/windows/noveltea.exe", "build/cli/windows/noveltea-ui-test-runner.exe")) {
+            $imports = & objdump -p $exe
+            if ($LASTEXITCODE -ne 0) { throw "Cannot inspect Windows PE imports: $exe" }
+            $unsafe = @($imports | Select-String -Pattern 'DLL Name: (libgcc_s_.*|libstdc\+\+-6|libwinpthread-1)\.dll' -CaseSensitive:$false)
+            if ($unsafe.Count -ne 0) { throw "$exe requires unshipped GNU runtime DLLs: $($unsafe -join ', ')" }
+          }
       - name: Upload Windows CLI build
         uses: actions/upload-artifact@v7
         with:
@@ -1421,6 +1430,15 @@ jobs:
             /usr/local/share/powershell
           df -h "$GITHUB_WORKSPACE"
 
+      # Set up the pinned Node toolchain before the Android native builds
+      # consume most of the runner's disk. Delaying the install until after
+      # the second 20+ minute template compile can fail inside setup-node
+      # itself, before the certification steps have even started.
+      - name: Set up Node.js for Android certification
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+
       - name: Set up Java
         uses: actions/setup-java@v5
         with:
@@ -1515,11 +1533,6 @@ jobs:
 
       - name: Install pnpm and editor dependencies
         uses: pnpm/action-setup@v6
-
-      - name: Set up Node.js for Android certification
-        uses: actions/setup-node@v6
-        with:
-          node-version-file: .node-version
 
       - name: Install root workspace dependencies
         run: pnpm install --frozen-lockfile
@@ -1903,6 +1916,24 @@ jobs:
         env:
           NOVELTEA_AUTHORING_NODE_ADDON: ${{ github.workspace }}/build/native-authoring-host/noveltea-authoring-node.node
         run: pnpm -C editor run noveltea:certify -- "${{ github.workspace }}/${{ matrix.cli_executable }}"
+
+      - name: Diagnose macOS native daemon-owner crash
+        if: failure() && matrix.platform == 'macos'
+        shell: bash
+        run: |
+          # The daemon broker intentionally isolates owner stderr. Preserve
+          # actual macOS native crash reports when its process dies rather
+          # than treating a DAEMON_BROKER exit as a recoverable busy lock.
+          directory="$HOME/Library/Logs/DiagnosticReports"
+          if [[ -d "$directory" ]]; then
+            find "$directory" -maxdepth 1 -type f -mmin -45 \
+              \( -iname '*noveltea*' -o -iname '*electron*' \) -print |
+              head -5 | while IFS= read -r report; do
+                echo "::group::$(basename "$report")"
+                sed -n '1,180p' "$report"
+                echo "::endgroup::"
+              done
+          fi
 
       - name: Build and verify native editor artifacts
         shell: pwsh

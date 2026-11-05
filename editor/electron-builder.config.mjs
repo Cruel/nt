@@ -124,6 +124,14 @@ export default {
     'dist-electron/**/*',
     '!dist-electron/**/native-production-provenance.json',
     'node_modules/**/*',
+    // Electron/Linux cannot load the native libvips GLib binary alongside
+    // Chromium. The staged sharp runtime uses the pinned WASM backend.
+    ...(process.platform === 'linux'
+      ? [
+          '!node_modules/@img/sharp-linux-x64/**/*',
+          '!node_modules/@img/sharp-libvips-linux-x64/**/*',
+        ]
+      : []),
     '!node_modules/.cache{,/**/*}',
     '!node_modules/**/{test,tests,__tests__,coverage,fixtures}/**/*',
     '!node_modules/node-pty/prebuilds/**/*',

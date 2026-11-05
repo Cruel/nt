@@ -6937,7 +6937,11 @@ extern "C" std::uint64_t noveltea_tooling_daemon_json(const std::uint8_t* reques
         result = client_request(*context, "stop", "stop");
 #if defined(_WIN32)
         if (daemon_handle) {
-            const auto terminated = WaitForSingleObject(daemon_handle, 10'000);
+            // The broker may have acknowledged its drain before Windows has
+            // joined every resident worker and released its process handles.
+            // Give the bounded shutdown its own budget rather than declaring
+            // a healthy owner exit hung under a loaded hosted runner.
+            const auto terminated = WaitForSingleObject(daemon_handle, 30'000);
             CloseHandle(daemon_handle);
             if (terminated != WAIT_OBJECT_0)
                 result = {{"ok", false}, {"error", "daemon process did not exit after stop"}};

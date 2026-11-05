@@ -98,7 +98,9 @@ async function characterizeThumbnailProtocolFromDevelopmentOrigin(): Promise<boo
     if (request.url !== `${THUMBNAIL_PROTOCOL_CHARACTERIZATION_SCHEME}://cache/proof.webp`) {
       return new Response('Not found', { status: 404 });
     }
-    return new Response(image, {
+    // WebAssembly sharp can return SharedArrayBuffer-backed buffers. Fetch
+    // Response bodies must own ordinary, non-shared Uint8Array storage.
+    return new Response(new Uint8Array(image), {
       headers: {
         'Content-Type': 'image/webp',
         'Cache-Control': 'public, max-age=31536000, immutable',
@@ -188,18 +190,22 @@ async function characterizeProductionThumbnailProtocol(
       return false;
     }
     const assetId = asset.assetId;
-    const openedLiteral = JSON.stringify(projectRoot);
-    const source = {
-      projectRelativePath: 'assets/images/source.png',
-      contentHash: `sha256:${crypto.createHash('sha256').update(sourceBytes).digest('hex')}`,
-      width: 3,
-      height: 2,
-      orientation: 1,
-    };
-    const sourceLiteral = JSON.stringify(source);
-    const assetIdLiteral = JSON.stringify(assetId);
-    const proof = (await window.webContents.executeJavaScript(
-      `(async () => {
+    // Opening the renderer Project creates a resident native authoring worker
+    // that holds the clean-cache writer lock on Windows. Close its authority
+    // before deleting this temporary Project, even on a failed smoke proof.
+    try {
+      const openedLiteral = JSON.stringify(projectRoot);
+      const source = {
+        projectRelativePath: 'assets/images/source.png',
+        contentHash: `sha256:${crypto.createHash('sha256').update(sourceBytes).digest('hex')}`,
+        width: 3,
+        height: 2,
+        orientation: 1,
+      };
+      const sourceLiteral = JSON.stringify(source);
+      const assetIdLiteral = JSON.stringify(assetId);
+      const proof = (await window.webContents.executeJavaScript(
+        `(async () => {
         const opened = await window.noveltea.openProject(${openedLiteral});
         if (!opened.success || !opened.projectSessionId) return { first: { ok: false }, second: null, loaded: false, width: 0, height: 0 };
         const request = {
@@ -229,69 +235,80 @@ async function characterizeProductionThumbnailProtocol(
         const second = await window.noveltea.requestImageThumbnail(request);
         return { first, second, original, originalLoaded: originalImage.loaded, originalWidth: originalImage.width, originalHeight: originalImage.height, ...image };
       })()`,
-      true,
-    )) as {
-      first: {
-        ok: boolean;
-        url?: string;
-        cacheKey?: string;
-        cacheStatus?: string;
+        true,
+      )) as {
+        first: {
+          ok: boolean;
+          url?: string;
+          cacheKey?: string;
+          cacheStatus?: string;
+        };
+        second: {
+          ok: boolean;
+          url?: string;
+          cacheKey?: string;
+          cacheStatus?: string;
+        } | null;
+        original?: { ok: boolean; url?: string };
+        originalLoaded?: boolean;
+        originalWidth?: number;
+        originalHeight?: number;
+        loaded: boolean;
+        width: number;
+        height: number;
       };
-      second: {
-        ok: boolean;
-        url?: string;
-        cacheKey?: string;
-        cacheStatus?: string;
-      } | null;
-      original?: { ok: boolean; url?: string };
-      originalLoaded?: boolean;
-      originalWidth?: number;
-      originalHeight?: number;
-      loaded: boolean;
-      width: number;
-      height: number;
-    };
-    if (
-      !proof.first.ok ||
-      !proof.second?.ok ||
-      !proof.first.url?.startsWith('noveltea-thumbnail://cache/image/') ||
-      proof.first.cacheStatus !== 'generated' ||
-      proof.second.cacheStatus !== 'hit' ||
-      proof.first.cacheKey !== proof.second.cacheKey ||
-      proof.first.url !== proof.second.url ||
-      !proof.original?.ok ||
-      !proof.original.url?.startsWith('noveltea-asset://source/') ||
-      !proof.originalLoaded ||
-      proof.originalWidth !== 3 ||
-      proof.originalHeight !== 2 ||
-      !proof.loaded ||
-      proof.width !== 3 ||
-      proof.height !== 2
-    ) {
-      console.error('[package-smoke:thumbnail] Renderer/IPC protocol readback failed:', proof);
-      return false;
+      if (
+        !proof.first.ok ||
+        !proof.second?.ok ||
+        !proof.first.url?.startsWith('noveltea-thumbnail://cache/image/') ||
+        proof.first.cacheStatus !== 'generated' ||
+        proof.second.cacheStatus !== 'hit' ||
+        proof.first.cacheKey !== proof.second.cacheKey ||
+        proof.first.url !== proof.second.url ||
+        !proof.original?.ok ||
+        !proof.original.url?.startsWith('noveltea-asset://source/') ||
+        !proof.originalLoaded ||
+        proof.originalWidth !== 3 ||
+        proof.originalHeight !== 2 ||
+        !proof.loaded ||
+        proof.width !== 3 ||
+        proof.height !== 2
+      ) {
+        console.error('[package-smoke:thumbnail] Renderer/IPC protocol readback failed:', proof);
+        return false;
+      }
+      const response = await net.fetch(proof.first.url);
+      const originalResponse = await net.fetch(proof.original!.url!);
+      const valid =
+        response.ok &&
+        response.headers.get('content-type') === 'image/webp' &&
+        response.headers.get('cache-control') === 'public, max-age=31536000, immutable' &&
+        originalResponse.ok &&
+        originalResponse.headers.get('content-type') === 'image/png' &&
+        originalResponse.headers.get('content-length') === String(sourceBytes.byteLength) &&
+        originalResponse.headers.get('cache-control') === 'no-store' &&
+        originalResponse.headers.get('x-content-type-options') === 'nosniff' &&
+        (await originalResponse.arrayBuffer()).byteLength === sourceBytes.byteLength &&
+        response.headers.get('cross-origin-resource-policy') === 'cross-origin' &&
+        response.headers.get('access-control-allow-origin') === '*' &&
+        response.headers.get('x-content-type-options') === 'nosniff' &&
+        (await response.arrayBuffer()).byteLength > 0;
+      if (!valid)
+        console.error('[package-smoke:thumbnail] Production protocol response validation failed.');
+      return valid;
+    } finally {
+      await window.webContents.executeJavaScript('window.noveltea.closeActiveProject()', true);
     }
-    const response = await net.fetch(proof.first.url);
-    const originalResponse = await net.fetch(proof.original!.url!);
-    const valid =
-      response.ok &&
-      response.headers.get('content-type') === 'image/webp' &&
-      response.headers.get('cache-control') === 'public, max-age=31536000, immutable' &&
-      originalResponse.ok &&
-      originalResponse.headers.get('content-type') === 'image/png' &&
-      originalResponse.headers.get('content-length') === String(sourceBytes.byteLength) &&
-      originalResponse.headers.get('cache-control') === 'no-store' &&
-      originalResponse.headers.get('x-content-type-options') === 'nosniff' &&
-      (await originalResponse.arrayBuffer()).byteLength === sourceBytes.byteLength &&
-      response.headers.get('cross-origin-resource-policy') === 'cross-origin' &&
-      response.headers.get('access-control-allow-origin') === '*' &&
-      response.headers.get('x-content-type-options') === 'nosniff' &&
-      (await response.arrayBuffer()).byteLength > 0;
-    if (!valid)
-      console.error('[package-smoke:thumbnail] Production protocol response validation failed.');
-    return valid;
   } finally {
-    await fs.promises.rm(fixtureRoot, { recursive: true, force: true });
+    // Native worker termination is asynchronous after the close IPC
+    // acknowledgment. Wait for Windows to release its OS file lock rather
+    // than treating a healthy clean-cache writer as a corrupted package.
+    await fs.promises.rm(fixtureRoot, {
+      recursive: true,
+      force: true,
+      maxRetries: process.platform === 'win32' ? 20 : 0,
+      retryDelay: 150,
+    });
   }
 }
 
@@ -376,7 +393,13 @@ export async function runPackageSmoke(
   enginePreviewServer: EnginePreviewServer,
 ): Promise<PackageSmokeResult> {
   const checks: Record<string, boolean> = {};
+  const stage = (name: string) => {
+    // A native crash bypasses this function's catch block and result marker.
+    // Preserve the last reached operation in hosted Release logs.
+    if (process.env.CI) console.error(`[package-smoke:stage] ${name}`);
+  };
   try {
+    stage('renderer');
     await waitForRenderer(window);
 
     const renderer = (await window.webContents.executeJavaScript(
@@ -394,6 +417,7 @@ export async function runPackageSmoke(
     checks.renderer = renderer.hasRoot && renderer.title.length > 0;
     checks.preload = renderer.hasPreloadApi;
     checks.packagedProtocol = renderer.url.startsWith('noveltea-editor://');
+    stage('ipc-boundary');
     const boundaryFailure = (await window.webContents.executeJavaScript(
       `window.noveltea.selectDirectory({ unexpected: true }).then(
         () => null,
@@ -408,6 +432,7 @@ export async function runPackageSmoke(
       );
     }
 
+    stage('packaged-protocol');
     const packagedDocument = await net.fetch('noveltea-editor://app/index.html');
     checks.packagedProtocolHeaders =
       packagedDocument.ok &&
@@ -419,6 +444,7 @@ export async function runPackageSmoke(
     );
     checks.packagedProtocolTraversal = traversalAttempt.status === 403;
 
+    stage('engine-preview');
     const preview = await enginePreviewServer.getSession();
     const previewResponse = await fetch(`${preview.origin}/index.html`);
     checks.enginePreview = previewResponse.ok && (await previewResponse.text()).length > 0;
@@ -433,6 +459,7 @@ export async function runPackageSmoke(
     checks.editorAssets =
       assetResponse.ok && (await assetResponse.text()).includes('nt-layout-preview-root');
 
+    stage('native-cli');
     const cliName = process.platform === 'win32' ? 'noveltea.exe' : 'noveltea';
     const cliPath = path.join(process.resourcesPath, 'bin', cliName);
     const cliInfo = await fs.promises.stat(cliPath);
@@ -441,9 +468,11 @@ export async function runPackageSmoke(
       (process.platform === 'win32' || (cliInfo.mode & 0o111) !== 0) &&
       (await characterizeNovelTeaCli(cliPath));
 
+    stage('sharp-formats');
     const sharpFormats = await characterizeSharpFormats();
     checks.sharp = Object.values(sharpFormats).every(Boolean);
 
+    stage('private-media-tools');
     const mediaRoot = await fs.promises.mkdtemp(
       path.join(app.getPath('temp'), 'noveltea media smoke '),
     );
@@ -492,15 +521,19 @@ export async function runPackageSmoke(
     for (const [name, passed] of Object.entries(sharpFormats)) {
       checks[`sharp.${name}`] = passed;
     }
+    stage('node-pty');
     const ptyChecks = await characterizePackagedNodePty(process.resourcesPath);
     checks.nodePty = Object.values(ptyChecks).every(Boolean);
     for (const [name, passed] of Object.entries(ptyChecks)) {
       checks[`nodePty.${name}`] = passed;
     }
+    stage('thumbnail-development-origin');
     checks.thumbnailProtocolDevelopmentOrigin =
       await characterizeThumbnailProtocolFromDevelopmentOrigin();
+    stage('thumbnail-production-protocol');
     checks.thumbnailProductionProtocol = await characterizeProductionThumbnailProtocol(window);
 
+    stage('complete');
     const success = Object.values(checks).every(Boolean);
     return {
       success,

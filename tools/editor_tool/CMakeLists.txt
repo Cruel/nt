@@ -346,6 +346,12 @@ target_include_directories(noveltea-native-cli PRIVATE "${CMAKE_SOURCE_DIR}/tool
 target_include_directories(noveltea-native-cli PRIVATE "${CMAKE_BINARY_DIR}/tools/project_authoring")
 target_link_libraries(noveltea-native-cli PRIVATE noveltea_tooling_native
     nlohmann_json::nlohmann_json miniz::miniz noveltea_cli_windows_pe noveltea_narrative)
+if(MINGW)
+    # The standalone CLI is copied into editor installers without the runner's
+    # MinGW PATH. Do not import GCC, libstdc++ or winpthreads DLLs from that
+    # environment: a missing import otherwise fails before --version can run.
+    target_link_options(noveltea-native-cli PRIVATE -static -static-libgcc -static-libstdc++)
+endif()
 if(WIN32)
     target_link_libraries(noveltea-native-cli PRIVATE winhttp)
 endif()
@@ -530,11 +536,26 @@ if(BUILD_TESTING)
             "${CMAKE_SOURCE_DIR}/tests/native_cli/incremental_validation_certification.py"
             "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}")
     set_tests_properties(native_cli_incremental_validation_certification PROPERTIES TIMEOUT 900)
+    # Cover representative resident/cold/corrupt-ledger paths with gcov. The
+    # exhaustive four-fixture parity matrix runs against the optimized CLI.
+    add_test(NAME native_cli_incremental_validation_coverage
+        COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_SOURCE_DIR}/tests/native_cli/incremental_validation_certification.py"
+            "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}" 1)
+    set_tests_properties(native_cli_incremental_validation_coverage PROPERTIES TIMEOUT 300)
     add_test(NAME native_cli_dependency_mutation_certification
         COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_SOURCE_DIR}/tests/native_cli/dependency_mutation_certification.py"
             "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}")
     set_tests_properties(native_cli_dependency_mutation_certification PROPERTIES TIMEOUT 900)
+    # The two-Room fixture still covers live dependency, deletion, rename,
+    # invalid source, and cache recovery without repeating the 501-Room and
+    # Feature Lab cold-reference matrix under instrumentation.
+    add_test(NAME native_cli_dependency_mutation_coverage
+        COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_SOURCE_DIR}/tests/native_cli/dependency_mutation_certification.py"
+            "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}" 2)
+    set_tests_properties(native_cli_dependency_mutation_coverage PROPERTIES TIMEOUT 300)
     add_test(NAME native_compiled_project_parity
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli/compiled_project_parity.py"
             "$<TARGET_FILE:noveltea-runtime-cache-publish-certify>" "${CMAKE_SOURCE_DIR}")
@@ -562,4 +583,22 @@ if(BUILD_TESTING)
     add_test(NAME native_authoring_cli_validation_generation
         COMMAND noveltea-cli-native-certify --validation-generation
                 "${CMAKE_SOURCE_DIR}/tests/projects/feature-lab")
+endif()
+
+# Each instrumented native CLI test owns an independent gcov tree. Daemon
+# children can finish after CTest reports a test complete, so RESOURCE_LOCK
+# and serial CTest scheduling alone cannot prevent a late child from merging
+# incompatible .gcda counters into a later test's files. Keep these roots
+# outside the instrumented build directory so counter resets and gcovr cannot
+# accidentally collect live per-test data; merge them offline after CTest.
+if(NOVELTEA_ENABLE_COVERAGE AND BUILD_TESTING)
+    get_property(_native_cli_registered_tests DIRECTORY PROPERTY TESTS)
+    foreach(_native_cli_test IN LISTS _native_cli_registered_tests)
+        if(_native_cli_test MATCHES "^native_cli_" OR
+           _native_cli_test MATCHES "^native_authoring_cli_")
+            set_tests_properties("${_native_cli_test}" PROPERTIES
+                RESOURCE_LOCK "noveltea_gcov_cli"
+                ENVIRONMENT "GCOV_PREFIX=${CMAKE_BINARY_DIR}.gcov-cli/${_native_cli_test};GCOV_PREFIX_STRIP=0")
+        endif()
+    endforeach()
 endif()

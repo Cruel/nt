@@ -251,7 +251,18 @@ with private_daemon_fixture() as root:
     assert work(added, "portableSourceReuses") == 0
     with ZipFile(export("workflow-present.ntproject")) as archive:
         assert archive.read("workflows/source.json") == b'{"value":1}\n'
-    assert work(validate(), "portableSourceReuses") == 1
+    after_export = validate()
+    assert after_export["diagnostics"] == diagnostics
+    if sys.platform.startswith("linux"):
+        assert work(after_export, "portableSourceReuses") == 1, after_export["validationWork"]
+    elif work(after_export, "portableSourceReuses") == 0:
+        # A Windows watcher can conservatively drop its exact membership
+        # fence after the file was added and an export was taken. Revalidating
+        # the physical source is safe; pretending a warm reuse would not be.
+        counters = after_export["validationWork"]
+        assert (work(after_export, "portableSourceIncrementalRechecks") > 0 or
+                counters["endToEnd"]["portableSourceChecks"] > 0), counters
+        assert_public_parity(after_export, validate(direct=True))
     workflow.write_bytes(b'{"value":2}\n')
     changed = validate()
     assert work(changed, "portableSourceReuses") == 0, changed["validationWork"]

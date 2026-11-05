@@ -1177,12 +1177,19 @@ TEST_CASE("daemon Project-owner nomination preserves explicit roots and discover
 TEST_CASE("daemon Project owner accepts equivalent Windows path spellings",
           "[owner-path][windows-native]")
 {
+    // A Windows fast-fail terminates Catch2 before it can print an assertion.
+    // Stage markers make it possible to attribute an intermittent native
+    // crash to nomination, observation, completion or teardown in hosted CI.
+    const auto stage = [](std::string_view name) {
+        std::cerr << "[owner-path] " << name << std::endl;
+    };
     auto project = temp_project_root("owner-equivalent-path");
     auto request = scheduler_context(unique_build("owner-equivalent-path"));
     request["action"] = "serve-start";
     REQUIRE(invoke_daemon(request)["ok"] == true);
     request["action"] = "serve-ready";
     REQUIRE(invoke_daemon(request)["ok"] == true);
+    stage("broker ready");
 
     auto work = owner_request(request, "owner-equivalent-path", project.path);
     auto foreground = std::async(std::launch::async, [work] { return invoke_daemon(work); });
@@ -1203,12 +1210,14 @@ TEST_CASE("daemon Project owner accepts equivalent Windows path spellings",
     const auto status = daemon_status(request);
     REQUIRE(status["engineeringOwners"].size() == 1);
     const auto owner = status["engineeringOwners"][0]["workerId"].get<std::uint64_t>();
+    stage("owner nominated");
 
     auto next = request;
     next["action"] = "owner-next";
     next["ownerWorkerId"] = owner;
     const auto owner_work = invoke_daemon(next);
     REQUIRE(owner_work["ok"] == true);
+    stage("owner accepted");
 
     auto alternate_root = project.path.string();
     bool changed_case = false;
@@ -1224,6 +1233,7 @@ TEST_CASE("daemon Project owner accepts equivalent Windows path spellings",
     REQUIRE(changed_case);
     REQUIRE(alternate_root != project.path.string());
     REQUIRE(std::filesystem::exists(alternate_root));
+    stage("case-variant root exists");
 
     auto observe = request;
     observe["action"] = "owner-project-observe";
@@ -1237,6 +1247,7 @@ TEST_CASE("daemon Project owner accepts equivalent Windows path spellings",
     const auto observed = invoke_daemon(observe);
     REQUIRE(observed["ok"] == true);
     REQUIRE(observed.contains("manifest"));
+    stage("case-variant observation accepted");
     CHECK(std::filesystem::path(observed["manifest"]["canonicalRoot"].get<std::string>()) ==
           std::filesystem::canonical(project.path));
 
@@ -1249,6 +1260,7 @@ TEST_CASE("daemon Project owner accepts equivalent Windows path spellings",
     REQUIRE(invoke_daemon(complete)["ok"] == true);
     REQUIRE(foreground.wait_for(std::chrono::seconds(2)) == std::future_status::ready);
     REQUIRE(foreground.get()["ok"] == true);
+    stage("foreground completed");
 
     auto stop = request;
     stop["action"] = "stop";
@@ -1256,6 +1268,7 @@ TEST_CASE("daemon Project owner accepts equivalent Windows path spellings",
     auto wait = request;
     wait["action"] = "serve-wait";
     REQUIRE(invoke_daemon(wait)["state"] == "stopped");
+    stage("broker stopped");
 }
 #endif
 

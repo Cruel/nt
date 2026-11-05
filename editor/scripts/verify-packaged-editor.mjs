@@ -44,6 +44,23 @@ export async function findSharpNativeClosure(unpackedRoot, platform = process.pl
   const libvipsPackages = packages
     .filter((entry) => entry.isDirectory() && entry.name.startsWith('sharp-libvips-'))
     .map((entry) => entry.name);
+  if (platform === 'linux') {
+    if (
+      sharpPackages.length !== 1 ||
+      sharpPackages[0] !== 'sharp-wasm32' ||
+      libvipsPackages.length !== 0
+    ) {
+      throw new Error(
+        `Linux Electron must package only sharp-wasm32, not native GLib/libvips (sharp=${sharpPackages.join(',')}, libvips=${libvipsPackages.join(',')}).`,
+      );
+    }
+    for (const file of ['lib/sharp-wasm32-0.35.5.node.js', 'lib/sharp-wasm32-0.35.5.node.wasm']) {
+      if (!(await pathExists(path.join(imageRoot, 'sharp-wasm32', file)))) {
+        throw new Error(`Linux WebAssembly Sharp backend is missing: ${file}`);
+      }
+    }
+    return { sharpPackages, libvipsPackages };
+  }
   if (sharpPackages.length === 0) {
     throw new Error('Packaged @img closure contains no Sharp native package.');
   }

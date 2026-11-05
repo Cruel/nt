@@ -31,6 +31,10 @@ const windowsReleaseSmoke = readFileSync(
   new URL('../../tests/native_cli/windows_release_smoke.py', import.meta.url),
   'utf8',
 );
+const editorPackageSmoke = readFileSync(
+  new URL('../../editor/scripts/run-package-smoke.mjs', import.meta.url),
+  'utf8',
+);
 const editorToolCmake = readFileSync(
   new URL('../../tools/editor_tool/CMakeLists.txt', import.meta.url),
   'utf8',
@@ -284,6 +288,7 @@ test('release Windows CLI build and certification are separate same-run artifact
   const producer = releaseJob('windows-cli-build');
   const consumer = releaseJob('windows-cli');
   const cliUpload = step(producer, 'Upload Windows CLI build');
+  const runtimeImports = step(producer, 'Verify Windows CLI ships without GNU runtime DLL imports');
   const headersUpload = step(producer, 'Upload Windows CLI certification shader headers');
   const cliDownload = step(consumer, 'Download Windows CLI build');
   const headersDownload = step(consumer, 'Download Windows CLI certification shader headers');
@@ -291,6 +296,14 @@ test('release Windows CLI build and certification are separate same-run artifact
   const certification = step(consumer, 'Certify Windows CLI');
 
   assert.match(producer, /pnpm -C editor run noveltea:build/);
+  assert.ok(producer.indexOf(runtimeImports) < producer.indexOf(cliUpload));
+  assert.match(runtimeImports, /objdump -p/);
+  assert.match(runtimeImports, /libgcc_s_/);
+  assert.match(runtimeImports, /libstdc/);
+  assert.match(
+    editorToolCmake,
+    /target_link_options\(noveltea-native-cli PRIVATE -static -static-libgcc -static-libstdc\+\+\)/,
+  );
   assert.doesNotMatch(consumer, /pnpm -C editor run noveltea:build/);
   assert.match(consumer, /needs: \[release-metadata, windows-cli-build\]/);
   assert.equal(field(cliUpload, 'path'), 'build/cli/windows');
@@ -434,9 +447,14 @@ test('CI publishes distinct informational coverage summaries and detailed artifa
   assert.ok(native.indexOf(cliReport) < native.indexOf(resetLab));
   assert.match(ctest, /-E '\^\(native_cli_\|native_authoring_cli_commands\$\)'/);
   assert.match(cliCtest, /-R '\^\(native_cli_\|native_authoring_cli_commands\$\)'/);
-  assert.match(cliCtest, /export GCOV_PREFIX=/);
-  assert.match(cliCtest, /export GCOV_PREFIX_STRIP=0/);
-  assert.match(cliCtest, /cp -a .*gcov_build.*build\/linux-debug/);
+  // Detached daemon processes may outlive their CTest. CLI coverage is
+  // isolated by CMake per test, then merged offline, not copied from a
+  // suite-wide GCOV_PREFIX shared by processes with different lifetimes.
+  assert.match(cliCtest, /--parallel 1/);
+  assert.match(cliCtest, /native-coverage\.mjs restore-isolated build\/linux-debug/);
+  assert.doesNotMatch(cliCtest, /export GCOV_PREFIX=/);
+  assert.match(editorToolCmake, /RESOURCE_LOCK "noveltea_gcov_cli"/);
+  assert.match(editorToolCmake, /ENVIRONMENT "GCOV_PREFIX=\$\{CMAKE_BINARY_DIR\}\.gcov-cli\/\$\{_native_cli_test\};GCOV_PREFIX_STRIP=0"/);
   assert.match(step(native, 'Build excluded native CLI certification target'), /--target noveltea-cli-native-certify/);
   assert.ok(native.indexOf(resetLab) < native.indexOf(lab));
   assert.ok(native.indexOf(lab) < native.indexOf(labReport));
@@ -946,6 +964,11 @@ test('Android Release reclaims unrelated runner toolchains before multi-ABI buil
   assert.match(reclaim, /\/opt\/hostedtoolcache\/CodeQL/);
   assert.doesNotMatch(reclaim, /rm -rf[^\n]*\/usr\/local\/lib\/android/);
   assert.ok(
+    android.indexOf('Set up Node.js for Android certification') <
+      android.indexOf('Build unsigned Android player template source'),
+    'pin Node before the Android native builds fill the runner',
+  );
+  assert.ok(
     android.indexOf('Reclaim disk for Android release builds') <
       android.indexOf('Cache Android SDK packages'),
     'free disk before the pinned SDK/NDK is restored',
@@ -953,6 +976,13 @@ test('Android Release reclaims unrelated runner toolchains before multi-ABI buil
   const templateBuild = step(android, 'Build unsigned Android player template source');
   assert.match(templateBuild, /:app:assembleRelease -PnovelteaAbi=arm64-v8a/);
   assert.match(templateBuild, /:app:assembleDebug -PnovelteaAbi=x86_64/);
+});
+
+test('Linux packaged editor smoke uses an isolated X11 desktop and session bus', () => {
+  assert.match(editorPackageSmoke, /'dbus-run-session'/);
+  assert.match(editorPackageSmoke, /'xvfb-run'/);
+  assert.match(editorPackageSmoke, /'--disable-gpu'/);
+  assert.match(editorPackageSmoke, /'--ozone-platform=x11'/);
 });
 
 test('Android SDK installation retries a broken NDK archive without preserving incomplete packages', () => {

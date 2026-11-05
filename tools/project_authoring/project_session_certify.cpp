@@ -1908,6 +1908,20 @@ void project_validation_roundtrip(const std::filesystem::path& fixture)
                     "An explicitly reported source path revokes the pinned publication epoch");
             require(authority.observe().authoritative,
                     "Revoked pinned source generation is re-admitted before further reads");
+            authority.hint(".");
+            require(!authority.fence(),
+                    "A Project-root event revokes the pinned inventory rather than reusing it");
+            const auto root_event = authority.observe();
+            require(root_event.authoritative && root_event.full_rescan &&
+                        authority.verified_source("records/rooms/room-lifecycle-roundtrip.yaml") !=
+                            nullptr,
+                    "Root notifications require complete, safe source readmission");
+            authority.hint(".");
+            const auto direct_root_event = authority.observe();
+            require(direct_root_event.authoritative && direct_root_event.full_rescan &&
+                        authority.verified_source("records/rooms/room-lifecycle-roundtrip.yaml") !=
+                            nullptr,
+                    "Direct root notifications cannot invalidate their own inventory iterator");
         } else {
             require(quiet.authoritative && quiet.unchanged,
                     "Unavailable platform watcher retains safe full source observation");

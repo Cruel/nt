@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import { setTimeout as delay } from 'node:timers/promises';
 
 import {
   editorRoot,
@@ -26,17 +27,27 @@ if (
   throw new Error('Usage: node build-native-authoring-addon.mjs [--addon-only | --headers-only]');
 }
 
-await runPnpmCommand(
-  [
-    'exec',
-    'node-gyp',
-    'install',
-    `--target=${version}`,
-    '--dist-url=https://electronjs.org/headers',
-    `--devdir=${devdir}`,
-  ],
-  { cwd: editorRoot, label: 'electron-authoring-headers' },
-);
+for (let attempt = 1; attempt <= 4; attempt++) {
+  try {
+    await runPnpmCommand(
+      [
+        'exec',
+        'node-gyp',
+        'install',
+        `--target=${version}`,
+        '--dist-url=https://electronjs.org/headers',
+        `--devdir=${devdir}`,
+      ],
+      { cwd: editorRoot, label: `electron-authoring-headers attempt ${attempt}/4` },
+    );
+    break;
+  } catch (error) {
+    // A hosted macOS runner can lose a single Electron CDN request. Retry
+    // only the header download, not CMake compilation or certification.
+    if (attempt === 4) throw error;
+    await delay(attempt * 2000);
+  }
+}
 if (!existsSync(path.join(headers, 'node_api.h'))) {
   throw new Error(`Electron ${version} Node-API headers were not installed: ${headers}`);
 }

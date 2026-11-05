@@ -1181,6 +1181,12 @@ bool SourceAuthority::fence()
         coverage_lost();
         return false;
     }
+    // macOS FSEvents may report the Project root itself. That notification
+    // identifies no child and cannot certify the current directory inventory.
+    if (hinted_paths_.contains(".")) {
+        coverage_lost();
+        return false;
+    }
 #ifdef __linux__
     // File creation/removal changes the directory's own metadata. Fence
     // Material membership even if an inode watch was briefly unarmed or a
@@ -1265,6 +1271,11 @@ SourceObservation SourceAuthority::observe()
     bool observed = false;
     if (native_->drain(observed, hinted_paths_))
         uncertain_ = true;
+    // A root-level event is not an individual child update. The targeted
+    // membership update would erase the root inventory entry while using its
+    // iterator, and a partial readmission could miss newly created sources.
+    if (hinted_paths_.contains("."))
+        coverage_lost();
 #ifdef __linux__
     // Normal inotify membership events already provide targeted invalidation.
     // Only recover the whole inventory if directory metadata changed *without*
