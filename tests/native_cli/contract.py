@@ -88,6 +88,19 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-cli-') as temporary:
     # One realistic authored fixture, then a small native-created Project for
     # repeated relocated/negative checks (avoid repeatedly parsing Feature Lab).
     feature_lab = source / 'tests/projects/feature-lab'
+    # A valid semantic result with a missing publication token occurs when
+    # Windows loses its USN epoch before native validation has repinned it.
+    # Its read-only public command must retry against the recovered authority
+    # and return exactly the same diagnostics, not exit 5.
+    expected_validation = envelope('--project', str(feature_lab), 'validate', timeout=180)
+    pin_recovery = subprocess.run(
+        [str(installed), '--json', '--project', str(feature_lab), 'validate'],
+        cwd=root, env={**environment, 'NOVELTEA_CLI_CERTIFICATION': '1',
+                       'NOVELTEA_CLI_CERTIFICATION_UNPIN_ONCE': '1'},
+        capture_output=True, text=True, timeout=180)
+    assert pin_recovery.returncode == 0, pin_recovery
+    assert pin_recovery.stderr == '', pin_recovery.stderr
+    assert json.loads(pin_recovery.stdout) == expected_validation, pin_recovery.stdout
     feature = envelope('--project', str(feature_lab), 'entity', 'inspect', 'rooms',
                        'active-text-finish')
     assert feature['record']['label'] == 'Notice acknowledged'

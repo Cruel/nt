@@ -1310,7 +1310,7 @@ Json validate(std::string_view request_text)
         return result;
     }
     trace_native_validation("starting resident Project validation");
-    const auto validated = [&] {
+    auto validated = [&] {
         ScopedPhysicalValidationStage physical(work_counts, physical_stages,
                                                "sessionAndSourceAuthority");
         noveltea::authoring::ScopedValidationStageTime<
@@ -1319,6 +1319,17 @@ Json validate(std::string_view request_text)
         return state.session->validate_clean_project(true, true);
     }();
     trace_native_validation("resident Project validation returned");
+    if (std::getenv("NOVELTEA_CLI_CERTIFICATION") &&
+        std::getenv("NOVELTEA_CLI_CERTIFICATION_UNPIN_ONCE")) {
+        // Reproduce the valid-but-unpinned generation observed after a
+        // Windows USN recovery. The public read-only CLI must retry once
+        // rather than returning a transient conflict for unchanged sources.
+        static bool injected = false;
+        if (!injected) {
+            injected = true;
+            validated.deferred_exact_revisions.reset();
+        }
+    }
     // A request that did not ask for font inputs can still advance the
     // resident localization source generation. Invalidate its dependent
     // projection *now*, not only on the next request asking for coverage.

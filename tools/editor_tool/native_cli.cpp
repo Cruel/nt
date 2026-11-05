@@ -1807,13 +1807,16 @@ int project_read(const Arguments& args, std::string action)
     auto response = native_request(request);
     if (action == "project-validate") {
         if (!response.value("ok", false) && response.value("kind", std::string{}) == "conflict" &&
-            response.value("error", std::string{}) ==
-                "Project sources changed during validation preparation.") {
-            // A host journal can lose its source-generation proof during
-            // preparation even when all Project bytes remain stable. The
-            // native owner has already revoked that proof and re-observed the
-            // physical sources. Revalidate once from the recovered authority;
-            // never retry write operations or suppress a second conflict.
+            (response.value("error", std::string{}) ==
+                 "Project sources changed during validation preparation." ||
+             response.value("error", std::string{}) ==
+                 "Project source generation cannot be pinned.")) {
+            // A lost host journal can revoke the source-generation proof
+            // either before or during native validation. The first valid
+            // semantic snapshot may not yet have an exact publication token;
+            // do not return it as a successful, unpinned public result.
+            // Retry this *read-only* validation once against the recovered
+            // authority. A second conflict remains visible to the caller.
             response = native_request(request);
         }
         Json work_profile = response.value("work", Json::object());

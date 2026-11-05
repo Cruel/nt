@@ -255,10 +255,25 @@ with tempfile.TemporaryDirectory(
         stages_readmitted = (not sys.platform.startswith("linux") and
                             physical["completeProjectPreparations"] != 0)
         if stages_readmitted:
-            # An external-stage readmission is not permission to reparse or
-            # reevaluate unchanged Project records and semantic contributors.
-            assert work(result, "recheckedRecords") == 0, result["validationWork"]
-            assert work(result, "recheckedContributions") == 0, result["validationWork"]
+            # Rebuilding *only* external stages while the semantic owner is
+            # retained must never reparse or reevaluate unchanged records.
+            # But a lost Windows USN epoch can retire the entire owner before
+            # the quiet-window clean ledger exists. Its replacement must
+            # validate the complete inventory from authoritative bytes; a
+            # fresh cold readmission is not a warm-cache performance claim.
+            if work(result, "residentWarm"):
+                assert work(result, "recheckedRecords") == 0, result["validationWork"]
+                assert work(result, "recheckedContributions") == 0, result["validationWork"]
+            elif work(result, "recheckedRecords") != 0:
+                assert sys.platform == "win32", result["validationWork"]
+                assert "source-authority-recovery" in work(
+                    result, "semanticFallbackReasons"), result["validationWork"]
+                # Only the explicitly recovered cold source inventory may
+                # be revalidated; no silent partial owner reuse is accepted.
+                assert work(result, "recheckedRecords") == len(
+                    work(result, "recheckedRecordOwners")), result["validationWork"]
+                assert work(result, "recheckedContributions") == len(
+                    work(result, "recheckedContributionOwners")), result["validationWork"]
         if not work(result, "residentWarm") or stages_readmitted:
             # A retired owner or conservatively readmitted watcher may serve
             # a cold, unchanged Project from the persistent ledger. Cold
