@@ -96,6 +96,19 @@ jobs:
               cmake --build build/native-authoring-host --target noveltea-authoring-node
             '
 
+      - name: Audit dynamic addon's Linux symbol baseline
+        shell: bash
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          addon=build/native-authoring-host/noveltea-authoring-node.node
+          ldd "$addon"
+          objdump -T "$addon" | grep -oE 'GLIBCXX_[0-9.]+' | sort -Vu | tail -n 10
+          cmake -DNOVELTEA_BINARY="$PWD/$addon" \
+            -DNOVELTEA_MAX_GLIBC_VERSION=2.36 \
+            -DNOVELTEA_MAX_GLIBCXX_VERSION=3.4.30 \
+            -P cmake/AuditNovelTeaLinuxCompatibility.cmake
+
       - name: Build only editor JS bundle and unpacked Electron package
         shell: bash
         env:
