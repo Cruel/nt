@@ -33,10 +33,10 @@ struct RoomPatch {
 
 struct RoomSessionSnapshot {
     std::uint64_t working_revision = 0;
-    std::string disk_source_revision; // content identity of the admitted source
-    std::string source_json;          // explicit working fields (not implicit defaults)
-    std::string baseline_json;        // exact admitted saved semantic source values
-    std::string normalized_json;      // only populated when native validation succeeds
+    std::string disk_source_revision;     // content identity of the admitted source
+    std::string source_json;              // explicit working fields (not implicit defaults)
+    std::string baseline_json;            // exact admitted saved semantic source values
+    std::string normalized_json;          // only populated when native validation succeeds
     std::string normalized_baseline_json; // effective saved value, including for dirty records
     std::vector<RoomPatch> dirty_patches; // canonical native B->L diff for recovery replay
     bool dirty = false;
