@@ -1840,13 +1840,17 @@ jobs:
               # Keep the compiler cache inside the writable mounted checkout.
               export CCACHE_DIR=/workspace/.cache/ccache
               test -w "$CCACHE_DIR"
+              # A private static libstdc++ copy crashes Electron native workers in std::regex.
               cmake -S tools/project_authoring -B build/native-authoring-host -G Ninja \
                 -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF \
                 -DNOVELTEA_BUILD_AUTHORING_NODE_ADDON=ON \
                 -DNOVELTEA_NATIVE_SCHEMA_PREGENERATED=ON \
                 -DNOVELTEA_NODE_API_INCLUDE_DIR="/workspace/build/electron-authoring-headers/$ELECTRON_VERSION/include/node" \
-                "-DCMAKE_MODULE_LINKER_FLAGS=-static-libstdc++ -static-libgcc"
+                "-DCMAKE_MODULE_LINKER_FLAGS=-static-libgcc"
               cmake --build build/native-authoring-host --target noveltea-authoring-node
+              # Prevent static libstdc++ linkage from silently returning.
+              readelf -d build/native-authoring-host/noveltea-authoring-node.node |
+                grep -F "Shared library: [libstdc++.so.6]"
               cmake -DNOVELTEA_BINARY=/workspace/build/native-authoring-host/noveltea-authoring-node.node \
                 -DNOVELTEA_MAX_GLIBC_VERSION=2.36 -DNOVELTEA_MAX_GLIBCXX_VERSION=3.4.30 \
                 -P cmake/AuditNovelTeaLinuxCompatibility.cmake

@@ -157,8 +157,9 @@ Linux x64, Windows x64, and macOS arm64. It runs the existing watcher, reconcili
 transaction, and revision tests against the host module, and launches the bundled worker under
 Electron's actual Node runtime to catch ABI/load failures. Release editor jobs build the matching
 native addon on the packaging host and require it in the produced application. For Linux releases,
-the source is compiled inside the pinned manylinux 2.28 compatibility image with a static GNU C++
-runtime and audited against the editor's glibc 2.36 / GLIBCXX 3.4.30 ceilings. This avoids raising
+the source is compiled inside the pinned manylinux 2.28 compatibility image and dynamically
+links libstdc++, avoiding a duplicate static C++ runtime inside Electron's process. CI checks this
+linkage explicitly and audits the editor's glibc 2.36 / GLIBCXX 3.4.30 ceilings. This avoids raising
 the editor binary's compatibility floor to the Ubuntu runner's libc. macOS addons explicitly target
 macOS 14 and their Mach-O minimum is audited on the release runner. Players and exported packages
 never link or receive the authoring library.
