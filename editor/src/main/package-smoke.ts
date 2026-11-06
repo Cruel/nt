@@ -149,10 +149,12 @@ async function characterizeProductionThumbnailProtocol(
   );
   try {
     const projectRoot = path.join(fixtureRoot, 'project');
+    console.log('[package-smoke:thumbnail-step] create-project:start');
     const created = await createNativeEditorProject({
       projectName: 'Package Smoke Thumbnail',
       projectDirectory: projectRoot,
     });
+    console.log('[package-smoke:thumbnail-step] create-project:done');
     if (!created.success || !created.projectFilePath) {
       console.error('[package-smoke:thumbnail] Native Project creation rejected:', created);
       return false;
@@ -160,6 +162,7 @@ async function characterizeProductionThumbnailProtocol(
     const sourceDirectory = path.join(projectRoot, 'assets', 'images');
     const sourcePath = path.join(sourceDirectory, 'source.png');
     await fs.promises.mkdir(sourceDirectory, { recursive: true });
+    console.log('[package-smoke:thumbnail-step] sharp-png:start');
     const sourceBytes = await sharp({
       create: {
         width: 3,
@@ -170,12 +173,15 @@ async function characterizeProductionThumbnailProtocol(
     })
       .png()
       .toBuffer();
+    console.log('[package-smoke:thumbnail-step] sharp-png:done');
     await fs.promises.writeFile(sourcePath, sourceBytes);
+    console.log('[package-smoke:thumbnail-step] import-asset:start');
     const { stdout } = await promisify(execFile)(
       resolveNovelTeaCliPath(),
       ['--no-daemon', '--json', '--project', projectRoot, 'asset', 'import', sourcePath],
       { cwd: process.resourcesPath, encoding: 'utf8', windowsHide: true },
     );
+    console.log('[package-smoke:thumbnail-step] import-asset:done');
     const imported = JSON.parse(stdout) as {
       success?: boolean;
       assets?: Array<{ assetId?: string; projectRelativePath?: string }>;
@@ -204,9 +210,12 @@ async function characterizeProductionThumbnailProtocol(
       };
       const sourceLiteral = JSON.stringify(source);
       const assetIdLiteral = JSON.stringify(assetId);
+      console.log('[package-smoke:thumbnail-step] renderer-protocol:start');
       const proof = (await window.webContents.executeJavaScript(
         `(async () => {
+        console.log('[package-smoke:thumbnail-step] renderer-open-project:start');
         const opened = await window.noveltea.openProject(${openedLiteral});
+        console.log('[package-smoke:thumbnail-step] renderer-open-project:done');
         if (!opened.success || !opened.projectSessionId) return { first: { ok: false }, second: null, loaded: false, width: 0, height: 0 };
         const request = {
           source: {
@@ -224,7 +233,9 @@ async function characterizeProductionThumbnailProtocol(
           element.onerror = () => resolve({ loaded: false, width: 0, height: 0 });
           element.src = original.url;
         });
+        console.log('[package-smoke:thumbnail-step] first-thumbnail:start');
         const first = await window.noveltea.requestImageThumbnail(request);
+        console.log('[package-smoke:thumbnail-step] first-thumbnail:done');
         if (!first.ok) return { first, second: null, original, originalLoaded: originalImage.loaded, loaded: false, width: 0, height: 0 };
         const image = await new Promise((resolve) => {
           const element = new Image();
@@ -232,7 +243,9 @@ async function characterizeProductionThumbnailProtocol(
           element.onerror = () => resolve({ loaded: false, width: 0, height: 0 });
           element.src = first.url;
         });
+        console.log('[package-smoke:thumbnail-step] second-thumbnail:start');
         const second = await window.noveltea.requestImageThumbnail(request);
+        console.log('[package-smoke:thumbnail-step] second-thumbnail:done');
         return { first, second, original, originalLoaded: originalImage.loaded, originalWidth: originalImage.width, originalHeight: originalImage.height, ...image };
       })()`,
         true,
@@ -257,6 +270,7 @@ async function characterizeProductionThumbnailProtocol(
         width: number;
         height: number;
       };
+      console.log('[package-smoke:thumbnail-step] renderer-protocol:done');
       if (
         !proof.first.ok ||
         !proof.second?.ok ||
@@ -277,6 +291,7 @@ async function characterizeProductionThumbnailProtocol(
         console.error('[package-smoke:thumbnail] Renderer/IPC protocol readback failed:', proof);
         return false;
       }
+      console.log('[package-smoke:thumbnail-step] net-fetch:start');
       const response = await net.fetch(proof.first.url);
       const originalResponse = await net.fetch(proof.original!.url!);
       const valid =
@@ -293,11 +308,14 @@ async function characterizeProductionThumbnailProtocol(
         response.headers.get('access-control-allow-origin') === '*' &&
         response.headers.get('x-content-type-options') === 'nosniff' &&
         (await response.arrayBuffer()).byteLength > 0;
+      console.log('[package-smoke:thumbnail-step] net-fetch:done');
       if (!valid)
         console.error('[package-smoke:thumbnail] Production protocol response validation failed.');
       return valid;
     } finally {
+      console.log('[package-smoke:thumbnail-step] close-project:start');
       await window.webContents.executeJavaScript('window.noveltea.closeActiveProject()', true);
+      console.log('[package-smoke:thumbnail-step] close-project:done');
     }
   } finally {
     // Native worker termination is asynchronous after the close IPC
