@@ -1,0 +1,122 @@
+name: Temporary Linux thumbnail crash diagnostics
+
+on:
+  push:
+    branches:
+      - diagnostics/linux-thumbnail-20261105
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  thumbnail-crash:
+    name: Reproduce packaged Linux thumbnail SIGSEGV
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install minimal Linux editor and debugger prerequisites
+        uses: ./.github/actions/setup-linux-native
+        with:
+          xvfb: "true"
+          extra-packages: >-
+            gdb libnss3 libnspr4 libatk1.0-0t64 libatk-bridge2.0-0t64
+            libgtk-3-0t64 libdrm2 libasound2t64 libgbm1 libxkbcommon0
+            libcups2t64 libxdamage1 libxfixes3 libxrandr2 libpango-1.0-0
+            libcairo2 libx11-6 libxext6
+
+      - name: Restore original release CLI (no C++ CLI rebuild)
+        uses: actions/download-artifact@v7
+        with:
+          name: noveltea-release-host-cli-linux-x64
+          run-id: 42102421018
+          github-token: ${{ github.token }}
+          path: build/cli/linux
+
+      - name: Restore original Web editor preview (no Web build)
+        uses: actions/download-artifact@v7
+        with:
+          name: noveltea-web-editor-preview
+          run-id: 42102421018
+          github-token: ${{ github.token }}
+          path: build/web-editor-preview/apps/editor_preview
+
+      - name: Prepare executable host tools
+        shell: bash
+        run: |
+          chmod +x build/cli/linux/noveltea
+          chmod +x build/cli/linux/noveltea-ui-test-runner
+          chmod +x build/cli/linux/tools/ffmpeg/bin/ffmpeg
+
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+
+      - name: Install editor dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Prepare Electron Node-API headers and authoring sources
+        shell: bash
+        run: |
+          node editor/scripts/build-native-authoring-addon.mjs --headers-only
+          node editor/scripts/generate-native-schema.mjs --output build/native-authoring-host/generated
+          node editor/scripts/generate-native-schema.mjs --output build/native-authoring-host/generated --check
+
+      - name: Build only Electron authoring addon with release ABI
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build --tag noveltea-linux-authoring-abi --file .github/containers/linux-player-glibc228.Dockerfile .
+          electron_version="$(node -p "require('./editor/node_modules/electron/package.json').version")"
+          mkdir -p .cache/container-home .cache/ccache
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            --volume "$GITHUB_WORKSPACE:/workspace" \
+            --workdir /workspace \
+            --env HOME=/workspace/.cache/container-home \
+            --env ELECTRON_VERSION="$electron_version" \
+            --env CCACHE_DIR=/workspace/.cache/ccache \
+            noveltea-linux-authoring-abi \
+            bash -lc '
+              set -euo pipefail
+              export CCACHE_DIR=/workspace/.cache/ccache
+              cmake -S tools/project_authoring -B build/native-authoring-host -G Ninja \
+                -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF \
+                -DNOVELTEA_BUILD_AUTHORING_NODE_ADDON=ON \
+                -DNOVELTEA_NATIVE_SCHEMA_PREGENERATED=ON \
+                -DNOVELTEA_NODE_API_INCLUDE_DIR="/workspace/build/electron-authoring-headers/$ELECTRON_VERSION/include/node" \
+                "-DCMAKE_MODULE_LINKER_FLAGS=-static-libstdc++ -static-libgcc"
+              cmake --build build/native-authoring-host --target noveltea-authoring-node
+            '
+
+      - name: Build only editor JS bundle and unpacked Electron package
+        shell: bash
+        env:
+          NOVELTEA_CLI_PATH: ${{ github.workspace }}/build/cli/linux/noveltea
+          NOVELTEA_AUTHORING_NODE_ADDON: ${{ github.workspace }}/build/native-authoring-host/noveltea-authoring-node.node
+        run: |
+          set -euo pipefail
+          pnpm -C editor exec vp pack
+          pnpm -C editor exec vp build
+          node editor/scripts/build-editor-artifact.mjs --dir --release-tag v1.0.0 --skip-build
+
+      - name: Capture crash backtrace from packaged app
+        shell: bash
+        env:
+          CI: "1"
+          NOVELTEA_PACKAGE_SMOKE_GDB: "1"
+        run: |
+          set -o pipefail
+          ulimit -c unlimited
+          pnpm -C editor run package:smoke 2>&1 | tee "$RUNNER_TEMP/thumbnail-gdb.log"
+
+      - name: Upload diagnostic log even on failure
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: thumbnail-gdb-log
+          path: ${{ runner.temp }}/thumbnail-gdb.log
+          if-no-files-found: warn
