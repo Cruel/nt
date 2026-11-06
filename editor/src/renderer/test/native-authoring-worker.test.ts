@@ -13,6 +13,7 @@ const initial = {
   diskSourceRevision: 'sha256:' + '0'.repeat(64),
   source: { schema: 'noveltea.project.workspace' },
   normalized: { schema: 'noveltea.project.workspace' },
+  dirtyPatches: [],
   dirty: false,
   valid: true,
   diagnostics: [],

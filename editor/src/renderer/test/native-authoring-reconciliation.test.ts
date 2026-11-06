@@ -78,6 +78,27 @@ afterEach(async ({ task }) => {
 });
 
 describe.skipIf(!addon)('native dirty Project reconciliation and transactional Save (#498)', () => {
+  it('resolves logical Save owners in the native session, not from the editor projection', async () => {
+    const { root, bridge, working } = await testProject();
+    cleanups.push(async () => {
+      await bridge.closeAndWait();
+      await rm(root, { recursive: true, force: true });
+    });
+    const paths = await bridge.request({
+      operation: 'resolveSaveUnits',
+      expectedRevision: working.snapshot()!.workingRevision,
+      saveUnitIds: [`record:rooms:${roomId}`, 'project:settings'],
+    });
+    expect(paths).toMatchObject({
+      kind: 'save-unit-paths',
+      pathsByOwner: {
+        [`rooms/${roomId}`]: ['/'],
+        editor: [`/recordMetadata/rooms/${roomId}`],
+        project: expect.arrayContaining(['/project', '/settings', '/entrypoint', '/prefetchHints']),
+      },
+    });
+  });
+
   it('accepts the editor wizard defaults for new records across collection families', async () => {
     const { root, bridge, working } = await testProject();
     cleanups.push(async () => {
@@ -1115,6 +1136,82 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
     expect(working.snapshot()).toBeNull();
     expect(await readFile(physical, 'utf8')).toContain('External change');
   }, 120_000);
+
+  it('allows exact Use Disk to clear a native staged text overlay after an external change', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'native-text-use-disk-'));
+    await cp(fixture, root, { recursive: true });
+    const bridge = new NativeAuthoringSessionBridge(
+      { requireActiveProjectRoot: () => root, isCurrent: () => true },
+      { addonPath: path.resolve(addon!), workerScript, pollIntervalMs: 0 },
+    );
+    cleanups.push(async () => {
+      await bridge.closeAndWait();
+      await rm(root, { recursive: true, force: true });
+    });
+    const working = new NativeAuthoringWorkingProject(bridge);
+    await working.open('text-use-disk');
+    const source = 'records/layouts/notice-board/layout.rml';
+    const physical = path.join(root, source);
+    const original = await readFile(physical, 'utf8');
+    const originalRevision = bridge.sourceRevision(Buffer.from(original));
+    expect(
+      (await working.stageTextSource(source, `${original}\n<!-- local -->`, originalRevision))
+        .accepted,
+    ).toBe(true);
+
+    const external = `${original}\n<!-- external -->`;
+    await writeFile(physical, external);
+    const updatedRevision = bridge.sourceRevision(Buffer.from(external));
+    expect(
+      (await working.stageTextSource(source, 'different local text', originalRevision)).accepted,
+    ).toBe(false);
+    const adopted = await working.stageTextSource(source, external, updatedRevision);
+    expect(adopted).toMatchObject({ accepted: true, textSourceStaged: false });
+    expect((await working.prepareWorking()).textOverlays[source]).toBeUndefined();
+    expect(working.dirtyCheckpoint().textSources[source]).toBeUndefined();
+
+    expect(
+      (await working.stageTextSource(source, `${external}\n<!-- local again -->`, updatedRevision))
+        .accepted,
+    ).toBe(true);
+    await rm(physical);
+    await bridge.request({ operation: 'observe' });
+    const deleted = await working.stageTextSource(source, '', 'absent');
+    expect(deleted).toMatchObject({ accepted: true, textSourceStaged: false });
+    expect(working.dirtyCheckpoint().textSources[source]).toBeUndefined();
+  });
+
+  it('saves Keep Mine text only against an explicitly verified latest revision', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'native-text-keep-mine-'));
+    await cp(fixture, root, { recursive: true });
+    const bridge = new NativeAuthoringSessionBridge(
+      { requireActiveProjectRoot: () => root, isCurrent: () => true },
+      { addonPath: path.resolve(addon!), workerScript, pollIntervalMs: 0 },
+    );
+    cleanups.push(async () => {
+      await bridge.closeAndWait();
+      await rm(root, { recursive: true, force: true });
+    });
+    const working = new NativeAuthoringWorkingProject(bridge);
+    await working.open('text-keep-mine');
+    const source = 'records/layouts/notice-board/layout.rml';
+    const physical = path.join(root, source);
+    const original = await readFile(physical, 'utf8');
+    const originalRevision = bridge.sourceRevision(Buffer.from(original));
+    const mine = `${original}\n<!-- mine -->`;
+    expect((await working.stageTextSource(source, mine, originalRevision)).accepted).toBe(true);
+
+    const external = `${original}\n<!-- theirs -->`;
+    await writeFile(physical, external);
+    const externalRevision = bridge.sourceRevision(Buffer.from(external));
+    expect((await working.stageTextSource(source, mine, originalRevision)).accepted).toBe(false);
+    const authorized = await working.stageTextSource(source, mine, externalRevision);
+    expect(authorized).toMatchObject({ accepted: true, textSourceStaged: true });
+    expect(working.dirtyCheckpoint().textSources[source]?.diskRevision).toBe(externalRevision);
+    const saved = await working.saveTextSources(working.snapshot()!.workingRevision, [source]);
+    expect(saved.accepted, saved.error).toBe(true);
+    expect(await readFile(physical, 'utf8')).toBe(mine);
+  });
 
   it('routes collection and export-profile Save units without committing unrelated owners', async () => {
     const { root, bridge, working, roomPath } = await testProject();

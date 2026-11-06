@@ -40,8 +40,8 @@ interface ProjectSourceStoreState {
   setText: (sourceId: string, text: string) => void;
   flushNativeStages: () => Promise<boolean>;
   save: (sourceId: string, acceptExternalBase?: boolean) => Promise<boolean>;
-  useDisk: (sourceId: string) => void;
-  discard: (sourceId: string) => void;
+  useDisk: (sourceId: string) => Promise<boolean>;
+  discard: (sourceId: string) => Promise<boolean>;
   mutate: (operation: ProjectSourceStructuralOperation) => Promise<ProjectSourceStructuralResponse>;
   usages: (path: string) => Promise<readonly ProjectSourceUsage[]>;
 }
@@ -443,20 +443,45 @@ export const useProjectSourceStore = create<ProjectSourceStoreState>()((set, get
     });
     return true;
   },
-  useDisk: (sourceId) =>
-    set((state) => {
-      const buffer = state.buffersById[sourceId];
-      const conflict = buffer?.conflict;
-      if (!buffer || !conflict) return state;
-      if (!conflict.externalExists) {
-        const { [sourceId]: _buffer, ...buffersById } = state.buffersById;
-        const { [sourceId]: _text, ...textById } = state.textById;
+  useDisk: async (sourceId) => {
+    const state = get();
+    const buffer = state.buffersById[sourceId];
+    const conflict = buffer?.conflict;
+    if (!buffer || !conflict || !state.projectSessionId) return false;
+    cancelSourceStage(sourceId);
+    if (useCommandStore.getState().nativeWorkingRevision !== null) {
+      // Do not replace an editor buffer before the native owner has discarded
+      // the staged overlay and admitted these exact external bytes.
+      const result = await useCommandStore
+        .getState()
+        .stageNativeTextAsync(
+          sourceId,
+          conflict.externalText,
+          conflict.externalContentHash,
+          useProjectStore.getState().projectRevision,
+        );
+      if (!result.ok) {
+        set({ error: result.diagnostics[0]?.message ?? 'Native Use Disk rejected.' });
+        return false;
+      }
+    }
+    if (get().projectSessionId !== state.projectSessionId || get().buffersById[sourceId] !== buffer)
+      return false;
+    touchedNativeSources.delete(sourceId);
+    if (!conflict.externalExists) {
+      set((current) => {
+        const { [sourceId]: _buffer, ...buffersById } = current.buffersById;
+        const { [sourceId]: _text, ...textById } = current.textById;
         return {
-          files: state.files.filter((file) => file.id !== sourceId),
+          files: current.files.filter((file) => file.id !== sourceId),
           buffersById,
           textById,
+          error: null,
         };
-      }
+      });
+      return true;
+    }
+    set((current) => {
       const next: ProjectSourceBuffer = {
         text: conflict.externalText,
         baseText: conflict.externalText,
@@ -465,25 +490,45 @@ export const useProjectSourceStore = create<ProjectSourceStoreState>()((set, get
         conflict: null,
       };
       return {
-        buffersById: { ...state.buffersById, [sourceId]: next },
-        textById: { ...state.textById, [sourceId]: next.text },
+        buffersById: { ...current.buffersById, [sourceId]: next },
+        textById: { ...current.textById, [sourceId]: next.text },
+        error: null,
       };
-    }),
-  discard: (sourceId) => {
+    });
+    return true;
+  },
+  discard: async (sourceId) => {
     const state = get();
     const buffer = state.buffersById[sourceId];
-    if (!buffer) return;
-    if (buffer.conflict) {
-      state.useDisk(sourceId);
-      return;
+    if (!buffer) return false;
+    if (buffer.conflict) return state.useDisk(sourceId);
+    cancelSourceStage(sourceId);
+    if (buffer.dirty && useCommandStore.getState().nativeWorkingRevision !== null) {
+      const result = await useCommandStore
+        .getState()
+        .stageNativeTextAsync(
+          sourceId,
+          buffer.baseText,
+          buffer.baseContentHash,
+          useProjectStore.getState().projectRevision,
+        );
+      if (!result.ok) {
+        set({ error: result.diagnostics[0]?.message ?? 'Native source discard rejected.' });
+        return false;
+      }
     }
+    if (get().projectSessionId !== state.projectSessionId || get().buffersById[sourceId] !== buffer)
+      return false;
+    touchedNativeSources.delete(sourceId);
     set({
       buffersById: {
         ...state.buffersById,
         [sourceId]: { ...buffer, text: buffer.baseText, dirty: false },
       },
       textById: { ...state.textById, [sourceId]: buffer.baseText },
+      error: null,
     });
+    return true;
   },
   mutate: async (operation) => {
     const state = get();

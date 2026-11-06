@@ -20,6 +20,16 @@ const workingSnapshotFields = {
   source: z.unknown(),
   baseline: z.unknown().optional(),
   normalized: z.unknown().nullable(),
+  normalizedBaseline: z.unknown().nullable().optional(),
+  dirtyPatches: z.array(
+    z
+      .object({
+        operation: z.enum(['add', 'replace', 'remove']),
+        path: z.string(),
+        value: z.unknown().optional(),
+      })
+      .strict(),
+  ),
   dirty: z.boolean(),
   valid: z.boolean(),
   diagnostics: z.array(nativeAuthoringDiagnosticSchema),
@@ -27,6 +37,13 @@ const workingSnapshotFields = {
 };
 
 export const nativeAuthoringRecordSnapshotSchema = z.object(workingSnapshotFields).strict();
+
+export const nativeSaveUnitPathsSchema = z
+  .object({
+    kind: z.literal('save-unit-paths'),
+    pathsByOwner: z.record(z.string(), z.array(z.string().startsWith('/'))),
+  })
+  .strict();
 
 export const nativeAuthoringSnapshotSchema = z
   .object({
@@ -323,6 +340,7 @@ export const nativeAuthoringEventSchema = z.discriminatedUnion('type', [
         nativeAuthoringCleanValidationSchema,
         nativeAuthoringWorkingValidationSchema,
         nativeSemanticGraphSchema,
+        nativeSaveUnitPathsSchema,
         z.null(),
       ]),
     })
@@ -499,6 +517,14 @@ export const nativeAuthoringCommandSchema = z.discriminatedUnion('operation', [
             .strict(),
         ])
         .optional(),
+    })
+    .strict(),
+  z
+    .object({
+      requestId: z.number().int().positive(),
+      operation: z.literal('resolveSaveUnits'),
+      expectedRevision: z.number().int().nonnegative(),
+      saveUnitIds: z.array(z.string().min(1).max(2048)).min(1).max(2100),
     })
     .strict(),
   z

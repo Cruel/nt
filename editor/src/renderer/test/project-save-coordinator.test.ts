@@ -360,6 +360,8 @@ describe('project save coordinator', () => {
           'rooms/foyer': {
             source: onDisk,
             baseline: onDisk,
+            normalized: onDisk,
+            normalizedBaseline: onDisk,
             diskSourceRevision: roomFileRevision,
             conflictingPaths: [],
           },
@@ -1065,12 +1067,16 @@ describe('project save coordinator', () => {
           'rooms/foyer': {
             source: working.rooms.foyer,
             baseline: working.rooms.foyer,
+            normalized: working.rooms.foyer,
+            normalizedBaseline: working.rooms.foyer,
             diskSourceRevision: `xxh3-128:${'e'.repeat(32)}`,
             conflictingPaths: [],
           },
           'rooms/kitchen': {
             source: working.rooms.kitchen,
             baseline: diskKitchen,
+            normalized: working.rooms.kitchen,
+            normalizedBaseline: diskKitchen,
             diskSourceRevision: `xxh3-128:${'f'.repeat(32)}`,
             conflictingPaths: ['/label'],
           },

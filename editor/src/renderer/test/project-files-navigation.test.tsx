@@ -8,6 +8,7 @@ import { searchProjectSourceFiles } from '../../shared/project-search/project-so
 import { useProjectStore } from '@/project/project-store';
 import { toJsonValue } from '@/project/json-value';
 import { useProjectSourceStore } from '@/project/project-source-store';
+import { useCommandStore } from '@/commands/command-store';
 import { ProjectExplorer } from '@/workspace/ProjectExplorer';
 import { useProjectExplorerStore } from '@/workspace/project-explorer-store';
 import { buildProjectSourceTab, buildRoomDetailTabForRecord } from '@/workbench/editor-registry';
@@ -587,6 +588,87 @@ describe('project Files navigation', () => {
       dirty: false,
       conflict: null,
     });
+  });
+
+  it('retains visible source conflicts until the native Use Disk stage is acknowledged', async () => {
+    loadProject();
+    await useProjectSourceStore.getState().refresh('session-source');
+    useProjectSourceStore.getState().setText(helperSource.id, 'return local');
+    const old = useCommandStore.getState();
+    const externalContentHash = `xxh3-128:${'f'.repeat(32)}` as const;
+    useProjectSourceStore.setState((state) => ({
+      buffersById: {
+        ...state.buffersById,
+        [helperSource.id]: {
+          ...state.buffersById[helperSource.id]!,
+          conflict: {
+            externalExists: true,
+            externalText: 'return remote',
+            externalContentHash,
+          },
+        },
+      },
+    }));
+    let acknowledge!: (result: {
+      ok: boolean;
+      projectChanged: boolean;
+      diagnostics: { severity: 'error'; message: string }[];
+    }) => void;
+    const stageNativeTextAsync = vi.fn(
+      () =>
+        new Promise<{
+          ok: boolean;
+          projectChanged: boolean;
+          diagnostics: { severity: 'error'; message: string }[];
+        }>((resolve) => {
+          acknowledge = resolve;
+        }),
+    );
+    useCommandStore.setState({ nativeWorkingRevision: 1, stageNativeTextAsync });
+    try {
+      const pending = useProjectSourceStore.getState().useDisk(helperSource.id);
+      expect(stageNativeTextAsync).toHaveBeenCalledWith(
+        helperSource.id,
+        'return remote',
+        externalContentHash,
+        useProjectStore.getState().projectRevision,
+      );
+      expect(useProjectSourceStore.getState().buffersById[helperSource.id]).toMatchObject({
+        text: 'return local',
+        dirty: true,
+        conflict: { externalText: 'return remote' },
+      });
+      acknowledge({
+        ok: false,
+        projectChanged: false,
+        diagnostics: [{ severity: 'error', message: 'Native conflict rejected' }],
+      });
+      await expect(pending).resolves.toBe(false);
+      expect(useProjectSourceStore.getState().buffersById[helperSource.id]?.text).toBe(
+        'return local',
+      );
+
+      useCommandStore.setState({
+        stageNativeTextAsync: vi.fn().mockResolvedValue({
+          ok: true,
+          projectChanged: true,
+          diagnostics: [],
+        }),
+      });
+      await expect(useProjectSourceStore.getState().useDisk(helperSource.id)).resolves.toBe(true);
+      expect(useProjectSourceStore.getState().buffersById[helperSource.id]).toMatchObject({
+        text: 'return remote',
+        baseText: 'return remote',
+        baseContentHash: externalContentHash,
+        dirty: false,
+        conflict: null,
+      });
+    } finally {
+      useCommandStore.setState({
+        nativeWorkingRevision: old.nativeWorkingRevision,
+        stageNativeTextAsync: old.stageNativeTextAsync,
+      });
+    }
   });
 
   it('keeps open source tab identity and semantic Layout references while remapping after a move', async () => {

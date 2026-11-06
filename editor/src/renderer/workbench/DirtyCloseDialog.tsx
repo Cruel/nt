@@ -267,8 +267,14 @@ export function DirtyCloseDialog() {
       clearDraftDirtyForTab(dirtyTab.id);
     }
     for (const { tab: dirtyTab } of dirtyTabStates) {
-      if (dirtyTab.resource?.kind === 'source' && dirtyTab.resource.sourceId)
-        useProjectSourceStore.getState().discard(dirtyTab.resource.sourceId);
+      if (dirtyTab.resource?.kind === 'source' && dirtyTab.resource.sourceId) {
+        if (!(await useProjectSourceStore.getState().discard(dirtyTab.resource.sourceId))) {
+          setStatusMessage(
+            useProjectSourceStore.getState().error ?? 'Native source discard failed.',
+          );
+          return;
+        }
+      }
     }
     discardLoadedRecoverySaveUnits(restoredSaveUnitIds);
     closeApprovedTabs();

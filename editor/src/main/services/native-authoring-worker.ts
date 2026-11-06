@@ -6,6 +6,7 @@ import {
   nativeAuthoringCommandSchema,
   nativeAuthoringObservationSchema,
   nativeAuthoringResultSchema,
+  nativeSaveUnitPathsSchema,
   nativeAuthoringPreparationSchema,
   nativeAuthoringSnapshotSchema,
   nativeSemanticGraphSchema,
@@ -13,6 +14,7 @@ import {
 } from './native-authoring-worker-contract';
 
 interface NativeBinding {
+  resolveSaveUnits(handle: unknown, revision: number, ids: string): string;
   open(root: string): unknown;
   close(handle: unknown): void;
   snapshot(handle: unknown): string;
@@ -374,6 +376,22 @@ parent.on('message', (raw: unknown) => {
                     : command.pathsByOwner
                       ? [JSON.stringify(command.pathsByOwner)]
                       : []),
+              ),
+            ),
+          ),
+        };
+        break;
+      case 'resolveSaveUnits':
+        result = {
+          ...identity,
+          type: 'response',
+          requestId: command.requestId,
+          result: nativeSaveUnitPathsSchema.parse(
+            JSON.parse(
+              binding.resolveSaveUnits(
+                handle,
+                command.expectedRevision,
+                JSON.stringify(command.saveUnitIds),
               ),
             ),
           ),

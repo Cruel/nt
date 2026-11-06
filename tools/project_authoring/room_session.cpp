@@ -3838,7 +3838,8 @@ SourceObservation ProjectSession::observe_sources()
 
 RoomSessionResult ProjectSession::stage_text_source(std::uint64_t revision,
                                                     std::string_view relative_path,
-                                                    std::string source_text)
+                                                    std::string source_text,
+                                                    std::string_view disk_precondition)
 {
     RoomSessionResult response;
     const auto before = snapshot();
@@ -3850,28 +3851,74 @@ RoomSessionResult ProjectSession::stage_text_source(std::uint64_t revision,
     const std::string path(relative_path);
     const std::filesystem::path relative(path);
     const bool shader = path.starts_with("shaders/") && path.ends_with(".sc");
-    if (!(analyzable_text_path(path) || shader) || !text_source_paths_.contains(path) ||
+    if (!(analyzable_text_path(path) || shader) ||
+        (!text_source_paths_.contains(path) && !text_source_overlays_.contains(path)) ||
         relative != relative.lexically_normal() || path.find_first_of(":\\") != std::string::npos ||
         path.find("//") != std::string::npos || source_text.size() > 4 * 1024 * 1024) {
         response.error = "Text overlay requires an admitted canonical Lua/RML/RCSS Project source.";
         return response;
     }
     try {
+        // An explicit Use Disk may accept deletion of a previously staged
+        // source. Never fabricate replacement bytes or leave its old overlay
+        // live in the native preview after the renderer closes the buffer.
+        if (disk_precondition == "absent" && source_text.empty() &&
+            text_source_overlays_.contains(path)) {
+            if (source_revision_or_absent(root_ / relative) != "absent")
+                throw std::runtime_error("Deleted text source was recreated before Use Disk.");
+            text_source_overlays_.erase(path);
+            text_overlay_disk_revisions_.erase(path);
+            text_disk_revisions_.insert_or_assign(path, "absent");
+            shader_overlays_.erase(path);
+            text_analysis_cache_.erase(path);
+            localization_cache_.reset();
+            material_compiler_results_.clear();
+            ++working_revision_;
+            response.accepted = true;
+            response.affected_records.push_back("source:" + path);
+            response.snapshot = snapshot();
+            diagnostic_delta(response, before);
+            return response;
+        }
         const auto canonical = std::filesystem::canonical(root_ / relative);
         const auto within = canonical.lexically_relative(std::filesystem::canonical(root_));
         if (within.empty() || within == "." || *within.begin() == "..")
             throw std::runtime_error("Text overlay source escapes Project root.");
         const auto disk = read_bytes(canonical);
-        if (exact_source_revision(disk) != text_disk_revisions_.at(path))
+        const auto actual_revision = exact_source_revision(disk);
+        // An explicitly supplied latest exact revision permits either Use
+        // Disk or Keep Mine against that current physical baseline. Ordinary
+        // edits retain their previous admission revision, so stale saves
+        // cannot silently overwrite another writer's changes.
+        const bool latest_revision_authorized =
+            !disk_precondition.empty() && disk_precondition == actual_revision;
+        const bool adopting_disk = latest_revision_authorized && source_text == disk;
+        const bool rebasing_source =
+            latest_revision_authorized && actual_revision != text_disk_revisions_.at(path);
+        if (!disk_precondition.empty() && disk_precondition != text_disk_revisions_.at(path) &&
+            !latest_revision_authorized)
+            throw std::runtime_error("Native Project text-source recovery conflict for " + path);
+        if (actual_revision != text_disk_revisions_.at(path) && !latest_revision_authorized)
             throw std::runtime_error("External source conflict for " + path);
         if (const auto baseline = text_overlay_disk_revisions_.find(path);
-            baseline != text_overlay_disk_revisions_.end() &&
-            exact_source_revision(disk) != baseline->second)
+            baseline != text_overlay_disk_revisions_.end() && actual_revision != baseline->second &&
+            !latest_revision_authorized)
             throw std::runtime_error("External changes conflict with unsaved text: " + path);
+        if (rebasing_source) {
+            text_disk_revisions_.insert_or_assign(path, actual_revision);
+            if (text_overlay_disk_revisions_.contains(path))
+                text_overlay_disk_revisions_.insert_or_assign(path, actual_revision);
+        }
         const auto current = text_source_overlays_.find(path);
         const auto prior = current == text_source_overlays_.end() ? disk : current->second;
-        if (prior == source_text) {
+        if (prior == source_text && !(adopting_disk && current != text_source_overlays_.end())) {
             response.accepted = true;
+            if (rebasing_source) {
+                ++working_revision_;
+                response.snapshot = snapshot();
+                response.affected_records.push_back("source:" + path);
+                diagnostic_delta(response, before);
+            }
             return response;
         }
         bool managed_changed = false;
@@ -4146,6 +4193,70 @@ std::map<std::string, RoomSessionSnapshot> ProjectSession::record_snapshots() co
     std::map<std::string, RoomSessionSnapshot> result;
     for (const auto& [owner, session] : records_)
         result.emplace(owner, session->snapshot());
+    return result;
+}
+
+std::map<std::string, std::vector<std::string>>
+ProjectSession::resolve_save_units(const std::vector<std::string>& save_unit_ids) const
+{
+    std::map<std::string, std::vector<std::string>> result;
+    const auto add = [&](const std::string& owner, std::string path) {
+        result[owner].push_back(std::move(path));
+    };
+    for (const auto& unit : save_unit_ids) {
+        if (unit.starts_with("record:")) {
+            const auto separator = unit.find(':', sizeof("record:") - 1);
+            if (separator == std::string::npos)
+                throw std::runtime_error("Invalid native record Save unit.");
+            const auto family =
+                unit.substr(sizeof("record:") - 1, separator - (sizeof("record:") - 1));
+            const auto id = unit.substr(separator + 1);
+            if (!record_contracts().contains(family) || !is_id(id))
+                throw std::runtime_error("Invalid native record Save unit.");
+            add(family + "/" + id, "/");
+            add("editor", "/recordMetadata/" + family + "/" + id);
+        } else if (unit.starts_with("collection:")) {
+            const auto family = unit.substr(sizeof("collection:") - 1);
+            if (family != "assets" && family != "materials" && family != "tests" &&
+                family != "variables" && family != "traits")
+                throw std::runtime_error("Unsupported native collection Save unit.");
+            for (const auto& [owner, record] : records_)
+                if (owner.starts_with(family + "/") && record->snapshot().dirty)
+                    add(owner, "/");
+            if (family == "traits")
+                add("traits", "/");
+            add("editor", "/recordMetadata/" + family);
+        } else if (unit == "project:localization") {
+            for (const auto& [owner, record] : records_)
+                if (owner.starts_with("i18n/") && record->snapshot().dirty)
+                    add(owner, "/");
+            for (const auto& [owner, _] : deleted_records_)
+                if (owner.starts_with("i18n/"))
+                    add(owner, "/");
+        } else if (unit == "project:platform-export-profiles") {
+            add("project", "/export/runtime");
+            add("project", "/export/profiles");
+        } else if (unit == "project:explorer-options")
+            add("editor", "/explorer");
+        else if (unit == "project:chapters")
+            add("editor", "/chapters");
+        else if (unit == "project:tags")
+            add("editor", "/tags");
+        else if (unit == "editor:organization") {
+            add("editor", "/chapters");
+            add("editor", "/tags");
+            add("editor", "/recordMetadata");
+        } else if (unit == "project:settings") {
+            for (const auto* path : {"/project", "/settings", "/bootstrapModule", "/entrypoint",
+                                     "/prefetchHints", "/export/assetMemoryPolicies"})
+                add("project", path);
+        } else
+            throw std::runtime_error("Unsupported native logical Save unit: " + unit);
+    }
+    for (auto& [_, paths] : result) {
+        std::sort(paths.begin(), paths.end());
+        paths.erase(std::unique(paths.begin(), paths.end()), paths.end());
+    }
     return result;
 }
 
@@ -5992,6 +6103,15 @@ RoomSessionSnapshot RoomSession::snapshot() const
     state.dirty =
         disk_revision_ == "absent" ||
         (disk_json_ != working_json_ && Json::parse(disk_json_) != Json::parse(working_json_));
+    if (state.dirty) {
+        if (disk_revision_ == "absent")
+            state.dirty_patches.push_back({RoomPatch::Operation::Add, "/", working_json_});
+        else {
+            const auto baseline = Json::parse(disk_json_);
+            const auto working = Json::parse(working_json_);
+            json_delta(&baseline, &working, "", state.dirty_patches);
+        }
+    }
     state.conflicting_paths = conflicting_paths_;
     const auto result =
         record_family_ == "assets"
@@ -6077,6 +6197,19 @@ RoomSessionSnapshot RoomSession::snapshot() const
         state.diagnostics.push_back({"/id", is_map_ ? "map.id_mismatch" : "room.id_mismatch",
                                      is_map_ ? "Map ID must match its source filename."
                                              : "Room ID must match its source filename."});
+    }
+    // A dirty working record's normalized value is not its saved baseline.
+    // Expose the effective disk-side value from the native schema, never ask
+    // the renderer to interpret sparse YAML or invent default fields.
+    if (disk_revision_ != "absent") {
+        if (!state.dirty && state.valid)
+            state.normalized_baseline_json = state.normalized_json;
+        else {
+            const auto baseline =
+                validate_source(disk_json_, record_family_ == "layouts" ? &companions : nullptr);
+            if (baseline.accepted)
+                state.normalized_baseline_json = baseline.effective_json;
+        }
     }
     snapshot_cache_ = state;
     if (record_family_ == "layouts")

@@ -89,6 +89,20 @@ Json snapshot_json(const RoomSessionSnapshot& state)
     result["valid"] = state.valid;
     result["normalized"] =
         state.normalized_json.empty() ? Json::null() : Json::parse(state.normalized_json);
+    result["normalizedBaseline"] = state.normalized_baseline_json.empty()
+                                       ? Json::null()
+                                       : Json::parse(state.normalized_baseline_json);
+    result["dirtyPatches"] = Json::array();
+    for (const auto& patch : state.dirty_patches) {
+        Json entry = Json::object();
+        entry["operation"] = patch.operation == RoomPatch::Operation::Add       ? "add"
+                             : patch.operation == RoomPatch::Operation::Replace ? "replace"
+                                                                                : "remove";
+        entry["path"] = patch.path;
+        if (patch.operation != RoomPatch::Operation::Remove)
+            entry["value"] = Json::parse(patch.value_json);
+        result["dirtyPatches"].push_back(std::move(entry));
+    }
     result["diagnostics"] = Json::array();
     result["conflictingPaths"] = json_array(state.conflicting_paths);
     for (const auto& error : state.diagnostics) {
@@ -618,6 +632,30 @@ napi_value call(napi_env env, napi_callback_info info)
             }
             return js_string(env, response.to_string());
         }
+        if (name == "resolveSaveUnits") {
+            if (argc != 3)
+                throw std::runtime_error("Save unit resolution requires revision and unit ids.");
+            std::int64_t revision = -1;
+            if (napi_get_value_int64(env, argv[1], &revision) != napi_ok || revision < 0 ||
+                static_cast<std::uint64_t>(revision) != session.project->working_revision())
+                throw std::runtime_error("Stale native Save unit resolution revision.");
+            const auto units = Json::parse(string_arg(env, argv[2]));
+            if (!units.is_array() || units.size() > 2100)
+                throw std::runtime_error("Invalid native Save unit list.");
+            std::vector<std::string> ids;
+            for (const auto& unit : units.array_range())
+                ids.push_back(unit.as<std::string>());
+            const auto paths = session.project->resolve_save_units(ids);
+            Json result = Json::object();
+            result["kind"] = "save-unit-paths";
+            result["pathsByOwner"] = Json::object();
+            for (const auto& [owner, fields] : paths) {
+                result["pathsByOwner"][owner] = Json::array();
+                for (const auto& field : fields)
+                    result["pathsByOwner"][owner].push_back(field);
+            }
+            return js_string(env, result.to_string());
+        }
         if (name == "observe") {
             if (argc != 1)
                 throw std::runtime_error("observe takes only the session handle.");
@@ -810,21 +848,14 @@ napi_value call(napi_env env, napi_callback_info info)
             const auto content = string_arg(env, argv[3]);
             if (content.size() > 4 * 1024 * 1024)
                 throw std::runtime_error("Text source overlay exceeds 4 MiB.");
-            const auto& baselines = session.project->text_source_disk_revisions();
-            const auto baseline = baselines.find(path);
-            if (argc == 5 &&
-                (baseline == baselines.end() || baseline->second != string_arg(env, argv[4]))) {
-                noveltea::authoring::RoomSessionResult rejected;
-                rejected.error = "Native Project text-source recovery conflict for " + path;
-                rejected.snapshot = session.project->snapshot();
-                return js_string(env, result_json(*session.project, rejected).to_string());
-            }
             auto result = result_json(*session.project,
                                       session.project->stage_text_source(
-                                          static_cast<std::uint64_t>(revision), path, content));
+                                          static_cast<std::uint64_t>(revision), path, content,
+                                          argc == 5 ? string_arg(env, argv[4]) : ""));
             if (result.at("accepted") == true) {
                 result["textSourceStaged"] = session.project->text_source_overlays().contains(path);
-                result["textSourceDiskRevision"] = baselines.at(path);
+                result["textSourceDiskRevision"] =
+                    session.project->text_source_disk_revisions().at(path);
             }
             return js_string(env, result.to_string());
         }
@@ -954,6 +985,7 @@ napi_value initialize(napi_env env, napi_value exports)
                                     "reconcile",
                                     "useDisk",
                                     "saveOwners",
+                                    "resolveSaveUnits",
                                     "mutateSourceDirectory",
                                     "restoreConflicts",
                                     "useDiskOwners",

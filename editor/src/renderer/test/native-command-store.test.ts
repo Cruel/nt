@@ -54,6 +54,7 @@ function nativeAck(name: string, revision: number, accepted = true) {
       diskSourceRevision: 'sha256:' + '0'.repeat(64),
       source: { project: { name } },
       normalized: { project: { name } },
+      dirtyPatches: [],
       dirty: true,
       valid: true,
       diagnostics: [],

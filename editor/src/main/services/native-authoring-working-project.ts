@@ -1,9 +1,5 @@
 import type { JsonPatchOperation } from '../../renderer/project/json-patch';
 import { diffJsonDocuments } from '../../renderer/project/project-external-reconciliation';
-import {
-  PROJECT_SETTINGS_OWNED_PATHS,
-  PROJECT_SETTINGS_SAVE_UNIT_ID,
-} from '../../renderer/project/save-unit-registry';
 import type { JsonValue } from '../../renderer/project/json-value';
 import type { NativeAuthoringCommand } from './native-authoring-worker-contract';
 import type { NativeAuthoringPreparation } from './native-authoring-worker-contract';
@@ -12,6 +8,7 @@ import type { z } from 'zod';
 import {
   nativeAuthoringResultSchema,
   nativeAuthoringSnapshotSchema,
+  nativeSaveUnitPathsSchema,
 } from './native-authoring-worker-contract';
 
 type Snapshot = z.infer<typeof nativeAuthoringSnapshotSchema>;
@@ -114,48 +111,6 @@ function overlaps(a: string, b: string): boolean {
 function ownerPath(owner: string, relative: string): string {
   if (relative === '/') return owner === 'project' ? '/' : `/${owner}`;
   return owner === 'project' ? relative : `/${owner}${relative}`;
-}
-
-function logicalSaveUnitPaths(saveUnitId: string, snapshot: Snapshot): Record<string, string[]> {
-  const match = /^record:([a-z]+):([a-z][a-z0-9-]*)$/.exec(saveUnitId);
-  if (match) {
-    const [, collection, id] = match;
-    return {
-      [`${collection}/${id}`]: ['/'],
-      editor: [`/recordMetadata/${collection}/${id}`],
-    };
-  }
-  const collection = /^collection:(assets|materials|tests|variables|traits)$/.exec(saveUnitId)?.[1];
-  if (collection) {
-    const owners = Object.keys(snapshot.recordSnapshots ?? {})
-      .filter((owner) => owner.startsWith(`${collection}/`))
-      .filter((owner) => snapshot.recordSnapshots?.[owner]?.dirty)
-      .sort();
-    return {
-      ...Object.fromEntries(owners.map((owner) => [owner, ['/']])),
-      ...(collection === 'traits' ? { traits: ['/'] } : {}),
-      editor: [`/recordMetadata/${collection}`],
-    };
-  }
-  if (saveUnitId === 'project:localization') {
-    return Object.fromEntries(
-      Object.keys(snapshot.recordSnapshots ?? {})
-        .filter((owner) => owner.startsWith('i18n/'))
-        .filter((owner) => snapshot.recordSnapshots?.[owner]?.dirty)
-        .sort()
-        .map((owner) => [owner, ['/']]),
-    );
-  }
-  if (saveUnitId === 'project:platform-export-profiles')
-    return { project: ['/export/runtime', '/export/profiles'] };
-  if (saveUnitId === 'project:explorer-options') return { editor: ['/explorer'] };
-  if (saveUnitId === 'project:chapters') return { editor: ['/chapters'] };
-  if (saveUnitId === 'project:tags') return { editor: ['/tags'] };
-  if (saveUnitId === 'editor:organization')
-    return { editor: ['/chapters', '/tags', '/recordMetadata'] };
-  if (saveUnitId === PROJECT_SETTINGS_SAVE_UNIT_ID)
-    return { project: [...PROJECT_SETTINGS_OWNED_PATHS] };
-  throw new Error(`Unsupported native logical Save unit: ${saveUnitId}`);
 }
 
 /**
@@ -578,6 +533,26 @@ export class NativeAuthoringWorkingProject {
     });
   }
 
+  /** The native working session, not TypeScript, decides which physical owners
+   * and paths a logical tab Save can commit. */
+  private async resolveSaveUnits(
+    saveUnitIds: readonly string[],
+  ): Promise<Record<string, string[]>> {
+    if (!saveUnitIds.length) return {};
+    return this.serial(async () => {
+      if (!this.view) throw new Error('Native working Project has not opened.');
+      const revision = this.view.workingRevision;
+      const result = await this.bridge.request({
+        operation: 'resolveSaveUnits',
+        expectedRevision: revision,
+        saveUnitIds: [...new Set(saveUnitIds)].sort(),
+      });
+      if (this.view.workingRevision !== revision)
+        throw new Error('Native Save unit resolution became stale.');
+      return nativeSaveUnitPathsSchema.parse(result).pathsByOwner;
+    });
+  }
+
   async saveUnits(
     saveUnitIds: readonly string[],
     options: {
@@ -588,16 +563,7 @@ export class NativeAuthoringWorkingProject {
     } = {},
     expectedRevision?: number,
   ): Promise<PatchResult> {
-    if (!this.view) throw new Error('Native working Project has not opened.');
-    const pathsByOwner: Record<string, string[]> = {};
-    for (const saveUnitId of [...new Set(saveUnitIds)].sort()) {
-      const scopes = logicalSaveUnitPaths(saveUnitId, this.view);
-      for (const [owner, paths] of Object.entries(scopes))
-        pathsByOwner[owner] = [...new Set([...(pathsByOwner[owner] ?? []), ...paths])].sort();
-    }
-    if (saveUnitIds.includes('project:localization'))
-      for (const owner of this.pendingDeletedOwners.keys())
-        if (owner.startsWith('i18n/')) pathsByOwner[owner] = ['/'];
+    const pathsByOwner = await this.resolveSaveUnits(saveUnitIds);
     for (const owner of Object.keys(pathsByOwner))
       if (
         owner !== 'project' &&
@@ -624,11 +590,7 @@ export class NativeAuthoringWorkingProject {
   }
 
   async useDiskUnit(saveUnitId: string): Promise<PatchResult> {
-    if (!this.view) throw new Error('Native working Project has not opened.');
-    const pathsByOwner = logicalSaveUnitPaths(saveUnitId, this.view);
-    if (saveUnitId === 'project:localization')
-      for (const owner of this.pendingDeletedOwners.keys())
-        if (owner.startsWith('i18n/')) pathsByOwner[owner] = ['/'];
+    const pathsByOwner = await this.resolveSaveUnits([saveUnitId]);
     for (const owner of Object.keys(pathsByOwner))
       if (
         owner !== 'project' &&
@@ -912,17 +874,15 @@ export class NativeAuthoringWorkingProject {
       if (state.baseline === undefined)
         throw new Error(`Native owner ${owner} has no saved baseline for recovery.`);
       const prefix = owner === 'project' ? '' : logicalOwnerPath(owner);
-      const patches =
-        state.diskSourceRevision === 'absent' && owner !== 'project'
-          ? [{ operation: 'add' as const, path: prefix, value: state.source }]
-          : nativePatches(
-              diffJsonDocuments(state.baseline as JsonValue, state.source as JsonValue).map(
-                (patch) => ({
-                  ...patch,
-                  path: prefix + patch.path,
-                }),
-              ),
-            );
+      // The native owner computes the canonical B->L diff. Do not interpret
+      // sparse source semantics a second time in the Electron host.
+      const patches: NativePatch[] = state.dirtyPatches.map((patch) => ({
+        ...patch,
+        path:
+          state.diskSourceRevision === 'absent' && owner !== 'project' && patch.path === '/'
+            ? prefix
+            : prefix + patch.path,
+      }));
       if (patches.length)
         batches.push({
           patches,

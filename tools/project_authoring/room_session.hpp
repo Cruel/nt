@@ -37,6 +37,8 @@ struct RoomSessionSnapshot {
     std::string source_json;          // explicit working fields (not implicit defaults)
     std::string baseline_json;        // exact admitted saved semantic source values
     std::string normalized_json;      // only populated when native validation succeeds
+    std::string normalized_baseline_json; // effective saved value, including for dirty records
+    std::vector<RoomPatch> dirty_patches; // canonical native B->L diff for recovery replay
     bool dirty = false;
     bool valid = false;
     std::vector<Diagnostic> diagnostics;
@@ -290,7 +292,8 @@ public:
     // Unsaved Lua/RML/RCSS buffers are private to this editor-side session.
     // Source text is not inserted into YAML, and CLI sessions see only disk.
     RoomSessionResult stage_text_source(std::uint64_t revision, std::string_view relative_path,
-                                        std::string source_text);
+                                        std::string source_text,
+                                        std::string_view disk_precondition = {});
     // Exact-revision physical publication of previously admitted Lua/RML/RCSS
     // overlays. Uses the Project YAML transaction journal for crash recovery,
     // but writes verbatim text without interpreting it as YAML.
@@ -403,6 +406,10 @@ public:
     RoomSessionResult mutate_source_directory(std::uint64_t revision, std::string_view kind,
                                               std::string_view source, std::string_view target);
     std::map<std::string, RoomSessionSnapshot> record_snapshots() const;
+    // Resolve editor logical Save units against the resident native working
+    // records. Renderer tabs select units, but do not decide physical owners.
+    std::map<std::string, std::vector<std::string>>
+    resolve_save_units(const std::vector<std::string>& save_unit_ids) const;
     // Immutable disk-validation contributors, including lazily uninspected
     // record owners. Valid only after validate_project() has refreshed proof.
     std::map<std::string, RoomSessionSnapshot> validated_disk_record_snapshots() const;

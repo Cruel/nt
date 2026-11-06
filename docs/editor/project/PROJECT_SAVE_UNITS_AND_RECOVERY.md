@@ -11,6 +11,20 @@ executable structural classification and safety policies.
 
 ## Save-unit identity and path rules
 
+The renderer selects logical save-unit IDs according to the workbench/tab
+registry. The native `ProjectSession::resolve_save_units` operation resolves
+those IDs into physical owners and field scopes at the expected working
+revision; Electron main does not independently reinterpret this mapping.
+Structural operations with explicit native owners still pass their reviewed
+transaction plan to the native Save boundary.
+
+Native snapshots also include canonical `dirtyPatches` produced from native
+saved/working source values. The Electron recovery checkpoint translates those
+native deltas into owner-qualified replay instructions and retains exact source
+preconditions; it no longer computes a second JSON diff to infer dirty native
+record content. The renderer keeps separate tab histories, drafts and pending
+invalid form input because those are UI state rather than Project authority.
+
 | Unit family | Stable ID | Owned paths | Policy used by current editor mutations |
 | --- | --- | --- | --- |
 | Record | `record:<collection>:<entityId>` | `/<collection>/<entityId>` plus `/editor/recordMetadata/<collection>/<entityId>` | `manual-save` |

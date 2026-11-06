@@ -46,6 +46,23 @@ Foreground editor-owned saves do not wait for the workspace watcher's write-stab
 
 ## Conflict state and resolution
 
+The native addon publishes both `normalized` (effective working content) and
+`normalizedBaseline` (effective saved content) for each record. They are distinct
+when a source is dirty: the saved YAML `baseline` can be sparse and must never
+be published as a complete effective renderer record. Renderer reconciliation
+uses the two native normalized values and treats native `conflictingPaths` as
+the source of conflict authority; renderer B/L/E values are presentation and
+recovery metadata only.
+
+The source editor retains its immediate typed buffer in TypeScript, but
+`Use Disk` and discard must stage their chosen exact disk revision in the
+native session before clearing the visible dirty state. A newer external text
+revision may be explicitly adopted only with byte-exact matching content and
+revision; Keep Mine may stage local text against the explicitly selected,
+byte-verified latest disk revision before the native transaction's second
+revision check. A verified removal may discard a previously staged overlay
+using the `absent` revision. Use Disk and deletion never write physical bytes.
+
 The admitted native editor route consumes watcher **path hints** rather than the
 legacy reassembled authoring document. It maps each changed tracked YAML path to
 its native physical owner, serializes revision-gated native reconciliation with

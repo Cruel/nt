@@ -31,6 +31,7 @@ function result(
       source: { project: { id: 'native-watch' } },
       baseline: { project: { id: 'native-watch' } },
       normalized: null,
+      dirtyPatches: [],
       dirty: true,
       valid: true,
       diagnostics: [],
@@ -41,6 +42,8 @@ function result(
           source,
           baseline,
           normalized: source,
+          normalizedBaseline: baseline,
+          dirtyPatches: [],
           dirty: true,
           valid: true,
           diagnostics: [],
@@ -77,6 +80,7 @@ describe('native editor external projection (#509)', () => {
     const acknowledged = result(sparseRoom, sparseRoom);
     const record = acknowledged.snapshot.recordSnapshots!['rooms/hall']!;
     record.normalized = effectiveRoom;
+    record.normalizedBaseline = effectiveRoom;
     record.dirty = false;
     const reconciled = projectNativeExternalResult({
       saved: original as JsonValue,
@@ -96,6 +100,30 @@ describe('native editor external projection (#509)', () => {
       result: acknowledged,
     });
     expect((dirty.working as typeof original).rooms.hall).toEqual(effectiveRoom);
+    expect((dirty.saved as typeof original).rooms.hall).toEqual(effectiveRoom);
+  });
+
+  it('uses the native effective saved baseline for dirty sparse records', () => {
+    const savedSparse = { ...baseRoom, data: { displayName: 'Saved' } };
+    const savedEffective = {
+      ...baseRoom,
+      data: { ...defaultRoomData('Hall'), displayName: 'Saved' },
+    };
+    const workingEffective = {
+      ...savedEffective,
+      data: { ...savedEffective.data, displayName: 'Working' },
+    };
+    const changed = result(savedSparse, { ...savedSparse, data: { displayName: 'Working' } });
+    changed.snapshot.recordSnapshots!['rooms/hall']!.normalized = workingEffective;
+    changed.snapshot.recordSnapshots!['rooms/hall']!.normalizedBaseline = savedEffective;
+    const projection = projectNativeExternalResult({
+      saved: original as JsonValue,
+      working: original as JsonValue,
+      recovery: { sequence: 0, saveUnitsById: {} },
+      result: changed,
+    });
+    expect((projection.saved as typeof original).rooms.hall).toEqual(savedEffective);
+    expect((projection.working as typeof original).rooms.hall).toEqual(workingEffective);
   });
 
   it('routes physical source notifications to one native owner and ignores unrelated files', () => {

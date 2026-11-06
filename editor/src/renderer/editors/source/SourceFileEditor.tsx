@@ -283,7 +283,12 @@ export function SourceFileEditor({ tab }: WorkbenchEditorProps) {
               ? 'This source changed outside NovelTea while this tab had unsaved edits.'
               : 'This source was deleted outside NovelTea while this tab had unsaved edits.'}
           </span>
-          <Button size="sm" variant="outline" className="h-7" onClick={() => acceptDisk(sourceId)}>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7"
+            onClick={() => void acceptDisk(sourceId)}
+          >
             Use Disk
           </Button>
           <Button size="sm" className="h-7" disabled={saving} onClick={() => void saveBuffer(true)}>
