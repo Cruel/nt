@@ -57,12 +57,18 @@ const argumentsList = [
   `--user-data-dir=${path.join(temporaryRoot, 'user-data')}`,
   '--no-sandbox',
 ];
+// The temporary diagnostic branch can run packaged Electron under GDB without
+// changing the regular release smoke path.
+const diagnosticGdb = process.platform === 'linux' && process.env.NOVELTEA_PACKAGE_SMOKE_GDB === '1';
+const gdbArguments = diagnosticGdb
+  ? ['gdb', '--batch', '--quiet', '-ex', 'set pagination off', '-ex', 'set print thread-events off', '-ex', 'handle SIGPIPE nostop noprint pass', '-ex', 'run', '-ex', 'thread apply all bt 32', '--args']
+  : [];
 // Electron's GLib/GTK stack expects a usable session bus. GitHub's headless
 // runners do not necessarily expose one; keep the smoke in its own session.
 const command = process.platform === 'linux' ? 'dbus-run-session' : executable;
 const commandArguments =
   process.platform === 'linux'
-    ? ['--', 'xvfb-run', '-a', ...argumentsList]
+    ? ['--', 'xvfb-run', '-a', ...gdbArguments, ...argumentsList]
     : argumentsList.slice(1);
 const child = spawn(command, commandArguments, {
   cwd: temporaryRoot,
@@ -92,7 +98,7 @@ let timedOut = false;
 const timeout = setTimeout(() => {
   timedOut = true;
   void killProcessTree(child);
-}, 45_000);
+}, diagnosticGdb ? 180_000 : 45_000);
 
 const { code, signal } = await new Promise((resolve, reject) => {
   child.once('error', reject);
