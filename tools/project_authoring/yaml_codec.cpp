@@ -146,11 +146,28 @@ public:
             }
             if (fy_parser_get_stream_error(parser))
                 throw SourceFailure("Invalid YAML stream.");
-            // A 1.1 directive changes implicit type resolution and is never canonical.
-            static const std::regex wrong_version(
-                R"((^|\n)%YAML[ \t]+(?!1\.2(?:[ \t\r\n]|$))[^\r\n]*)");
-            if (std::regex_search(source, wrong_version))
-                throw SourceFailure("Only YAML 1.2 documents are supported.", 0);
+            // Diagnostic experiment: avoid constructing libstdc++ std::regex inside
+            // the Electron native addon. Accept only YAML 1.2 directives.
+            for (std::size_t start = 0; start < source.size();) {
+                const auto next = source.find('\n', start);
+                const auto end = next == std::string_view::npos ? source.size() : next;
+                const auto line = source.substr(start, end - start);
+                if (line.starts_with("%YAML") && line.size() > 5 &&
+                    (line[5] == ' ' || line[5] == '\t')) {
+                    std::size_t version_start = 6;
+                    while (version_start < line.size() &&
+                           (line[version_start] == ' ' || line[version_start] == '\t'))
+                        ++version_start;
+                    const auto version = line.substr(version_start);
+                    if (!version.starts_with("1.2") ||
+                        (version.size() > 3 && version[3] != ' ' && version[3] != '\t' &&
+                         version[3] != '\r'))
+                        throw SourceFailure("Only YAML 1.2 documents are supported.", 0);
+                }
+                if (next == std::string_view::npos)
+                    break;
+                start = next + 1;
+            }
             if (!fy_document_root(doc))
                 throw SourceFailure("Expected a YAML document root.");
         } catch (...) {
