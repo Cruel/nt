@@ -18,13 +18,17 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Install minimal Linux editor and debugger prerequisites
-        uses: ./.github/actions/setup-linux-native
-        with:
-          xvfb: "true"
-          extra-packages: >-
-            gdb libnss3 libnspr4 libatk1.0-0t64 libatk-bridge2.0-0t64
-            libgtk-3-0t64 libdrm2 libasound2t64 libgbm1 libxkbcommon0
-            libcups2t64 libxdamage1 libxfixes3 libxrandr2 libpango-1.0-0
+        shell: bash
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          sudo apt-get update -o Acquire::Retries=1 -o Acquire::http::Timeout=15
+          sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            -o DPkg::Lock::Timeout=60 \
+            gdb xvfb xauth cmake ninja-build libnss3 libnspr4 \
+            libatk1.0-0t64 libatk-bridge2.0-0t64 libgtk-3-0t64 \
+            libdrm2 libasound2t64 libgbm1 libxkbcommon0 libcups2t64 \
+            libxdamage1 libxfixes3 libxrandr2 libpango-1.0-0 \
             libcairo2 libx11-6 libxext6
 
       - name: Restore original release CLI (no C++ CLI rebuild)
