@@ -4,7 +4,7 @@
 // existing physical export artifact and checked against its declared owner.
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { mkdtemp, readFile, readdir, rm, stat, writeFile, mkdir } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, stat, writeFile, mkdir, cp } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
@@ -97,6 +97,7 @@ async function main() {
     const packageDir = path.join(temp, 'package');
     await mkdir(packageDir);
     let packageBytes;
+    let shippedPackageFile;
     if (descriptor.platform === 'android') {
       const report = manifest;
       const apk = report.artifacts.find((item) => item.kind === 'apk');
@@ -113,6 +114,7 @@ async function main() {
       check(config.format === 'noveltea.player-config' && safe(config.package?.path),
         'Exported player configuration has no valid package path.');
       const packageFile = path.join(exported, path.dirname(configPath), config.package.path);
+      shippedPackageFile = packageFile;
       packageBytes = await readFile(packageFile);
       check(digest(packageBytes) === config.package.sha256, 'Exported package differs from player configuration.');
       check(inventory.has(path.relative(exported, packageFile).split(path.sep).join('/')),
@@ -148,10 +150,19 @@ async function main() {
       [...expectedNotices].every((source) => actualNotices.has(source)),
     'Native runtime package Project license notices do not match the shipped Assets and Project.');
     for (const notice of notices.notices) {
-      check(safe(notice.path) && `sha256:${await sha(path.join(packageDir, notice.path))}` === notice.contentHash,
+      check(safe(notice.path) && safe(notice.source) &&
+        `sha256:${await sha(path.join(packageDir, notice.path))}` === notice.contentHash,
         `Project license notice digest does not match packaged bytes: ${notice.path}`);
+      check((await readFile(path.join(packageDir, notice.path))).equals(
+        await readFile(path.join(project, ...notice.source.split('/')))),
+      `Project license notice differs from authored source bytes: ${notice.source}`);
     }
+    const packagedNoticeFiles = (await walk(path.join(packageDir, 'licenses')))
+      .map((file) => path.relative(packageDir, file).split(path.sep).join('/')).sort();
+    check(packagedNoticeFiles.join('\n') === ['licenses/index.json', ...notices.notices.map((notice) => notice.path)].sort().join('\n'),
+      'Runtime Package has missing, extra, or duplicated Project notice files.');
     let licenseCatalog;
+    let licenseViewer;
     if (descriptor.platform !== 'android') {
       const engineIndex = descriptor.platform === 'macos'
         ? 'Contents/Resources/licenses/index.json' : descriptor.platform === 'linux'
@@ -178,6 +189,90 @@ async function main() {
         break;
       }
       check(licenseCatalog, 'Native export has no verifiable engine license catalog.');
+      const relativeRoot = descriptor.platform === 'macos' ? ['Contents', 'Resources'] : [];
+      const systemRoot = path.join(exported, ...relativeRoot, 'assets', 'system');
+      const publicRoot = path.join(exported, ...relativeRoot);
+      const index = await json(path.join(systemRoot, 'licenses/index.json'));
+      const expectedEngine = index.components.flatMap((component) => component.files.map((file) => ({
+        group: 'engine', path: `system:/${file.path}`, sha256: file.sha256, size: file.size,
+      })));
+      const expectedProject = notices.notices.map((notice) => ({
+        group: 'project', path: `project:/${notice.path}`, sha256: notice.contentHash.slice(7),
+        size: null,
+      }));
+      const compareSet = (actual, expected, message) => check(
+        actual.length === expected.length && new Set(actual).size === expected.length &&
+        actual.slice().sort().join('\n') === expected.slice().sort().join('\n'), message);
+      const expectedEnginePaths = ['licenses/index.json', ...expectedEngine.map((entry) => entry.path.slice('system:/'.length))];
+      compareSet((await walk(path.join(systemRoot, 'licenses'))).map((file) =>
+        path.relative(systemRoot, file).split(path.sep).join('/')), expectedEnginePaths,
+      'Runtime system Assets contain extra or missing engine notices.');
+      compareSet((await walk(path.join(publicRoot, 'licenses'))).map((file) =>
+        path.relative(publicRoot, file).split(path.sep).join('/')), expectedEnginePaths,
+      'Public engine notice distribution has extra or missing files.');
+      for (const relative of expectedEnginePaths)
+        check((await readFile(path.join(systemRoot, relative))).equals(await readFile(path.join(publicRoot, relative))),
+          `Public engine notice differs from the player-readable copy: ${relative}`);
+
+      const runner = process.env.NOVELTEA_LICENSE_VIEWER_RUNNER;
+      check(runner, 'Native export certification requires NOVELTEA_LICENSE_VIEWER_RUNNER.');
+      const requestPath = path.join(temp, 'license-viewer-request.json');
+      const responsePath = path.join(temp, 'license-viewer-response.json');
+      // The installed native UI Test runner uses the production AssetManager,
+      // RuntimeLicenseCatalog and built-in RmlUi document/event callbacks.
+      const runView = async (systemAssetsRoot, packagePath, shouldPass = true) => {
+        await writeFile(requestPath, JSON.stringify({
+          operation: 'license-export-acceptance', systemAssetsRoot, packagePath,
+        }));
+        await rm(responsePath, { force: true });
+        let succeeded = true;
+        try { execFileSync(runner, [requestPath, responsePath], { stdio: 'pipe', timeout: 120000 }); }
+        catch { succeeded = false; }
+        const response = await json(responsePath).catch(() => ({ ok: false, message: 'No verifier response.' }));
+        check(succeeded === shouldPass && response.ok === shouldPass,
+          `Runtime RmlUi license viewer ${shouldPass ? 'rejected' : 'accepted'} the ${descriptor.platform} notice witness: ${response.message ?? ''}`);
+        return response;
+      };
+      const witness = await runView(systemRoot, shippedPackageFile);
+      const expected = [...expectedEngine, ...expectedProject];
+      compareSet(witness.notices.map((item) => `${item.group}:${item.path}`),
+        expected.map((item) => `${item.group}:${item.path}`),
+      'Runtime RmlUi viewer catalog differs from finalized engine and Project notice membership.');
+      for (const item of witness.notices) {
+        const matching = expected.find((entry) => entry.group === item.group && entry.path === item.path);
+        check(matching && item.sha256 === matching.sha256 &&
+          (matching.size === null || matching.size === item.size),
+        `Runtime RmlUi viewer supplied the wrong notice bytes: ${item.path}`);
+      }
+
+      const negativeRoot = path.join(temp, 'negative-system');
+      await cp(path.join(systemRoot, 'licenses'), path.join(negativeRoot, 'licenses'), { recursive: true });
+      const firstNotice = expectedEngine[0].path.slice('system:/'.length);
+      check(firstNotice, 'Engine notice index cannot be empty.');
+      const negativeText = path.join(negativeRoot, firstNotice);
+      await writeFile(negativeText, 'Corrupted engine notice\n');
+      await runView(negativeRoot, shippedPackageFile, false);
+      await cp(path.join(systemRoot, firstNotice), negativeText);
+      await rm(negativeText);
+      await runView(negativeRoot, shippedPackageFile, false);
+      await cp(path.join(systemRoot, firstNotice), negativeText);
+      await writeFile(path.join(negativeRoot, 'licenses/index.json'), '{malformed');
+      await runView(negativeRoot, shippedPackageFile, false);
+      await cp(path.join(systemRoot, 'licenses/index.json'), path.join(negativeRoot, 'licenses/index.json'));
+      const unindexed = 'licenses/unindexed--extra.txt';
+      await writeFile(path.join(negativeRoot, unindexed), 'Not in engine catalog\n');
+      let rejectedExtra = false;
+      try { compareSet((await walk(path.join(negativeRoot, 'licenses'))).map((file) =>
+        path.relative(negativeRoot, file).split(path.sep).join('/')), expectedEnginePaths,
+      'Unindexed engine notice was accepted.'); }
+      catch { rejectedExtra = true; }
+      check(rejectedExtra, 'Unindexed engine notice was not rejected.');
+      licenseViewer = {
+        viewer: witness.viewer, engineNotices: expectedEngine.length, projectNotices: expectedProject.length,
+        catalogSha256: digest(JSON.stringify(witness.notices)),
+        negativeCases: ['corrupt-engine-bytes', 'missing-engine-notice', 'malformed-engine-index',
+          'unindexed-engine-file'],
+      };
     }
     const web = profile.web;
     const sourceRevision = process.env.GITHUB_SHA || execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
@@ -191,6 +286,7 @@ async function main() {
       compiledProjectFormatVersion: deployment.compiledProjectFormatVersion,
       playerRuntimeApiVersion: deployment.playerRuntimeApiVersion, packageAccessMode: deployment.packageAccess,
       ...(licenseCatalog ? { licenseCatalog } : {}),
+      ...(licenseViewer ? { licenseViewer } : {}),
       ...(descriptor.platform === 'web' ? { webBasePath: web.basePath, webThreaded: web.threaded } : {}),
     };
     await mkdir(path.dirname(evidencePath), { recursive: true });

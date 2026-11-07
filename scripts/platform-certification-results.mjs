@@ -233,6 +233,18 @@ function verifyCanonicalEvidence(canonical, descriptor, label = 'Canonical evide
         catalog.projectNotices !== 3 ||
         !/^[0-9a-f]{64}$/.test(catalog.catalogSha256 ?? ''))
       throw new Error(`${label} is missing verified native runtime license catalog evidence.`);
+    if (canonical.producer === 'native-cli') {
+      const viewer = canonical.licenseViewer;
+      const requiredNegatives = ['corrupt-engine-bytes', 'missing-engine-notice',
+        'malformed-engine-index', 'unindexed-engine-file'];
+      if (viewer?.viewer !== 'runtime_licenses' ||
+          !Number.isSafeInteger(viewer.engineNotices) || viewer.engineNotices < catalog.engineNotices ||
+          viewer.projectNotices !== catalog.projectNotices ||
+          !/^[0-9a-f]{64}$/.test(viewer.catalogSha256 ?? '') ||
+          !Array.isArray(viewer.negativeCases) ||
+          requiredNegatives.some((item) => !viewer.negativeCases.includes(item)))
+        throw new Error(`${label} lacks the finalized-export RmlUi viewer interaction and negative-case witness.`);
+    }
   }
 }
 

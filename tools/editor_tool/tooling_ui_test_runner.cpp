@@ -32,6 +32,7 @@
 #include <RmlUi/Core/Context.h>
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementDocument.h>
+#include <RmlUi/Core/ElementText.h>
 #include <RmlUi/Core/Types.h>
 
 #include <algorithm>
@@ -1324,18 +1325,15 @@ nlohmann::json inspect_exported_license_viewer(
             !rendered[index]->DispatchEvent("click", Rml::Dictionary{}))
             return fail("Built-in Licenses navigation could not select: " + notice.label);
         document->GetContext()->Update();
-        // Ensure the real data-model/action path projects the selected notice into the text
-        // pane; the catalog separately verifies the *exact* SHA-256 of the source bytes.
-        if (text->GetInnerRML().empty())
-            return fail("Selected license has an empty RmlUi text pane: " + notice.path);
-        const auto start = content->find_first_not_of(" \t\r\n");
-        if (start != std::string::npos) {
-            const auto end = content->find_first_of("\r\n<&>", start);
-            const auto size = std::min<std::size_t>(12, (end == std::string::npos ? content->size() : end) - start);
-            if (size >= 4 && text->GetInnerRML().find(content->substr(start, size)) == std::string::npos)
-                return fail("The Licenses text pane does not display the selected notice: " +
-                            notice.path);
-        }
+        // Compare the entire bound RmlUi text node, not a short visible prefix. The
+        // production catalog already authenticated the same physical notice bytes.
+        if (text->GetNumChildren() != 1)
+            return fail("The Licenses text pane does not have one literal text node: " +
+                        notice.path);
+        const auto* rendered_text = rmlui_dynamic_cast<Rml::ElementText*>(text->GetChild(0));
+        if (!rendered_text || rendered_text->GetText() != *content)
+            return fail("The Licenses text pane does not display exact notice contents: " +
+                        notice.path);
         entries.push_back({{"group", notice.group},
                            {"label", notice.label},
                            {"path", notice.path},

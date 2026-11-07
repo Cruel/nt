@@ -505,6 +505,35 @@ describe('platform certification results producer', () => {
     }
   });
 
+  it('rejects native export inventory evidence without a complete finalized RmlUi viewer witness', () => {
+    for (const viewer of [
+      undefined,
+      {
+        viewer: 'runtime_licenses',
+        engineNotices: 1,
+        projectNotices: 3,
+        catalogSha256: '9'.repeat(64),
+        negativeCases: ['corrupt-engine-bytes'],
+      },
+    ]) {
+      const value = setup();
+      const file = path.join(value.root, 'dist/canonical.json');
+      const canonical = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
+      canonical.producer = 'native-cli';
+      canonical.licenseCatalog = {
+        verified: true,
+        engineNotices: 1,
+        projectNotices: 3,
+        catalogSha256: '9'.repeat(64),
+      };
+      canonical.licenseViewer = viewer;
+      writeFileSync(file, JSON.stringify(canonical));
+      const result = run(value.collectArgs);
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain('lacks the finalized-export RmlUi viewer interaction');
+    }
+  });
+
   it('rejects a license index inconsistent with the real text despite matching descriptor file hashes', () => {
     const value = setup(true);
     const result = run(value.collectArgs);

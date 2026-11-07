@@ -400,12 +400,17 @@ The built-in **Licenses** menu lists verified engine/player notices under
 **Engine & Libraries** and Project notice entries under **Game Assets**. Android
 exports install the engine collection as player-readable assets, and final APK/AAB
 inspection checks its complete contents against the template before publication.
-The canonical desktop/Web export acceptance also opens each finalized export's actual
-engine notice directory and `game.ntpkg` with the native AssetManager and built-in
-RmlUi Licenses viewer. It exercises selection, verified bytes and SHA-256, shared
-font/Project-wide/localized notices, and rejection of a tampered notice. Platform
-certification requires this viewer evidence; Android's final player/device acceptance
-remains the responsibility of its target-specific CI.
+The native canonical desktop/Web export evidence runner (`scripts/native-canonical-export-evidence.mjs`)
+opens each finalized export's **actual system notice directory** and shipped `game.ntpkg`
+with the installed native UI Test runner's production AssetManager and built-in RmlUi
+Licenses document. The fail-closed witness selects every catalog entry and compares
+the complete RmlUi text node with the hash-verified physical bytes. It checks exact
+engine/Project index membership, the shared-font/Project-wide/localized notice fixture,
+deduplication, public-versus-runtime engine copy equality, and corrupt/missing/malformed/
+unindexed notice rejection. The Release canonical evidence gate rejects native exports
+without this witness. This is **native host RmlUi qualification against finalized files**;
+it is not a claim that the target Web/Android player actually opened its menu.
+Android final player/device interaction remains a separate qualification.
 Web release certification additionally launches the finalized browser player and requires
 `player_pre.js` to fetch each indexed engine notice and its index from the distribution's
 actual URLs, independently verify the downloaded bytes, and mount the exact notice inventory
@@ -414,7 +419,8 @@ staging signal and hashes the mounted bytes after initialization. HTTP traffic i
 evidence only: PWA worker precaching may duplicate requests or serve responses from cache.
 Certification checks this behavior at root and nested base paths. This supplements,
 but does not replace, an end-to-end browser-rendered Licenses-viewer interaction witness;
-that target-player acceptance remains tracked by #418.
+that target-player acceptance remains tracked by #418. See the scoped evidence and
+platform limitations in `docs/runtime/certifications/PLATFORM_LICENSE_VIEWER_CERTIFICATION.md`.
 The exporter runs its declared build workflow with an already installed compatible toolchain; it
 never installs SDKs or silently builds NovelTea itself.
 

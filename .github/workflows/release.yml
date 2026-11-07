@@ -769,6 +769,7 @@ jobs:
       - name: Export and launch real Linux portable and AppImage players with native C++ CLI
         if: matrix.platform == 'linux'
         env:
+          NOVELTEA_LICENSE_VIEWER_RUNNER: ${{ github.workspace }}/build/native-export-cli-linux/noveltea-ui-test-runner
           NOVELTEA_LINUX_APPIMAGE_TOOL: ${{ runner.temp }}/appimagetool.AppImage
           APPIMAGE_EXTRACT_AND_RUN: '1'
           NOVELTEA_PLAYER_HEADLESS_ERRORS: '1'
@@ -807,6 +808,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         env:
+          NOVELTEA_LICENSE_VIEWER_RUNNER: ${{ github.workspace }}/build/${{ matrix.preset }}/tools/editor_tool/noveltea-ui-test-runner.exe
           NOVELTEA_CANONICAL_EVIDENCE_OUTPUT: ${{ github.workspace }}/dist/canonical-windows-${{ matrix.variant }}-fixture-evidence.json
         run: |
           python tests/native_cli/windows_release_smoke.py `
@@ -820,6 +822,7 @@ jobs:
         if: matrix.platform == 'linux'
         working-directory: editor
         env:
+          NOVELTEA_LICENSE_VIEWER_RUNNER: ${{ github.workspace }}/build/cli/linux/noveltea-ui-test-runner
           APPIMAGE_EXTRACT_AND_RUN: 1
           NOVELTEA_LINUX_TEMPLATE_ARCHIVE: ${{ github.workspace }}/dist/noveltea-player-template-${{ env.RELEASE_TAG }}-linux-x64-${{ matrix.variant }}.tar.gz
           NOVELTEA_LINUX_RUNTIME_PACKAGE: ${{ github.workspace }}/build/${{ matrix.preset }}/runtime-assets/project/projects/runtime_presentation_package.ntpkg
@@ -968,6 +971,7 @@ jobs:
       - name: Finalize and launch macOS app bundle export
         working-directory: editor
         env:
+          NOVELTEA_LICENSE_VIEWER_RUNNER: ${{ github.workspace }}/build/cli/macos-native/noveltea-ui-test-runner
           NOVELTEA_MACOS_TEMPLATE_ARCHIVE: ${{ github.workspace }}/dist/noveltea-player-template-${{ env.RELEASE_TAG }}-macos-arm64-${{ matrix.variant }}.tar.gz
           NOVELTEA_MACOS_RUNTIME_PACKAGE: ${{ github.workspace }}/build/${{ matrix.preset }}/runtime-assets/project/projects/runtime_presentation_package.ntpkg
           NOVELTEA_CANONICAL_EXPORT_TARGET: macos
@@ -981,6 +985,7 @@ jobs:
       - name: Certify native C++ macOS exporter with release template and actual app launch
         shell: bash
         env:
+          NOVELTEA_LICENSE_VIEWER_RUNNER: ${{ github.workspace }}/build/cli/macos-native/noveltea-ui-test-runner
           NOVELTEA_CANONICAL_EVIDENCE_OUTPUT: ${{ github.workspace }}/dist/canonical-macos-fixture-evidence.json
         run: |
           set -euo pipefail
@@ -1150,6 +1155,8 @@ jobs:
         run: pnpm -C editor exec vp test run src/renderer/test/platform-export-acceptance-fixture.test.ts
 
       - name: Certify native CLI Web publication with real release templates
+        env:
+          NOVELTEA_LICENSE_VIEWER_RUNNER: ${{ github.workspace }}/build/cli/linux/noveltea-ui-test-runner
         run: |
           threads_archive=$(find dist -maxdepth 1 -name 'noveltea-player-template-*-web-wasm32-threads-release.zip' -print -quit)
           single_archive=$(find dist -maxdepth 1 -name 'noveltea-player-template-*-web-wasm32-release.zip' -print -quit)
@@ -1214,6 +1221,7 @@ jobs:
 
       - name: Canonical Web developer-template export coverage
         env:
+          NOVELTEA_LICENSE_VIEWER_RUNNER: ${{ github.workspace }}/build/cli/linux/noveltea-ui-test-runner
           NOVELTEA_CANONICAL_BUILD_FLAVOR: release
           NOVELTEA_CANONICAL_PLAYER_VARIANT: devtools
           NOVELTEA_CANONICAL_EXPORT_TARGET: web

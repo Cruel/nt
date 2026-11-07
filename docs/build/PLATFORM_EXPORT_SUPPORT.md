@@ -241,6 +241,15 @@ Web exports carry original notices under `licenses/` and a matching copy in
 `assets/system/licenses/` for runtime preload and offline caching. Desktop
 distributions keep the original notices under `licenses/` and mount the target's
 certified copies from `assets/system/licenses/` (within app resources on macOS).
+The native CLI canonical evidence collector verifies the exact filesystem notice
+set in both locations, source-byte identity of Project notices inside the
+Runtime Package, and the complete visible RmlUi text of every engine/Project
+entry through the installed native UI Test runner. Missing viewer evidence,
+malformed indexes, corrupted/missing texts and unindexed engine files fail the
+native certification. This host-side viewer witness is separate from Web's
+browser preload proof and Android's APK/AAB physical asset inspection; neither
+of those alone certifies a live target-player Licenses menu interaction. See
+`docs/runtime/certifications/PLATFORM_LICENSE_VIEWER_CERTIFICATION.md`.
 
 ### Release platform certification scope
 
