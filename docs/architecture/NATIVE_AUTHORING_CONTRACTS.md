@@ -275,6 +275,10 @@ reclaim guard. Recovery validates every observed physical revision against
 the recorded before/after states *before* rolling back an incomplete group or
 finishing a committed one. Malformed journals, an unverifiable lock, or an
 unknown concurrent revision remain in place for explicit intervention.
+The shared Linux/macOS/Windows writer lock reports expected live-writer,
+reclaim-guard, and not-yet-published `owner.json` contention as `WORKSPACE_BUSY`,
+not a thrown exception. Recovery acquires exclusive writer ownership before
+enumerating journals; it must never roll back a concurrently active Save.
 
 Callers can attribute invalid sources to their affected save targets or report
 unattributable structural uncertainty to fail all writes closed. The Project
@@ -289,9 +293,10 @@ the production editor/CLI transaction or conflict-resolution code.
 
 `native_authoring_yaml_transaction` tests same-file external rebase, stale
 review rejection, commenter choices, commented defaults, scoped invalidity,
-target create/delete, grouped Save/rollback, writer contention, real Linux
-process-death recovery, unknown third-party bytes, repeated recovery, and
-malformed journals. Runtime Feature Lab is not applicable to this
+target create/delete, grouped Save/rollback, deterministic independent-process
+contention during an active grouped write and before lock-owner publication on
+all three desktop hosts, real POSIX process-death recovery, unknown third-party
+bytes, repeated recovery, and malformed journals. Runtime Feature Lab is not applicable to this
 host-only persistence invariant; the existing Feature Lab Project provides
 the full Project/Room source certification fixtures.
 

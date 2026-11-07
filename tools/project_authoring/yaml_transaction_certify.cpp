@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -22,6 +23,7 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <process.h>
 #endif
 
 namespace {
@@ -76,7 +78,49 @@ YamlTransactionTarget change(std::string path, std::string baseline, std::string
     return target;
 }
 
-void certify()
+// Run a genuinely independent process while the parent is holding the lock.
+// The probe must not rely on a race with the OS scheduler to observe contention.
+bool probe_competing_writer(const fs::path& executable, const fs::path& root)
+{
+#ifdef _WIN32
+    const auto program = fs::absolute(executable).wstring();
+    const auto project = root.wstring();
+    const wchar_t* argv[] = {program.c_str(), L"--probe-locked-project", project.c_str(), nullptr};
+    return _wspawnv(_P_WAIT, program.c_str(), argv) == 0;
+#else
+    const auto child = fork();
+    require(child >= 0, "Cannot fork concurrent transaction probe");
+    if (child == 0) {
+        execl(executable.c_str(), executable.c_str(), "--probe-locked-project", root.c_str(),
+              static_cast<char*>(nullptr));
+        _exit(127);
+    }
+    int status = 0;
+    return waitpid(child, &status, 0) == child && WIFEXITED(status) && WEXITSTATUS(status) == 0;
+#endif
+}
+
+int probe_locked_project(const fs::path& root)
+{
+    YamlTransactionService contender(root);
+    const auto recovered = contender.recover();
+    if (recovered.accepted || !recovered.error.starts_with("WORKSPACE_BUSY"))
+        return 2;
+    YamlTransactionTarget created;
+    created.path = "records/rooms/concurrent-probe.yaml";
+    created.expected_revision = "absent";
+    created.create_source = "id: concurrent-probe\nlabel: Contender\n";
+    const auto prepared = contender.prepare({created}, TransactionDecision::KeepComments);
+    if (!prepared.accepted)
+        return 3;
+    const auto committed = contender.commit(prepared, TransactionDecision::KeepComments);
+    if (committed.accepted || !committed.error.starts_with("WORKSPACE_BUSY") ||
+        fs::exists(root / created.path))
+        return 4;
+    return 0;
+}
+
+void certify(const fs::path& executable)
 {
     require(
         source_revision_algorithm("absent") == SourceRevisionAlgorithm::Absent &&
@@ -290,6 +334,29 @@ void certify()
             "Successful grouped commit atomically coordinates only selected physical paths");
     require(writer.recover().accepted, "Clean recovery performs no unnecessary transaction work");
 
+    // An active writer has already published its journal and made one physical
+    // rename. A second process must reject both recovery and another mutation,
+    // without rolling back the first writer or terminating its process.
+    const auto concurrent_before_a = read(first);
+    const auto concurrent_before_b = read(second);
+    auto concurrent_group = writer.prepare(
+        {change("records/rooms/one.yaml", concurrent_before_a, "/label", "\"Parallel A\""),
+         change("records/rooms/two.yaml", concurrent_before_b, "/label", "\"Parallel B\"")},
+        TransactionDecision::KeepComments);
+    require(concurrent_group.accepted, "Concurrent writer fixture prepares grouped changes");
+    writer.set_after_target_hook_for_certification([&](std::size_t index) {
+        if (index == 0)
+            require(probe_competing_writer(executable, temp.root),
+                    "Independent process must return BUSY during an active transaction");
+    });
+    require(writer.commit(concurrent_group, TransactionDecision::KeepComments).accepted &&
+                read(first).find("Parallel A") != std::string::npos &&
+                read(second).find("Parallel B") != std::string::npos &&
+                !fs::exists(temp.root / "records/rooms/concurrent-probe.yaml"),
+            "Active grouped writer survives independent process contention with exact bytes");
+    writer.set_after_target_hook_for_certification({});
+    require(writer.recover().accepted, "Successful concurrent transaction leaves no journal");
+
     const auto blank = temp.root / "records/rooms/new.yaml";
     YamlTransactionTarget created;
     created.path = "records/rooms/new.yaml";
@@ -418,13 +485,33 @@ void certify()
                 !writer.commit(busy_plan, TransactionDecision::KeepComments).accepted &&
                 read(first) == busy_source,
             "Concurrent live writer lock blocks mutation, without unsafe lock reclamation");
+    const auto unfinished = temp.root / ".noveltea/transactions/.preparing-active";
+    write(unfinished / "after/0", "unpublished temporary source");
+    require(probe_competing_writer(executable, temp.root) && fs::exists(unfinished) &&
+                read(first) == busy_source,
+            "Independent writer cannot recover an active lock's staging directory");
     fs::remove(busy / "owner.json");
     const auto initializing_writer = writer.commit(busy_plan, TransactionDecision::KeepComments);
     require(!initializing_writer.accepted &&
                 initializing_writer.error.find("WORKSPACE_BUSY") != std::string::npos &&
                 read(first) == busy_source,
             "Concurrent writer without an installed owner is busy, not a failed YAML read");
+    require(probe_competing_writer(executable, temp.root) && fs::exists(unfinished),
+            "Missing owner.json during lock publication is BUSY in another process");
     fs::remove_all(busy);
+    require(writer.recover().accepted && !fs::exists(unfinished) &&
+                !fs::exists(temp.root / "records/rooms/concurrent-probe.yaml"),
+            "Recovery after lock release removes only unpublished staging bytes");
+    YamlTransactionTarget resumed;
+    resumed.path = "records/rooms/concurrent-probe.yaml";
+    resumed.expected_revision = "absent";
+    resumed.create_source = "id: concurrent-probe\nlabel: Contender\n";
+    const auto resumed_plan = writer.prepare({resumed}, TransactionDecision::KeepComments);
+    require(resumed_plan.accepted &&
+                writer.commit(resumed_plan, TransactionDecision::KeepComments).accepted &&
+                read(temp.root / resumed.path) == *resumed.create_source,
+            "Writer can publish normally after the competing lock is released");
+    fs::remove(temp.root / resumed.path);
 
 #ifndef _WIN32
     // A real process death exercises a crash between target rename and the
@@ -493,10 +580,13 @@ void certify()
 }
 } // namespace
 
-int main()
+int main(int argc, char** argv)
 {
     try {
-        certify();
+        if (argc == 3 && std::string_view(argv[1]) == "--probe-locked-project")
+            return probe_locked_project(fs::path(argv[2]));
+        require(argc == 1, "Unexpected native YAML transaction certification arguments");
+        certify(fs::absolute(fs::path(argv[0])));
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "Native YAML transaction certification failed: " << e.what() << '\n';

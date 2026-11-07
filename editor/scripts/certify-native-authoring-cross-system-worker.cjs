@@ -1,6 +1,15 @@
 const assert = require('node:assert/strict');
 const { spawn, spawnSync } = require('node:child_process');
-const { mkdtemp, readFile, realpath, rm, stat, utimes, writeFile } = require('node:fs/promises');
+const {
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  stat,
+  utimes,
+  writeFile,
+} = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const { Worker } = require('node:worker_threads');
@@ -216,6 +225,42 @@ async function main() {
     await writeFile(
       manifestPath,
       `${await readFile(manifestPath, 'utf8')}\nentrypoint:\n  kind: room\n  id: intro\n`,
+    );
+
+    // Deterministically exercise the same concurrent recovery route that
+    // aborted the macOS daemon owner: a live writer has the lock while an
+    // unpublished staging directory is present. The CLI must return BUSY,
+    // survive, and reconcile the staging bytes after the writer releases it.
+    const transactions = path.join(project, '.noveltea/transactions');
+    const writerLock = path.join(transactions, '.writer-lock');
+    const staging = path.join(transactions, '.preparing-concurrent-certification');
+    await mkdir(writerLock, { recursive: true });
+    await writeFile(
+      path.join(writerLock, 'owner.json'),
+      JSON.stringify({
+        ownerToken: 'editor-certification-holder',
+        pid: process.pid,
+        operationLabel: 'concurrent certification',
+        transactionId: null,
+      }),
+    );
+    await mkdir(staging, { recursive: true });
+    await writeFile(path.join(staging, 'unpublished'), 'staging must not be applied');
+    const blocked = await runCliConcurrent(scratch, project, [
+      'entity',
+      'create',
+      'rooms',
+      'during-held-lock',
+    ]);
+    assert.equal(blocked.success, false, 'Active Project writer must reject concurrent CLI Save');
+    assert.equal((await stat(staging)).isDirectory(), true);
+    assert.equal(runCli(scratch, null, ['daemon', 'status'], true).daemon.running, true);
+    await rm(writerLock, { recursive: true });
+    runCli(scratch, project, ['entity', 'create', 'rooms', 'during-held-lock'], true);
+    await assert.rejects(stat(staging));
+    assert.equal(
+      (await stat(path.join(project, 'records/rooms/during-held-lock.yaml'))).isFile(),
+      true,
     );
 
     const editor = editorSession(project, 'editor-dirty');

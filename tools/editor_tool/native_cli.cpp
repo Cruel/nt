@@ -2364,19 +2364,21 @@ int project_mutation(const Arguments& args)
     if (!response.value("ok", false)) {
         const auto message =
             response.value("error", std::string("Native Project mutation failed."));
+        const bool busy = message.starts_with("WORKSPACE_BUSY:");
         const bool conflict = std::regex_search(
             message,
             std::regex("revision|source changed|transaction|physical|source authority|conflict",
                        std::regex::icase));
         const std::string code =
-            asset ? "ASSET_IMPORT_FAILED"
+            busy    ? "WORKSPACE_BUSY"
+            : asset ? "ASSET_IMPORT_FAILED"
             : operation == "rename" &&
                     message.find("Possible source reference") != std::string::npos
                 ? "authoring.source_reference.possible"
             : operation == "delete" && message.find("does not exist") != std::string::npos
                 ? "authoring.entity.not_found"
                 : "authoring.entity." + operation;
-        return native_failure(args, response, code, error_path, conflict ? 5 : 4,
+        return native_failure(args, response, code, error_path, busy || conflict ? 5 : 4,
                               "Native Project mutation failed.", root_text);
     }
     if (asset)

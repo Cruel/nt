@@ -680,16 +680,21 @@ public:
         fs::create_directories(transactions);
         const auto lock = transactions / lock_name;
         const auto guard = transactions / guard_name;
-        if (fs::exists(guard))
-            throw std::runtime_error("WORKSPACE_BUSY: writer reclaim is active.");
-        if (fs::is_symlink(fs::symlink_status(lock)))
-            throw std::runtime_error("WORKSPACE_BUSY: writer lock is a symbolic link.");
+        if (fs::exists(guard)) {
+            busy_error_ = "WORKSPACE_BUSY: writer reclaim is active.";
+            return;
+        }
+        if (fs::is_symlink(fs::symlink_status(lock))) {
+            busy_error_ = "WORKSPACE_BUSY: writer lock is a symbolic link.";
+            return;
+        }
         if (fs::create_directory(lock)) {
             // A reclaimer can acquire the guard between the initial check and
             // exclusive lock creation. Never publish an owner under its guard.
             if (fs::exists(guard)) {
                 fs::remove(lock);
-                throw std::runtime_error("WORKSPACE_BUSY: writer reclaim started concurrently.");
+                busy_error_ = "WORKSPACE_BUSY: writer reclaim started concurrently.";
+                return;
             }
         } else {
             // Another writer may have created the lock directory but not
@@ -701,42 +706,69 @@ public:
                 prior = read_owner(lock);
             } catch (const std::runtime_error&) {
                 std::error_code missing;
-                if (!fs::exists(lock / "owner.json", missing) && !missing)
-                    throw std::runtime_error("WORKSPACE_BUSY: writer lock owner is changing.");
+                if (!fs::exists(lock / "owner.json", missing) && !missing) {
+                    busy_error_ = "WORKSPACE_BUSY: writer lock owner is changing.";
+                    return;
+                }
                 throw;
             }
             const auto& [prior_owner, prior_pid] = prior;
-            if (!proven_dead(prior_pid))
-                throw std::runtime_error("WORKSPACE_BUSY: another Project writer is active.");
+            if (!proven_dead(prior_pid)) {
+                busy_error_ = "WORKSPACE_BUSY: another Project writer is active.";
+                return;
+            }
             const auto guard_token = token();
-            if (!fs::create_directory(guard))
-                throw std::runtime_error("WORKSPACE_BUSY: writer reclaim is active.");
-            write_owned_directory(guard, guard_token, "reclaim Project writer", transaction);
+            if (!fs::create_directory(guard)) {
+                busy_error_ = "WORKSPACE_BUSY: writer reclaim is active.";
+                return;
+            }
             const auto claimed = transactions / (".writer-lock.claimed-" + token());
             bool claimed_lock = false;
-            try {
-                if (read_owner(lock).first != prior_owner || !proven_dead(prior_pid))
-                    throw std::runtime_error("WORKSPACE_BUSY: writer changed during reclaim.");
-                fs::rename(lock, claimed);
-                claimed_lock = true;
-                if (read_owner(claimed).first != prior_owner)
-                    throw std::runtime_error("WORKSPACE_BUSY: claimed writer changed.");
-                recover_journals(root);
-                if (!fs::create_directory(lock))
-                    throw std::runtime_error("WORKSPACE_BUSY: writer appeared during reclaim.");
-                remove_owned_directory(claimed, prior_owner);
-                claimed_lock = false;
-                remove_owned_directory(guard, guard_token);
-            } catch (...) {
-                // Never delete a guard while the lock is unaccounted for.
-                if (claimed_lock && !fs::exists(lock) && read_owner(claimed).first == prior_owner) {
-                    fs::rename(claimed, lock);
-                    claimed_lock = false;
+            bool acquired_after_reclaim = false;
+            // Unwinding a failed reclaim must not itself throw: a second
+            // exception here would terminate the daemon owner on every host.
+            const auto restore_claim = [&]() noexcept {
+                try {
+                    if (claimed_lock && !fs::exists(lock) &&
+                        read_owner(claimed).first == prior_owner) {
+                        fs::rename(claimed, lock);
+                        claimed_lock = false;
+                    }
+                    if (!claimed_lock)
+                        remove_owned_directory(guard, guard_token);
+                } catch (...) {
+                    // Preserve uncertain ownership and journal bytes for recovery.
                 }
-                if (!claimed_lock)
-                    remove_owned_directory(guard, guard_token);
+            };
+            try {
+                write_owned_directory(guard, guard_token, "reclaim Project writer", transaction);
+                if (read_owner(lock).first != prior_owner || !proven_dead(prior_pid)) {
+                    busy_error_ = "WORKSPACE_BUSY: writer changed during reclaim.";
+                } else {
+                    fs::rename(lock, claimed);
+                    claimed_lock = true;
+                    if (read_owner(claimed).first != prior_owner) {
+                        busy_error_ = "WORKSPACE_BUSY: claimed writer changed.";
+                    } else {
+                        recover_journals(root);
+                        if (!fs::create_directory(lock)) {
+                            busy_error_ = "WORKSPACE_BUSY: writer appeared during reclaim.";
+                        } else {
+                            remove_owned_directory(claimed, prior_owner);
+                            claimed_lock = false;
+                            acquired_after_reclaim = true;
+                        }
+                    }
+                }
+            } catch (...) {
+                restore_claim();
                 throw;
             }
+            if (!acquired_after_reclaim) {
+                restore_claim();
+                return;
+            }
+            remove_owned_directory(guard, guard_token);
         }
         // All physical targets use this same cross-process writer lock.
         try {
@@ -764,10 +796,13 @@ public:
     }
 
     std::string_view owner() const { return token_; }
+    [[nodiscard]] bool acquired() const { return held_; }
+    [[nodiscard]] const std::string& busy_error() const { return busy_error_; }
 
 private:
     fs::path root_;
     std::string token_;
+    std::string busy_error_;
     bool held_ = false;
 };
 
@@ -1016,20 +1051,13 @@ YamlTransactionResult YamlTransactionService::recover()
             result.accepted = true;
             return result;
         }
-        bool pending = false;
-        for (const auto& entry : fs::directory_iterator(root)) {
-            const auto name = entry.path().filename().string();
-            if (name != lock_name && name != guard_name &&
-                !name.starts_with(".writer-lock.claimed-")) {
-                pending = true;
-                break;
-            }
-        }
-        if (!pending) {
-            result.accepted = true;
+        WriterLock lock(root_, "Project journal recovery", std::nullopt);
+        if (!lock.acquired()) {
+            result.error = lock.busy_error();
             return result;
         }
-        WriterLock lock(root_, "Project journal recovery", std::nullopt);
+        // Only the lock owner may inspect/resolve journals: a concurrent
+        // writer can create or remove a journal at any instant before that.
         recover_journals(root_);
         result.accepted = true;
     } catch (const std::exception& e) {
@@ -1059,6 +1087,10 @@ YamlTransactionResult YamlTransactionService::commit(const PreparedYamlTransacti
         }
         const auto id = token();
         WriterLock lock(root_, "native YAML Project Save", id);
+        if (!lock.acquired()) {
+            result.error = lock.busy_error();
+            return result;
+        }
         recover_journals(root_);
         std::set<std::string> paths;
         for (const auto& target : prepared.targets) {
