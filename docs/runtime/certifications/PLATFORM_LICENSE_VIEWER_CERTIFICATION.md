@@ -39,6 +39,17 @@ correct target's own finalized files. Web's Playwright export certification
 separately hashes the engine notice bytes actually mounted in the initialized
 Emscripten filesystem for root and nested deployment paths.
 
+The shared runtime menu-entry interaction is also covered by
+`tests/ui/runtime_ui_lifecycle_integration_tests.cpp`: it loads the **shipped**
+Title, Pause and Licenses RML documents and dispatches their real RmlUi click
+callbacks, verifying the typed OpenLicenses and Close commands. The existing
+`runtime_system_layouts_tests.cpp` then proves the shell stack returns to the
+originating Title/Pause screen without resuming gameplay; the native finalized
+export viewer witness selects every notice and validates full displayed text.
+Together with platform-specific packaged-resource and launch checks, these
+provide **composed CI evidence** of the shared viewer workflow without adding
+one UI automation framework per platform.
+
 ## Qualification scope and outstanding target interactions
 
 | Target | Confirmed or automated seam | Live target Licenses interaction |
@@ -64,10 +75,13 @@ or actual canvas-level Web license navigation on this revision.
 The native host UI runner tests production RmlUi logic with real exported
 resources, but runs **outside** the final desktop, Web or Android player binary.
 An SDL desktop process launch, browser `NOVELTEA_PLAYER_READY` marker or APK
-readback cannot be substituted for a visible Licenses interaction. Full
-closure of #418 and #410 requires evidence at these missing live UI boundaries;
-until then they must remain open. Do not silently upgrade inventory or
-host-rendered claims to target-player certification.
+readback alone cannot be substituted for a visible Licenses interaction. The
+composed shared-runtime tests above cover the missing interaction boundary,
+but are **not** evidence of direct mouse/touch navigation through each target's
+running player. Any #418/#410 acceptance based on this combined CI coverage
+must state that distinction and cite green Build/Release jobs from the revision
+containing the menu-entry test; never claim that individual target-player menu
+clicks were performed.
 
 ## Local reproducer (Linux)
 

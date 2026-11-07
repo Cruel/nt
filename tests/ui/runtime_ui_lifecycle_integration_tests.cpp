@@ -37,6 +37,7 @@
 #include <functional>
 #include <iterator>
 #include <memory>
+#include <tuple>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -1966,6 +1967,51 @@ TEST_CASE("RuntimeUI selector playback and native inspection use the internal pl
 
     ui.shutdown();
     CHECK(noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui) == nullptr);
+}
+
+TEST_CASE("built-in Title and Pause Licenses buttons dispatch through the runtime RmlUi model")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture({.mount_system_assets = true});
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+    RecordingRuntimeUiInputSink sink;
+    ui.bind_input_sink(&sink);
+    const noveltea::core::MountedLayoutPolicy menu_policy{
+        .plane = noveltea::core::PresentationPlane::MenuOverlay,
+        .clock = noveltea::core::LayoutClockDomain::UnscaledPresentation,
+        .input = noveltea::core::LayoutInputMode::Modal,
+        .gameplay_pause = noveltea::core::GameplayPausePolicy::PauseWhileVisible};
+    auto* driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
+    REQUIRE(driver);
+
+    const auto click = [&](const char* document_id, const char* element_id) {
+        auto* button = driver->element(document_id, element_id);
+        REQUIRE(button);
+        const auto before = sink.shell_commands;
+        REQUIRE(button->DispatchEvent("click", Rml::Dictionary{}));
+        CHECK(sink.shell_commands == before + 1);
+        REQUIRE(sink.last_shell_command.has_value());
+    };
+    for (const auto& [source, document_id, button_id] :
+         {std::tuple{noveltea::presentation::RuntimeLayoutBuiltinDocument::Title, "runtime_title",
+                     "nt-title-licenses"},
+          std::tuple{noveltea::presentation::RuntimeLayoutBuiltinDocument::PauseMenu,
+                     "runtime_pause_menu", "nt-pause-licenses"}}) {
+        REQUIRE(ui.load_builtin_for_layout(source, true, menu_policy, 1,
+                                           noveltea::core::MountedLayoutOwner::Shell));
+        click(document_id, button_id);
+        CHECK(std::holds_alternative<noveltea::core::OpenLicensesShellCommand>(
+            *sink.last_shell_command));
+        REQUIRE(ui.unload_document(document_id));
+
+        REQUIRE(ui.load_builtin_for_layout(
+            noveltea::presentation::RuntimeLayoutBuiltinDocument::Licenses, true, menu_policy, 2,
+            noveltea::core::MountedLayoutOwner::Shell));
+        click("runtime_licenses", "nt-license-back");
+        CHECK(std::holds_alternative<noveltea::core::CloseShellScreenCommand>(
+            *sink.last_shell_command));
+        REQUIRE(ui.unload_document("runtime_licenses"));
+    }
 }
 
 TEST_CASE("RuntimeUI selector playback defers inputs until data-event dispatch returns")
