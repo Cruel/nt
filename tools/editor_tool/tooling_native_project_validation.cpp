@@ -380,6 +380,9 @@ bool restore_stages(OwnerValidation& state, std::string_view serialized, Json& r
         result["materialCompilerPrograms"] = state.material_programs;
         result["materialEffectiveInputs"] = state.material_effective;
         result["work"]["retainedStageProjections"] = 1;
+        // The independently certified stages also cover presentation-only edits.
+        // Advance their generation now so a later exact cache hit can reuse them.
+        state.complete_project_sources = complete_project_source_revisions(current);
     } else {
         if (serialized.empty())
             return false;
@@ -439,6 +442,10 @@ bool restore_stages(OwnerValidation& state, std::string_view serialized, Json& r
             state.material_programs = projection.at("materialCompilerPrograms");
             state.material_effective = projection.at("materialEffectiveInputs");
             state.font_inputs = projection.at("fontCoverageInputs");
+            // A cold ledger hit can restore independent stage evidence without ever
+            // constructing the complete Project. Pin that evidence to the entire
+            // verified YAML/localization generation for later resident reuse.
+            state.complete_project_sources = complete_project_source_revisions(revisions);
             result.update(projection);
         } catch (...) {
             // An optional, stale or malformed persisted stage cannot revoke
@@ -1407,13 +1414,20 @@ Json validate(std::string_view request_text)
             semantic_work.rechecked_records != 0 && semantic_work.global_stage_reuses == 1 &&
             semantic_work.global_stage_executions == 0 && semantic_work.localization_rebuilds == 0;
         // Every host has either an authoritative watched source generation or
-        // an exact full observation. Neither permits retained projections if
-        // an external path changed or its proof is missing.
+        // an exact full observation. A semantic cache hit must not itself discard
+        // separately certified resident stage projections: Windows can reimport
+        // the clean ledger after a watcher recovery without changing any input.
+        // On a cache hit, require exact YAML/localization generation identity.
+        // Presentation-only saved edits can still retain the independent stages
+        // even though their unrelated Room YAML revision advanced.
         const bool retain_stage_projections =
-            !validated.cache_hit && (unchanged_semantics || presentation_only) &&
-            state.session->verified_source_revisions_view() && state.portable_check &&
-            state.notice_check && state.font_inputs && state.material_records &&
-            state.material_assets;
+            (unchanged_semantics || presentation_only) &&
+            state.session->verified_source_revisions_view() &&
+            (!validated.cache_hit || state.complete_project_sources ==
+                                         complete_project_source_revisions(
+                                             state.session->verified_source_revisions_view())) &&
+            state.portable_check && state.notice_check && state.font_inputs &&
+            state.material_records && state.material_assets;
         // A resident may have retained the certified external projections
         // after a presentation-only Room edit while retiring its complete
         // YAML Project assembly. A subsequent Lua/RML/RCSS byte edit needs a
