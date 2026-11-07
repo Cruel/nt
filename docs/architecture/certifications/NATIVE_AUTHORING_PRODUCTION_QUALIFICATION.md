@@ -1,6 +1,7 @@
 # Native Project production qualification (#522)
 
-Status: **post-cutover qualification in progress (#522)**. #521 switched the
+Status: **post-cutover qualification in progress (#522; human editor acceptance and
+exact-head cross-host evidence outstanding)**. #521 switched the
 editor Project authority and #551 replaced the shipped CLI/daemon/worker host
 with direct C++ without ScriptC/QuickJS. The repository now has the production
 implementation, but that is **not** evidence of a completely certified release.
@@ -236,16 +237,85 @@ an independent full export-performance certificate.
 
 ## Required post-cutover evidence not supplied by the preparation
 
+### Production recheck: 2026-11-07 UTC, checkout `76b17588`
+
+This is **new local production evidence**, not a final #522 sign-off. #551 was
+independently verified CLOSED with direct C++ host evidence. Build
+[42149583199](https://github.com/Cruel/nt/actions/runs/42149583199) and Release
+[42149611086](https://github.com/Cruel/nt/actions/runs/42149611086) passed at
+ancestor `6eefa101`, including Windows/macOS editor, CLI, and installed host
+jobs. At this recheck, Build
+[42340755402](https://github.com/Cruel/nt/actions/runs/42340755402) at
+`76b17588` and Release
+[42335869648](https://github.com/Cruel/nt/actions/runs/42335869648) at
+`1eded842` were still running. Neither is claimed as a passing exact-head
+cross-host Release.
+
+- Node 24.18.0 and repository vcpkg were explicitly selected. Fresh
+  `pnpm -C editor run noveltea:build` succeeded with actual native C++ build,
+  relocation, bundled FFmpeg and Project-create smokes. Fresh addon build,
+  `vp pack`, `vp build`, bundle policy, native-production closure and installed
+  native-CLI closure passed. The command inventory certifies **43 public paths,
+  29 native Project actions and 14 IPC routes**; retired TypeScript workspace,
+  ScriptC dispatcher and island files are absent.
+- `pnpm -C editor run check` passed, with Vite+ cached check tasks; the full
+  editor test run passed **2,140 tests, 148 skipped**. Explicitly providing the
+  rebuilt addon executed `native-authoring-reconciliation.test.ts`:
+  **34 passed, 1 skipped**, including the `483ac07b` native save-unit/delta
+  handoff, exact source preconditions, Keep Mine/Use Disk, deletion, conflict
+  recovery, reopen and scoped Save. Native authoring CTest: **43/43 passed**.
+  The repository-pinned clang-format 18.1.8 checked **730 C/C++ files**.
+- The ordinary `NOVELTEA_AUTHORING_NODE_ADDON=... pnpm -C editor run
+  noveltea:certify` passed **10/10 production stages**, including actual
+  Feature Lab authored runtime and UI Tests, editable-Project and Runtime
+  Package readback, cache corruption and repair, daemon/worker interruption,
+  platform publication, ComfyUI rollback and independent two-way
+  editor/installed-CLI disk authority. The authored Lab catalog validator
+  accepted **27 scenarios and 188 checks**; Maps remain the explicitly
+  deferred authored Lab family, not a claimed gameplay witness.
+- The production Electron/Xvfb renderer/preload/main/native worker smoke
+  opened and validated real newly created Projects. A freshly staged Linux
+  directory package passed ASAR/fuse/native resource verification, and
+  `pnpm -C editor run package:smoke` passed every reported packaged startup,
+  preview/protocol, CLI, Sharp, media-tool and PTY check. This is automated
+  lifecycle verification, not the human Save/conflict/preview walkthrough.
+- The retired `certify-native-editor-performance.mjs` implementation was
+  replaced with a current native-only addon/installed-CLI measurement, avoiding
+  imports from the deleted TypeScript Workspace. On this Linux host, one copied
+  Feature Lab sample measured: cold Project Open **289 ms** (historical native
+  #520 reference **682 ms**), one YAML patch plus scoped Save **167 ms**
+  (reference **203 ms**), Lua source Save **70 ms** (reference **253 ms**),
+  semantic preparation **495 ms** (reference **3,920 ms**), and full installed
+  Runtime Package publication **6,835 ms** (not comparable to #520's
+  editor-only export preparation). None of the four corresponding addon
+  phases exceeds the **both >3x and >500 ms** reference warning threshold.
+  The historical data are single-run measurements on a different host;
+  this comparison is directional, not a same-host A/B or UI latency
+  certification. In particular, no interactive Save-to-preview timing or
+  same-boundary editor export preparation result has been certified.
+
+**Still mandatory:** execute and record the human editor checklist in
+`docs/editor/project/PROJECT_VALIDATION_AND_SAVING_CERTIFICATION.md`,
+including Save All conflict partitioning, native text recovery and preview,
+on a usable interactive host; establish reproducible editor end-to-end
+Save/preview and export-preparation timing (or obtain explicit owner approval
+for a narrowly described performance exception); and obtain a green
+qualifying Build/Release for the current post-refactor revision. Signing,
+notarization and physical Android device input remain separate credentials
+or host-specific limitations; neither the Linux package smoke nor a prior
+green Release proves them. Do not close #522 or #506 on automated evidence
+alone.
+
 | Qualification | Reusable seams / evidence to collect | Status |
 | --- | --- | --- |
-| All 16 families and all public/private CLI routes | Generated schema/native inventory and native CLI command matrix; negative fixtures for absent Feature Lab families (notably Maps), command options/transport/daemon/static/heavy paths | **post-#551 certification pending** |
-| Editor workflows | Real packaged Open/Inspect/Edit/Undo/Redo/Save/Save All/Save As/Play/Preview/Test/Export/Reopen; Project Settings, text/Asset edits, working/recovery journal, Chapter/Tag/Layout changes; follow `docs/editor/project/PROJECT_VALIDATION_AND_SAVING_CERTIFICATION.md` | **manual host UI acceptance pending** |
-| Editor/CLI independence and negative source races | Production-mode cross-system worker/addon plus real main/renderer IPC, dirty-only/private recovery, Comment Keep/Remove/Cancel, overlapping vs disjoint changes, invalid unrelated source, exact SHA conflict, writer/transaction recovery | **production host matrix pending** |
-| Runtime correctness and host failures | Feature Lab authored semantic *and UI* Tests, preview/gameplay readback, pinned daemon generation and cancellation, corrupted caches, daemon restart/eviction, Asset/Project mutation race and output rollback | **production host matrix pending** |
-| Host distribution / isolation | Linux installed CLI plus green Windows/macOS exact-SHA release matrix using real addon, watcher, CAS and daemon; editor package smoke, relocated CLI/media/shader tools; host-only addon absent from all game players | **exact-SHA release results pending** |
-| Performance/regressions | Cold admission, warm cache, YAML/Lua scope, Save, actual export preparation, elapsed + useful work vs #520 baseline | **comparison pending** |
-| Generated contracts and docs | Agent Kit/schema/defaults, current-only cache and protocol inventory, production ownership docs, bundle closure and independent published-archive smoke | **final audit pending** |
-| Review/sign-off | Standards + #474/#506 spec review on final diff, link exact platform jobs; record missing manual/OS/signing credentials without silently passing | **pending** |
+| All 16 families and all public/private CLI routes | Generated schema/native inventory and native CLI command matrix; negative fixtures for absent Feature Lab families (notably Maps), command options/transport/daemon/static/heavy paths | **Local production PASS**; fresh installed inventory 43/29/14, full 10 stages; later exact-head cross-host acceptance pending |
+| Editor workflows | Real packaged Open/Inspect/Edit/Undo/Redo/Save/Save All/Save As/Play/Preview/Test/Export/Reopen; Project Settings, text/Asset edits, working/recovery journal, Chapter/Tag/Layout changes; follow `docs/editor/project/PROJECT_VALIDATION_AND_SAVING_CERTIFICATION.md` | **Automated Linux/Xvfb PASS; human UI checklist NOT EXECUTED** |
+| Editor/CLI independence and negative source races | Production-mode cross-system worker/addon plus real main/renderer IPC, dirty-only/private recovery, Comment Keep/Remove/Cancel, overlapping vs disjoint changes, invalid unrelated source, exact source conflict, writer/transaction recovery | **Local production PASS**, including real-addon recovery and cross-system; manual conflict UI pending |
+| Runtime correctness and host failures | Feature Lab authored semantic *and UI* Tests, preview/gameplay readback, pinned daemon generation and cancellation, corrupted caches, daemon restart/eviction, Asset/Project mutation race and output rollback | **Local production PASS** (10 stages); interactive gameplay/preview remains separate |
+| Host distribution / isolation | Linux installed CLI plus green Windows/macOS exact-SHA release matrix using real addon, watcher, CAS and daemon; editor package smoke, relocated CLI/media/shader tools; host-only addon absent from all game players | **Local Linux package PASS; prior cross-host Release PASS at ancestor; exact-head CI pending** |
+| Performance/regressions | Cold admission, warm cache, YAML/Lua scope, Save, actual export preparation, elapsed + useful work vs #520 baseline | **Four corresponding native-addon phases measured; no reference material slowdown**; end-to-end editor Save/preview and comparable export-preparation UI timing pending |
+| Generated contracts and docs | Agent Kit/schema/defaults, current-only cache and protocol inventory, production ownership docs, bundle closure and independent published-archive smoke | **Local contract/schema/bundle policy PASS**; cross-host final review pending |
+| Review/sign-off | Standards + #474/#506 spec review on final diff, link exact platform jobs; record missing manual/OS/signing credentials without silently passing | **Local review and evidence reconciled; #522 OPEN for manual, timing and qualifying CI** |
 
 Record executed stage, project fixture, SHA, host, result, and any unavailable
 manual/CI evidence in this ledger after the cutover. The certification-only

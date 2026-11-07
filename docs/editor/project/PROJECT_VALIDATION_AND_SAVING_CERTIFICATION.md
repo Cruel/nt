@@ -77,3 +77,51 @@ The following human-driven sequence is still required before certification can b
 
 Automated renderer and service suites cover each contract, but they do not substitute for the plan's
 explicit human-driven editor smoke requirement.
+
+## Native #522 manual reconciliation (2026-11-07 UTC)
+
+**All eight human-driven cases above remain NOT EXECUTED.** The fresh Linux
+Electron/Xvfb smoke at `76b17588` used the real renderer, preload, main,
+native worker and addon to create, open, enumerate sources and validate a
+Project. It did **not** drive these eight interactions. The full editor suite
+(2,140 passed, 148 skipped), explicit real-addon reconciliation suite
+(34 passed, 1 skipped), native CTests (43 passed), ten-stage installed native
+production certification and packaged editor launch smoke are separate
+passing *automated* evidence, recorded in
+[the #522 production ledger](../../architecture/certifications/NATIVE_AUTHORING_PRODUCTION_QUALIFICATION.md).
+In particular, the new `483ac07b` save/recovery ownership handoff has
+real-addon regression coverage, but no manual certification credit.
+
+On an interactive packaged-editor host, use a **disposable copy of Feature
+Lab** and record pass/fail and affected files for each item, in this order:
+
+1. Open two distinct dirty records, make one invalid; Save the active valid
+   tab, then Save All. Verify only independently valid units reach disk;
+   invalid/blocked units and their recovery remain dirty.
+2. Save As with another unsaved change. Reopen both original and destination:
+   saved baseline stays on disk, unsaved overlay is recoverable, and the
+   active Project does not switch during Save As.
+3. Open two views of one dirty save unit. Close the first without a content
+   prompt; close the last and exercise Save, Don't Save and Cancel.
+4. Perform an Explorer structural auto-commit; Undo and Redo it and reopen
+   the Project. Check persisted source and metadata, not just visible rows.
+5. Close/restart the application with dirty YAML and Lua/RML buffers, then
+   reopen. Verify unsaved content survives in recovery without changing
+   tracked disk bytes. Exercise a disjoint external CLI edit and an overlapping
+   edit, ordinary Save refusal, **Use Disk**, **Keep Mine** and a second
+   intervening disk edit.
+6. Open Play preview with a stale/invalid source, repair it, and verify the
+   corrected preview and authored runtime/UI Test without a Project reopen.
+7. Exercise the platform identity-change confirmation: Cancel must leave
+   identity/output unchanged; approved confirmation must publish the expected
+   export without losing unrelated dirty work.
+8. Reopen after Save/Save All and after a forced worker/application restart;
+   confirm the expected source bytes, comments, conflict state, native
+   diagnostics and no silently committed or discarded recovery state.
+
+These are **human acceptance**, not extra requirements to weaken the
+automated matrix. The current host has no interactive desktop session
+(`XDG_SESSION_TYPE=tty`); Xvfb automation cannot certify hand-driven
+selection, visual feedback or preview usability. #522 must remain open until
+the eight cases are observed and recorded, alongside the separate end-to-end
+performance and exact-commit host qualification in the #522 ledger.
