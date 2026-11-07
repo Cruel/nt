@@ -484,15 +484,22 @@ using ConnectionHandle = int;
 constexpr ConnectionHandle invalid_connection = -1;
 #endif
 
-void close_connection(ConnectionHandle connection)
+void close_connection(ConnectionHandle connection, bool drain_response = false)
 {
 #if defined(_WIN32)
     if (connection != invalid_connection) {
-        FlushFileBuffers(connection);
+        // FlushFileBuffers on a named-pipe server waits for the client to consume every
+        // buffered byte. A stalled owner/control client must not hold up broker shutdown.
+        // Only the stop response is explicitly drained; other connections are aborted.
+        if (drain_response)
+            FlushFileBuffers(connection);
+        else
+            CancelIoEx(connection, nullptr);
         DisconnectNamedPipe(connection);
         CloseHandle(connection);
     }
 #else
+    (void)drain_response;
     if (connection != invalid_connection) {
         ::shutdown(connection, SHUT_RDWR);
         ::close(connection);
@@ -680,14 +687,14 @@ struct ClientConnection {
         return handle != invalid_connection && send_payload(handle, payload);
     }
 
-    void close()
+    void close(bool drain_response = false)
     {
         std::scoped_lock lock(write_mutex);
         if (handle == invalid_connection)
             return;
         const auto previous = handle;
         handle = invalid_connection;
-        close_connection(previous);
+        close_connection(previous, drain_response);
     }
 
     ConnectionHandle current() const
@@ -3590,10 +3597,12 @@ private:
                 wait_for_drain();
                 finish_if_safe();
                 client->send(result_event_json(request_id, true, status_json().dump()));
-                // The stop caller has received its final frame. Close any persistent owner/control
-                // channels now so serve-wait/process teardown cannot remain joined to an otherwise
-                // idle client connection after the daemon has entered stopped.
-                close_clients();
+                // Close persistent owner/control channels so serve-wait cannot remain joined to
+                // idle clients. Keep the stop caller's response pipe alive until it drains.
+                close_clients(client);
+                // This single pipe carries the stop acknowledgement. Unlike abandoned worker
+                // channels, its response must be consumed before disconnecting the server end.
+                client->close(true);
                 break;
             }
             const auto message_payload = message.value("payload", Json::object());
@@ -4627,7 +4636,7 @@ private:
         release_lifetime_ownership();
     }
 
-    void close_clients()
+    void close_clients(const std::shared_ptr<ClientConnection>& stop_client = nullptr)
     {
         std::vector<std::shared_ptr<ClientConnection>> clients;
         {
@@ -4635,7 +4644,8 @@ private:
             clients.assign(clients_.begin(), clients_.end());
         }
         for (const auto& client : clients)
-            client->close();
+            if (client != stop_client)
+                client->close();
     }
 
     void idle_loop()

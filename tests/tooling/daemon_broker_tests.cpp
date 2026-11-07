@@ -2284,6 +2284,37 @@ TEST_CASE("daemon graceful stop waits for active requests to settle")
     REQUIRE(invoke_daemon(request)["ok"] == true);
 }
 
+#if defined(_WIN32)
+TEST_CASE("daemon Windows stop acknowledges while another client is pending",
+          "[daemon-duplex][windows-native]")
+{
+    auto request = context(unique_build("pending-client-stop"));
+    request["action"] = "serve-start";
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+    request["action"] = "serve-ready";
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+
+    auto pending_request = request;
+    pending_request["action"] = "request";
+    pending_request["requestId"] = "pending-during-stop";
+    pending_request["method"] = "work";
+    // Keep another client connected while stop cancels queued work.
+    auto pending = std::async(std::launch::async,
+                              [pending_request] { return invoke_daemon(pending_request); });
+    REQUIRE(wait_until([&] { return daemon_status(request).value("queuedRequests", 0) == 1; }));
+
+    request["action"] = "stop";
+    const auto stopped = invoke_daemon(request);
+    REQUIRE(stopped["ok"] == true);
+    CHECK(stopped["state"] == "stopped");
+    REQUIRE(pending.wait_for(std::chrono::seconds(2)) == std::future_status::ready);
+    CHECK(pending.get()["ok"] == false);
+
+    request["action"] = "serve-wait";
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+}
+#endif
+
 TEST_CASE("daemon idle timeout ignores active and queued work")
 {
     auto request = context(unique_build("active-idle"));
