@@ -6,6 +6,9 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  changeVideoSource, createVideoCertificationProject, editYaml,
+} from './video-package-certification-fixture.mjs';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const web = process.argv.includes('--web');
@@ -26,43 +29,17 @@ const exec = (file, args, options = {}) => {
       (result.error?.message || result.stderr || result.stdout || result.status).toString().slice(-6000));
   return options.withStderr ? result.stdout + result.stderr : result.stdout;
 };
-const load = async (p) => JSON.parse(await fs.readFile(p, 'utf8'));
 const save = async (p, obj) => fs.writeFile(p, JSON.stringify(obj, null, 2) + '\n');
 const sourcePath = (dir) => path.join(dir, 'assets/video/opaque-colors.mp4');
 const ffArgs = ['-hide_banner', '-loglevel', 'error', '-nostdin', '-y'];
 const transcode = (dir, filename, filters, params) =>
   exec(ffmpeg, [...ffArgs, '-i', sourcePath(dir), '-map', '0:v:0',
     '-an', '-vf', filters, ...params, path.join(dir, 'assets/video', filename)]);
-async function changeVideo(dir, filename, mime, ext) {
-  const file = path.join(dir, 'records/assets/opaque-colors.json');
-  const asset = await load(file);
-  const relative = 'assets/video/' + filename;
-  const bytes = await fs.readFile(path.join(dir, relative));
-  Object.assign(asset.data, {
-    source: { type: 'project-file', path: relative }, mimeType: mime,
-    extension: ext, byteSize: bytes.length, contentHash: 'sha256:' + hash(bytes),
-  });
-  await save(file, asset);
-}
 async function projectFor(label, sampling, modify) {
-  const dir = path.join(work, label, 'project');
-  await fs.mkdir(path.dirname(dir), { recursive: true });
-  await fs.cp(path.join(repo, 'tests/projects/feature-lab'), dir, { recursive: true });
-  const projectFile = path.join(dir, 'project.json');
-  const project = await load(projectFile);
-  project.entrypoint = { kind: 'room', id: 'world-composition' };
-  project.settings.ui.systemLayouts = {};
-  await save(projectFile, project);
-  const roomFile = path.join(dir, 'records/rooms/world-composition.json');
-  const room = await load(roomFile);
-  room.data.presentationSpace.defaultView = {
-    center: { x: 1200, y: 675 }, zoom: 1, rotationDegrees: 0,
-  };
-  await save(roomFile, room);
-  const animationFile = path.join(dir, 'records/animations/opaque-color-loop.json');
-  const animation = await load(animationFile);
-  animation.data.motions[0].frameSampling = sampling;
-  await save(animationFile, animation);
+  const { dir, projectFile, animationFile } = await createVideoCertificationProject(work, label);
+  await editYaml(animationFile, (animation) => {
+    animation.data.motions[0].frameSampling = sampling;
+  });
   if (modify) await modify({ dir, projectFile, animationFile });
   return dir;
 }
@@ -77,7 +54,7 @@ const specs = [
     modify: async ({ dir }) => {
       transcode(dir, 'vfr.webm', 'select=not(mod(n\\,7))',
         ['-fps_mode', 'vfr', '-c:v', 'libvpx-vp9', '-threads', '1']);
-      await changeVideo(dir, 'vfr.webm', 'video/webm', '.webm');
+      await changeVideoSource(dir, 'vfr.webm', 'video/webm', '.webm');
     } },
   { label: 'upsample-10-to-24',
     sampling: { mode: 'target-fps', fps: { numerator: 24, denominator: 1 } },
@@ -85,24 +62,24 @@ const specs = [
     modify: async ({ dir }) => {
       transcode(dir, 'ten.webm', 'fps=10',
         ['-fps_mode', 'cfr', '-c:v', 'libvpx-vp9', '-threads', '1']);
-      await changeVideo(dir, 'ten.webm', 'video/webm', '.webm');
+      await changeVideoSource(dir, 'ten.webm', 'video/webm', '.webm');
     } },
   { label: 'full-range', sampling: { mode: 'source' }, endpoint: 3000, frames: 90,
     modify: async ({ animationFile }) => {
-      const a = await load(animationFile);
-      a.data.motions[0].sourceRange = { startMs: 0, endMs: 3000 };
-      await save(animationFile, a);
+      await editYaml(animationFile, (animation) => {
+        animation.data.motions[0].sourceRange = { startMs: 0, endMs: 3000 };
+      });
     } },
   { label: 'locale-fr', sampling: { mode: 'source' }, endpoint: 2000,
     modify: async ({ projectFile }) => {
-      const p = await load(projectFile);
-      p.export.runtime.localization.defaultLocale = 'fr';
-      await save(projectFile, p);
+      await editYaml(projectFile, (project) => {
+        project.export.runtime.localization.defaultLocale = 'fr';
+      });
     } },
   { label: 'source-revision', sampling: { mode: 'source' }, endpoint: 2000,
     modify: async ({ dir }) => {
       transcode(dir, 'revised.mp4', 'hflip', ['-c:v', 'mpeg4', '-q:v', '2']);
-      await changeVideo(dir, 'revised.mp4', 'video/mp4', '.mp4');
+      await changeVideoSource(dir, 'revised.mp4', 'video/mp4', '.mp4');
     } },
   ...['smpte2084', 'arib-std-b67'].map((transfer) => ({
     label: 'hdr-' + transfer, sampling: { mode: 'source' }, endpoint: 2000,
@@ -118,7 +95,7 @@ const specs = [
         '-pix_fmt', 'yuv422p10le', '-color_primaries', 'bt2020',
         '-color_trc', transfer, '-colorspace', 'bt2020nc',
         '-color_range', 'tv', '-movflags', '+write_colr']);
-      await changeVideo(dir, 'hdr.mov', 'video/quicktime', '.mov');
+      await changeVideoSource(dir, 'hdr.mov', 'video/quicktime', '.mov');
     },
   })),
 ];
@@ -144,7 +121,7 @@ async function nativeSmoke(archive, label) {
       textScale: { enabled: true, minimum: 1, maximum: 2 },
     },
   });
-  const log = exec(player, ['--player-config', path.join(dir, 'player.json'),
+  const log = exec('xvfb-run', ['-a', player, '--player-config', path.join(dir, 'player.json'),
     '--smoke-run-runtime'], {
     env: { ...process.env, SDL_AUDIODRIVER: 'dummy',
       NOVELTEA_PLAYER_SMOKE_FRAMES: '150',
@@ -153,7 +130,7 @@ async function nativeSmoke(archive, label) {
     withStderr: true,
   });
   if (!log.includes('NOVELTEA_PLAYER_READY') ||
-      !log.includes('[video] backend=libvpx-vp9') ||
+      !/\[video\] backend=(?:libvpx-vp9|nvdec-vp9|va-api-vp9)\b/u.test(log) ||
       !log.includes('frame limit reached: 150') ||
       !log.includes('shutdown complete'))
     throw new Error(label + ': native player did not finish: ' + log.slice(-4000));
@@ -213,7 +190,7 @@ try {
     throw new Error('Edited source reused previous prepared-media identity.');
   const broken = await projectFor('corrupt-media', { mode: 'source' }, async ({ dir }) => {
     await fs.writeFile(sourcePath(dir), Buffer.from('not a video container'));
-    await changeVideo(dir, 'opaque-colors.mp4', 'video/mp4', '.mp4');
+    await changeVideoSource(dir, 'opaque-colors.mp4', 'video/mp4', '.mp4');
   });
   const failedArchive = path.join(work, 'corrupt-media', 'should-not-publish.ntpkg');
   const failure = spawnSync(cli, [
@@ -223,7 +200,8 @@ try {
   const rejected = JSON.parse(failure.stdout);
   if (failure.status === 0 || rejected.success ||
       !rejected.diagnostics.some((diagnostic) =>
-        diagnostic.code === 'runtime-artifact.video-preparation.failed' &&
+        diagnostic.code === 'runtime-artifact.physical-preparation.failed' &&
+        diagnostic.message.includes('FFmpeg video preparation failed') &&
         diagnostic.severity === 'error')) {
     throw new Error('Corrupt source was not rejected with the typed video-preparation diagnostic.');
   }

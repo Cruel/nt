@@ -251,7 +251,7 @@ Android CI invokes `pnpm android:fixture` and `noveltea platform export` directl
 revisions so the public command path, rather than a private test-only entrypoint, is certified.
 
 The opaque-video smoke takes a normally exported disposable copy of Feature Lab. In that copy,
-set `project.json`'s entrypoint to `world-composition`, clear `settings.ui.systemLayouts` to use the
+set `project.yaml`'s entrypoint to `world-composition`, clear `settings.ui.systemLayouts` to use the
 default fullscreen HUD, and set that Room's default camera to center `(1200, 675)`, zoom `1`,
 rotation `0`. Keep source media, Animation, Materials, and bootstrap unchanged. Export through
 `noveltea package export --allow-localization-warnings`, then pass the `.ntpkg` to the command
@@ -267,12 +267,19 @@ progress in addition to cancellation and resource failure. Capture waits for see
 initial-frame `loadeddata`, before publishing a nonzero-time sample.
 
 Run `node scripts/certify-video-package-scenarios.mjs --web --native` for #407's repeatable
-real-package video matrix: ten disposable Feature Lab variants through the standalone Linux CLI,
+real-package video matrix: ten disposable sparse-YAML Feature Lab variants through the
+native Linux CLI,
 authoritative sample timing and exact endpoint checks, PQ/HLG tone mapping, source/locale cache
 identity, deterministic repeat export, and corrupt-input rejection. The Web leg uses the optimized
 browser player and image-pixel checks; the native leg uses the Linux debug player and its real
-software VP9 session. For GPU rendering, provide a working Linux display; the script does not
-require a VA-API hardware decoder.
+selected VP9 decoder session (hardware when available, otherwise libvpx). The script runs
+the native player under Xvfb and does not require a VA-API hardware decoder.
+
+Run `node scripts/certify-transparent-video-package-scenarios.mjs --native --web` for #409's
+transparent ProRes-to-VP9/WebP package and player check. Both scripts use the same current
+YAML fixture, pinned FFmpeg, and native `build/cli/linux/noveltea` export path. Their
+target player binaries must be built for the current checkout. The native legs use Xvfb;
+the Web legs require Playwright Chromium and a working WebGL backend.
 
 If the current display cannot initialize WebGL (for example an unavailable SSH-forwarded display),
 run the package smoke under `xvfb-run -a node scripts/web-player-package-smoke.mjs ...`. Browser media

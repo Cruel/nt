@@ -7,13 +7,12 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  changeVideoSource, createVideoCertificationProject,
+} from './video-package-certification-fixture.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(root, 'build/cli/linux/noveltea');
-const nodeCli = path.join(root, 'editor/dist-electron/tools/noveltea.mjs');
-// The Node CLI is the source-of-truth export path; the separately bundled
-// ScriptC standalone launcher can be opted into for its own certification.
-const useNodeCli = process.env.NOVELTEA_ALPHA_STANDALONE_CLI !== '1';
 const ffmpeg = path.join(root, 'build/cli/linux/tools/ffmpeg/bin/ffmpeg');
 const player = path.join(root, 'build/linux-debug/apps/player/noveltea-player');
 const work = await fs.mkdtemp(path.join(os.tmpdir(), 'noveltea-409-package-'));
@@ -25,23 +24,11 @@ const exec = (file, args, options = {}) => {
   if (result.error || result.status !== 0)
     throw new Error(file + ' failed: ' +
       (result.error?.message || result.stderr || result.stdout || result.status).toString().slice(-7000));
-  return result.stdout;
+  return options.withStderr ? result.stdout + result.stderr : result.stdout;
 };
 const fromPackage = (pkg, file) => exec('unzip', ['-p', pkg, file]);
 try {
-  const project = path.join(work, 'project');
-  await fs.cp(path.join(root, 'tests/projects/feature-lab'), project, { recursive: true });
-  const projectFile = path.join(project, 'project.json');
-  const projectDoc = JSON.parse(await fs.readFile(projectFile, 'utf8'));
-  projectDoc.entrypoint = { kind: 'room', id: 'world-composition' };
-  projectDoc.settings.ui.systemLayouts = {};
-  await fs.writeFile(projectFile, JSON.stringify(projectDoc));
-  const roomFile = path.join(project, 'records/rooms/world-composition.json');
-  const room = JSON.parse(await fs.readFile(roomFile, 'utf8'));
-  room.data.presentationSpace.defaultView = {
-    center: { x: 1200, y: 675 }, zoom: 1, rotationDegrees: 0,
-  };
-  await fs.writeFile(roomFile, JSON.stringify(room));
+  const { dir: project } = await createVideoCertificationProject(work, 'alpha');
 
   const alphaSource = 'assets/video/transparent-colors.mov';
   const input = path.join(project, 'assets/video/opaque-colors.mp4');
@@ -53,18 +40,10 @@ try {
     '-c:v', 'prores_ks', '-profile:v', '4444', '-pix_fmt', 'yuva444p10le',
     '-alpha_bits', '16', '-threads', '2', output,
   ]);
-  const assetFile = path.join(project, 'records/assets/opaque-colors.json');
-  const asset = JSON.parse(await fs.readFile(assetFile, 'utf8'));
-  const sourceBytes = await fs.readFile(output);
-  asset.data.source.path = alphaSource;
-  asset.data.mimeType = 'video/quicktime';
-  asset.data.extension = '.mov';
-  asset.data.byteSize = sourceBytes.length;
-  asset.data.contentHash = 'sha256:' + sha(sourceBytes);
-  await fs.writeFile(assetFile, JSON.stringify(asset));
+  await changeVideoSource(project, 'transparent-colors.mov', 'video/quicktime', '.mov');
   const archive = path.join(work, 'transparent.ntpkg');
-  const response = JSON.parse(exec(useNodeCli ? process.execPath : cli, [
-    ...(useNodeCli ? [nodeCli] : []), '--no-daemon', '--json', '--project', project,
+  const response = JSON.parse(exec(cli, [
+    '--no-daemon', '--json', '--project', project,
     'package', 'export', '--output', archive, '--allow-localization-warnings',
   ], { cwd: root }));
   if (!response.success)
@@ -107,6 +86,7 @@ try {
     const log = exec('xvfb-run', ['-a', player, '--player-config', path.join(staged, 'player.json'),
       '--smoke-run-runtime'], {
       cwd: root, timeout: 130_000,
+      withStderr: true,
       env: { ...process.env, SDL_AUDIODRIVER: 'dummy',
         XDG_DATA_HOME: path.join(work, 'native-data'), NOVELTEA_PLAYER_SMOKE_FRAMES: '150' },
     });
@@ -116,8 +96,8 @@ try {
   }
   if (browser) {
     exec(process.execPath, [path.join(root, 'scripts/web-player-package-smoke.mjs'),
-      '--build-dir', path.join(root, 'build/web-debug'), '--package', archive,
-      '--video', '--alpha'], {
+      '--build-dir', path.join(root, 'build/web-release'), '--package', archive,
+      '--video', '--alpha', '--start-via-title'], {
       cwd: root, timeout: 150_000,
       env: { ...process.env, NOVELTEA_WEB_PLAYER_SMOKE_TIMEOUT_MS: '110000',
         NOVELTEA_WEB_SMOKE_ANGLE_BACKEND:

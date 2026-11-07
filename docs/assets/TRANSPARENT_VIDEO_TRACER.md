@@ -179,9 +179,8 @@ Missing masks are not replaced with opaque draws.
 
 `scripts/certify-transparent-video-package-scenarios.mjs --native --web`
 synthesizes a ProRes 4444 MOV with a changing alpha strip, exports it using
-the Node CLI by default or standalone ScriptC with
-`NOVELTEA_ALPHA_STANDALONE_CLI=1`, and verifies the single animated-WebP
-sidecar and shared 2-second color timeline in the package, then launches
+the current native C++ CLI from a disposable sparse-YAML Feature Lab copy,
+and verifies the single animated-WebP sidecar and shared 2-second color timeline in the package, then launches
 native and Web players. The Web
 smoke instruments R8 GPU uploads and compares transparent/half/opaque strips
 within rendered WebGL screenshots **with an authored Engine2D Material**. It
@@ -191,12 +190,11 @@ Xvfb/llvmpipe; the native packaged player exercises initial playback/shutdown.
 Shaderc builds the wrapped Material for GLSL 330, WebGL2 ESSL 300 and Metal.
 The native and Web decoder reuse identical animated-WebP logic.
 
-The standalone ScriptC CLI uses the same canonical transparency preparation
-without loading Sharp or Node streams. Its `scr:import-trap:0` error was
-resolved by removing production Sharp imports; the rebuilt standalone CLI and
-Node CLI each successfully export transparent MOV to native and Web packages
-with the local FFmpeg override. The native service survives any future QuickJS
-removal unchanged. Windows and macOS process-path qualification is still due.
+The current standalone native CLI owns transparency preparation; the former
+ScriptC/Node launcher comparison and its `scr:import-trap:0` workaround are
+historical evidence, not a production export path. The package certification
+now exercises that native CLI directly. Windows and macOS process-path
+qualification remains part of their respective release-host gates.
 The `ffmpeg-r3` toolchain includes the `libwebp_anim` encoder required by
 production transparent-video preparation. The exact endpoint is corrected and
 validated by the native alpha-encoding service. Developers can still select

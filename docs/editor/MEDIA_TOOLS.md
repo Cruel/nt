@@ -30,25 +30,24 @@ Layouts:
 Only the existing public CLI directory participates in installer PATH integration. FFmpeg is not
 added to PATH, game packages, or player templates. Resolution follows the real CLI executable,
 including when the public CLI is a symlink, rather than the working directory or ambient PATH.
-For runtime-artifact video preparation, the standalone ScriptC host supplies its real executable
-path to the dynamic island (whose `process.execPath` is a virtual `scriptc` name) and executes FFmpeg
-through its existing host subprocess boundary (the island does not support `spawnSync`). The Node
-driver uses its resolved installed NovelTea CLI path and native Node process runner. An explicit
+The standalone native C++ CLI invokes the pinned FFmpeg through its native host-process
+boundary during physical runtime-artifact preparation. The Electron main-process tooling
+resolves the same pin from the installed NovelTea CLI location. An explicit
 `NOVELTEA_FFMPEG` override bypasses executable resolution entirely.
 
 ## Shared service and diagnostics
 
-`editor/src/main/services/media-preparation-service.ts` owns the resolver, identity/capability checks,
-and argv-based separate-process invocation. It is compiled into both the standalone ScriptC host
-and Node/Electron tooling. Editor composition uses `checkMediaTools`/`prepareMedia` in
-`editor-tool-service.ts`; headless host jobs use the same service. This synchronous host boundary is
-for trusted tooling jobs; future long-running preparation should execute in disposable workers,
-not directly in the interactive main loop. Do not expose raw arguments from authored data or IPC.
+`editor/src/main/services/media-preparation-service.ts` is the editor-side resolver,
+identity/capability check, and argv-based FFmpeg invocation adapter. The headless
+native CLI has its own physical-preparation owner in
+`tools/project_authoring/native_runtime_media.cpp`; it does not load a ScriptC
+or Node authoring host. Both paths resolve the verified private tool rather than
+relying on an ambient PATH executable. Do not expose raw arguments from authored
+data or IPC.
 
-`opaque-video-preparation-service.ts` owns the Node/Electron-only binary snapshot/preparation job;
-keeping it off the static ScriptC inspection graph avoids unsupported binary filesystem operations.
-Its `prepareOpaqueVideoMotion` is the canonical job used by renderer-driven export, focused
-Room preview, and headless runtime-artifact preparation. Editor IPC uses
+`opaque-video-preparation-service.ts` owns the Electron binary snapshot/preparation job.
+Its `prepareOpaqueVideoMotion` serves the focused editor preparation path; standalone
+headless Runtime Package export is native. Editor IPC uses
 `project-video-preparation-service.ts` to authorize the active Video Asset identity, reject a
 mismatched renderer path, and read a bounded, contained regular-file snapshot through the existing
 Asset authority. The canonical host job also rejects lexical/symlink source escapes and escaped
@@ -66,7 +65,7 @@ Embedded source audio is detected only for the authoring warning; Animation rema
 visual-only. The private representation is not an authored/public schema commitment.
 
 Authored Test execution uses the same prepared-media manifest as runtime-package export.
-The Node and standalone ScriptC CLI paths forward it to the native headless and UI Test runners,
+The native CLI forwards it to the native headless and UI Test runners,
 including suite preflight and cached direct-native execution. These runners must admit the same
 prepared video motions as exported packages, rather than treating a video-backed Project as
 runnable without its private prepared-media catalog.
