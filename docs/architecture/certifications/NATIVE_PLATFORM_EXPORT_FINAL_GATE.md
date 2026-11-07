@@ -1,7 +1,44 @@
 # Native platform export final gate (#569)
 
-Status as of 2026-10-27: **in progress; final CI evidence pending**.
-Parent #545 and production CLI cutover #551 remain separate decisions.
+Status as of 2026-11-06: **accepted; owner-revised #569 gate satisfied** by
+real Linux native export/launch evidence and a fully successful Build and Release
+on the **same qualifying source revision**. Parent #545 and the shipped-CLI
+retirement #551 are independently assessed issues; this report does not close
+either by implication. #522, #506 and #474 retain their own final gates.
+
+## Verified qualifying CI (2026-11-06)
+
+The GitHub Actions run metadata and **individual jobs** were inspected for the
+following completed workflows, rather than inferring success from workflow
+configuration or the earlier 2026-11-02 issue comments:
+
+| Workflow | Source revision | Outcome | Evidence |
+| --- | --- | --- | --- |
+| Build 42149583199 | `6eefa101c67398495fa38600e8e8a5b04eff400b` | Success, all 23 jobs succeeded | [Build run](https://github.com/Cruel/nt/actions/runs/42149583199) |
+| Release 42149611086 (manual qualification) | `6eefa101c67398495fa38600e8e8a5b04eff400b` | Success: 20 qualifying jobs succeeded; **Publish GitHub Release** skipped intentionally | [Release run](https://github.com/Cruel/nt/actions/runs/42149611086) |
+| Later Build 42183326370 | `5295064f0f856235097a25f0027d3a1eb21b8b77` | Success, all 23 jobs succeeded | [Build run](https://github.com/Cruel/nt/actions/runs/42183326370) |
+
+`git merge-base --is-ancestor 6eefa101 5295064f` succeeds, as does
+`git merge-base --is-ancestor 5295064f 98c32ec0` (the checkout HEAD during this
+acceptance review). The complete Build/Release pair qualifies **6eefa101**;
+the later Build confirms additional changes on that lineage, not an unobserved
+Release run on the later HEAD. The skipped publication step is expected for
+manual release qualification and is not a skipped required verification job.
+
+Key successful job-level evidence:
+
+| Target / boundary | Qualifying jobs and actual behavior |
+| --- | --- |
+| Linux x64 | [Release desktop hosts (linux-x64-release)](https://github.com/Cruel/nt/actions/runs/42149611086/job/127736880478): pinned glibc-2.28 player, real native C++ portable/AppImage export and launches, X11 and Wayland launches, dependency audit and platform certification; [Build Linux native production CLI](https://github.com/Cruel/nt/actions/runs/42149583199/job/127673818351). |
+| Windows x64 | [Release desktop hosts (windows-x64-release)](https://github.com/Cruel/nt/actions/runs/42149611086/job/127736880544) and [Windows standalone CLI certification](https://github.com/Cruel/nt/actions/runs/42149611086/job/127736880773); real portable player launch, PE/resource/dependency checks, installed CLI contracts, recovery and export tests. |
+| Web wasm32 | [Web release](https://github.com/Cruel/nt/actions/runs/42149611086/job/127736880514): canonical threaded and compatibility single-threaded export/browser qualification; [Build Web/Emscripten](https://github.com/Cruel/nt/actions/runs/42149583199/job/127669603434) and [Build browser qualification](https://github.com/Cruel/nt/actions/runs/42149583199/job/127669603653). |
+| macOS arm64 | [Release desktop hosts (macos-arm64-release)](https://github.com/Cruel/nt/actions/runs/42149611086/job/127736880398), [native export and app launch certification](https://github.com/Cruel/nt/actions/runs/42149611086/job/127736881984), and [macOS host CLI build](https://github.com/Cruel/nt/actions/runs/42149611086/job/127736880175). |
+| Android | [Android release](https://github.com/Cruel/nt/actions/runs/42149611086/job/127736913913) with real APK/AAB, signature/alignment, ABI, package and release-report checks; [Build Android](https://github.com/Cruel/nt/actions/runs/42149583199/job/127673818261) and [API 24](https://github.com/Cruel/nt/actions/runs/42149583199/job/127680262415)/[API 35](https://github.com/Cruel/nt/actions/runs/42149583199/job/127680262547) emulator tests. |
+| Packaged hosts / inventory | [Linux editor](https://github.com/Cruel/nt/actions/runs/42149611086/job/127736880992), [Windows editor](https://github.com/Cruel/nt/actions/runs/42149611086/job/127736881270), [macOS editor](https://github.com/Cruel/nt/actions/runs/42149611086/job/127736879991), and [exact release inventory](https://github.com/Cruel/nt/actions/runs/42149611086/job/127740320982). Previous Linux/Windows packaged-editor failures are superseded. |
+
+All required platform-specific Release jobs passed. Conditional, inapplicable
+matrix steps (for example, Linux-only steps in Windows jobs) were skipped as
+designed, not failed. Required release-inventory qualification completed.
 
 ## Scope and evidence rules
 
@@ -79,8 +116,12 @@ return code of `-15` therefore indicates a successful live-launch smoke, not a
 crash. Evidence: `build/nt569-smoke/certification.json` (local, untracked).
 
 This satisfies the owner-requested **local Linux export certification**.
-Release runner evidence for the actual optimized, pinned-glibc release binary
-and the remaining four platform hosts is still required from passing CI.
+The original `build/nt569-smoke/certification.json` was untracked and is **not
+present in this later checkout**. This section records the earlier completed
+local run, its original procedure and verified observations; it is not a claim
+to have re-executed the untracked local run during this review. The Release
+job above independently supplies the production pinned-glibc/player/template
+launch evidence that the earlier stripped-debug local fixture did not provide.
 
 The additional installed-C++ differential is:
 
@@ -99,33 +140,34 @@ against the installed release native binary. This **does not** compare the five
 export target staging outputs; **that comparison is no longer required for
 closure under the revised acceptance criteria**.
 
-## Outstanding final acceptance
+## Final acceptance disposition and limits
 
-| Requirement | Current evidence | Outstanding |
-| --- | --- | --- |
-| Shared templates, config, trust and recovery | #563 and Linux native CTest; direct/TS command differential | Qualifying Build CI results and any remaining reported failures |
-| Windows x64 | #564 C++ PE tests and Windows CI configured for real release launch | Qualifying Windows CI evidence; report credential-only signing/timestamp limits |
-| Web wasm32 | #565 C++ Web publication and release browser harness | Qualifying Web CI evidence for supported builds |
-| Linux x64 | #566 native ELF/archives/symbols tests; local real portable and AppImage smoke passed (149 manifest-verified files) | Qualifying production release CI evidence against pinned glibc baseline |
-| macOS arm64 | #567 Mach-O/ZIP C++ tests and macOS release smoke wiring | Qualifying macOS CI evidence; report notarization credential limits |
-| Android arm64/x86_64 | #568 cross-host C++ tests and Android release/emulator workflows | Qualifying Android CI evidence; report any physical device limitations |
-| #545 parent | No ScriptC/QuickJS/player rewrite in these export changes | Evaluate parent requirements separately; do not close automatically |
+| Requirement | Disposition |
+| --- | --- |
+| Real direct-C++ Linux export, `--check`, template install, hashes/readback, unrelated working-directory portable/AppImage launch | **Passed** in the previously recorded local 149-file smoke, independently qualified with the real pinned release player in successful Release CI. |
+| Windows, Web, Linux, macOS, Android Build/Release platform jobs and actual host/export/browser/emulator evidence | **Passed** at `6eefa101` (job links above); later Build also passed at descendant `5295064f`. |
+| Template trust/corruption, signing-profile failures, localization warnings, custom profiles, source/physical Asset drift, identity-change acknowledgment, cancellation, output collision, recovery/rollback, options and diagnostics | **Covered** by native platform-command/publication CTests, installed-CLI platform certification and per-platform release jobs; see `tests/native_cli/platform.py`, `tests/tooling/native_cli_platform_publication_tests.cpp`, `editor/scripts/certify-native-cli-platform.mjs`, and `tests/native_cli/*_release_smoke.py`. The existing command differential remains optional extra coverage; no new TypeScript-vs-C++ export-output comparison is required. |
+| All #563–#568 implementation children | **Closed**, verified against GitHub on 2026-11-06. |
+| #545 and #551 | **Separate acceptance decisions**; neither is implicitly accepted by this gate. |
 
-The GitHub child issues #564, #567 and #568 were still open during this local
-gate review. Their existence does not invalidate passing *individual* tests,
-but the final gate must not close on the assumption that configured CI jobs or
-synthetic tests already supplied their missing host evidence. Keep #569 open
-until the required workflows pass at a concrete revision and host limits and
-child-ticket status are recorded.
+**Credential and host limitations:** CI's signing-profile/error-path tests,
+artifact signature-policy checks, and mock/synthetic signing are **not**
+production Windows Authenticode signing, certificate-chain validation, or
+timestamp-service certification. No private production signing certificates,
+macOS Developer ID/notarization credentials or Apple notarization result,
+or Android production keystore identity is asserted. The Android release
+qualifies real APK/AAB artifacts, and Build qualifies emulators; neither is a
+physical Android arm64 device install/launch. Cross-host assembly and CI
+launches also do not imply exhaustive real customer-machine/OS/device coverage.
+These credential/device limitations were expressly allowed as documented
+unavailable checks by the owner's revised #569 gate, and are **not** reported
+as passes. The manual Release run did not publish a GitHub Release.
 
-The most recent completed Build run visible during this review was
-[`40453558771`](https://github.com/Cruel/nt/actions/runs/40453558771),
-for **`8a0209cc`**, not this checkout revision. It failed in several jobs,
-including Windows native authoring, Linux host CLI, and native C++ policy/build
-checks; its macOS native-authoring job passed. Neither that partial/failed run
-nor earlier release reports qualify the final platform matrix at the current
-revision. The new installed-binary differential is wired into Linux Build,
-but its current-revision CI execution remains pending.
+**Decision for #569:** Accept and close on the verified `6eefa101` Build/Release
+pair plus the documented local Linux export, with the explicit exclusions
+above. Earlier failed November 2 workflows and October's pending-CI status
+are superseded by this newer completed evidence, not hidden or treated as
+successful runs.
 
 Feature Lab: already a valid end-to-end Project input for packaging smoke; this
 certification task changes no authorable runtime behavior, and does not add a
