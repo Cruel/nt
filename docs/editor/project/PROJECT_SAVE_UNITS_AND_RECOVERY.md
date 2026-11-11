@@ -50,6 +50,36 @@ Neither the empty JSON pointer nor `/` is a Project Settings path. Project Setti
 paths immediately through focused undoable commands; nonrepresentable numeric text is retained as
 field-level pending input in recovery metadata.
 
+## Buffered native editor fields (#602, incremental rollout)
+
+For a migrated interactive field, `commands/native-field-drafts.ts` retains a transient,
+session-scoped optimistic value keyed by Project session, Project instance and exact JSON Pointer.
+The field paints from that value on the same input event; it does **not** publish a speculative
+Project document or command-history revision. The shared scheduler sends a trailing native command
+after 150 ms of idle input, bounded to 500 ms during continuous typing. It retains only the latest
+field value while a native acknowledgment is outstanding; native commands remain serialized, with
+their payloads constructed against the last acknowledged Project and checked for native parity.
+
+`use-native-field-draft.tsx` provides reusable text and switch controls and the generic draft hook
+for structured fields. Migrated surfaces currently include Room display name and description,
+Project Settings metadata, and title-screen text and toggles. Ordinary Room fields use exact-path
+native patches; archetyped Room edits use the existing override planner. Whole-Room UI commands
+compute their intended delta and rebase it onto the latest acknowledged Room to avoid discarding
+another field's recent change.
+
+Buffered values register with the editor's existing serializable tab-draft recovery. Native failures
+leave the draft visible with an actionable error and do not advance Project authority. Active Save
+flushes its logical save unit, Save All flushes current buffered fields, and ordinary dependent
+commands, transactions, Undo and Redo flush before planning. A recovered draft whose editor is not
+mounted has no live apply callback, so Save is blocked rather than silently pretending it saved that
+field; opening its editor reattaches the apply callback. Save As retains serialized drafts as
+recovery overlays instead of implicitly committing them.
+
+This is **not** yet project-wide certification: the remaining non-migrated entity controls, numeric
+field coalescing, some discrete selectors/drag operations, complete partial-Save-All isolation, and
+interactive packaged Feature Lab latency/close/external-conflict acceptance still need coverage.
+The #522 manual acceptance cases remain separate and open.
+
 ## File menu and close contract
 
 - Save and `Ctrl+S` commit only the active tab's logical save unit. Source-file tabs participate in

@@ -474,7 +474,7 @@ describe('ProjectSettingsEditor', () => {
     );
     expect(useDraftDirtyStore.getState().entriesByKey).toEqual({});
     expect(useCommandStore.getState().history.entries.map((entry) => entry.type)).toEqual([
-      'project.updateMetadata',
+      'project.replaceAtPath',
       'project.setEntrypoint',
       'project.setBootstrapModule',
     ]);

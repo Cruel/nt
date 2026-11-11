@@ -3,6 +3,7 @@ import {
   isAuthoringDependencyGraphServiceStarted,
 } from '@/project/authoring-dependency-graph-runtime';
 import { applyJsonPatch, type JsonPatchOperation } from '@/project/json-patch';
+import { flushNativeFields } from './native-field-drafts';
 import {
   buildJsonPointer,
   getJsonAtPointer,
@@ -64,7 +65,10 @@ interface CommandStoreState {
     ) => void,
   ) => Promise<CommandExecutionResult>;
   enableNativeCommandMode: (workingRevision: number) => void;
-  executeCommandAsync: (request: CommandRequest) => Promise<CommandExecutionResult>;
+  executeCommandAsync: (
+    request: CommandRequest | (() => CommandRequest),
+    options?: { bufferedField?: boolean },
+  ) => Promise<CommandExecutionResult>;
   saveNativeUnitAsync: (
     saveUnitIds: string | string[],
     expectedProjectRevision: number,
@@ -892,9 +896,17 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
       }
     });
   },
-  executeCommandAsync: async (request) => {
+  executeCommandAsync: async (request, options) => {
     if (get().nativeWorkingRevision === null)
       return nativeOnlyResult('Native Project session is required.');
+    const { projectSessionId, projectInstanceId } = useProjectStore.getState();
+    if (!options?.bufferedField && !(await flushNativeFields()))
+      return nativeOnlyResult('A pending field edit must be resolved before this command.');
+    if (
+      useProjectStore.getState().projectSessionId !== projectSessionId ||
+      useProjectStore.getState().projectInstanceId !== projectInstanceId
+    )
+      return nativeOnlyResult('Queued native command belongs to a superseded Project session.');
     return queueNativeCommand(() => {
       if (get().nativeMutationFailure)
         return Promise.resolve(nativeOnlyResult(get().nativeMutationFailure!));
@@ -902,12 +914,24 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
         return Promise.resolve(
           nativeOnlyResult('Native Project transactions require asynchronous commit support.'),
         );
-      const proposal = executeCommandCore(busStateFromStores(get().history), request);
+      // Buffered field intents must resolve semantic/archetype payloads only
+      // after prior native mutations publish their acknowledged Project.
+      let resolvedRequest: CommandRequest;
+      try {
+        resolvedRequest = typeof request === 'function' ? request() : request;
+      } catch (error) {
+        return Promise.resolve(
+          nativeOnlyResult(
+            error instanceof Error ? error.message : 'Native Project command planning failed.',
+          ),
+        );
+      }
+      const proposal = executeCommandCore(busStateFromStores(get().history), resolvedRequest);
       return submitNativeCommand(
         proposal,
         proposal.historyEntry?.patches ?? [],
         'command',
-        layoutSourceFromRequest(request),
+        layoutSourceFromRequest(resolvedRequest),
       );
     });
   },
@@ -1141,6 +1165,14 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
   executeCommandBatchAsync: async (transaction, requests) => {
     if (get().nativeWorkingRevision === null)
       return nativeOnlyResult('Native Project session is required.');
+    const { projectSessionId, projectInstanceId } = useProjectStore.getState();
+    if (!(await flushNativeFields()))
+      return nativeOnlyResult('A pending field edit must be resolved before this transaction.');
+    if (
+      useProjectStore.getState().projectSessionId !== projectSessionId ||
+      useProjectStore.getState().projectInstanceId !== projectInstanceId
+    )
+      return nativeOnlyResult('Queued native transaction belongs to a superseded Project session.');
     return queueNativeCommand(() => {
       if (get().nativeMutationFailure)
         return Promise.resolve(nativeOnlyResult(get().nativeMutationFailure!));
@@ -1168,6 +1200,14 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
   undoAsync: async () => {
     if (get().nativeWorkingRevision === null)
       return nativeOnlyResult('Native Project session is required.');
+    const { projectSessionId, projectInstanceId } = useProjectStore.getState();
+    if (!(await flushNativeFields()))
+      return nativeOnlyResult('A pending field edit must be resolved before Undo.');
+    if (
+      useProjectStore.getState().projectSessionId !== projectSessionId ||
+      useProjectStore.getState().projectInstanceId !== projectInstanceId
+    )
+      return nativeOnlyResult('Undo belongs to a superseded Project session.');
     return queueNativeCommand(() => {
       if (get().nativeMutationFailure)
         return Promise.resolve(nativeOnlyResult(get().nativeMutationFailure!));
@@ -1178,6 +1218,14 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
   redoAsync: async () => {
     if (get().nativeWorkingRevision === null)
       return nativeOnlyResult('Native Project session is required.');
+    const { projectSessionId, projectInstanceId } = useProjectStore.getState();
+    if (!(await flushNativeFields()))
+      return nativeOnlyResult('A pending field edit must be resolved before Redo.');
+    if (
+      useProjectStore.getState().projectSessionId !== projectSessionId ||
+      useProjectStore.getState().projectInstanceId !== projectInstanceId
+    )
+      return nativeOnlyResult('Redo belongs to a superseded Project session.');
     return queueNativeCommand(() => {
       if (get().nativeMutationFailure)
         return Promise.resolve(nativeOnlyResult(get().nativeMutationFailure!));

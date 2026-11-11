@@ -19,6 +19,7 @@ import {
 } from '@/comfyui/comfyui-service';
 import { useComfyUiStore } from '@/comfyui/comfyui-store';
 import { flushStructuralCommandPersistence, useCommandStore } from '@/commands/command-store';
+import { flushNativeFields, NATIVE_FIELD_DRAFT_SCHEMA } from '@/commands/native-field-drafts';
 import { PanelResizeSeparator } from '@/components/resize-separator';
 import { Button } from '@/components/ui/button';
 import {
@@ -61,7 +62,7 @@ import {
 } from '@/project/project-save-coordinator';
 import { flushNativeProjectSources, useProjectSourceStore } from '@/project/project-source-store';
 import { selectProjectDirty, useProjectStore } from '@/project/project-store';
-import { MUTATION_SURFACE_ATTRIBUTIONS } from '@/project/save-unit-registry';
+import { MUTATION_SURFACE_ATTRIBUTIONS, resolveSaveUnitForTab } from '@/project/save-unit-registry';
 import { usePreferencesStore } from '@/stores/preferences-store';
 import { buildProjectTree, useWorkspaceStore } from '@/stores/workspace-store';
 import { BottomPanel } from '@/workbench/BottomPanel';
@@ -1606,13 +1607,30 @@ export function WorkspacePage() {
       const workbench = useWorkbenchStore.getState();
       const activeGroup = workbench.groupsById[workbench.activeGroupId];
       const activeTabId = activeGroup?.activeTabId;
+      const activeTab = activeTabId ? workbench.tabsById[activeTabId] : undefined;
+      const resolution = activeTab
+        ? resolveSaveUnitForTab(activeTab, useProjectStore.getState().document)
+        : null;
+      if (
+        resolution?.status === 'savable' &&
+        !(await flushNativeFields(resolution.descriptor.id))
+      ) {
+        const message = 'Resolve the pending field edit before saving this item.';
+        setProjectSaveError(message);
+        setStatusMessage(message);
+        return false;
+      }
       if (activeTabId) {
         const activeDrafts = selectDraftEntriesForTab(
           { entriesByKey: useDraftDirtyStore.getState().entriesByKey },
           activeTabId,
         ).filter((entry) => entry.dirty);
         const nonSerializableDraft = activeDrafts.find(
-          (entry) => !entry.apply && (!entry.schema || entry.payload === undefined),
+          (entry) =>
+            !entry.apply &&
+            (!entry.schema ||
+              entry.payload === undefined ||
+              entry.schema === NATIVE_FIELD_DRAFT_SCHEMA),
         );
         if (nonSerializableDraft) {
           const message = t('dirtyClose.applyActiveDraftBeforeSave');
@@ -1684,11 +1702,21 @@ export function WorkspacePage() {
     if (!project) return false;
     setProjectSaving(true);
     try {
+      if (!(await flushNativeFields())) {
+        const message = 'Resolve the pending field edits before Save All.';
+        setProjectSaveError(message);
+        setStatusMessage(message);
+        return false;
+      }
       const dirtyDrafts = Object.values(useDraftDirtyStore.getState().entriesByKey).filter(
         (entry) => entry.dirty,
       );
       const unappliedNonSerializableDrafts = dirtyDrafts.filter(
-        (entry) => !entry.apply && (!entry.schema || entry.payload === undefined),
+        (entry) =>
+          !entry.apply &&
+          (!entry.schema ||
+            entry.payload === undefined ||
+            entry.schema === NATIVE_FIELD_DRAFT_SCHEMA),
       );
       if (unappliedNonSerializableDrafts.length > 0) {
         const message = t('dirtyClose.applyDraftsBeforeSaveAll');

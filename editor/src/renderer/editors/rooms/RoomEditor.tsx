@@ -82,7 +82,12 @@ import {
 } from '@/components/gameplay-commands/GameplayCommandEditor';
 import { RoomEditSurface } from '@/editors/rooms/RoomEditSurface';
 import { RoomCompositionPane } from '@/editors/rooms/RoomCompositionPane';
-import { RoomDisplayNameInput } from '@/editors/rooms/RoomDisplayNameInput';
+import {
+  RoomDisplayNameField,
+  bufferedRoomFieldCommand,
+  rebasedRoomDataCommand,
+} from '@/editors/rooms/room-buffered-fields';
+import { useNativeFieldDraft } from '@/commands/use-native-field-draft';
 import {
   interpolateRoomEditNavigation,
   fitRoomEditSurfaceFrame,
@@ -557,6 +562,39 @@ function TextContentEditor({
         />
       ) : null}
     </div>
+  );
+}
+
+function RoomDescriptionField({
+  roomId,
+  tabId,
+  value,
+}: {
+  roomId: string;
+  tabId: string;
+  value: TextContent;
+}) {
+  const draft = useNativeFieldDraft({
+    tabId,
+    saveUnitId: recordSaveUnitId('rooms', roomId),
+    path: `/rooms/${roomId.replace(/~/gu, '~0').replace(/\//gu, '~1')}/data/description`,
+    label: 'Update room description',
+    value,
+    buildCommand: (next) =>
+      bufferedRoomFieldCommand(roomId, 'description', next, 'Update room description'),
+  });
+  return (
+    <>
+      <TextContentEditor value={draft.value} onChange={draft.change} />
+      {draft.error && (
+        <p role="alert" className="text-destructive text-xs">
+          {draft.error}{' '}
+          <button type="button" className="underline" onClick={() => void draft.flush()}>
+            Retry
+          </button>
+        </p>
+      )}
+    </>
   );
 }
 
@@ -1271,13 +1309,11 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     projectSettingsFromProject(project).display,
   );
   const commit = (next: RoomData, label: string) => {
-    void useCommandStore.getState().executeCommandAsync({
-      type: 'room.replaceData',
-      label,
-      payload: { roomId, data: next },
-      originSaveUnitId: recordSaveUnitId('rooms', roomId),
-      persistencePolicy: 'manual-save',
-    });
+    // Room controls often construct whole-data proposals from the render-time
+    // snapshot. Preserve only this edit's intended delta, then rebase it on the
+    // acknowledged Room after the command queue flushes pending field drafts.
+    const command = rebasedRoomDataCommand(roomId, data, next, label);
+    if (command) void useCommandStore.getState().executeCommandAsync(command);
   };
   const executeRoomEditCommand = (
     type: string,
@@ -3354,7 +3390,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               <div className="space-y-1.5">
                 <Label>Display name</Label>
                 {roomId && (
-                  <RoomDisplayNameInput
+                  <RoomDisplayNameField
                     key={roomId}
                     roomId={roomId}
                     tabId={tab.id}
@@ -3373,12 +3409,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
             </div>
             <div data-workbench-anchor="room.description" className="space-y-1.5">
               <Label>Description</Label>
-              <TextContentEditor
-                value={data.description}
-                onChange={(description) =>
-                  commit({ ...data, description }, 'Update room description')
-                }
-              />
+              <RoomDescriptionField roomId={roomId} tabId={tab.id} value={data.description} />
             </div>
             <div data-workbench-anchor="room.background" className="space-y-3">
               <EditorSectionHeading title="Background" />

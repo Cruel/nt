@@ -1,5 +1,6 @@
 import { listComfyUiWorkflowLibrary } from '@/comfyui/comfyui-service';
 import { useCommandStore } from '@/commands/command-store';
+import { NativeBufferedInput, NativeBufferedSwitch } from '@/commands/use-native-field-draft';
 import {
   CategorizedEditorLayout,
   type CategorizedEditorCategory,
@@ -1294,17 +1295,6 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
     parsedResolutionHeight > 0 &&
     parsedResolutionHeight <= MAX_REFERENCE_RESOLUTION_DIMENSION;
 
-  function updateMetadata(patch: {
-    name?: string;
-    version?: string;
-    author?: string;
-    description?: string;
-  }) {
-    return commandSucceeded(
-      runProjectCommand('project.updateMetadata', patch, 'Update project metadata'),
-    );
-  }
-
   function setEntrypoint(target: { kind: 'room' | 'scene' | 'dialogue'; id: string } | null) {
     return commandSucceeded(
       runProjectCommand('project.setEntrypoint', { target }, 'Set project entrypoint'),
@@ -1656,44 +1646,56 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                 <Label className="whitespace-nowrap" htmlFor="project-title">
                   Project title
                 </Label>
-                <Input
+                <NativeBufferedInput
                   id="project-title"
                   aria-invalid={fieldInvalid('/project/name')}
                   data-workbench-anchor={PROJECT_SETTINGS_FIELD_ANCHORS['/project/name']}
+                  tabId={tab.id}
+                  saveUnitId={PROJECT_SETTINGS_SAVE_UNIT_ID}
+                  path="/project/name"
+                  label="Update project title"
                   value={project.project.name}
-                  onChange={(event) => updateMetadata({ name: event.currentTarget.value })}
                 />
               </div>
               <div className="grid grid-cols-[6rem_minmax(0,1fr)] items-center gap-2">
                 <Label className="whitespace-nowrap" htmlFor="project-version">
                   Version
                 </Label>
-                <Input
+                <NativeBufferedInput
                   id="project-version"
                   aria-invalid={fieldInvalid('/project/version')}
                   data-workbench-anchor={PROJECT_SETTINGS_FIELD_ANCHORS['/project/version']}
+                  tabId={tab.id}
+                  saveUnitId={PROJECT_SETTINGS_SAVE_UNIT_ID}
+                  path="/project/version"
+                  label="Update project version"
                   value={project.project.version}
-                  onChange={(event) => updateMetadata({ version: event.currentTarget.value })}
                 />
               </div>
               <div className="grid grid-cols-[6rem_minmax(0,1fr)] items-center gap-2">
                 <Label className="whitespace-nowrap" htmlFor="project-author">
                   Author
                 </Label>
-                <Input
+                <NativeBufferedInput
                   id="project-author"
+                  tabId={tab.id}
+                  saveUnitId={PROJECT_SETTINGS_SAVE_UNIT_ID}
+                  path="/project/author"
+                  label="Update project author"
                   value={project.project.author}
-                  onChange={(event) => updateMetadata({ author: event.currentTarget.value })}
                 />
               </div>
               <div className="grid grid-cols-[6rem_minmax(0,1fr)] items-center gap-2">
                 <Label className="whitespace-nowrap" htmlFor="project-description">
                   Description
                 </Label>
-                <Input
+                <NativeBufferedInput
                   id="project-description"
+                  tabId={tab.id}
+                  saveUnitId={PROJECT_SETTINGS_SAVE_UNIT_ID}
+                  path="/project/description"
+                  label="Update project description"
                   value={project.project.description}
-                  onChange={(event) => updateMetadata({ description: event.currentTarget.value })}
                 />
               </div>
               {developerMode ? (
@@ -2542,37 +2544,47 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
             </div>
             <div className="space-y-1">
               <Label htmlFor="start-label">Start label</Label>
-              <Input
+              <NativeBufferedInput
                 id="start-label"
                 aria-invalid={fieldInvalid('/settings/titleScreen/startLabel')}
                 data-workbench-anchor={
                   PROJECT_SETTINGS_FIELD_ANCHORS['/settings/titleScreen/startLabel']
                 }
+                tabId={tab.id}
+                saveUnitId={PROJECT_SETTINGS_SAVE_UNIT_ID}
+                path="/settings/titleScreen/startLabel"
+                label="Update start label"
                 value={settings.titleScreen.startLabel}
-                onChange={(event) => setTitleScreen({ startLabel: event.currentTarget.value })}
               />
             </div>
             <label className="flex items-center gap-2 text-xs">
-              <Switch
-                checked={settings.titleScreen.showProjectTitle}
-                onCheckedChange={(checked) =>
-                  setTitleScreen({ showProjectTitle: Boolean(checked) })
-                }
+              <NativeBufferedSwitch
+                tabId={tab.id}
+                saveUnitId={PROJECT_SETTINGS_SAVE_UNIT_ID}
+                path="/settings/titleScreen/showProjectTitle"
+                label="Show project title"
+                value={settings.titleScreen.showProjectTitle}
               />
               Show project title
             </label>
             <label className="flex items-center gap-2 text-xs">
-              <Switch
-                checked={settings.titleScreen.showAuthor}
-                onCheckedChange={(checked) => setTitleScreen({ showAuthor: Boolean(checked) })}
+              <NativeBufferedSwitch
+                tabId={tab.id}
+                saveUnitId={PROJECT_SETTINGS_SAVE_UNIT_ID}
+                path="/settings/titleScreen/showAuthor"
+                label="Show author name"
+                value={settings.titleScreen.showAuthor}
               />
               Show author name
             </label>
             <div className="space-y-1 @3xl:col-span-2">
               <Label>Subtitle</Label>
-              <Input
+              <NativeBufferedInput
+                tabId={tab.id}
+                saveUnitId={PROJECT_SETTINGS_SAVE_UNIT_ID}
+                path="/settings/titleScreen/subtitle"
+                label="Update title screen subtitle"
                 value={settings.titleScreen.subtitle}
-                onChange={(event) => setTitleScreen({ subtitle: event.currentTarget.value })}
               />
             </div>
           </CardContent>

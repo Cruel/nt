@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import { RoomDisplayNameInput } from '@/editors/rooms/RoomDisplayNameInput';
+import { RoomDisplayNameField } from '@/editors/rooms/room-buffered-fields';
 import { useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
 import {
@@ -20,7 +20,7 @@ function TestInput() {
   const value = isAuthoringProjectView(document)
     ? (parseRoomData(document.rooms.foyer?.data)?.displayName ?? '')
     : '';
-  return <RoomDisplayNameInput tabId={tabId} roomId="foyer" value={value} />;
+  return <RoomDisplayNameField tabId={tabId} roomId="foyer" value={value} />;
 }
 
 beforeEach(() => {
