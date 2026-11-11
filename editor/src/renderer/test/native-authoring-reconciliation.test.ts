@@ -78,6 +78,33 @@ afterEach(async ({ task }) => {
 });
 
 describe.skipIf(!addon)('native dirty Project reconciliation and transactional Save (#498)', () => {
+  it('saves the Feature Lab Properties & Traits room without treating Interaction warnings as blockers', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'noveltea-room-save-'));
+    await cp(fixture, root, { recursive: true });
+    const bridge = new NativeAuthoringSessionBridge(
+      { requireActiveProjectRoot: () => root, isCurrent: () => true },
+      { addonPath: path.resolve(addon!), workerScript, pollIntervalMs: 0 },
+    );
+    const working = new NativeAuthoringWorkingProject(bridge);
+    cleanups.push(async () => {
+      await bridge.closeAndWait();
+      await rm(root, { recursive: true, force: true });
+    });
+    await working.open('native-reconcile-test');
+    const room = 'properties-and-traits';
+    const edited = await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
+      {
+        op: 'replace',
+        path: `/rooms/${room}/data/displayName`,
+        value: 'Properties & Traits Updated',
+      },
+    ]);
+    expect(edited.accepted, edited.error).toBe(true);
+    const saved = await working.saveUnit(`record:rooms:${room}`);
+    expect(saved.accepted, saved.error).toBe(true);
+    const disk = await readFile(path.join(root, `records/rooms/${room}.yaml`), 'utf8');
+    expect(disk).toContain('displayName: "Properties & Traits Updated"');
+  }, 120_000);
   it('resolves logical Save owners in the native session, not from the editor projection', async () => {
     const { root, bridge, working } = await testProject();
     cleanups.push(async () => {

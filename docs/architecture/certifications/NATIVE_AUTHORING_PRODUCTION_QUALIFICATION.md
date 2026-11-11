@@ -309,7 +309,7 @@ alone.
 | Qualification | Reusable seams / evidence to collect | Status |
 | --- | --- | --- |
 | All 16 families and all public/private CLI routes | Generated schema/native inventory and native CLI command matrix; negative fixtures for absent Feature Lab families (notably Maps), command options/transport/daemon/static/heavy paths | **Local production PASS**; fresh installed inventory 43/29/14, full 10 stages; later exact-head cross-host acceptance pending |
-| Editor workflows | Real packaged Open/Inspect/Edit/Undo/Redo/Save/Save All/Save As/Play/Preview/Test/Export/Reopen; Project Settings, text/Asset edits, working/recovery journal, Chapter/Tag/Layout changes; follow `docs/editor/project/PROJECT_VALIDATION_AND_SAVING_CERTIFICATION.md` | **Automated Linux/Xvfb PASS; human UI checklist NOT EXECUTED** |
+| Editor workflows | Real packaged Open/Inspect/Edit/Undo/Redo/Save/Save All/Save As/Play/Preview/Test/Export/Reopen; Project Settings, text/Asset edits, working/recovery journal, Chapter/Tag/Layout changes; follow `docs/editor/project/PROJECT_VALIDATION_AND_SAVING_CERTIFICATION.md` | **Automated Linux/Xvfb PASS; human case 1 attempted and blocked 2026-11-11, patched but not interactively retested; cases 2–8 pending** |
 | Editor/CLI independence and negative source races | Production-mode cross-system worker/addon plus real main/renderer IPC, dirty-only/private recovery, Comment Keep/Remove/Cancel, overlapping vs disjoint changes, invalid unrelated source, exact source conflict, writer/transaction recovery | **Local production PASS**, including real-addon recovery and cross-system; manual conflict UI pending |
 | Runtime correctness and host failures | Feature Lab authored semantic *and UI* Tests, preview/gameplay readback, pinned daemon generation and cancellation, corrupted caches, daemon restart/eviction, Asset/Project mutation race and output rollback | **Local production PASS** (10 stages); interactive gameplay/preview remains separate |
 | Host distribution / isolation | Linux installed CLI plus green Windows/macOS exact-SHA release matrix using real addon, watcher, CAS and daemon; editor package smoke, relocated CLI/media/shader tools; host-only addon absent from all game players | **Local Linux package PASS; prior cross-host Release PASS at ancestor; exact-head CI pending** |
@@ -328,3 +328,21 @@ Feature Lab; it does **not** modify authored Lab tests. Runtime/preview/UI
 acceptance must still run the existing authored Lab tests on the post-cutover
 build and record any coverage gap; static schema or ZIP checks cannot replace
 gameplay playback.
+
+## 2026-11-11 manual blocker remediation (pending interactive requalification)
+
+The initial human Feature Lab case revealed delayed/lost Room-name keystrokes,
+slow or rejected Save, forced Problems-panel selection, and rejected Don't Save.
+The first manual case is **failed/blocked**, not complete; no other human case
+has passed. Existing warnings originate from Interaction-rule diagnostics,
+which did not prevent a standalone native Save of the named Room; the exact
+packaged-editor Save rejection is not yet independently reproduced.
+
+Local remediation and regression evidence: immediately responsive, recoverable
+Room-name draft with coalesced native field writes; native exact-revision
+discard even after a Save failure; no forced Problems-panel navigation on
+Save rejection; full editor **294 files / 2,144 passed / 149 skipped**;
+real-addon native reconciliation **35 passed / 1 skipped** (including the full
+Feature Lab Room Save); editor formatting, lint, TypeScript and generated
+contracts passed. These are development-checkout findings, **not** evidence
+of accepted manual editor latency, current-SHA platform CI, or #522 closure.

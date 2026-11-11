@@ -82,6 +82,7 @@ import {
 } from '@/components/gameplay-commands/GameplayCommandEditor';
 import { RoomEditSurface } from '@/editors/rooms/RoomEditSurface';
 import { RoomCompositionPane } from '@/editors/rooms/RoomCompositionPane';
+import { RoomDisplayNameInput } from '@/editors/rooms/RoomDisplayNameInput';
 import {
   interpolateRoomEditNavigation,
   fitRoomEditSurfaceFrame,
@@ -3352,12 +3353,14 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
             <div className="grid gap-4 @5xl:grid-cols-2">
               <div className="space-y-1.5">
                 <Label>Display name</Label>
-                <Input
-                  value={data.displayName}
-                  onChange={(event) =>
-                    commit({ ...data, displayName: event.currentTarget.value }, 'Update room name')
-                  }
-                />
+                {roomId && (
+                  <RoomDisplayNameInput
+                    key={roomId}
+                    roomId={roomId}
+                    tabId={tab.id}
+                    value={data.displayName}
+                  />
+                )}
               </div>
               <GameplayArchetypeControls
                 project={project}

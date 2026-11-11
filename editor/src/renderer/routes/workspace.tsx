@@ -30,7 +30,6 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
 import { mergeEditorValidationDiagnostics } from '@/diagnostics/validation-diagnostic-merge';
 import { useTemplateRegistryStore } from '@/export/template-registry-store';
 import { ProjectExternalConflictDialog } from '@/project/ProjectExternalConflictDialog';
@@ -96,7 +95,6 @@ import {
   saveLocalEditorSessionSnapshot,
   setLoadedEditorProjectState,
 } from '@/workbench/project-editor-state';
-import { navigateToWorkbenchTarget } from '@/workbench/workbench-navigation';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { CommandPaletteDialog } from '@/workspace/CommandPaletteDialog';
 import { ImageThumbnailPrewarmCoordinator } from '@/workspace/image-thumbnail-prewarm';
@@ -1524,19 +1522,8 @@ export function WorkspacePage() {
           ...result.diagnostics,
         ]),
       );
-      if (result.diagnostics.some((diagnostic) => diagnostic.severity === 'error')) {
-        useBottomPanelStore.getState().setActivePanelId('problems');
-        setBottomPanelVisible(true);
-        const firstBlocking = result.diagnostics.find(
-          (diagnostic) => diagnostic.severity === 'error',
-        );
-        const authoringProject = latestProject ? authoringProjectForEditor(latestProject) : null;
-        const target =
-          authoringProject && firstBlocking
-            ? resolveProjectDiagnosticTarget(authoringProject, firstBlocking.path)
-            : null;
-        if (target) navigateToWorkbenchTarget(target);
-      }
+      // Saving reports diagnostics, but must not steal the user's selected
+      // Terminal/Preview/Tooling panel or navigate away from the edited tab.
     } else if (latestProject) {
       persistentRecoveryDiagnosticsRef.current = [];
       setDiagnostics(

@@ -831,15 +831,16 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
       const session = project.projectSessionId;
       const instance = project.projectInstanceId;
       const revision = get().nativeWorkingRevision;
+      // Unlike a new mutation, Use Disk may recover a failed Save or lost
+      // acknowledgment. Exact native session/revision CAS rejects any worker
+      // that has advanced beyond our projection; successful publication must
+      // still be acknowledged before the failure latch is cleared.
       if (
         !session ||
         !instance ||
         revision === null ||
         get().nativeProjectSessionId !== session ||
-        get().nativeProjectionRevision !== project.projectRevision ||
-        (get().nativeMutationFailure !== null &&
-          get().nativeMutationFailure !==
-            'Accepted native mutation did not advance its working revision.')
+        get().nativeProjectionRevision !== project.projectRevision
       )
         return nativeOnlyResult('Native Use Disk has a stale editor projection.');
       set({ nativeMutationPending: true });

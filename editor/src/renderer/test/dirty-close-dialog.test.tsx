@@ -344,11 +344,14 @@ describe('dirty tab close guard', () => {
     expect(useWorkbenchStore.getState().tabsById[tab.id]).toBeUndefined();
   });
 
-  it('can discard and close after a native no-op acknowledgment locked the session', async () => {
+  it.each([
+    'Accepted native mutation did not advance its working revision.',
+    'Native Project Save failed after a lost acknowledgment.',
+  ])('can discard and close after a native command failure: %s', async (failure) => {
     const user = userEvent.setup();
     const native = await nativeDirtyRooms('New Foyer');
     useCommandStore.setState({
-      nativeMutationFailure: 'Accepted native mutation did not advance its working revision.',
+      nativeMutationFailure: failure,
     });
     openTestTab();
     render(<DirtyCloseDialog />);

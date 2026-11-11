@@ -182,11 +182,7 @@ export function DirtyCloseDialog() {
         : undefined;
       return restoreSaveUnitPatchesFromSaved(dirtyTab, project, savedDocument, recoveryPaths ?? []);
     });
-    if (
-      patches.length > 0 &&
-      useCommandStore.getState().nativeWorkingRevision !== null &&
-      useCommandStore.getState().nativeMutationFailure !== null
-    ) {
+    const discardUsingNativeDisk = async (): Promise<boolean> => {
       for (const saveUnitId of restoredSaveUnitIds) {
         const result = await useCommandStore
           .getState()
@@ -230,9 +226,20 @@ export function DirtyCloseDialog() {
           });
         if (!result.ok) {
           setStatusMessage(result.diagnostics[0]?.message ?? 'Native Discard failed.');
-          return;
+          return false;
         }
       }
+      return true;
+    };
+    if (
+      patches.length > 0 &&
+      useCommandStore.getState().nativeWorkingRevision !== null &&
+      useCommandStore.getState().nativeMutationFailure !== null
+    ) {
+      // Recover from a native command lock without creating another editor
+      // mutation. A healthy command path instead preserves cross-owner logical
+      // discard semantics and its undo history.
+      if (!(await discardUsingNativeDisk())) return;
     } else if (patches.length > 0) {
       const result = await executeCommand({
         type: 'project.applyPatch',
@@ -244,11 +251,22 @@ export function DirtyCloseDialog() {
         payload: patches,
       });
       if (!result.ok) {
-        setStatusMessage(
-          result.diagnostics.find((diagnostic) => diagnostic.severity === 'error')?.message ??
-            'Discard failed.',
-        );
-        return;
+        // A rejected Save can leave a native Project with work that the
+        // renderer cannot re-apply safely. Don't Save must still be able to
+        // discard exactly the selected logical unit through native authority.
+        if (
+          useCommandStore.getState().nativeWorkingRevision !== null &&
+          (await discardUsingNativeDisk())
+        ) {
+          // Native owner acknowledged the discard; proceed with tab-local
+          // draft and recovery cleanup below.
+        } else {
+          setStatusMessage(
+            result.diagnostics.find((diagnostic) => diagnostic.severity === 'error')?.message ??
+              'Discard failed.',
+          );
+          return;
+        }
       }
     }
     for (const { tab: dirtyTab, dirty: dirtyState } of dirtyTabStates) {

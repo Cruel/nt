@@ -125,3 +125,24 @@ automated matrix. The current host has no interactive desktop session
 selection, visual feedback or preview usability. #522 must remain open until
 the eight cases are observed and recorded, alongside the separate end-to-end
 performance and exact-commit host qualification in the #522 ledger.
+
+### 2026-11-11 interactive attempt (not accepted)
+
+The first scoped-Save case was **attempted and blocked** in an interactive
+Feature Lab editor. Changing a Room display name visibly lagged native
+acknowledgments and lost intermediate rapid input; Save was slow, Save of the
+"Properties & Traits" Room failed, Save diagnostics switched the selected
+bottom panel to Problems, and the tab could not be closed with Don't Save.
+The visible Feature Lab Interaction-rule warnings are not evidence that the
+Room itself is invalid. The actual rejection message from that packaged editor
+was not captured, so the specific Save failure is not yet diagnosed.
+
+The subsequent renderer patch adds immediately displayed, coalesced and
+recoverable Room-name drafts; makes ordinary Room-name commits field-scoped;
+retains exact-revision native discard after an editor failure; and stops Save
+diagnostics from stealing bottom-panel selection. A full native Feature Lab
+"Properties & Traits" Room edit/Save passes with the existing warning-heavy
+fixture, as do mocked delayed-acknowledgment typing and dirty-close regressions.
+**None of this converts the attempted human case to a pass.** Rebuild and
+rerun case 1, including verifying the actual error/status if Save still fails,
+before continuing with the remaining cases.
