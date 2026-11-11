@@ -2914,9 +2914,12 @@ RoomSessionSnapshot ProjectSession::snapshot() const
             // A newly staged Variable has the absent-source baseline `{}`;
             // it has no prior data contract to compare against.
             if (record.disk_source_revision == "absent" || record.normalized_json.empty() ||
-                record.baseline_json.empty())
+                record.normalized_baseline_json.empty())
                 return true;
-            const auto before = Json::parse(record.baseline_json);
+            // Compare effective values on both sides. Sparse saved YAML omits
+            // defaulted features, so source-vs-effective makes every Room
+            // display-name edit look like a Feature membership mutation.
+            const auto before = Json::parse(record.normalized_baseline_json);
             const auto after = Json::parse(record.normalized_json);
             if (entry.first == "traits") {
                 if (before.size() != after.size())
@@ -2953,9 +2956,9 @@ RoomSessionSnapshot ProjectSession::snapshot() const
             const auto record = entry.second->snapshot();
             if (!record.dirty)
                 return false;
-            if (record.normalized_json.empty() || record.baseline_json.empty())
+            if (record.normalized_json.empty() || record.normalized_baseline_json.empty())
                 return true;
-            const auto prior_record = Json::parse(record.baseline_json);
+            const auto prior_record = Json::parse(record.normalized_baseline_json);
             const auto next_record = Json::parse(record.normalized_json);
             if (!prior_record.contains("data") || !next_record.contains("data"))
                 return true;
@@ -3050,6 +3053,31 @@ RoomSessionSnapshot ProjectSession::snapshot() const
                 return false;
             const auto slash = entry.first.find('/');
             const auto family = entry.first.substr(0, slash);
+            if (family == "rooms") {
+                const auto record = entry.second->snapshot();
+                if (record.disk_source_revision != "absent" && !record.baseline_json.empty()) {
+                    auto before = Json::parse(record.baseline_json);
+                    auto after = Json::parse(record.source_json);
+                    // Authored Test dependencies inspect Room references,
+                    // Features, and instance/trait state, not presentation
+                    // strings. Compare exact sparse values, so we only skip
+                    // this scan when no other authored value changed.
+                    const auto remove_presentation = [](Json& value) {
+                        if (!value.is_object())
+                            return;
+                        value.erase("label");
+                        value.erase("description");
+                        if (value.contains("data") && value.at("data").is_object()) {
+                            value["data"].erase("displayName");
+                            value["data"].erase("description");
+                        }
+                    };
+                    remove_presentation(before);
+                    remove_presentation(after);
+                    if (before == after)
+                        return false;
+                }
+            }
             return family == "traits" || family == "verbs" || family == "rooms" ||
                    family == "characters" || family == "interactables" || family == "variables" ||
                    family == "dialogues" || family == "scenes" || family == "layouts";
@@ -4804,7 +4832,10 @@ RoomSessionResult ProjectSession::save_owners(
         };
         // Save validates the selected dirty owner and its already-inspected
         // dependents. Unrelated invalid owners must not block a scoped Save.
-        const auto current = snapshot();
+        // No working mutation occurs between the entry snapshot and this
+        // scoped dependency check. Revalidating the full Project here repeats
+        // expensive Test and Interaction scans without changing the answer.
+        const auto& current = response.snapshot;
         for (const auto& [owner, session] : selected) {
             if (!session->snapshot().dirty)
                 continue;

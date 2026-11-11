@@ -136,7 +136,10 @@ Json result_json(const ProjectSession& project, const RoomSessionResult& result)
     Json value = Json::object();
     value["accepted"] = result.accepted;
     value["error"] = result.error;
-    auto current = snapshot_json(project.snapshot());
+    // The serialized native operation already produced its revision-consistent
+    // after-state (or failure-state) snapshot. Recomputing it here repeats
+    // Project-wide dependency and localization analysis on every command.
+    auto current = snapshot_json(result.snapshot);
     current["recordSnapshots"] = Json::object();
     const auto records = project.record_snapshots();
     for (const auto& owner : result.affected_records) {

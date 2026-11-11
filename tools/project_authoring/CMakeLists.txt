@@ -314,6 +314,8 @@ if(BUILD_TESTING)
     add_test(NAME native_authoring_semantic_graph COMMAND noveltea-semantic-graph-certify
         "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
     add_test(NAME native_authoring_project_session COMMAND noveltea-project-session-certify "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
+    add_test(NAME native_authoring_presentation_edit COMMAND noveltea-project-session-certify
+        --presentation-edit "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
     add_test(NAME native_authoring_structural_records COMMAND noveltea-project-session-certify
         --structural-records "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
     add_test(NAME native_authoring_source_analysis COMMAND noveltea-project-session-certify

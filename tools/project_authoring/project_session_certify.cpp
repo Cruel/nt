@@ -73,6 +73,53 @@ struct TemporaryProject {
     }
 };
 
+void presentation_edit_roundtrip(const std::filesystem::path& fixture)
+{
+    TemporaryProject temp(fixture);
+    std::string error;
+    auto project = ProjectSession::open(temp.root, error);
+    require(project != nullptr, "Cannot open Room editing performance fixture: " + error);
+    const auto room_path = temp.root / "records/rooms/properties-and-traits.yaml";
+    const auto original = project->inspect_record("rooms/properties-and-traits");
+    require(original.accepted && original.snapshot.valid,
+            "Feature Lab Room must be a valid inspected owner");
+    const auto id = std::string("rooms/properties-and-traits");
+    const auto path = "/rooms/properties-and-traits/data/displayName";
+    const auto before = project->record_snapshots().at(id);
+    require(before.normalized_json == before.normalized_baseline_json,
+            "Clean Room normalized baseline must match its working value");
+
+    for (int i = 0; i < 3; ++i) {
+        const auto saved_before_edit = read(room_path);
+        const auto value = "Presentation edit " + std::to_string(i);
+        const auto updated =
+            project->patch(project->working_revision(),
+                           {{RoomPatch::Operation::Replace, path, Json(value).to_string()}});
+        require(updated.accepted && updated.snapshot.valid && updated.snapshot.dirty &&
+                    updated.affected_records == std::vector<std::string>{id} &&
+                    read(room_path) == saved_before_edit,
+                "A Room display-name edit only changes the unsaved Room working state");
+        const auto edited = project->record_snapshots().at(id);
+        const auto data = Json::parse(edited.normalized_json).at("data");
+        const auto saved = Json::parse(edited.normalized_baseline_json).at("data");
+        require(data.at("displayName") == value && data.at("features") == saved.at("features"),
+                "Room text editing must not manufacture Feature membership changes");
+        const auto committed = project->save_owners(project->working_revision(), {id}, false,
+                                                    TransactionDecision::KeepComments);
+        require(committed.accepted && committed.snapshot.valid && !committed.snapshot.dirty &&
+                    read(room_path).find(value) != std::string::npos,
+                "Each scoped Save persists the latest Room name and clears its dirty state");
+    }
+
+    auto reopened = ProjectSession::open(temp.root, error);
+    require(reopened != nullptr && reopened->inspect_record(id).accepted,
+            "Room must reopen after repeated scoped native Saves");
+    require(Json::parse(reopened->record_snapshots().at(id).normalized_json)
+                    .at("data")
+                    .at("displayName") == "Presentation edit 2",
+            "Reopening must read the final saved Room display name");
+}
+
 Json roundtrip(const std::filesystem::path& fixture, bool verify)
 {
     TemporaryProject temp(fixture);
@@ -3352,6 +3399,11 @@ int main(int argc, char** argv)
         if (argc == 3 && std::string_view(argv[1]) == "--structural-only") {
             structural_record_roundtrip(argv[2]);
             std::cout << "Native structural transaction certification passed.\n";
+            return 0;
+        }
+        if (argc == 3 && std::string_view(argv[1]) == "--presentation-edit") {
+            presentation_edit_roundtrip(argv[2]);
+            std::cout << "Native Room presentation edit certification passed.\n";
             return 0;
         }
         if (argc == 2 && (std::string_view(argv[1]) == "--validate" ||

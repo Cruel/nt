@@ -146,3 +146,33 @@ fixture, as do mocked delayed-acknowledgment typing and dirty-close regressions.
 **None of this converts the attempted human case to a pass.** Rebuild and
 rerun case 1, including verifying the actual error/status if Save still fails,
 before continuing with the remaining cases.
+
+### 2026-11-11 native patch/Save latency optimization (not a UI acceptance pass)
+
+The production native-addon performance investigation on a disposable full
+Feature Lab Project identified repeated `ProjectSession::snapshot()` calls in
+native patch, scoped Save, and addon response publication. Dirty Room display-name
+changes also caused spurious Interaction dependency scans because sparse saved
+`data.features` were compared against normalized working defaults, and they
+triggered unrelated authored-Test dependency checks.
+
+The native correction compares normalized saved and working semantic values,
+avoids authored-Test dependency scans for changes confined to Room presentation
+text, reuses the entry snapshot for scoped Save validation, and returns the
+already-produced native operation snapshot from the addon. On the same Linux
+Release-addon host, the **19 warm iterations** of 20 real patch-plus-Save cycles
+measured median Room patch **292.2 → 120.8 ms**, scoped Save **253.4 → 75.2 ms**,
+combined **546.9 → 196.7 ms**. Project title patch-plus-Save was **166.9 →
+150.4 ms**. Every cycle wrote and read back the intended YAML, and no source
+changes occurred in the checked-in fixture.
+
+Remaining performance work is **mandatory**, not waived by these improvements:
+localization validation still collects structured text from unchanged Project
+records (~72–76 ms of a dirty Room snapshot), and the existing crash-safe
+single-File transaction journal still performs durable filesystem syncs.
+A provisional watcher-fenced reuse experiment was **rejected** because it
+interfered with Save authority after an own-write; it is not part of production.
+Most importantly, the renderer still must provide project-wide immediate input
+and coalesced native synchronization instead of waiting for worker acknowledgment.
+Do not mark #522 human or end-to-end UI-performance acceptance as passing until
+those are implemented and qualified on an interactive installed editor.
