@@ -133,7 +133,13 @@ baseline, and an explicit rebase is still checked again when the queue actually 
 Exact numeric presentation is confined to the current editing interaction. Once a numeric input
 blurs, invalid text remains in the shared pending-input store, while representable text is shown
 from the shared overlay. A different view's newer field generation or raw-input update supersedes
-any local numeric presentation, avoiding stale values across duplicate views.
+any local numeric presentation, avoiding stale values across duplicate views. Field generations
+increase monotonically for the renderer lifetime; the last generation for each Project-session/
+instance/path identity remains available even after native acknowledgment removes its overlay.
+The retained generation is cleared when the Project identity changes. A control retains an exact
+number string only while it owns that generation *and* field identity, so an earlier `1.0` cannot
+reappear after another view edits and acknowledges the same field, even if the value later returns
+to `1`.
 
 Native failures
 leave the draft visible with an actionable error and do not advance Project authority. Active Save

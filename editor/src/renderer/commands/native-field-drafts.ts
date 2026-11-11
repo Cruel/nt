@@ -44,9 +44,14 @@ export interface NativeFieldRecovery {
 
 interface NativeFieldDraftState {
   entries: Record<string, NativeFieldDraft>;
+  /** Last authored generation survives acknowledgment until Project replacement. */
+  latestSequenceByKey: Record<string, number>;
 }
 
-export const useNativeFieldDraftStore = create<NativeFieldDraftState>()(() => ({ entries: {} }));
+export const useNativeFieldDraftStore = create<NativeFieldDraftState>()(() => ({
+  entries: {},
+  latestSequenceByKey: {},
+}));
 // v2 stores the original path baseline. v1's bare values cannot safely resume
 // after an external Project change and must not be silently rebased.
 export const NATIVE_FIELD_DRAFT_SCHEMA = 'noveltea.editor.draft.native-field.v2';
@@ -99,6 +104,10 @@ interface ScheduledField {
 }
 
 const scheduled = new Map<string, ScheduledField>();
+// Never recycle a presentation/acknowledgment generation when an overlay is
+// removed. A sibling view may still hold the preceding edit's exact raw text.
+// Keep this monotonic across Project sessions as well as field flushes.
+let nextFieldSequence = 0;
 const TRAILING_MS = 150;
 const MAX_WAIT_MS = 500;
 
@@ -190,14 +199,16 @@ export function stageNativeField(
   const base = existing?.base ?? input.restoredBase ?? fieldBase(input.path);
   const conflict = Boolean(existing?.conflict || !fieldBaseMatches(base, fieldBase(input.path)));
   const { restoredBase: _restoredBase, ...rest } = input;
+  const sequence = ++nextFieldSequence;
   useNativeFieldDraftStore.setState((state) => ({
+    latestSequenceByKey: { ...state.latestSequenceByKey, [key]: sequence },
     entries: {
       ...state.entries,
       [key]: {
         ...rest,
         base,
         conflict,
-        sequence: (state.entries[key]?.sequence ?? 0) + 1,
+        sequence,
         error: conflict ? conflictMessage() : null,
         inputStartedAt: performance.now(),
       },
@@ -409,7 +420,7 @@ useProjectStore.subscribe((state, previous) => {
     if (field.timer) clearTimeout(field.timer);
     scheduled.delete(key);
   }
-  useNativeFieldDraftStore.setState({ entries: {} });
+  useNativeFieldDraftStore.setState({ entries: {}, latestSequenceByKey: {} });
 });
 
 // Tab lifetime is not field lifetime. When any view closes (including through

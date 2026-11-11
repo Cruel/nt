@@ -57,6 +57,22 @@ function AuthorField() {
   );
 }
 
+/** Reads authoritative values so the two mounted controls observe acknowledgments. */
+function BuildNumberField({ tabId }: { tabId: string }) {
+  const document = useProjectStore((state) => state.document);
+  return (
+    <ProjectFieldNumber
+      aria-label={`Build number ${tabId}`}
+      tabId={tabId}
+      saveUnitId={PROJECT_SETTINGS_SAVE_UNIT_ID}
+      path="/settings/app/buildNumber"
+      value={isAuthoringProjectView(document) ? (document.settings.app?.buildNumber ?? null) : null}
+      label="Edit build number"
+      mode="decimal"
+    />
+  );
+}
+
 function admitProject(name = 'Original') {
   const project = createAuthoringProject();
   project.project.name = name;
@@ -71,6 +87,78 @@ beforeEach(() => {
 });
 
 describe('shared buffered native field intents', () => {
+  it('uses distinct generations for numeric edits separated by a native acknowledgment', async () => {
+    admitProject();
+    render(
+      <>
+        <BuildNumberField tabId="A" />
+        <BuildNumberField tabId="B" />
+      </>,
+    );
+    const first = screen.getByRole('textbox', { name: 'Build number A' });
+    const second = screen.getByRole('textbox', { name: 'Build number B' });
+    const project = useProjectStore.getState();
+    const fieldKey = nativeFieldKey(
+      project.projectSessionId!,
+      project.projectInstanceId!,
+      '/settings/app/buildNumber',
+    );
+    fireEvent.change(first, { target: { value: '1.0' } });
+    const firstGeneration = useNativeFieldDraftStore.getState().entries[fieldKey]?.sequence;
+    expect(firstGeneration).toBeDefined();
+    await act(async () => expect(await projectEdits.flush()).toBe(true));
+    expect(useNativeFieldDraftStore.getState().entries[fieldKey]).toBeUndefined();
+    expect(first).toHaveValue('1.0');
+    fireEvent.change(second, { target: { value: '23' } });
+    const secondGeneration = useNativeFieldDraftStore.getState().entries[fieldKey]?.sequence;
+    expect(secondGeneration).toBeGreaterThan(firstGeneration!);
+    expect(first).toHaveValue('23');
+    await act(async () => expect(await projectEdits.flush()).toBe(true));
+    expect(first).toHaveValue('23');
+  });
+
+  it('never revives superseded numeric presentation when a later acknowledged value matches', async () => {
+    admitProject();
+    render(
+      <>
+        <BuildNumberField tabId="A" />
+        <BuildNumberField tabId="B" />
+      </>,
+    );
+    const first = screen.getByRole('textbox', { name: 'Build number A' });
+    const second = screen.getByRole('textbox', { name: 'Build number B' });
+    fireEvent.change(first, { target: { value: '1.0' } });
+    await act(async () => expect(await projectEdits.flush()).toBe(true));
+    expect(first).toHaveValue('1.0');
+    fireEvent.change(second, { target: { value: '23' } });
+    expect(first).toHaveValue('23');
+    await act(async () => expect(await projectEdits.flush()).toBe(true));
+    fireEvent.change(second, { target: { value: '1' } });
+    expect(first).toHaveValue('1');
+    await act(async () => expect(await projectEdits.flush()).toBe(true));
+    // Matching A's old parsed value is not evidence of editing ownership.
+    expect(first).toHaveValue('1');
+  });
+
+  it('does not reuse numeric presentation across Project instances with the same field value', async () => {
+    const firstProject = createAuthoringProject();
+    firstProject.settings.app!.buildNumber = 1;
+    admitNativeRendererCommandFixture(firstProject);
+    render(<BuildNumberField tabId="A" />);
+    const input = screen.getByRole('textbox', { name: 'Build number A' });
+    fireEvent.change(input, { target: { value: '1.0' } });
+    await act(async () => expect(await projectEdits.flush()).toBe(true));
+    expect(input).toHaveValue('1.0');
+    const previousInstance = useProjectStore.getState().projectInstanceId;
+    act(() => useProjectStore.getState().clearProject());
+    const secondProject = createAuthoringProject();
+    secondProject.settings.app!.buildNumber = 1;
+    act(() => {
+      admitNativeRendererCommandFixture(secondProject);
+    });
+    expect(useProjectStore.getState().projectInstanceId).not.toBe(previousInstance);
+    expect(input).toHaveValue('1');
+  });
   it('reconciles a blurred invalid number when another view repairs the shared field', async () => {
     admitProject();
     render(

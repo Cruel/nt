@@ -48,6 +48,7 @@ export function useProjectField<T extends JsonValue>({
   const projectInstanceId = useProjectStore((state) => state.projectInstanceId);
   const key = nativeFieldKey(projectSessionId ?? '', projectInstanceId ?? '', path);
   const entry = useNativeFieldDraftStore((state) => state.entries[key]);
+  const latestSequence = useNativeFieldDraftStore((state) => state.latestSequenceByKey[key]);
   const draftKey = nativeFieldDraftKey(saveUnitId, path);
   const savedDraft = useDraftDirtyStore((state) => state.entriesByKey[draftKey]);
   const restored =
@@ -120,6 +121,7 @@ export function useProjectField<T extends JsonValue>({
     keepMine: () => projectEdits.keepMineField(path),
     conflict: entry?.conflict ?? false,
     sequence: entry?.sequence,
+    latestSequence,
     fieldKey: key,
     error: entry?.error ?? null,
   };
@@ -307,6 +309,7 @@ export function ProjectFieldNumber({
   const fieldKey = draft.fieldKey;
   const [editingText, setEditingText] = useState<{
     key: string;
+    fieldKey: string;
     text: string;
     sequence?: number;
     pendingValue?: string;
@@ -317,8 +320,11 @@ export function ProjectFieldNumber({
   // sibling's newer field intent or raw-input correction takes precedence.
   const ownPresentation =
     editingText?.key === editingKey &&
+    editingText.fieldKey === fieldKey &&
+    editingText.sequence === draft.latestSequence &&
     editingText.pendingValue === pending?.value &&
-    (editingText.sequence === draft.sequence ||
+    (composing.current ||
+      editingText.sequence === draft.sequence ||
       (draft.sequence === undefined &&
         editingText.parsed !== undefined &&
         Object.is(editingText.parsed, draft.value)));
@@ -331,8 +337,9 @@ export function ProjectFieldNumber({
     if (composing.current) {
       setEditingText({
         key: editingKey,
+        fieldKey,
         text,
-        sequence: draft.sequence,
+        sequence: draft.latestSequence,
         pendingValue: pending?.value,
       });
       return;
@@ -364,8 +371,9 @@ export function ProjectFieldNumber({
     }
     setEditingText({
       key: editingKey,
+      fieldKey,
       text,
-      sequence: useNativeFieldDraftStore.getState().entries[fieldKey]?.sequence,
+      sequence: useNativeFieldDraftStore.getState().latestSequenceByKey[fieldKey],
       pendingValue: selectPendingInput(usePendingInputStore.getState(), saveUnitId, path)?.value,
       parsed: parsedValue,
     });
