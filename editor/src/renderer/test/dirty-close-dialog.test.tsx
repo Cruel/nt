@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { DirtyCloseDialog } from '@/workbench/DirtyCloseDialog';
 import { useCloseGuardStore } from '@/workbench/close-guard-store';
@@ -11,6 +11,9 @@ import { useProjectStore } from '@/project/project-store';
 import { useProjectSourceStore } from '@/project/project-source-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useCommandStore } from '@/commands/command-store';
+import { projectEdits } from '@/commands/project-editing';
+import { ProjectFieldInput } from '@/commands/use-project-field';
+import { nativeFieldDraftKey } from '@/commands/native-field-drafts';
 import {
   clearWorkbenchTabStates,
   setWorkbenchTabState,
@@ -113,6 +116,111 @@ beforeEach(() => {
 });
 
 describe('dirty tab close guard', () => {
+  it("Don't Save waits for an already dispatched field before restoring the owner", async () => {
+    const native = admitNativeRendererCommandFixture(authoringProjectWithRooms());
+    openTestTab();
+    const realPatch = window.noveltea.nativeProjectPatch;
+    let release!: () => void;
+    let started!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    let first = true;
+    Object.defineProperty(window.noveltea, 'nativeProjectPatch', {
+      configurable: true,
+      value: vi.fn((...args: Parameters<typeof realPatch>) => {
+        if (!first) return realPatch(...args);
+        first = false;
+        started();
+        return new Promise<Awaited<ReturnType<typeof realPatch>>>((resolve, reject) => {
+          release = () => void Promise.resolve(realPatch(...args)).then(resolve, reject);
+        });
+      }),
+    });
+    render(
+      <>
+        <ProjectFieldInput
+          aria-label="Room name"
+          tabId={tab.id}
+          saveUnitId="record:rooms:foyer"
+          path="/rooms/foyer/data/displayName"
+          value="Foyer"
+          label="Room name"
+        />
+        <DirtyCloseDialog />
+      </>,
+    );
+    fireEvent.change(screen.getByRole('textbox', { name: 'Room name' }), {
+      target: { value: 'Should be discarded' },
+    });
+    const flush = projectEdits.flush();
+    await ready;
+    act(() => useCloseGuardStore.getState().requestCloseTab(ROOT_GROUP_ID, tab.id));
+    fireEvent.click(screen.getByRole('button', { name: /don't save/i }));
+    expect(useWorkbenchStore.getState().tabsById[tab.id]).toBeDefined();
+    await act(async () => {
+      release();
+      await flush;
+    });
+    await waitFor(() => expect(useWorkbenchStore.getState().tabsById[tab.id]).toBeUndefined());
+    expect(native.patch).toHaveBeenCalled();
+    expect(useProjectStore.getState().document).toMatchObject({
+      rooms: { foyer: { data: { displayName: 'Foyer' } } },
+    });
+  });
+  it('closes one duplicate without prompt or shared draft loss, but prompts for the final view', async () => {
+    admitNativeRendererCommandFixture(authoringProjectWithRooms());
+    openTestTab();
+    const duplicate: WorkbenchTab = { ...tab, id: 'duplicate-room' };
+    useWorkbenchStore.getState().openTab(duplicate, { duplicate: true });
+    const field = (tabId: string, name: string) => (
+      <ProjectFieldInput
+        aria-label={name}
+        tabId={tabId}
+        saveUnitId="record:rooms:foyer"
+        path="/rooms/foyer/data/displayName"
+        value="Foyer"
+        label="Room name"
+      />
+    );
+    const view = render(
+      <>
+        {field(tab.id, 'First room')}
+        {field(duplicate.id, 'Second room')}
+        <DirtyCloseDialog />
+      </>,
+    );
+    fireEvent.change(screen.getByRole('textbox', { name: 'First room' }), {
+      target: { value: 'Shared unsaved name' },
+    });
+    expect(screen.getByRole('textbox', { name: 'Second room' })).toHaveValue('Shared unsaved name');
+
+    act(() => useCloseGuardStore.getState().requestCloseTab(ROOT_GROUP_ID, tab.id));
+    expect(useCloseGuardStore.getState().pendingClose).toBeNull();
+    expect(useWorkbenchStore.getState().tabsById[tab.id]).toBeUndefined();
+    expect(
+      useDraftDirtyStore.getState().entriesByKey[
+        nativeFieldDraftKey('record:rooms:foyer', '/rooms/foyer/data/displayName')
+      ]?.tabId,
+    ).toBe(duplicate.id);
+    view.rerender(
+      <>
+        {field(duplicate.id, 'Second room')}
+        <DirtyCloseDialog />
+      </>,
+    );
+    expect(screen.getByRole('textbox', { name: 'Second room' })).toHaveValue('Shared unsaved name');
+
+    act(() => useCloseGuardStore.getState().requestCloseTab(ROOT_GROUP_ID, duplicate.id));
+    expect(useCloseGuardStore.getState().pendingClose).not.toBeNull();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /don't save/i }));
+    });
+    expect(useWorkbenchStore.getState().tabsById[duplicate.id]).toBeUndefined();
+    expect(useProjectStore.getState().document).toMatchObject({
+      rooms: { foyer: { data: { displayName: 'Foyer' } } },
+    });
+  });
   it('closes clean tabs immediately', () => {
     useProjectStore.getState().loadProjectDocument({
       document: { rooms: { foyer: { id: 'foyer', label: 'Foyer' } } },

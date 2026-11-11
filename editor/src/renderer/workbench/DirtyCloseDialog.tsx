@@ -1,4 +1,9 @@
 import { projectEdits } from '@/commands/project-editing';
+import {
+  discardNativeField,
+  flushNativeField,
+  useNativeFieldDraftStore,
+} from '@/commands/native-field-drafts';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
@@ -172,131 +177,170 @@ export function DirtyCloseDialog() {
   };
 
   const discardAndClose = async () => {
-    if (!pendingClose || pendingTabs.length === 0) return;
-    const restoredSaveUnitIds = new Set<string>();
-    const patches = dirtyTabStates.flatMap(({ tab: dirtyTab, dirty }) => {
-      if (draftOnlyTabIds.has(dirtyTab.id)) return [];
-      if (dirty.saveUnitId && restoredSaveUnitIds.has(dirty.saveUnitId)) return [];
-      if (dirty.saveUnitId) restoredSaveUnitIds.add(dirty.saveUnitId);
-      const recoveryPaths = dirty.saveUnitId
-        ? (recovery.saveUnitsById[dirty.saveUnitId]?.affectedPaths as JsonPointer[] | undefined)
-        : undefined;
-      return restoreSaveUnitPatchesFromSaved(dirtyTab, project, savedDocument, recoveryPaths ?? []);
-    });
-    const discardUsingNativeDisk = async (): Promise<boolean> => {
-      for (const saveUnitId of restoredSaveUnitIds) {
-        const result = await useCommandStore
-          .getState()
-          .useNativeDiskUnitAsync(saveUnitId, (acknowledged) => {
-            const state = useProjectStore.getState();
-            if (!state.document || !state.savedDocument)
-              throw new Error('Cannot discard without an admitted native Project.');
-            const previous = buildEditorProjectStateSnapshot();
-            const projected = projectNativeExternalResult({
-              saved: state.savedDocument,
-              working: state.document,
-              recovery: previous.recovery,
-              result: acknowledged,
-            });
-            const tracked = editorProjectStateFromProject(projected.working);
-            const savedTracked = editorProjectStateFromProject(projected.saved);
-            const workingEditorState = {
-              ...previous,
-              chapters: tracked.chapters,
-              tags: tracked.tags,
-              recordMetadata: tracked.recordMetadata,
-              recovery: projected.recovery,
-            };
-            const savedEditorState = {
-              ...previous,
-              chapters: savedTracked.chapters,
-              tags: savedTracked.tags,
-              recordMetadata: savedTracked.recordMetadata,
-              recovery: projected.recovery,
-            };
-            if (
-              !useProjectStore.getState().publishExternalReconciliation({
-                document: mergeEditorProjectState(projected.working, workingEditorState),
-                savedDocument: mergeEditorProjectState(projected.saved, savedEditorState),
-                scriptSourcePaths: state.scriptSourcePaths,
-                affectedPaths: [...projected.affectedPaths, ...patches.map((patch) => patch.path)],
-              })
-            )
-              throw new Error('Native Discard could not publish the authoritative Project.');
-            setLoadedEditorProjectState(workingEditorState);
-          });
-        if (!result.ok) {
-          setStatusMessage(result.diagnostics[0]?.message ?? 'Native Discard failed.');
-          return false;
-        }
-      }
-      return true;
-    };
-    if (
-      patches.length > 0 &&
-      useCommandStore.getState().nativeWorkingRevision !== null &&
-      useCommandStore.getState().nativeMutationFailure !== null
-    ) {
-      // Recover from a native command lock without creating another editor
-      // mutation. A healthy command path instead preserves cross-owner logical
-      // discard semantics and its undo history.
-      if (!(await discardUsingNativeDisk())) return;
-    } else if (patches.length > 0) {
-      const result = await executeCommand({
-        type: 'project.applyPatch',
-        ...MUTATION_SURFACE_ATTRIBUTIONS.discardDirtyUnits,
-        label:
-          dirtyTabStates.length === 1 && primaryDirtyTab
-            ? t('dirtyClose.discardNamed', { title: primaryDirtyTab.title })
-            : t('dirtyClose.discardTabs', { count: dirtyTabStates.length }),
-        payload: patches,
-      });
-      if (!result.ok) {
-        // A rejected Save can leave a native Project with work that the
-        // renderer cannot re-apply safely. Don't Save must still be able to
-        // discard exactly the selected logical unit through native authority.
-        if (
-          useCommandStore.getState().nativeWorkingRevision !== null &&
-          (await discardUsingNativeDisk())
-        ) {
-          // Native owner acknowledged the discard; proceed with tab-local
-          // draft and recovery cleanup below.
-        } else {
-          setStatusMessage(
-            result.diagnostics.find((diagnostic) => diagnostic.severity === 'error')?.message ??
-              'Discard failed.',
-          );
-          return;
-        }
-      }
-    }
-    for (const { tab: dirtyTab, dirty: dirtyState } of dirtyTabStates) {
-      if (!dirtyState.draftDirty) continue;
-      const discarded = await runDraftActions(
-        selectDraftEntriesForTab(
-          { entriesByKey: useDraftDirtyStore.getState().entriesByKey },
-          dirtyTab.id,
-        ),
-        'discard',
+    if (!pendingClose || pendingTabs.length === 0 || saving) return;
+    setSaving(true);
+    try {
+      const restoredSaveUnitIds = new Set<string>();
+      const ownerIds = new Set(
+        dirtyTabStates
+          .filter(({ tab: dirtyTab }) => !draftOnlyTabIds.has(dirtyTab.id))
+          .map(({ dirty }) => dirty.saveUnitId)
+          .filter((id): id is string => Boolean(id)),
       );
-      if (!discarded) {
-        setStatusMessage('Failed to discard a local editor draft.');
-        return;
-      }
-      clearDraftDirtyForTab(dirtyTab.id);
-    }
-    for (const { tab: dirtyTab } of dirtyTabStates) {
-      if (dirtyTab.resource?.kind === 'source' && dirtyTab.resource.sourceId) {
-        if (!(await useProjectSourceStore.getState().discard(dirtyTab.resource.sourceId))) {
-          setStatusMessage(
-            useProjectSourceStore.getState().error ?? 'Native source discard failed.',
-          );
+      // The restore patches must be calculated *after* any already dispatched
+      // native edits publish. Otherwise a field pending at dialog-open time can
+      // land after the discard and silently recreate the discarded change.
+      const activeProject = useProjectStore.getState();
+      for (const [fieldKey, field] of Object.entries(useNativeFieldDraftStore.getState().entries)) {
+        if (
+          !ownerIds.has(field.saveUnitId) ||
+          field.projectSessionId !== activeProject.projectSessionId ||
+          field.projectInstanceId !== activeProject.projectInstanceId
+        )
+          continue;
+        if (!(await flushNativeField(fieldKey)) && !(await discardNativeField(fieldKey))) {
+          setStatusMessage(t('projectField.discardPending'));
           return;
         }
       }
+      const latest = useProjectStore.getState();
+      const latestRecovery = buildCurrentEditorRecoveryState();
+      const patches = dirtyTabStates.flatMap(({ tab: dirtyTab, dirty }) => {
+        if (draftOnlyTabIds.has(dirtyTab.id)) return [];
+        if (dirty.saveUnitId && restoredSaveUnitIds.has(dirty.saveUnitId)) return [];
+        if (dirty.saveUnitId) restoredSaveUnitIds.add(dirty.saveUnitId);
+        const recoveryPaths = dirty.saveUnitId
+          ? (latestRecovery.saveUnitsById[dirty.saveUnitId]?.affectedPaths as
+              | JsonPointer[]
+              | undefined)
+          : undefined;
+        return restoreSaveUnitPatchesFromSaved(
+          dirtyTab,
+          latest.document,
+          latest.savedDocument,
+          recoveryPaths ?? [],
+        );
+      });
+      const discardUsingNativeDisk = async (): Promise<boolean> => {
+        for (const saveUnitId of restoredSaveUnitIds) {
+          const result = await useCommandStore
+            .getState()
+            .useNativeDiskUnitAsync(saveUnitId, (acknowledged) => {
+              const state = useProjectStore.getState();
+              if (!state.document || !state.savedDocument)
+                throw new Error('Cannot discard without an admitted native Project.');
+              const previous = buildEditorProjectStateSnapshot();
+              const projected = projectNativeExternalResult({
+                saved: state.savedDocument,
+                working: state.document,
+                recovery: previous.recovery,
+                result: acknowledged,
+              });
+              const tracked = editorProjectStateFromProject(projected.working);
+              const savedTracked = editorProjectStateFromProject(projected.saved);
+              const workingEditorState = {
+                ...previous,
+                chapters: tracked.chapters,
+                tags: tracked.tags,
+                recordMetadata: tracked.recordMetadata,
+                recovery: projected.recovery,
+              };
+              const savedEditorState = {
+                ...previous,
+                chapters: savedTracked.chapters,
+                tags: savedTracked.tags,
+                recordMetadata: savedTracked.recordMetadata,
+                recovery: projected.recovery,
+              };
+              if (
+                !useProjectStore.getState().publishExternalReconciliation({
+                  document: mergeEditorProjectState(projected.working, workingEditorState),
+                  savedDocument: mergeEditorProjectState(projected.saved, savedEditorState),
+                  scriptSourcePaths: state.scriptSourcePaths,
+                  affectedPaths: [
+                    ...projected.affectedPaths,
+                    ...patches.map((patch) => patch.path),
+                  ],
+                })
+              )
+                throw new Error('Native Discard could not publish the authoritative Project.');
+              setLoadedEditorProjectState(workingEditorState);
+            });
+          if (!result.ok) {
+            setStatusMessage(result.diagnostics[0]?.message ?? 'Native Discard failed.');
+            return false;
+          }
+        }
+        return true;
+      };
+      if (
+        patches.length > 0 &&
+        useCommandStore.getState().nativeWorkingRevision !== null &&
+        useCommandStore.getState().nativeMutationFailure !== null
+      ) {
+        // Recover from a native command lock without creating another editor
+        // mutation. A healthy command path instead preserves cross-owner logical
+        // discard semantics and its undo history.
+        if (!(await discardUsingNativeDisk())) return;
+      } else if (patches.length > 0) {
+        const result = await executeCommand({
+          type: 'project.applyPatch',
+          ...MUTATION_SURFACE_ATTRIBUTIONS.discardDirtyUnits,
+          label:
+            dirtyTabStates.length === 1 && primaryDirtyTab
+              ? t('dirtyClose.discardNamed', { title: primaryDirtyTab.title })
+              : t('dirtyClose.discardTabs', { count: dirtyTabStates.length }),
+          payload: patches,
+        });
+        if (!result.ok) {
+          // A rejected Save can leave a native Project with work that the
+          // renderer cannot re-apply safely. Don't Save must still be able to
+          // discard exactly the selected logical unit through native authority.
+          if (
+            useCommandStore.getState().nativeWorkingRevision !== null &&
+            (await discardUsingNativeDisk())
+          ) {
+            // Native owner acknowledged the discard; proceed with tab-local
+            // draft and recovery cleanup below.
+          } else {
+            setStatusMessage(
+              result.diagnostics.find((diagnostic) => diagnostic.severity === 'error')?.message ??
+                'Discard failed.',
+            );
+            return;
+          }
+        }
+      }
+      for (const { tab: dirtyTab, dirty: dirtyState } of dirtyTabStates) {
+        if (!dirtyState.draftDirty) continue;
+        const discarded = await runDraftActions(
+          selectDraftEntriesForTab(
+            { entriesByKey: useDraftDirtyStore.getState().entriesByKey },
+            dirtyTab.id,
+          ),
+          'discard',
+        );
+        if (!discarded) {
+          setStatusMessage('Failed to discard a local editor draft.');
+          return;
+        }
+        clearDraftDirtyForTab(dirtyTab.id);
+      }
+      for (const { tab: dirtyTab } of dirtyTabStates) {
+        if (dirtyTab.resource?.kind === 'source' && dirtyTab.resource.sourceId) {
+          if (!(await useProjectSourceStore.getState().discard(dirtyTab.resource.sourceId))) {
+            setStatusMessage(
+              useProjectSourceStore.getState().error ?? 'Native source discard failed.',
+            );
+            return;
+          }
+        }
+      }
+      discardLoadedRecoverySaveUnits(restoredSaveUnitIds);
+      closeApprovedTabs();
+    } finally {
+      setSaving(false);
     }
-    discardLoadedRecoverySaveUnits(restoredSaveUnitIds);
-    closeApprovedTabs();
   };
 
   const hasPersistentDirty = dirtyTabStates.some(

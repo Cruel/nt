@@ -1,4 +1,12 @@
 {
+  "projectField": {
+    "retry": "Tentar novamente",
+    "conflict": "Este campo mudou em outro lugar enquanto a edição estava pendente. Resolva o conflito antes de tentar novamente.",
+    "discardPending": "Uma atualização de campo ainda está sendo concluída. Tente Não salvar novamente.",
+    "savePending": "Resolva a edição de campo pendente antes de salvar este item.",
+    "saveAllPending": "Resolva as edições de campo pendentes antes de Salvar Tudo.",
+    "saveAsPending": "Resolva as edições de campo pendentes do projeto antes de Salvar Como."
+  },
   "commentReview": {
     "affectedComments": "Comentários YAML afetados",
     "cancel": "Cancelar",

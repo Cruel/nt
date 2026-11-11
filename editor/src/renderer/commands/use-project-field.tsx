@@ -3,21 +3,22 @@ import {
   useEffect,
   useLayoutEffect,
   useRef,
+  useState,
   type ComponentProps,
   type ReactNode,
 } from 'react';
 import type { CommandRequest } from '@/commands/command-types';
 import { Input } from '@/components/ui/input';
+import { useTranslation } from 'react-i18next';
 import { Select } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import type { JsonValue } from '@/project/json-value';
 import { useProjectStore } from '@/project/project-store';
 import { selectPendingInput, usePendingInputStore } from '@/workbench/pending-input-store';
-import { restoredDraftPayload, useEditorDraftDirty } from '@/workbench/draft-dirty-store';
+import { useDraftDirtyStore } from '@/workbench/draft-dirty-store';
 import {
-  discardNativeField,
-  flushNativeField,
   NATIVE_FIELD_DRAFT_SCHEMA,
+  nativeFieldDraftKey,
   nativeFieldKey,
   useNativeFieldDraftStore,
 } from './native-field-drafts';
@@ -46,10 +47,12 @@ export function useProjectField<T extends JsonValue>({
   const projectInstanceId = useProjectStore((state) => state.projectInstanceId);
   const key = nativeFieldKey(projectSessionId ?? '', projectInstanceId ?? '', path);
   const entry = useNativeFieldDraftStore((state) => state.entries[key]);
-  const draftKey = `${tabId}:native-field:${path}`;
-  const restored = !entry
-    ? restoredDraftPayload<T>(draftKey, NATIVE_FIELD_DRAFT_SCHEMA)
-    : undefined;
+  const draftKey = nativeFieldDraftKey(saveUnitId, path);
+  const savedDraft = useDraftDirtyStore((state) => state.entriesByKey[draftKey]);
+  const restored =
+    !entry && savedDraft?.schema === NATIVE_FIELD_DRAFT_SCHEMA
+      ? (savedDraft.payload as T | undefined)
+      : undefined;
   const hydratedKey = useRef<string | null>(null);
   const change = useCallback(
     (next: T) => {
@@ -82,25 +85,26 @@ export function useProjectField<T extends JsonValue>({
     return () => window.cancelAnimationFrame(frame);
   }, [inputSequence, inputStartedAt, path]);
 
-  useEditorDraftDirty(tabId, Boolean(entry || restored !== undefined), {
-    key: draftKey,
-    schema: NATIVE_FIELD_DRAFT_SCHEMA,
-    label,
-    payload: entry?.value ?? restored,
-    apply: () => flushNativeField(key),
-    discard: () => {
-      discardNativeField(key);
-      return true;
-    },
-    preserveOnUnmount: true,
-  });
-
   return {
-    value: (entry?.value ?? restored ?? value) as T,
+    value: (entry ? entry.value : restored !== undefined ? restored : value) as T,
     change,
     flush: () => projectEdits.flushField(path),
     error: entry?.error ?? null,
   };
+}
+
+/** Shared localized presentation for all native field errors and retries. */
+export function ProjectFieldError({ error, retry }: { error: string | null; retry: () => void }) {
+  const { t } = useTranslation('workspace');
+  if (!error) return null;
+  return (
+    <p role="alert" className="text-destructive text-xs">
+      {error}{' '}
+      <button type="button" className="underline" onClick={retry}>
+        {t('projectField.retry')}
+      </button>
+    </p>
+  );
 }
 
 type ProjectFieldInputProps = Omit<ComponentProps<typeof Input>, 'value' | 'onChange'> &
@@ -129,14 +133,7 @@ export function ProjectFieldInput({
           void draft.flush();
         }}
       />
-      {draft.error && (
-        <p role="alert" className="text-destructive text-xs">
-          {draft.error}{' '}
-          <button type="button" className="underline" onClick={() => void draft.flush()}>
-            Retry
-          </button>
-        </p>
-      )}
+      <ProjectFieldError error={draft.error} retry={() => void draft.flush()} />
     </>
   );
 }
@@ -166,7 +163,7 @@ export function ProjectFieldSwitch({
         onCheckedChange={(checked) => draft.change(Boolean(checked))}
         onBlur={() => void draft.flush()}
       />
-      {draft.error && <span role="alert">{draft.error}</span>}
+      <ProjectFieldError error={draft.error} retry={() => void draft.flush()} />
     </>
   );
 }
@@ -198,14 +195,7 @@ export function ProjectFieldTextarea({
           void draft.flush();
         }}
       />
-      {draft.error && (
-        <p role="alert" className="text-destructive text-xs">
-          {draft.error}{' '}
-          <button type="button" className="underline" onClick={() => void draft.flush()}>
-            Retry
-          </button>
-        </p>
-      )}
+      <ProjectFieldError error={draft.error} retry={() => void draft.flush()} />
     </>
   );
 }
@@ -235,7 +225,7 @@ export function ProjectFieldSelect<T extends JsonValue>({
       >
         {children}
       </Select>
-      {draft.error && <span role="alert">{draft.error}</span>}
+      <ProjectFieldError error={draft.error} retry={() => void draft.flush()} />
     </>
   );
 }
@@ -261,7 +251,42 @@ export function ProjectFieldNumber({
 }: ProjectFieldNumberProps) {
   const draft = useProjectField({ tabId, saveUnitId, path, value, label, buildCommand });
   const pending = usePendingInputStore((state) => selectPendingInput(state, saveUnitId, path));
-  const raw = pending?.value ?? (draft.value === null ? '' : String(draft.value));
+  // A valid numeric value does not imply that its exact in-progress text can be
+  // reconstructed (1.0, +1, 01 and 2. must remain intact while editing).
+  const editingKey = nativeFieldDraftKey(saveUnitId, path);
+  const [editingText, setEditingText] = useState<{ key: string; text: string } | null>(null);
+  const composing = useRef(false);
+  const raw =
+    (editingText?.key === editingKey ? editingText.text : null) ??
+    pending?.value ??
+    (draft.value === null ? '' : String(draft.value));
+  const updateNumber = (text: string) => {
+    setEditingText({ key: editingKey, text });
+    if (composing.current) return;
+    const complete =
+      mode === 'integer' ? /^[+-]?\d+$/.test(text) : /^[+-]?(?:\d+|\d+\.\d+|\.\d+)$/.test(text);
+    const parsed = Number(text);
+    const inRange =
+      (props.min === undefined || parsed >= Number(props.min)) &&
+      (props.max === undefined || parsed <= Number(props.max));
+    if (optional && text === '') {
+      usePendingInputStore.getState().clearPendingInput(saveUnitId, path);
+      draft.change(null);
+    } else if (
+      complete &&
+      (mode !== 'integer' || Number.isSafeInteger(parsed)) &&
+      Number.isFinite(parsed) &&
+      inRange
+    ) {
+      usePendingInputStore.getState().clearPendingInput(saveUnitId, path);
+      draft.change(parsed);
+    } else {
+      usePendingInputStore.getState().setPendingInput(saveUnitId, path, {
+        value: text,
+        diagnosticCode: 'editor.pending-input.number.invalid',
+      });
+    }
+  };
   return (
     <>
       <Input
@@ -272,47 +297,22 @@ export function ProjectFieldNumber({
         inputMode={mode === 'integer' ? 'numeric' : 'decimal'}
         aria-invalid={Boolean(pending || draft.error || props['aria-invalid'])}
         value={raw}
-        onChange={(event) => {
-          const text = event.currentTarget.value;
-          const complete =
-            mode === 'integer'
-              ? /^[+-]?\d+$/.test(text)
-              : /^[+-]?(?:\d+|\d+\.\d+|\.\d+)$/.test(text);
-          const parsed = Number(text);
-          const inRange =
-            (props.min === undefined || parsed >= Number(props.min)) &&
-            (props.max === undefined || parsed <= Number(props.max));
-          if (optional && text === '') {
-            usePendingInputStore.getState().clearPendingInput(saveUnitId, path);
-            draft.change(null);
-          } else if (
-            complete &&
-            (mode !== 'integer' || Number.isSafeInteger(parsed)) &&
-            Number.isFinite(parsed) &&
-            inRange
-          ) {
-            usePendingInputStore.getState().clearPendingInput(saveUnitId, path);
-            draft.change(parsed);
-          } else {
-            usePendingInputStore.getState().setPendingInput(saveUnitId, path, {
-              value: text,
-              diagnosticCode: 'editor.pending-input.number.invalid',
-            });
-          }
+        onChange={(event) => updateNumber(event.currentTarget.value)}
+        onCompositionStart={() => {
+          composing.current = true;
+        }}
+        onCompositionEnd={(event) => {
+          composing.current = false;
+          updateNumber(event.currentTarget.value);
         }}
         onBlur={(event) => {
           onBlur?.(event);
+          if (!selectPendingInput(usePendingInputStore.getState(), saveUnitId, path))
+            setEditingText(null);
           void draft.flush();
         }}
       />
-      {draft.error && (
-        <p role="alert" className="text-destructive text-xs">
-          {draft.error}{' '}
-          <button type="button" className="underline" onClick={() => void draft.flush()}>
-            Retry
-          </button>
-        </p>
-      )}
+      <ProjectFieldError error={draft.error} retry={() => void draft.flush()} />
     </>
   );
 }

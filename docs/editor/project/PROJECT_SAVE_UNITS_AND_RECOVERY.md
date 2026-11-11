@@ -104,8 +104,23 @@ sessions do not accumulate an unbounded telemetry buffer. These timings provide 
 traces for the packaged Feature Lab acceptance gate; they do not constitute that acceptance
 on their own.
 
-Buffered values register with the editor's existing serializable tab-draft recovery synchronously
-with the field event, not only after a React effect. Native failures
+Buffered values register one serializable **Save-unit/field-owned** recovery entry synchronously
+with the field event, not only after a React effect. Duplicate tabs subscribe to the same pending
+field; closing a non-final view reassigns the recovery reference to a surviving view without
+discarding the edit. Only closing the final dirty view prompts for owner-level Save/Don't Save.
+An already dispatched native field cannot be synchronously revoked: direct discard reports
+failure rather than dropping the overlay, and final-view Don't Save first awaits any in-flight
+field acknowledgments, then restores the logical owner from the current acknowledged state.
+
+Text and numeric presentation are separate from acknowledged values. Valid intermediate numeric
+text such as `1.0`, `+1`, or `01` is preserved until blur; representable values are submitted
+without replacing the text under the cursor. A nullable `null` is an explicit draft payload, not
+an absent entry. Native commands read the newest queued value **at command planning**, rather than
+freezing it when the native queue becomes busy. Pending fields record a narrow acknowledged
+path baseline; if that path changes before dispatch, the queued edit remains visible as an error
+instead of silently overwriting the newer value. Changes to other paths do not block the field.
+
+Native failures
 leave the draft visible with an actionable error and do not advance Project authority. Active Save
 flushes its logical save unit, Save All flushes current buffered fields, and ordinary dependent
 commands, transactions, Undo and Redo flush before planning. Save As also flushes pending field
@@ -114,6 +129,12 @@ units whose buffered field failed native acknowledgment, respecting atomic trans
 A recovered draft whose editor is not
 mounted has no live apply callback, so Save is blocked rather than silently pretending it saved that
 field; opening its editor reattaches the apply callback.
+
+The 150 ms trailing/500 ms maximum wait remains a **native synchronization** policy, not an
+authoring Undo-session boundary. Native-acknowledged commands still create history entries per
+actual dispatch. Meaningful typing-session Undo coalescing, definitive external Use Disk/Keep Mine
+resolution for pending overlays, and multi-platform packaged certification are still open #602
+work; transport batching alone does not prove those semantics.
 
 This is **not** yet project-wide certification: the remaining non-migrated entity controls, numeric
 and nested controls, source-stage interoperability, more discrete selectors and geometry/drag

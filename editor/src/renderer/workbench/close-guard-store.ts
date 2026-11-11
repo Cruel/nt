@@ -4,6 +4,7 @@ import {
   selectDraftDirtyByTabId,
   selectDraftEntriesForTab,
 } from './draft-dirty-store';
+import { NATIVE_FIELD_DRAFT_SCHEMA } from '@/commands/native-field-drafts';
 import { getTabDirtyState } from './dirty-state';
 import { useProjectStore } from '@/project/project-store';
 import { useWorkbenchStore } from './workbench-store';
@@ -58,7 +59,15 @@ export function tabCloseRequiresDirtyPrompt(
   const project = useProjectStore.getState();
   const draftStore = useDraftDirtyStore.getState();
   const draftDirtyByTabId = selectDraftDirtyByTabId(draftStore);
-  if (selectDraftEntriesForTab(draftStore, tabId).some((entry) => entry.dirty)) return true;
+  // Ordinary tab-local drafts need an explicit resolution even when a sibling
+  // view remains. Shared Project field intents instead belong to the owner:
+  // only closing its final view requires a prompt.
+  if (
+    selectDraftEntriesForTab(draftStore, tabId).some(
+      (entry) => entry.dirty && entry.schema !== NATIVE_FIELD_DRAFT_SCHEMA,
+    )
+  )
+    return true;
   const pendingSaveUnitIds = selectPendingSaveUnitIds(usePendingInputStore.getState());
   const recoveryDirtySaveUnitIds = currentRecoveryDirtySaveUnitIds();
   const dirty = getTabDirtyState(

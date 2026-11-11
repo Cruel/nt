@@ -7,7 +7,13 @@ import {
   ProjectFieldTextarea,
 } from '@/commands/use-project-field';
 import { projectEdits } from '@/commands/project-editing';
-import { flushNativeFields, useNativeFieldDraftStore } from '@/commands/native-field-drafts';
+import {
+  discardNativeField,
+  flushNativeFields,
+  nativeFieldDraftKey,
+  nativeFieldKey,
+  useNativeFieldDraftStore,
+} from '@/commands/native-field-drafts';
 import { useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
 import { PROJECT_SETTINGS_SAVE_UNIT_ID } from '@/project/save-unit-registry';
@@ -65,6 +71,258 @@ beforeEach(() => {
 });
 
 describe('shared buffered native field intents', () => {
+  it('preserves an overlapping external field change as a recoverable conflict instead of overwriting it', async () => {
+    const native = admitProject();
+    render(<NameField />);
+    const input = screen.getByRole('textbox', { name: 'Project title project:1' });
+    fireEvent.change(input, { target: { value: 'My unsent title' } });
+    const state = useProjectStore.getState();
+    const document = state.document;
+    if (!isAuthoringProjectView(document)) throw new Error('Missing native Project fixture');
+    const external = structuredClone(document);
+    external.project.name = 'External title';
+    act(() =>
+      useProjectStore.setState({
+        document: external,
+        projectRevision: state.projectRevision + 1,
+      }),
+    );
+    expect(input).toHaveValue('My unsent title');
+    await act(async () => expect(await projectEdits.flush()).toBe(false));
+    expect(native.patch).not.toHaveBeenCalled();
+    expect(input).toHaveValue('My unsent title');
+    expect(screen.getByRole('alert')).toHaveTextContent('changed elsewhere');
+    expect(useProjectStore.getState().document).toMatchObject({
+      project: { name: 'External title' },
+    });
+  });
+  it('keeps nullable field clears visible and recoverable, including after remount', async () => {
+    const project = createAuthoringProject();
+    project.settings.app!.buildNumber = 12;
+    admitNativeRendererCommandFixture(project);
+    const view = render(
+      <ProjectFieldNumber
+        aria-label="Nullable number"
+        tabId="project:1"
+        saveUnitId={PROJECT_SETTINGS_SAVE_UNIT_ID}
+        path="/settings/app/buildNumber"
+        value={12}
+        label="Clear build number"
+        optional
+      />,
+    );
+    fireEvent.change(screen.getByRole('textbox', { name: 'Nullable number' }), {
+      target: { value: '' },
+    });
+    expect(screen.getByRole('textbox', { name: 'Nullable number' })).toHaveValue('');
+    expect(
+      useDraftDirtyStore.getState().entriesByKey[
+        nativeFieldDraftKey(PROJECT_SETTINGS_SAVE_UNIT_ID, '/settings/app/buildNumber')
+      ]?.payload,
+    ).toBeNull();
+    view.unmount();
+    render(
+      <ProjectFieldNumber
+        aria-label="Restored nullable number"
+        tabId="project:1"
+        saveUnitId={PROJECT_SETTINGS_SAVE_UNIT_ID}
+        path="/settings/app/buildNumber"
+        value={12}
+        label="Clear build number"
+        optional
+      />,
+    );
+    expect(screen.getByRole('textbox', { name: 'Restored nullable number' })).toHaveValue('');
+    await act(async () => expect(await projectEdits.flush()).toBe(true));
+    expect(useProjectStore.getState().document).toMatchObject({
+      settings: { app: { buildNumber: null } },
+    });
+  });
+
+  it('preserves raw complete numeric text until blur, including decimal and signed values', async () => {
+    admitProject();
+    render(
+      <ProjectFieldNumber
+        aria-label="Decimal"
+        tabId="project:1"
+        saveUnitId={PROJECT_SETTINGS_SAVE_UNIT_ID}
+        path="/settings/app/buildNumber"
+        value={12}
+        label="Decimal"
+        mode="decimal"
+      />,
+    );
+    const input = screen.getByRole('textbox', { name: 'Decimal' });
+    for (const raw of ['1.0', '1.05', '+1.05', '01.05']) {
+      fireEvent.change(input, { target: { value: raw } });
+      expect(input).toHaveValue(raw);
+    }
+    fireEvent.blur(input);
+    expect(input).toHaveValue('1.05');
+    await act(async () => expect(await projectEdits.flush()).toBe(true));
+  });
+
+  it('replaces a queued field value before native dispatch instead of recording obsolete history', async () => {
+    const native = admitProject();
+    const realPatch = window.noveltea.nativeProjectPatch;
+    let release!: () => void;
+    let started!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    let first = true;
+    Object.defineProperty(window.noveltea, 'nativeProjectPatch', {
+      configurable: true,
+      value: vi.fn((...args: Parameters<typeof realPatch>) => {
+        if (!first) return realPatch(...args);
+        first = false;
+        started();
+        return new Promise<Awaited<ReturnType<typeof realPatch>>>((resolve, reject) => {
+          release = () => void Promise.resolve(realPatch(...args)).then(resolve, reject);
+        });
+      }),
+    });
+    expect(
+      projectEdits.field({
+        tabId: 'project:1',
+        saveUnitId: PROJECT_SETTINGS_SAVE_UNIT_ID,
+        path: '/project/name',
+        value: 'Blocker',
+        label: 'Title',
+      }),
+    ).toBe(true);
+    const firstFlush = projectEdits.flushField('/project/name');
+    await ready;
+    expect(
+      projectEdits.field({
+        tabId: 'project:1',
+        saveUnitId: PROJECT_SETTINGS_SAVE_UNIT_ID,
+        path: '/project/author',
+        value: 'Old queued author',
+        label: 'Author',
+      }),
+    ).toBe(true);
+    const secondFlush = projectEdits.flushField('/project/author');
+    expect(
+      projectEdits.field({
+        tabId: 'project:1',
+        saveUnitId: PROJECT_SETTINGS_SAVE_UNIT_ID,
+        path: '/project/author',
+        value: 'Newest author',
+        label: 'Author',
+      }),
+    ).toBe(true);
+    await act(async () => {
+      release();
+      await Promise.all([firstFlush, secondFlush]);
+    });
+    expect(
+      native.patch.mock.calls.flatMap(([, , patches]) =>
+        patches.filter((patch) => patch.path === '/project/author'),
+      ),
+    ).toEqual([{ op: 'replace', path: '/project/author', value: 'Newest author' }]);
+    expect(useProjectStore.getState().document).toMatchObject({
+      project: { author: 'Newest author' },
+    });
+  });
+
+  it('does not erase newer typing arriving while a queued discard awaits the worker', async () => {
+    const native = admitProject();
+    const realPatch = window.noveltea.nativeProjectPatch;
+    let release!: () => void;
+    let started!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    let first = true;
+    Object.defineProperty(window.noveltea, 'nativeProjectPatch', {
+      configurable: true,
+      value: vi.fn((...args: Parameters<typeof realPatch>) => {
+        if (!first) return realPatch(...args);
+        first = false;
+        started();
+        return new Promise<Awaited<ReturnType<typeof realPatch>>>((resolve, reject) => {
+          release = () => void Promise.resolve(realPatch(...args)).then(resolve, reject);
+        });
+      }),
+    });
+    const edit = (path: string, value: string) =>
+      projectEdits.field({
+        tabId: 'project:1',
+        saveUnitId: PROJECT_SETTINGS_SAVE_UNIT_ID,
+        path,
+        value,
+        label: 'Queued edit',
+      });
+    edit('/project/name', 'Busy');
+    const firstFlush = projectEdits.flushField('/project/name');
+    await ready;
+    edit('/project/author', 'To discard');
+    const queued = projectEdits.flushField('/project/author');
+    const project = useProjectStore.getState();
+    const key = nativeFieldKey(
+      project.projectSessionId!,
+      project.projectInstanceId!,
+      '/project/author',
+    );
+    const discard = discardNativeField(key);
+    edit('/project/author', 'Typed during discard');
+    await act(async () => {
+      release();
+      expect(await discard).toBe(false);
+      await Promise.all([firstFlush, queued]);
+      expect(await projectEdits.flush()).toBe(true);
+    });
+    expect(
+      native.patch.mock.calls.flatMap(([, , patches]) =>
+        patches.filter((patch) => patch.path === '/project/author'),
+      ),
+    ).toEqual([{ op: 'replace', path: '/project/author', value: 'Typed during discard' }]);
+    expect(useProjectStore.getState().document).toMatchObject({
+      project: { author: 'Typed during discard' },
+    });
+  });
+
+  it('rejects unsafe discard while native dispatch is in flight without dropping the overlay', async () => {
+    admitProject();
+    const realPatch = window.noveltea.nativeProjectPatch;
+    let release!: () => void;
+    let started!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    Object.defineProperty(window.noveltea, 'nativeProjectPatch', {
+      configurable: true,
+      value: vi.fn((...args: Parameters<typeof realPatch>) => {
+        started();
+        return new Promise<Awaited<ReturnType<typeof realPatch>>>((resolve, reject) => {
+          release = () => void Promise.resolve(realPatch(...args)).then(resolve, reject);
+        });
+      }),
+    });
+    projectEdits.field({
+      tabId: 'project:1',
+      saveUnitId: PROJECT_SETTINGS_SAVE_UNIT_ID,
+      path: '/project/name',
+      value: 'Pending',
+      label: 'Name',
+    });
+    const flush = projectEdits.flush();
+    await ready;
+    const session = useProjectStore.getState();
+    const fieldKey = nativeFieldKey(
+      session.projectSessionId!,
+      session.projectInstanceId!,
+      '/project/name',
+    );
+    expect(await discardNativeField(fieldKey)).toBe(false);
+    expect(useNativeFieldDraftStore.getState().entries[fieldKey]?.value).toBe('Pending');
+    await act(async () => {
+      release();
+      await flush;
+    });
+    expect(useProjectStore.getState().document).toMatchObject({ project: { name: 'Pending' } });
+  });
   it('adds an optional nested Project setting against the current native Project', async () => {
     const native = admitProject();
     render(

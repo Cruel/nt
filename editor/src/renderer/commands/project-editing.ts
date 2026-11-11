@@ -7,6 +7,8 @@ import type {
 import {
   flushNativeField,
   flushNativeFields,
+  discardNativeField,
+  nativeFieldDraftKey,
   nativeFieldKey,
   stageNativeField,
 } from './native-field-drafts';
@@ -102,43 +104,32 @@ export const projectEdits = {
         path: intent.path,
         value: intent.value,
       },
-      (value) =>
-        useCommandStore
-          .getState()
-          .executeCommandAsync(
-            () =>
-              intent.buildCommand
-                ? intent.buildCommand(value as T)
-                : defaultProjectFieldCommand(intent, value),
-            { bufferedField: true },
-          ),
+      (readAtDispatch) =>
+        useCommandStore.getState().executeCommandAsync(
+          () => {
+            const value = readAtDispatch();
+            return intent.buildCommand
+              ? intent.buildCommand(value as T)
+              : defaultProjectFieldCommand(intent, value);
+          },
+          { bufferedField: true },
+        ),
     );
     // Persist the form representation in the same synchronous event as the
     // visible overlay. React effects may run after a close/reload begins.
     const drafts = useDraftDirtyStore.getState();
-    const draftKey = `${intent.tabId}:native-field:${intent.path}`;
-    const keys = new Set([
-      draftKey,
-      ...Object.entries(drafts.entriesByKey)
-        .filter(
-          ([key, entry]) =>
-            entry.schema === NATIVE_FIELD_DRAFT_SCHEMA &&
-            key.endsWith(`:native-field:${intent.path}`),
-        )
-        .map(([key]) => key),
-    ]);
-    for (const key of keys) {
-      const existing = useDraftDirtyStore.getState().entriesByKey[key];
-      drafts.setDraftDirty(key, {
-        tabId: existing?.tabId ?? intent.tabId,
-        dirty: true,
-        label: intent.label,
-        schema: NATIVE_FIELD_DRAFT_SCHEMA,
-        payload: intent.value,
-        apply: existing?.apply,
-        discard: existing?.discard,
-      });
-    }
+    const draftKey = nativeFieldDraftKey(intent.saveUnitId, intent.path);
+    const existing = drafts.entriesByKey[draftKey];
+    const fieldKey = nativeFieldKey(projectSessionId, projectInstanceId, intent.path);
+    drafts.setDraftDirty(draftKey, {
+      tabId: existing?.tabId ?? intent.tabId,
+      dirty: true,
+      label: intent.label,
+      schema: NATIVE_FIELD_DRAFT_SCHEMA,
+      payload: intent.value,
+      apply: () => flushNativeField(fieldKey),
+      discard: () => discardNativeField(fieldKey),
+    });
     return true;
   },
 

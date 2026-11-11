@@ -1,4 +1,12 @@
 {
+  "projectField": {
+    "retry": "Retry",
+    "conflict": "This field changed elsewhere while your edit was pending. Resolve the conflict before retrying.",
+    "discardPending": "A native field update is still completing. Try Don't Save again.",
+    "savePending": "Resolve the pending field edit before saving this item.",
+    "saveAllPending": "Resolve the pending field edits before Save All.",
+    "saveAsPending": "Resolve pending Project field edits before Save As."
+  },
   "commentReview": {
     "affectedComments": "Affected YAML comments",
     "cancel": "Cancel",

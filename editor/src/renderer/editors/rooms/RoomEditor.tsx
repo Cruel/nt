@@ -86,7 +86,11 @@ import {
   bufferedRoomFieldCommand,
   rebasedRoomDataCommand,
 } from '@/editors/rooms/room-buffered-fields';
-import { ProjectFieldInput, useProjectField } from '@/commands/use-project-field';
+import {
+  ProjectFieldError,
+  ProjectFieldInput,
+  useProjectField,
+} from '@/commands/use-project-field';
 import {
   interpolateRoomEditNavigation,
   fitRoomEditSurfaceFrame,
@@ -585,14 +589,7 @@ function RoomDescriptionField({
   return (
     <>
       <TextContentEditor value={draft.value} onChange={draft.change} />
-      {draft.error && (
-        <p role="alert" className="text-destructive text-xs">
-          {draft.error}{' '}
-          <button type="button" className="underline" onClick={() => void draft.flush()}>
-            Retry
-          </button>
-        </p>
-      )}
+      <ProjectFieldError error={draft.error} retry={() => void draft.flush()} />
     </>
   );
 }

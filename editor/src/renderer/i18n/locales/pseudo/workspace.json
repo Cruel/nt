@@ -1,4 +1,12 @@
 {
+  "projectField": {
+    "retry": "[Rëtry]",
+    "conflict": "[Thïš fïëld çhâñgëd ëlšëwhërë whïlë yôûr ëdït wâš pëñdïñg. Rëšôlvë thë çôñflïçt bëfôrë rëtryïñg.]",
+    "discardPending": "[Â ñâtïvë fïëld ûpdâtë ïš štïll çômplëtïñg. Try Dôñ't Šâvë âgâïñ.]",
+    "savePending": "[Rëšôlvë thë pëñdïñg fïëld ëdït bëfôrë šâvïñg thïš ïtëm.]",
+    "saveAllPending": "[Rëšôlvë thë pëñdïñg fïëld ëdïtš bëfôrë Šâvë Âll.]",
+    "saveAsPending": "[Rëšôlvë pëñdïñg Prôjëçt fïëld ëdïtš bëfôrë Šâvë Âš.]"
+  },
   "commentReview": {
     "affectedComments": "[Âffëçtëd YÂML çômmëñtš]",
     "cancel": "[Çâñçël]",

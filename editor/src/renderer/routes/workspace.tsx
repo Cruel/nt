@@ -23,6 +23,7 @@ import { flushStructuralCommandPersistence, useCommandStore } from '@/commands/c
 import {
   flushNativeFields,
   NATIVE_FIELD_DRAFT_SCHEMA,
+  nativeFieldDraftKey,
   useNativeFieldDraftStore,
 } from '@/commands/native-field-drafts';
 import { PanelResizeSeparator } from '@/components/resize-separator';
@@ -1620,7 +1621,7 @@ export function WorkspacePage() {
         resolution?.status === 'savable' &&
         !(await flushNativeFields(resolution.descriptor.id))
       ) {
-        const message = 'Resolve the pending field edit before saving this item.';
+        const message = t('projectField.savePending');
         setProjectSaveError(message);
         setStatusMessage(message);
         return false;
@@ -1710,7 +1711,7 @@ export function WorkspacePage() {
       const flushed = await projectEdits.flush();
       const unresolvedFieldIntents = Object.values(useNativeFieldDraftStore.getState().entries);
       if (!flushed && unresolvedFieldIntents.length === 0) {
-        const message = 'Resolve the pending field edits before Save All.';
+        const message = t('projectField.saveAllPending');
         setProjectSaveError(message);
         setStatusMessage(message);
         return false;
@@ -1726,8 +1727,8 @@ export function WorkspacePage() {
           !entry.apply &&
           !(
             entry.schema === NATIVE_FIELD_DRAFT_SCHEMA &&
-            unresolvedFieldIntents.some((field) =>
-              entry.key.endsWith(`:native-field:${field.path}`),
+            unresolvedFieldIntents.some(
+              (field) => entry.key === nativeFieldDraftKey(field.saveUnitId, field.path),
             )
           ) &&
           (!entry.schema ||
@@ -1779,7 +1780,7 @@ export function WorkspacePage() {
     setProjectSaving(true);
     try {
       if (!(await projectEdits.flush())) {
-        const message = 'Resolve pending Project field edits before Save As.';
+        const message = t('projectField.saveAsPending');
         setProjectSaveError(message);
         setStatusMessage(message);
         return false;
