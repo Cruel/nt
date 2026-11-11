@@ -2,7 +2,7 @@ import { ChevronDown, ChevronRight, ExternalLink } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useTranslation } from 'react-i18next';
-import { useCommandStore } from '@/commands/command-store';
+import { projectEdits } from '@/commands/project-editing';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -310,7 +310,7 @@ function PredictionView() {
   const changes = useAssetProfilerStore((state) => state.changes);
   const profilerPayload = useAssetProfilerStore((state) => state.payload);
   const status = useAssetProfilerStore((state) => state.status);
-  const executeCommand = useCommandStore((state) => state.executeCommandAsync);
+  const executeCommand = projectEdits.execute;
   const project = isAuthoringProjectView(projectDocument) ? projectDocument : null;
   const [targetKind, setTargetKind] = useState<PrefetchTargetKind>('scene');
   const [targetId, setTargetId] = useState('');

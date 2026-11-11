@@ -1,4 +1,4 @@
-import { useCommandStore } from '@/commands/command-store';
+import { projectEdits } from '@/commands/project-editing';
 import { RecursiveConditionEditor } from '@/components/conditions/ConditionEditor';
 import { GameplayCommandListEditor } from '@/components/gameplay-commands/GameplayCommandEditor';
 import { SourceEditor } from '@/components/source/SourceEditor';
@@ -240,7 +240,7 @@ function commitDialogue(
   label: string,
   semanticOwnerMoves?: { fromPrefix: string; toPrefix: string }[],
 ) {
-  void useCommandStore.getState().executeCommandAsync({
+  void projectEdits.execute({
     type: 'dialogue.replaceData',
     label,
     payload: { dialogueId, data: next, semanticOwnerMoves },

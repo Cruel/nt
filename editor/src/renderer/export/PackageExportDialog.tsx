@@ -1,4 +1,5 @@
 import { useCommandStore } from '@/commands/command-store';
+import { projectEdits } from '@/commands/project-editing';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -258,7 +259,7 @@ function formatMemoryMiB(bytes: number) {
 }
 
 function persistRuntimeProfile(_project: AuthoringProject, profile: ExportProfileData) {
-  return useCommandStore.getState().executeCommandAsync({
+  return projectEdits.execute({
     type: 'project.replaceAtPath',
     label: 'Update runtime export settings',
     payload: { path: '/export/runtime', value: profile },
@@ -270,7 +271,7 @@ function persistPlatformSettings(
   _project: AuthoringProject,
   settings: ProjectPlatformExportSettings,
 ) {
-  return useCommandStore.getState().executeCommandAsync({
+  return projectEdits.execute({
     type: 'project.replaceAtPath',
     label: 'Update platform export profiles',
     payload: { path: '/export/profiles', value: settings.profiles },

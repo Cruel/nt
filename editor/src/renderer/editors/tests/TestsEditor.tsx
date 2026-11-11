@@ -1,4 +1,5 @@
 import { useCommandStore } from '@/commands/command-store';
+import { projectEdits } from '@/commands/project-editing';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -119,7 +120,7 @@ function selectedStep(data: TestData) {
 }
 
 function commitTest(testId: string, next: TestData, label: string) {
-  void useCommandStore.getState().executeCommandAsync({
+  void projectEdits.execute({
     type: 'test.replaceData',
     label,
     payload: { testId, data: next },

@@ -1,4 +1,9 @@
-import { useCommandStore } from '@/commands/command-store';
+import {
+  gameplayRecordFieldCommand,
+  projectEdits,
+  rebasedGameplayDataCommand,
+} from '@/commands/project-editing';
+import { ProjectFieldInput, ProjectFieldSelect } from '@/commands/use-project-field';
 import { GameplayArchetypeControls } from '@/components/GameplayArchetypeControls';
 import { InventoryDeclarationsEditor } from '@/components/inventories/InventoryControls';
 import { MaterialApplicationEditor } from '@/components/materials/MaterialApplicationEditor';
@@ -27,6 +32,7 @@ import {
   renameOwnerLocalPropertyReferencePatches,
 } from '@/project/owner-local-property-references';
 import { useProjectStore } from '@/project/project-store';
+import { buildJsonPointer } from '@/project/json-pointer';
 import { recordSaveUnitId } from '@/project/save-unit-registry';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
@@ -103,16 +109,6 @@ function parseCharacterEditorTabState(
   return {
     scroll: isScrollViewState(payload.scroll) ? payload.scroll : undefined,
   };
-}
-
-function commitCharacter(characterId: string, next: CharacterData, label: string) {
-  void useCommandStore.getState().executeCommandAsync({
-    type: 'character.replaceData',
-    label,
-    payload: { characterId, data: next },
-    originSaveUnitId: recordSaveUnitId('characters', characterId),
-    persistencePolicy: 'manual-save',
-  });
 }
 
 function nextUniqueId(existing: Iterable<string>, base: string) {
@@ -292,14 +288,34 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
   const previewLayers = resolveCharacterPresentationLayers(data);
 
   function commit(next: CharacterData, label = 'Update character') {
-    commitCharacter(activeCharacterId, next, label);
+    const request = rebasedGameplayDataCommand(
+      'character',
+      activeCharacterId,
+      data,
+      next,
+      label,
+      (_project, record) =>
+        parseCharacterData(record.data) ?? defaultCharacterData(record.label ?? activeCharacterId),
+    );
+    if (request) void projectEdits.execute(request);
   }
+
+  const characterField = (relativePath: string, next: string | null, label: string) =>
+    gameplayRecordFieldCommand(
+      'character',
+      activeCharacterId,
+      relativePath,
+      next,
+      label,
+      (_project, record) =>
+        parseCharacterData(record.data) ?? defaultCharacterData(record.label ?? activeCharacterId),
+    );
 
   function commitLocalProperties(
     localProperties: OwnerLocalProperty[],
     change?: { kind: 'rename'; fromId: string; toId: string },
   ) {
-    void useCommandStore.getState().executeCommandAsync({
+    void projectEdits.execute({
       type: 'project.applyPatch',
       label: `Update ${activeCharacterId} Properties`,
       payload: [
@@ -325,7 +341,7 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
   }
 
   function commitPropertyTraitState(state: OwnerPropertyTraitState) {
-    void useCommandStore.getState().executeCommandAsync({
+    void projectEdits.execute({
       type: 'project.applyPatch',
       label: `Update ${activeCharacterId} Trait Properties`,
       payload: [
@@ -345,13 +361,6 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
       originSaveUnitId: recordSaveUnitId('characters', activeCharacterId),
       persistencePolicy: 'manual-save',
     });
-  }
-
-  function patchDialogue(patch: Partial<CharacterData['dialogue']>) {
-    commit(
-      { ...data, dialogue: { ...data.dialogue, ...patch } },
-      'Update character dialogue style',
-    );
   }
 
   function patchDefaults(patch: Partial<CharacterData['defaults']>) {
@@ -1060,48 +1069,101 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
           >
             <div className="space-y-1">
               <Label>Display name</Label>
-              <Input
+              <ProjectFieldInput
                 value={data.displayName}
-                onChange={(event) =>
-                  commit(
-                    { ...data, displayName: event.currentTarget.value },
-                    'Update character display name',
-                  )
+                tabId={tab.id}
+                saveUnitId={recordSaveUnitId('characters', activeCharacterId)}
+                path={buildJsonPointer(['characters', activeCharacterId, 'data', 'displayName'])}
+                label="Update character display name"
+                buildCommand={(next) =>
+                  characterField('/displayName', next, 'Update character display name')
                 }
               />
             </div>
             <div className="space-y-1">
               <Label>Dialogue name</Label>
-              <Input
+              <ProjectFieldInput
                 value={data.dialogue.name}
-                onChange={(event) => patchDialogue({ name: event.currentTarget.value })}
+                tabId={tab.id}
+                saveUnitId={recordSaveUnitId('characters', activeCharacterId)}
+                path={buildJsonPointer([
+                  'characters',
+                  activeCharacterId,
+                  'data',
+                  'dialogue',
+                  'name',
+                ])}
+                label="Update character dialogue name"
+                buildCommand={(next) =>
+                  characterField('/dialogue/name', next, 'Update character dialogue name')
+                }
               />
             </div>
             <div className="space-y-1">
               <Label>Name color</Label>
-              <Input
+              <ProjectFieldInput
                 value={data.dialogue.nameColor ?? ''}
-                onChange={(event) =>
-                  patchDialogue({ nameColor: event.currentTarget.value.trim() || null })
+                tabId={tab.id}
+                saveUnitId={recordSaveUnitId('characters', activeCharacterId)}
+                path={buildJsonPointer([
+                  'characters',
+                  activeCharacterId,
+                  'data',
+                  'dialogue',
+                  'nameColor',
+                ])}
+                label="Update character name color"
+                buildCommand={(next) =>
+                  characterField(
+                    '/dialogue/nameColor',
+                    next.trim() || null,
+                    'Update character name color',
+                  )
                 }
                 placeholder="#f8fafc or empty"
               />
             </div>
             <div className="space-y-1">
               <Label>Text color</Label>
-              <Input
+              <ProjectFieldInput
                 value={data.dialogue.textColor ?? ''}
-                onChange={(event) =>
-                  patchDialogue({ textColor: event.currentTarget.value.trim() || null })
+                tabId={tab.id}
+                saveUnitId={recordSaveUnitId('characters', activeCharacterId)}
+                path={buildJsonPointer([
+                  'characters',
+                  activeCharacterId,
+                  'data',
+                  'dialogue',
+                  'textColor',
+                ])}
+                label="Update character text color"
+                buildCommand={(next) =>
+                  characterField(
+                    '/dialogue/textColor',
+                    next.trim() || null,
+                    'Update character text color',
+                  )
                 }
                 placeholder="#f8fafc or empty"
               />
             </div>
             <div className="space-y-1 @3xl:col-span-2">
               <Label>Style class</Label>
-              <Input
+              <ProjectFieldInput
                 value={data.dialogue.styleClass}
-                onChange={(event) => patchDialogue({ styleClass: event.currentTarget.value })}
+                tabId={tab.id}
+                saveUnitId={recordSaveUnitId('characters', activeCharacterId)}
+                path={buildJsonPointer([
+                  'characters',
+                  activeCharacterId,
+                  'data',
+                  'dialogue',
+                  'styleClass',
+                ])}
+                label="Update character style class"
+                buildCommand={(next) =>
+                  characterField('/dialogue/styleClass', next, 'Update character style class')
+                }
                 placeholder="dialogue-speaker"
               />
             </div>
@@ -1113,29 +1175,57 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
           >
             <div className="space-y-1">
               <Label>Default profile</Label>
-              <Select
+              <ProjectFieldSelect
+                tabId={tab.id}
+                saveUnitId={recordSaveUnitId('characters', activeCharacterId)}
+                path={buildJsonPointer([
+                  'characters',
+                  activeCharacterId,
+                  'data',
+                  'defaults',
+                  'profileId',
+                ])}
+                label="Update default character profile"
                 value={data.defaults.profileId}
-                onValueChange={(value) => patchDefaults({ profileId: String(value) })}
+                buildCommand={(next) =>
+                  characterField('/defaults/profileId', next, 'Update default character profile')
+                }
               >
                 {data.profiles.map((profile) => (
                   <SelectItem key={profile.id} value={profile.id}>
                     {profile.label} ({profile.id})
                   </SelectItem>
                 ))}
-              </Select>
+              </ProjectFieldSelect>
             </div>
             <div className="space-y-1">
               <Label>Default expression</Label>
-              <Select
+              <ProjectFieldSelect
+                tabId={tab.id}
+                saveUnitId={recordSaveUnitId('characters', activeCharacterId)}
+                path={buildJsonPointer([
+                  'characters',
+                  activeCharacterId,
+                  'data',
+                  'defaults',
+                  'expressionId',
+                ])}
+                label="Update default character expression"
                 value={data.defaults.expressionId}
-                onValueChange={(value) => patchDefaults({ expressionId: String(value) })}
+                buildCommand={(next) =>
+                  characterField(
+                    '/defaults/expressionId',
+                    next,
+                    'Update default character expression',
+                  )
+                }
               >
                 {data.expressions.map((expression) => (
                   <SelectItem key={expression.id} value={expression.id}>
                     {expression.label} ({expression.id})
                   </SelectItem>
                 ))}
-              </Select>
+              </ProjectFieldSelect>
             </div>
             <div className="space-y-1">
               <Label>Default appearance</Label>

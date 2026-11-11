@@ -1,4 +1,4 @@
-import { useCommandStore } from '@/commands/command-store';
+import { projectEdits } from '@/commands/project-editing';
 import { RecursiveConditionEditor } from '@/components/conditions/ConditionEditor';
 import {
   GameplayCommandListEditor,
@@ -67,7 +67,7 @@ function commitScene(
   label: string,
   semanticOwnerMoves?: { fromPrefix: string; toPrefix: string }[],
 ) {
-  void useCommandStore.getState().executeCommandAsync({
+  void projectEdits.execute({
     type: 'scene.replaceData',
     label,
     payload: { sceneId, data, semanticOwnerMoves },

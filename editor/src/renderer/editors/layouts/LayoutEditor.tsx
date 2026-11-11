@@ -1,4 +1,4 @@
-import { useCommandStore } from '@/commands/command-store';
+import { projectEdits } from '@/commands/project-editing';
 import { resolveEditorPreviewSplitOrientation } from '@/components/editor-preview-layout';
 import { EditorPreviewSplit } from '@/components/editor-preview-split';
 import { LuaExplicitFallbackEditor } from '@/components/lua-explicit-fallback-editor';
@@ -152,7 +152,7 @@ function parseLayoutEditorTabState(
 }
 
 function updateLayout(layoutId: string, next: LayoutData, label: string) {
-  return useCommandStore.getState().executeCommandAsync({
+  return projectEdits.execute({
     type: 'layout.replaceData',
     label,
     payload: { layoutId, data: next },
@@ -220,7 +220,7 @@ function DependencySelector({
 export function LayoutEditor({ tab }: WorkbenchEditorProps) {
   const { t } = useTranslation('workspace');
   const projectDocument = useProjectStore((state) => state.document);
-  const executeCommand = useCommandStore((state) => state.executeCommandAsync);
+  const executeCommand = projectEdits.execute;
   const editorPreviewLayout = usePreferencesStore((state) => state.editorPreviewLayout);
   const layoutId = tab.resource?.entityId;
   const project = isAuthoringProjectView(projectDocument) ? projectDocument : null;

@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
 import { useCommandStore } from '@/commands/command-store';
+import { projectEdits } from '@/commands/project-editing';
 import { useProjectStore } from '@/project/project-store';
 import { recordSaveUnitId, structuralSaveUnitId } from '@/project/save-unit-registry';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
@@ -37,7 +38,7 @@ interface Props {
 export function AssetAttachments({ assetId, project, projectSessionId }: Props) {
   const { t, i18n } = useTranslation('workspace');
   const format = createEditorFormatters(i18n.language);
-  const executeCommand = useCommandStore((state) => state.executeCommandAsync);
+  const executeCommand = projectEdits.execute;
   const openTab = useWorkbenchStore((state) => state.openTab);
   const assetData = useMemo(
     () => parseAssetData(project.assets[assetId]?.data),

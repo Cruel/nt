@@ -1,3 +1,4 @@
+import { projectEdits } from '@/commands/project-editing';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
@@ -44,7 +45,7 @@ export function DirtyCloseDialog() {
   const setDiagnostics = useWorkspaceStore((state) => state.setDiagnostics);
   const setStatusMessage = useWorkspaceStore((state) => state.setStatusMessage);
   const addTimelineEntry = useWorkspaceStore((state) => state.addTimelineEntry);
-  const executeCommand = useCommandStore((state) => state.executeCommandAsync);
+  const executeCommand = projectEdits.execute;
   const draftEntries = useDraftDirtyStore((state) => state.entriesByKey);
   const pendingInputEntries = usePendingInputStore((state) => state.entriesBySaveUnitId);
   const pendingSaveUnitIds = useMemo(

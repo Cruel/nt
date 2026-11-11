@@ -3,6 +3,7 @@ import { useProjectStore } from '@/project/project-store';
 import { jsonValuesEqual, type JsonValue } from '@/project/json-value';
 import { useDraftDirtyStore } from '@/workbench/draft-dirty-store';
 import type { CommandExecutionResult } from './command-types';
+import { measureProjectEdit } from './project-edit-timings';
 
 // Only presentation and pending intent live here. Native ProjectSession and its
 // acknowledged command history remain the sole source of saved/dirty truth.
@@ -14,6 +15,7 @@ export interface NativeFieldDraft {
   value: JsonValue;
   sequence: number;
   error: string | null;
+  inputStartedAt: number;
 }
 
 interface NativeFieldDraftState {
@@ -81,17 +83,22 @@ function schedule(key: string, field: ScheduledField) {
 
 /** Synchronous, field-granular overlay publication. No Project clone or IPC. */
 export function stageNativeField(
-  input: Omit<NativeFieldDraft, 'sequence' | 'error'>,
+  input: Omit<NativeFieldDraft, 'sequence' | 'error' | 'inputStartedAt'>,
   submit: SubmitField,
 ) {
   const key = nativeFieldKey(input.projectSessionId, input.projectInstanceId, input.path);
-  if (!sameProject({ ...input, sequence: 0, error: null })) return;
+  if (!sameProject({ ...input, sequence: 0, error: null, inputStartedAt: 0 })) return;
   const existing = useNativeFieldDraftStore.getState().entries[key];
   if (existing && jsonValuesEqual(existing.value, input.value) && !existing.error) return;
   useNativeFieldDraftStore.setState((state) => ({
     entries: {
       ...state.entries,
-      [key]: { ...input, sequence: (state.entries[key]?.sequence ?? 0) + 1, error: null },
+      [key]: {
+        ...input,
+        sequence: (state.entries[key]?.sequence ?? 0) + 1,
+        error: null,
+        inputStartedAt: performance.now(),
+      },
     },
   }));
   let field = scheduled.get(key);
@@ -125,6 +132,7 @@ export function flushNativeField(key: string): Promise<boolean> {
       if (!entry) return true;
       if (!sameProject(entry)) return false;
       let result: CommandExecutionResult;
+      const nativeStartedAt = performance.now();
       try {
         result = await field.submit(entry.value);
       } catch (error) {
@@ -135,6 +143,11 @@ export function flushNativeField(key: string): Promise<boolean> {
         };
       }
       if (!sameProject(entry)) return false;
+      measureProjectEdit('flush-to-native-ack', nativeStartedAt, {
+        path: entry.path,
+        sequence: entry.sequence,
+        ok: result.ok,
+      });
       if (!result.ok) {
         const message = result.diagnostics[0]?.message ?? 'Native field edit was rejected.';
         useNativeFieldDraftStore.setState((state) => {
@@ -164,11 +177,16 @@ export function flushNativeField(key: string): Promise<boolean> {
 
 /** Save/Undo/dependent-command barrier, filtered by logical Save unit when supplied. */
 export async function flushNativeFields(saveUnitId?: string): Promise<boolean> {
-  const entries = Object.entries(useNativeFieldDraftStore.getState().entries).filter(
-    ([, entry]) => (!saveUnitId || entry.saveUnitId === saveUnitId) && sameProject(entry),
-  );
-  const results = await Promise.all(entries.map(([key]) => flushNativeField(key)));
-  return results.every(Boolean);
+  // A new field can be edited while the first native acknowledgment is in
+  // flight. Repeat until the selected logical units have no staged intents.
+  for (;;) {
+    const entries = Object.entries(useNativeFieldDraftStore.getState().entries).filter(
+      ([, entry]) => (!saveUnitId || entry.saveUnitId === saveUnitId) && sameProject(entry),
+    );
+    if (entries.length === 0) return true;
+    const results = await Promise.all(entries.map(([key]) => flushNativeField(key)));
+    if (!results.every(Boolean)) return false;
+  }
 }
 
 useProjectStore.subscribe((state, previous) => {

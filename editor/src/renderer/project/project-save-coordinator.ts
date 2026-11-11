@@ -535,7 +535,9 @@ export async function saveActiveSaveUnit(
   }
 }
 
-export async function saveAllSaveUnits(): Promise<ProjectSaveCoordinatorResult> {
+export async function saveAllSaveUnits(
+  blockedFieldSaveUnitIds: readonly SaveUnitId[] = [],
+): Promise<ProjectSaveCoordinatorResult> {
   const projectState = useProjectStore.getState();
   if (!projectState.document || !projectState.savedDocument || !projectState.projectFilePath) {
     return {
@@ -554,7 +556,7 @@ export async function saveAllSaveUnits(): Promise<ProjectSaveCoordinatorResult> 
     .map(([id]) => id);
   const dirtySources = sourceIds.map((id) => sourceSaveUnitId(id));
   const dirtyRecords = Object.keys(buildEditorProjectStateSnapshot().recovery.saveUnitsById);
-  const all = uniqueSorted([...dirtySources, ...dirtyRecords]);
+  const all = uniqueSorted([...dirtySources, ...dirtyRecords, ...blockedFieldSaveUnitIds]);
   if (all.length === 0)
     return {
       success: true,
@@ -586,14 +588,27 @@ export async function saveAllSaveUnits(): Promise<ProjectSaveCoordinatorResult> 
     const snapshot = buildEditorProjectStateSnapshot();
     const ids = new Set(dirtyRecords);
     const entries = orderedEntries(snapshot.recovery, ids);
-    const failures = entries.flatMap(([id, entry]) => [
-      ...(entry.externalConflict ? [externalConflictSaveDiagnostic(id, entry)] : []),
-      ...Object.keys(entry.pendingRawInputByPath).map((path) => pendingInputDiagnostic(id, path)),
-    ]);
+    const failures: ToolDiagnostic[] = [
+      ...entries.flatMap(([id, entry]) => [
+        ...(entry.externalConflict ? [externalConflictSaveDiagnostic(id, entry)] : []),
+        ...Object.keys(entry.pendingRawInputByPath).map((path) => pendingInputDiagnostic(id, path)),
+      ]),
+      ...blockedFieldSaveUnitIds.map(
+        (id): ToolDiagnostic => ({
+          code: 'editor.native-save-all.pending-field-rejected',
+          severity: 'error',
+          category: 'Project save',
+          path: '/',
+          message: `Save unit '${id}' has an unacknowledged native field edit. Other independent units can still be saved.`,
+        }),
+      ),
+    ];
     for (const [id, entry] of entries) {
       if (entry.externalConflict || Object.keys(entry.pendingRawInputByPath).length)
         for (const linked of atomicClosure(snapshot.recovery, id)) ids.delete(linked);
     }
+    for (const id of blockedFieldSaveUnitIds)
+      for (const linked of atomicClosure(snapshot.recovery, id)) ids.delete(linked);
     if (!ids.size && !sourceIds.length)
       return {
         success: false,
@@ -613,7 +628,19 @@ export async function saveAllSaveUnits(): Promise<ProjectSaveCoordinatorResult> 
       // Project engine would introduce a second, potentially contradictory
       // semantic authority and could reject a native-valid Save.
       const result = await commitSelectedNativeSaveUnits(ids, snapshot, candidate, sourceIds);
-      return { ...result, diagnostics: [...failures, ...result.diagnostics] };
+      const remainingDirtySaveUnitIds = uniqueSorted([
+        ...result.remainingDirtySaveUnitIds,
+        ...blockedFieldSaveUnitIds,
+      ]);
+      return {
+        ...result,
+        status:
+          result.success && remainingDirtySaveUnitIds.length > 0
+            ? 'partially-saved'
+            : result.status,
+        remainingDirtySaveUnitIds,
+        diagnostics: [...failures, ...result.diagnostics],
+      };
     } catch (error) {
       return {
         success: false,

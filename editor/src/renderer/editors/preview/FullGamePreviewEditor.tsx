@@ -2,6 +2,7 @@ import { useAssetProfilerStore } from '@/asset-profiler/asset-profiler-store';
 import { localizationTrackingFingerprint } from '../../../shared/localization-source-tracking';
 import { useAssetProfilerPolling } from '@/asset-profiler/use-asset-profiler-polling';
 import { useCommandStore } from '@/commands/command-store';
+import { projectEdits } from '@/commands/project-editing';
 import {
   EnginePreview,
   sanitizePreviewFpsCap,
@@ -2716,7 +2717,7 @@ export function FullGamePreviewEditor({
     () => (isAuthoringProjectView(projectDocument) ? projectDocument : null),
     [projectDocument],
   );
-  const executeCommand = useCommandStore((store) => store.executeCommandAsync);
+  const executeCommand = projectEdits.execute;
   const openTab = useWorkbenchStore((store) => store.openTab);
   const restoredAssetMemory = (() => {
     const savedState = useWorkbenchTabStateStore.getState().tabStatesById[tab.id];

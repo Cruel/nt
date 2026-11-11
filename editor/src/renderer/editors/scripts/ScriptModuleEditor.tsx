@@ -2,7 +2,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
-import { useCommandStore } from '@/commands/command-store';
+import { projectEdits } from '@/commands/project-editing';
 import { recordSaveUnitId } from '@/project/save-unit-registry';
 import { useProjectStore } from '@/project/project-store';
 import {
@@ -22,7 +22,7 @@ export function ScriptModuleEditor({ tab }: WorkbenchEditorProps) {
     return <div className="p-4 text-sm text-muted-foreground">Script Module record not found.</div>;
   const lifecycle = scriptModuleLifecycleMetadata(data);
   const commit = (next: typeof data) =>
-    useCommandStore.getState().executeCommandAsync({
+    projectEdits.execute({
       type: 'script.replaceData',
       label: 'Update Script Module',
       payload: { scriptId: id, data: next },

@@ -1,4 +1,4 @@
-import { useCommandStore } from '@/commands/command-store';
+import { projectEdits } from '@/commands/project-editing';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -172,7 +172,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
   const { t } = useTranslation('workspace');
   const document = useProjectStore((state) => state.document);
   const nativeDiagnostics = useNativeProjectDiagnostics();
-  const executeCommand = useCommandStore((state) => state.executeCommandAsync);
+  const executeCommand = projectEdits.execute;
   const graphSnapshot = useCurrentAuthoringDependencyGraphSnapshot();
   const project = isAuthoringProjectView(document) ? document : null;
   const [surface, setSurface] = useState<Surface>('overview');

@@ -4,7 +4,7 @@ import { RecursiveConditionEditor } from '@/components/conditions/ConditionEdito
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
-import { useCommandStore } from '@/commands/command-store';
+import { projectEdits } from '@/commands/project-editing';
 import { recordSaveUnitId } from '@/project/save-unit-registry';
 import { useProjectStore } from '@/project/project-store';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
@@ -50,7 +50,7 @@ export function MapEditor({ tab }: WorkbenchEditorProps) {
   if (!project || !id || !record || !data)
     return <div className="p-4 text-sm text-muted-foreground">Map record not found.</div>;
   const commit = (next: typeof data) =>
-    useCommandStore.getState().executeCommandAsync({
+    projectEdits.execute({
       type: 'map.replaceData',
       label: 'Update map',
       payload: { mapId: id, data: next },

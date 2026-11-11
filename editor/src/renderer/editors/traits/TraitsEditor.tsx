@@ -12,7 +12,7 @@ import {
   ownerDefaultPropertyFromDraft,
   type TypedPropertyDraft,
 } from '@/components/properties/TypedPropertyFields';
-import { useCommandStore } from '@/commands/command-store';
+import { projectEdits } from '@/commands/project-editing';
 import { useProjectStore } from '@/project/project-store';
 import { SAVE_UNIT_IDS } from '@/project/save-unit-registry';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
@@ -441,7 +441,7 @@ function TraitMetadataFields({
 
 export function TraitsEditor({ tab }: WorkbenchEditorProps) {
   const projectDocument = useProjectStore((state) => state.document);
-  const executeCommand = useCommandStore((state) => state.executeCommandAsync);
+  const executeCommand = projectEdits.execute;
   const project = isAuthoringProjectView(projectDocument) ? projectDocument : null;
   const [metadataId, setMetadataId] = useState<string | null>(null);
   const [metadataDraft, setMetadataDraft] = useState<TraitMetadataDraft | null>(null);

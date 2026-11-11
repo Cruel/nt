@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
 import { useCommandStore } from '@/commands/command-store';
+import { projectEdits } from '@/commands/project-editing';
 import type { CommandRequest } from '@/commands/command-types';
 import { recordSaveUnitId, structuralSaveUnitId } from '@/project/save-unit-registry';
 import {
@@ -47,7 +48,7 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
   const projectSessionId = useProjectStore((state) => state.projectSessionId);
   const graphSnapshot = useCurrentAuthoringDependencyGraphSnapshot();
-  const executeCommand = useCommandStore((state) => state.executeCommandAsync);
+  const executeCommand = projectEdits.execute;
   const openTab = useWorkbenchStore((state) => state.openTab);
   const assetId = tab.resource?.entityId;
   const record = lookupAsset(project, assetId);

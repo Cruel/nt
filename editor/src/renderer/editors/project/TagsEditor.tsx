@@ -8,7 +8,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useCommandStore } from '@/commands/command-store';
+import { projectEdits } from '@/commands/project-editing';
 import { SAVE_UNIT_IDS } from '@/project/save-unit-registry';
 import { useProjectStore } from '@/project/project-store';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
@@ -39,7 +39,7 @@ function collectionSummary(tag: ProjectTagSummary) {
 
 export function TagsEditor(_props: WorkbenchEditorProps) {
   const document = useProjectStore((state) => state.document);
-  const executeCommand = useCommandStore((state) => state.executeCommandAsync);
+  const executeCommand = projectEdits.execute;
   const project = isAuthoringProjectView(document) ? document : null;
   const tags = project
     ? collectProjectTags(project).sort((left, right) => left.name.localeCompare(right.name))

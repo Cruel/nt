@@ -50,9 +50,17 @@ Neither the empty JSON pointer nor `/` is a Project Settings path. Project Setti
 paths immediately through focused undoable commands; nonrepresentable numeric text is retained as
 field-level pending input in recovery metadata.
 
-## Buffered native editor fields (#602, incremental rollout)
+## Unified Project editing API (#602, incremental rollout)
 
-For a migrated interactive field, `commands/native-field-drafts.ts` retains a transient,
+All migrated renderer content mutations enter through `commands/project-editing.ts`:
+`projectEdits.execute(request)` for semantic/structural commands, `projectEdits.batch(...)`
+for transactions, and `projectEdits.field(intent)` for high-frequency field edits. This
+facade delegates to the existing native ProjectSession command queue; it is **not** a second
+Project authority or a speculative Project document. Source-code editing retains its dedicated
+buffered staging protocol, because Lua source is not an ordinary JSON Project field. The
+low-level command store is an implementation detail; editor controls must use the facade.
+
+For an interactive field, `commands/native-field-drafts.ts` retains a transient,
 session-scoped optimistic value keyed by Project session, Project instance and exact JSON Pointer.
 The field paints from that value on the same input event; it does **not** publish a speculative
 Project document or command-history revision. The shared scheduler sends a trailing native command
@@ -60,24 +68,58 @@ after 150 ms of idle input, bounded to 500 ms during continuous typing. It retai
 field value while a native acknowledgment is outstanding; native commands remain serialized, with
 their payloads constructed against the last acknowledged Project and checked for native parity.
 
-`use-native-field-draft.tsx` provides reusable text and switch controls and the generic draft hook
-for structured fields. Migrated surfaces currently include Room display name and description,
-Project Settings metadata, and title-screen text and toggles. Ordinary Room fields use exact-path
-native patches; archetyped Room edits use the existing override planner. Whole-Room UI commands
-compute their intended delta and rebase it onto the latest acknowledged Room to avoid discarding
-another field's recent change.
+`use-project-field.tsx` exposes `useProjectField` for structured editors and standard
+`ProjectFieldInput`, `ProjectFieldTextarea`, `ProjectFieldSwitch`, `ProjectFieldSelect`, and
+`ProjectFieldNumber` controls. The controls share the same intent/acknowledgment contract;
+incomplete numeric text remains recoverable in `pending-input-store`, not coerced to an invalid
+numeric Project value. The initial migration covers Room display name and description,
+Character summary fields and some default selectors, Interactable display name, stackability and
+stack limit, Project metadata, Title Screen, and many App Identity text fields. The former
+Room-display-name-specific component has been deleted, including its replacement wrapper.
 
-Buffered values register with the editor's existing serializable tab-draft recovery. Native failures
+The default field operation chooses a narrow native add/replace patch against the **current**
+acknowledged Project. Fields with schema-specific initialization (such as Title Screen) supply
+their existing semantic command instead. Reusable gameplay-record planners handle archetyped
+Room, Character, and Interactable fields. Whole-data commands from legacy edit surfaces are
+rebased at the shared command boundary against the latest acknowledged record to avoid
+overwriting disjoint edits from another view.
+
+The shared controls and scheduler emit bounded, value-free browser Performance measures named
+`noveltea.project-edit.input-to-paint-ready` and
+`noveltea.project-edit.flush-to-native-ack`. The former measures from input event to the
+next animation-frame opportunity after React committed its overlay; it is a paint-readiness
+proxy, **not** an OS-compositor scan-out measurement. The latter measures the time from a
+field flush to its native command acknowledgment, including queue wait. Each measure's
+`detail` contains only JSON path, sequence and (for acknowledgments) success. In packaged
+Electron DevTools:
+
+```js
+performance.getEntriesByType('measure')
+  .filter((entry) => entry.name.startsWith('noveltea.project-edit.'))
+  .map((entry) => ({ name: entry.name, milliseconds: entry.duration, detail: entry.detail }))
+```
+
+The per-name Performance entries are cleared after exceeding 256 samples so long editing
+sessions do not accumulate an unbounded telemetry buffer. These timings provide objective
+traces for the packaged Feature Lab acceptance gate; they do not constitute that acceptance
+on their own.
+
+Buffered values register with the editor's existing serializable tab-draft recovery synchronously
+with the field event, not only after a React effect. Native failures
 leave the draft visible with an actionable error and do not advance Project authority. Active Save
 flushes its logical save unit, Save All flushes current buffered fields, and ordinary dependent
-commands, transactions, Undo and Redo flush before planning. A recovered draft whose editor is not
+commands, transactions, Undo and Redo flush before planning. Save As also flushes pending field
+intents before cloning the Project. Save All may save independent valid units while excluding
+units whose buffered field failed native acknowledgment, respecting atomic transaction groups.
+A recovered draft whose editor is not
 mounted has no live apply callback, so Save is blocked rather than silently pretending it saved that
-field; opening its editor reattaches the apply callback. Save As retains serialized drafts as
-recovery overlays instead of implicitly committing them.
+field; opening its editor reattaches the apply callback.
 
 This is **not** yet project-wide certification: the remaining non-migrated entity controls, numeric
-field coalescing, some discrete selectors/drag operations, complete partial-Save-All isolation, and
-interactive packaged Feature Lab latency/close/external-conflict acceptance still need coverage.
+and nested controls, source-stage interoperability, more discrete selectors and geometry/drag
+operations, and interactive packaged Feature Lab latency/close/external-conflict acceptance still
+need coverage. The Project facade centralizes writes but cannot make an old control immediately
+responsive until that control uses the field hook for its rendered value.
 The #522 manual acceptance cases remain separate and open.
 
 ## File menu and close contract

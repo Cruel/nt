@@ -35,8 +35,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Switch } from '@/components/ui/switch';
-import { useCommandStore } from '@/commands/command-store';
+import {
+  gameplayRecordFieldCommand,
+  projectEdits,
+  rebasedGameplayDataCommand,
+} from '@/commands/project-editing';
+import {
+  ProjectFieldInput,
+  ProjectFieldNumber,
+  ProjectFieldSwitch,
+} from '@/commands/use-project-field';
+import { buildJsonPointer } from '@/project/json-pointer';
 import { useCurrentAuthoringDependencyGraphSnapshot } from '@/project/authoring-dependency-graph-runtime';
 import { renameInteractableInstancePatches } from '@/project/interactable-instance-operations';
 import { renameOwnerLocalPropertyReferencePatches } from '@/project/owner-local-property-references';
@@ -256,16 +265,36 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
   );
   if (!project || !record || !interactableId)
     return <div className="p-4 text-sm text-muted-foreground">Interactable record not found.</div>;
-  const commit = (next: InteractableData, label: string) =>
-    void useCommandStore.getState().executeCommandAsync({
-      type: 'interactable.replaceData',
+  const commit = (next: InteractableData, label: string) => {
+    const request = rebasedGameplayDataCommand(
+      'interactable',
+      interactableId,
+      data,
+      next,
       label,
-      payload: { interactableId, data: next },
-      originSaveUnitId: recordSaveUnitId('interactables', interactableId),
-      persistencePolicy: 'manual-save',
-    });
+      (_project, current) =>
+        parseInteractableData(current.data) ??
+        defaultInteractableData(current.label ?? interactableId),
+    );
+    if (request) void projectEdits.execute(request);
+  };
+  const interactableField = (
+    relativePath: string,
+    value: string | number | boolean | null,
+    label: string,
+  ) =>
+    gameplayRecordFieldCommand(
+      'interactable',
+      interactableId,
+      relativePath,
+      value,
+      label,
+      (_project, current) =>
+        parseInteractableData(current.data) ??
+        defaultInteractableData(current.label ?? interactableId),
+    );
   const executeHotspot = (type: string, label: string, payload: Record<string, unknown>) =>
-    void useCommandStore.getState().executeCommandAsync({
+    void projectEdits.execute({
       type,
       label,
       payload: { interactableId, ...payload },
@@ -273,7 +302,7 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
       persistencePolicy: 'manual-save',
     });
   const applyProjectPatches = (label: string, patches: Array<Record<string, unknown>>) =>
-    void useCommandStore.getState().executeCommandAsync({
+    void projectEdits.execute({
       type: 'project.applyPatch',
       label,
       payload: patches,
@@ -384,13 +413,14 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
       >
         <div>
           <Label>Display name</Label>
-          <Input
+          <ProjectFieldInput
             value={data.displayName}
-            onChange={(event) =>
-              commit(
-                { ...data, displayName: event.currentTarget.value },
-                'Update interactable name',
-              )
+            tabId={tab.id}
+            saveUnitId={recordSaveUnitId('interactables', interactableId)}
+            path={buildJsonPointer(['interactables', interactableId, 'data', 'displayName'])}
+            label="Update interactable name"
+            buildCommand={(next) =>
+              interactableField('/displayName', next, 'Update interactable name')
             }
           />
         </div>
@@ -402,30 +432,36 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
                 Stackable instances carry a positive quantity on one identity.
               </p>
             </div>
-            <Switch
+            <ProjectFieldSwitch
               id={`interactable-stackable-${interactableId}`}
-              checked={data.stackable}
-              onCheckedChange={(stackable) =>
-                commit({ ...data, stackable }, 'Update interactable stackability')
+              value={data.stackable}
+              tabId={tab.id}
+              saveUnitId={recordSaveUnitId('interactables', interactableId)}
+              path={buildJsonPointer(['interactables', interactableId, 'data', 'stackable'])}
+              label="Update interactable stackability"
+              buildCommand={(next) =>
+                interactableField('/stackable', next, 'Update interactable stackability')
               }
             />
           </div>
         </div>
         <div data-workbench-anchor="interactable.stack-limit">
           <Label htmlFor={`interactable-stack-limit-${interactableId}`}>Stack limit</Label>
-          <Input
+          <ProjectFieldNumber
             id={`interactable-stack-limit-${interactableId}`}
             type="number"
             min={1}
             step={1}
+            optional
             placeholder="Unlimited"
-            value={data.stackLimit ?? ''}
-            onChange={(event) => {
-              const raw = event.currentTarget.value;
-              const parsed = raw === '' ? null : Number(raw);
-              if (parsed !== null && (!Number.isSafeInteger(parsed) || parsed <= 0)) return;
-              commit({ ...data, stackLimit: parsed }, 'Update interactable stack limit');
-            }}
+            value={data.stackLimit}
+            tabId={tab.id}
+            saveUnitId={recordSaveUnitId('interactables', interactableId)}
+            path={buildJsonPointer(['interactables', interactableId, 'data', 'stackLimit'])}
+            label="Update interactable stack limit"
+            buildCommand={(next) =>
+              interactableField('/stackLimit', next, 'Update interactable stack limit')
+            }
           />
           <p className="mt-1 text-xs text-muted-foreground">
             Optional for stackable Interactables. Incompatible authored stacks are preserved and

@@ -1,6 +1,6 @@
 import { listComfyUiWorkflowLibrary } from '@/comfyui/comfyui-service';
-import { useCommandStore } from '@/commands/command-store';
-import { NativeBufferedInput, NativeBufferedSwitch } from '@/commands/use-native-field-draft';
+import { projectEdits } from '@/commands/project-editing';
+import { ProjectFieldInput, ProjectFieldSwitch } from '@/commands/use-project-field';
 import {
   CategorizedEditorLayout,
   type CategorizedEditorCategory,
@@ -557,7 +557,7 @@ function nextInventoryInstanceId(project: AuthoringProject, definitionId: string
 }
 
 function runProjectCommand(type: string, payload: unknown, label: string) {
-  return useCommandStore.getState().executeCommandAsync({
+  return projectEdits.execute({
     type,
     label,
     payload,
@@ -1646,7 +1646,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                 <Label className="whitespace-nowrap" htmlFor="project-title">
                   Project title
                 </Label>
-                <NativeBufferedInput
+                <ProjectFieldInput
                   id="project-title"
                   aria-invalid={fieldInvalid('/project/name')}
                   data-workbench-anchor={PROJECT_SETTINGS_FIELD_ANCHORS['/project/name']}
@@ -1661,7 +1661,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                 <Label className="whitespace-nowrap" htmlFor="project-version">
                   Version
                 </Label>
-                <NativeBufferedInput
+                <ProjectFieldInput
                   id="project-version"
                   aria-invalid={fieldInvalid('/project/version')}
                   data-workbench-anchor={PROJECT_SETTINGS_FIELD_ANCHORS['/project/version']}
@@ -1676,7 +1676,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                 <Label className="whitespace-nowrap" htmlFor="project-author">
                   Author
                 </Label>
-                <NativeBufferedInput
+                <ProjectFieldInput
                   id="project-author"
                   tabId={tab.id}
                   saveUnitId={PROJECT_SETTINGS_SAVE_UNIT_ID}
@@ -1689,7 +1689,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                 <Label className="whitespace-nowrap" htmlFor="project-description">
                   Description
                 </Label>
-                <NativeBufferedInput
+                <ProjectFieldInput
                   id="project-description"
                   tabId={tab.id}
                   saveUnitId={PROJECT_SETTINGS_SAVE_UNIT_ID}
@@ -2544,7 +2544,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
             </div>
             <div className="space-y-1">
               <Label htmlFor="start-label">Start label</Label>
-              <NativeBufferedInput
+              <ProjectFieldInput
                 id="start-label"
                 aria-invalid={fieldInvalid('/settings/titleScreen/startLabel')}
                 data-workbench-anchor={
@@ -2555,36 +2555,64 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                 path="/settings/titleScreen/startLabel"
                 label="Update start label"
                 value={settings.titleScreen.startLabel}
+                buildCommand={(next) => ({
+                  type: 'project.setTitleScreen',
+                  payload: { startLabel: next },
+                  label: 'Update start label',
+                  originSaveUnitId: PROJECT_SETTINGS_SAVE_UNIT_ID,
+                  persistencePolicy: 'manual-save',
+                })}
               />
             </div>
             <label className="flex items-center gap-2 text-xs">
-              <NativeBufferedSwitch
+              <ProjectFieldSwitch
                 tabId={tab.id}
                 saveUnitId={PROJECT_SETTINGS_SAVE_UNIT_ID}
                 path="/settings/titleScreen/showProjectTitle"
                 label="Show project title"
                 value={settings.titleScreen.showProjectTitle}
+                buildCommand={(next) => ({
+                  type: 'project.setTitleScreen',
+                  payload: { showProjectTitle: next },
+                  label: 'Show project title',
+                  originSaveUnitId: PROJECT_SETTINGS_SAVE_UNIT_ID,
+                  persistencePolicy: 'manual-save',
+                })}
               />
               Show project title
             </label>
             <label className="flex items-center gap-2 text-xs">
-              <NativeBufferedSwitch
+              <ProjectFieldSwitch
                 tabId={tab.id}
                 saveUnitId={PROJECT_SETTINGS_SAVE_UNIT_ID}
                 path="/settings/titleScreen/showAuthor"
                 label="Show author name"
                 value={settings.titleScreen.showAuthor}
+                buildCommand={(next) => ({
+                  type: 'project.setTitleScreen',
+                  payload: { showAuthor: next },
+                  label: 'Show author name',
+                  originSaveUnitId: PROJECT_SETTINGS_SAVE_UNIT_ID,
+                  persistencePolicy: 'manual-save',
+                })}
               />
               Show author name
             </label>
             <div className="space-y-1 @3xl:col-span-2">
               <Label>Subtitle</Label>
-              <NativeBufferedInput
+              <ProjectFieldInput
                 tabId={tab.id}
                 saveUnitId={PROJECT_SETTINGS_SAVE_UNIT_ID}
                 path="/settings/titleScreen/subtitle"
                 label="Update title screen subtitle"
                 value={settings.titleScreen.subtitle}
+                buildCommand={(next) => ({
+                  type: 'project.setTitleScreen',
+                  payload: { subtitle: next },
+                  label: 'Update title screen subtitle',
+                  originSaveUnitId: PROJECT_SETTINGS_SAVE_UNIT_ID,
+                  persistencePolicy: 'manual-save',
+                })}
               />
             </div>
           </CardContent>
@@ -2603,27 +2631,33 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
           <CardContent className="grid gap-3">
             <div className="space-y-1">
               <Label htmlFor="app-display-name">Display name</Label>
-              <Input
+              <ProjectFieldInput
                 id="app-display-name"
                 aria-invalid={fieldInvalid('/settings/app/displayName')}
                 data-workbench-anchor={PROJECT_SETTINGS_FIELD_ANCHORS['/settings/app/displayName']}
                 value={settings.app.displayName}
-                onChange={(event) => setAppIdentity({ displayName: event.currentTarget.value })}
+                tabId={tab.id}
+                saveUnitId={PROJECT_SETTINGS_SAVE_UNIT_ID}
+                path="/settings/app/displayName"
+                label="Update app display name"
               />
             </div>
             <div className="space-y-1">
               <Label htmlFor="app-short-name">Short name</Label>
-              <Input
+              <ProjectFieldInput
                 id="app-short-name"
                 aria-invalid={fieldInvalid('/settings/app/shortName')}
                 data-workbench-anchor={PROJECT_SETTINGS_FIELD_ANCHORS['/settings/app/shortName']}
                 value={settings.app.shortName ?? ''}
-                onChange={(event) => setAppIdentity({ shortName: event.currentTarget.value })}
+                tabId={tab.id}
+                saveUnitId={PROJECT_SETTINGS_SAVE_UNIT_ID}
+                path="/settings/app/shortName"
+                label="Update app short name"
               />
             </div>
             <div className="space-y-1">
               <Label htmlFor="app-id">Application ID</Label>
-              <Input
+              <ProjectFieldInput
                 id="app-id"
                 aria-invalid={fieldInvalid('/settings/app/applicationId')}
                 data-workbench-anchor={
@@ -2631,12 +2665,15 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                 }
                 className="font-mono text-[11px]"
                 value={settings.app.applicationId}
-                onChange={(event) => setAppIdentity({ applicationId: event.currentTarget.value })}
+                tabId={tab.id}
+                saveUnitId={PROJECT_SETTINGS_SAVE_UNIT_ID}
+                path="/settings/app/applicationId"
+                label="Update application ID"
               />
             </div>
             <div className="space-y-1">
               <Label htmlFor="save-namespace">Save namespace</Label>
-              <Input
+              <ProjectFieldInput
                 id="save-namespace"
                 aria-invalid={fieldInvalid('/settings/app/saveNamespace')}
                 data-workbench-anchor={
@@ -2644,20 +2681,26 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                 }
                 className="font-mono text-[11px]"
                 value={settings.app.saveNamespace}
-                onChange={(event) => setAppIdentity({ saveNamespace: event.currentTarget.value })}
+                tabId={tab.id}
+                saveUnitId={PROJECT_SETTINGS_SAVE_UNIT_ID}
+                path="/settings/app/saveNamespace"
+                label="Update save namespace"
               />
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
                 <Label htmlFor="app-version">Version name</Label>
-                <Input
+                <ProjectFieldInput
                   id="app-version"
                   aria-invalid={fieldInvalid('/settings/app/versionName')}
                   data-workbench-anchor={
                     PROJECT_SETTINGS_FIELD_ANCHORS['/settings/app/versionName']
                   }
                   value={settings.app.versionName}
-                  onChange={(event) => setAppIdentity({ versionName: event.currentTarget.value })}
+                  tabId={tab.id}
+                  saveUnitId={PROJECT_SETTINGS_SAVE_UNIT_ID}
+                  path="/settings/app/versionName"
+                  label="Update app version name"
                 />
               </div>
               <div className="space-y-1">
@@ -2674,7 +2717,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
             </div>
             <div className="space-y-1">
               <Label htmlFor="app-locale">Default locale</Label>
-              <Input
+              <ProjectFieldInput
                 id="app-locale"
                 placeholder="en-US"
                 aria-invalid={fieldInvalid('/settings/app/defaultLocale')}
@@ -2682,17 +2725,23 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                   PROJECT_SETTINGS_FIELD_ANCHORS['/settings/app/defaultLocale']
                 }
                 value={settings.app.defaultLocale ?? ''}
-                onChange={(event) => setAppIdentity({ defaultLocale: event.currentTarget.value })}
+                tabId={tab.id}
+                saveUnitId={PROJECT_SETTINGS_SAVE_UNIT_ID}
+                path="/settings/app/defaultLocale"
+                label="Update default locale"
               />
             </div>
             <div className="space-y-1">
               <Label htmlFor="app-publisher">Publisher</Label>
-              <Input
+              <ProjectFieldInput
                 id="app-publisher"
                 aria-invalid={fieldInvalid('/settings/app/publisher')}
                 data-workbench-anchor={PROJECT_SETTINGS_FIELD_ANCHORS['/settings/app/publisher']}
                 value={settings.app.publisher ?? ''}
-                onChange={(event) => setAppIdentity({ publisher: event.currentTarget.value })}
+                tabId={tab.id}
+                saveUnitId={PROJECT_SETTINGS_SAVE_UNIT_ID}
+                path="/settings/app/publisher"
+                label="Update publisher"
               />
             </div>
             <div className="space-y-1">
@@ -2747,12 +2796,15 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
               ).map(([label, key]) => (
                 <div key={key} className="space-y-1">
                   <Label>{label} color</Label>
-                  <Input
+                  <ProjectFieldInput
                     aria-label={`${label} color`}
                     aria-invalid={fieldInvalid(`/settings/app/${key}`)}
                     data-workbench-anchor={PROJECT_SETTINGS_FIELD_ANCHORS[`/settings/app/${key}`]}
                     value={settings.app[key] ?? ''}
-                    onChange={(event) => setAppIdentity({ [key]: event.currentTarget.value })}
+                    tabId={tab.id}
+                    saveUnitId={PROJECT_SETTINGS_SAVE_UNIT_ID}
+                    path={`/settings/app/${key}`}
+                    label={`Update ${label} color`}
                   />
                 </div>
               ))}
@@ -2763,7 +2815,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
               </summary>
               <div className="grid gap-2 pt-2">
                 <Label htmlFor="android-app-id">Android application ID</Label>
-                <Input
+                <ProjectFieldInput
                   id="android-app-id"
                   className="font-mono text-[11px]"
                   aria-invalid={fieldInvalid('/settings/app/android/applicationId')}
@@ -2771,17 +2823,13 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                     PROJECT_SETTINGS_FIELD_ANCHORS['/settings/app/android/applicationId']
                   }
                   value={settings.app.android.applicationId ?? ''}
-                  onChange={(event) =>
-                    setAppIdentity({
-                      android: {
-                        ...settings.app.android,
-                        applicationId: event.currentTarget.value,
-                      },
-                    })
-                  }
+                  tabId={tab.id}
+                  saveUnitId={PROJECT_SETTINGS_SAVE_UNIT_ID}
+                  path="/settings/app/android/applicationId"
+                  label="Update Android application ID"
                 />
                 <Label htmlFor="apple-bundle-id">Apple bundle ID</Label>
-                <Input
+                <ProjectFieldInput
                   id="apple-bundle-id"
                   className="font-mono text-[11px]"
                   aria-invalid={fieldInvalid('/settings/app/desktop/appleBundleId')}
@@ -2789,17 +2837,13 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                     PROJECT_SETTINGS_FIELD_ANCHORS['/settings/app/desktop/appleBundleId']
                   }
                   value={settings.app.desktop.appleBundleId ?? ''}
-                  onChange={(event) =>
-                    setAppIdentity({
-                      desktop: {
-                        ...settings.app.desktop,
-                        appleBundleId: event.currentTarget.value,
-                      },
-                    })
-                  }
+                  tabId={tab.id}
+                  saveUnitId={PROJECT_SETTINGS_SAVE_UNIT_ID}
+                  path="/settings/app/desktop/appleBundleId"
+                  label="Update Apple bundle ID"
                 />
                 <Label htmlFor="linux-desktop-id">Linux desktop ID</Label>
-                <Input
+                <ProjectFieldInput
                   id="linux-desktop-id"
                   className="font-mono text-[11px]"
                   aria-invalid={fieldInvalid('/settings/app/desktop/linuxDesktopId')}
@@ -2807,31 +2851,23 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                     PROJECT_SETTINGS_FIELD_ANCHORS['/settings/app/desktop/linuxDesktopId']
                   }
                   value={settings.app.desktop.linuxDesktopId ?? ''}
-                  onChange={(event) =>
-                    setAppIdentity({
-                      desktop: {
-                        ...settings.app.desktop,
-                        linuxDesktopId: event.currentTarget.value,
-                      },
-                    })
-                  }
+                  tabId={tab.id}
+                  saveUnitId={PROJECT_SETTINGS_SAVE_UNIT_ID}
+                  path="/settings/app/desktop/linuxDesktopId"
+                  label="Update Linux desktop ID"
                 />
                 <Label htmlFor="windows-identity">Windows identity</Label>
-                <Input
+                <ProjectFieldInput
                   id="windows-identity"
                   aria-invalid={fieldInvalid('/settings/app/desktop/windowsIdentity')}
                   data-workbench-anchor={
                     PROJECT_SETTINGS_FIELD_ANCHORS['/settings/app/desktop/windowsIdentity']
                   }
                   value={settings.app.desktop.windowsIdentity ?? ''}
-                  onChange={(event) =>
-                    setAppIdentity({
-                      desktop: {
-                        ...settings.app.desktop,
-                        windowsIdentity: event.currentTarget.value,
-                      },
-                    })
-                  }
+                  tabId={tab.id}
+                  saveUnitId={PROJECT_SETTINGS_SAVE_UNIT_ID}
+                  path="/settings/app/desktop/windowsIdentity"
+                  label="Update Windows identity"
                 />
               </div>
             </details>

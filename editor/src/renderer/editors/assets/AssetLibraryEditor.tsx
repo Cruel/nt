@@ -1,4 +1,5 @@
 import { useCommandStore } from '@/commands/command-store';
+import { projectEdits } from '@/commands/project-editing';
 import { TagInput } from '@/components/tags/TagInput';
 import { Button } from '@/components/ui/button';
 import { SearchInput } from '@/components/ui/search-input';
@@ -43,7 +44,7 @@ function AssetContextMenu({
   onClose: () => void;
 }) {
   const openTab = useWorkbenchStore((store) => store.openTab);
-  const executeCommand = useCommandStore((store) => store.executeCommandAsync);
+  const executeCommand = projectEdits.execute;
 
   useEffect(() => {
     if (!state) return;
@@ -150,7 +151,7 @@ export function AssetLibraryEditor({ tab }: WorkbenchEditorProps) {
       [kind, query, selectedTags],
     ),
   );
-  const executeCommand = useCommandStore((store) => store.executeCommandAsync);
+  const executeCommand = projectEdits.execute;
   const nativeWorkingRevision = useCommandStore((store) => store.nativeWorkingRevision);
   const graphSnapshot = useCurrentAuthoringDependencyGraphSnapshot();
   const allAssets = useMemo(() => {

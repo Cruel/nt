@@ -1,4 +1,5 @@
 import { useCommandStore } from '@/commands/command-store';
+import { projectEdits } from '@/commands/project-editing';
 import type { CommandRequest } from '@/commands/command-types';
 import { TagBadge } from '@/components/tags/TagBadge';
 import { TagInput } from '@/components/tags/TagInput';
@@ -188,7 +189,7 @@ function EntityOperationDialog({
   project: AuthoringProject | null;
   onClose: () => void;
 }) {
-  const executeCommand = useCommandStore((store) => store.executeCommandAsync);
+  const executeCommand = projectEdits.execute;
   const graphSnapshot = useCurrentAuthoringDependencyGraphSnapshot();
   const projectDocument = useProjectStore((store) => store.document);
   const projectInstanceId = useProjectStore((store) => store.projectInstanceId);
@@ -654,7 +655,7 @@ function ProjectHeading({ projectName }: { projectName: string }) {
   const setGroupUnassignedItems = useProjectExplorerStore((state) => state.setGroupUnassignedItems);
   const setHideEmptyCategories = useProjectExplorerStore((state) => state.setHideEmptyCategories);
   const setShowInfoOnHover = useProjectExplorerStore((state) => state.setShowInfoOnHover);
-  const executeCommand = useCommandStore((state) => state.executeCommandAsync);
+  const executeCommand = projectEdits.execute;
   const { t } = useTranslation('workspace');
 
   async function setOption(payload: {
@@ -864,7 +865,7 @@ function ExplorerContextMenu({
   const setActiveNodeId = useProjectExplorerStore((store) => store.setActiveNodeId);
   const projectFilePath = useProjectStore((store) => store.projectFilePath);
   const projectSessionId = useProjectStore((store) => store.projectSessionId);
-  const executeCommand = useCommandStore((store) => store.executeCommandAsync);
+  const executeCommand = projectEdits.execute;
   const setHiddenCollectionKeys = useProjectExplorerStore((store) => store.setHiddenCollectionKeys);
   const hiddenCollectionKeys = useProjectExplorerStore((store) => store.hiddenCollectionKeys);
   const chapters = useProjectExplorerStore((store) => store.chapters);

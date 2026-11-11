@@ -1,3 +1,4 @@
+import { projectEdits } from '@/commands/project-editing';
 import { UntrackedAssetsDialog } from '@/assets/UntrackedAssetsDialog';
 import {
   dismissAssetCandidates,
@@ -19,7 +20,11 @@ import {
 } from '@/comfyui/comfyui-service';
 import { useComfyUiStore } from '@/comfyui/comfyui-store';
 import { flushStructuralCommandPersistence, useCommandStore } from '@/commands/command-store';
-import { flushNativeFields, NATIVE_FIELD_DRAFT_SCHEMA } from '@/commands/native-field-drafts';
+import {
+  flushNativeFields,
+  NATIVE_FIELD_DRAFT_SCHEMA,
+  useNativeFieldDraftStore,
+} from '@/commands/native-field-drafts';
 import { PanelResizeSeparator } from '@/components/resize-separator';
 import { Button } from '@/components/ui/button';
 import {
@@ -325,7 +330,7 @@ export function WorkspacePage() {
   const closeProjectTabs = useWorkbenchStore((state) => state.closeProjectTabs);
   const commandHistory = useCommandStore((state) => state.history);
   const undoCommand = useCommandStore((state) => state.undo);
-  const executeCommand = useCommandStore((state) => state.executeCommandAsync);
+  const executeCommand = projectEdits.execute;
   const redoCommand = useCommandStore((state) => state.redo);
   const deletedAssetTrash = useAssetTrashStore((state) => state.deletedAssets);
   const forgetDeletedAsset = useAssetTrashStore((state) => state.forgetDeletedAsset);
@@ -1702,18 +1707,29 @@ export function WorkspacePage() {
     if (!project) return false;
     setProjectSaving(true);
     try {
-      if (!(await flushNativeFields())) {
+      const flushed = await projectEdits.flush();
+      const unresolvedFieldIntents = Object.values(useNativeFieldDraftStore.getState().entries);
+      if (!flushed && unresolvedFieldIntents.length === 0) {
         const message = 'Resolve the pending field edits before Save All.';
         setProjectSaveError(message);
         setStatusMessage(message);
         return false;
       }
+      const blockedFieldSaveUnits = [
+        ...new Set(unresolvedFieldIntents.map((field) => field.saveUnitId)),
+      ];
       const dirtyDrafts = Object.values(useDraftDirtyStore.getState().entriesByKey).filter(
         (entry) => entry.dirty,
       );
       const unappliedNonSerializableDrafts = dirtyDrafts.filter(
         (entry) =>
           !entry.apply &&
+          !(
+            entry.schema === NATIVE_FIELD_DRAFT_SCHEMA &&
+            unresolvedFieldIntents.some((field) =>
+              entry.key.endsWith(`:native-field:${field.path}`),
+            )
+          ) &&
           (!entry.schema ||
             entry.payload === undefined ||
             entry.schema === NATIVE_FIELD_DRAFT_SCHEMA),
@@ -1724,7 +1740,12 @@ export function WorkspacePage() {
         setStatusMessage(message);
         return false;
       }
-      const applicableDrafts = dirtyDrafts.filter((entry) => entry.apply);
+      // Native field drafts have already been flushed or excluded above.
+      // Do not retry an errored field from a generic per-tab draft action:
+      // Save All must preserve the other independent save units.
+      const applicableDrafts = dirtyDrafts.filter(
+        (entry) => entry.apply && entry.schema !== NATIVE_FIELD_DRAFT_SCHEMA,
+      );
       if (applicableDrafts.length > 0) {
         const applied = await runDraftActions(applicableDrafts, 'apply');
         if (!applied) {
@@ -1738,7 +1759,10 @@ export function WorkspacePage() {
       }
       await flushStructuralCommandPersistence();
       await settleProjectEditorMetadataWrites();
-      return publishSaveResult(await saveAllSaveUnits(), 'Saved all valid items');
+      return publishSaveResult(
+        await saveAllSaveUnits(blockedFieldSaveUnits),
+        'Saved all valid items',
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Save All failed';
       setProjectSaveError(message);
@@ -1754,6 +1778,12 @@ export function WorkspacePage() {
     if (!project) return false;
     setProjectSaving(true);
     try {
+      if (!(await projectEdits.flush())) {
+        const message = 'Resolve pending Project field edits before Save As.';
+        setProjectSaveError(message);
+        setStatusMessage(message);
+        return false;
+      }
       await flushStructuralCommandPersistence();
       await settleProjectEditorMetadataWrites();
       const result = await saveProjectAsCopy();

@@ -44,7 +44,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useCommandStore } from '@/commands/command-store';
+import { projectEdits } from '@/commands/project-editing';
 import {
   ownerLocalPropertyReferences,
   renameOwnerLocalPropertyReferencePatches,
@@ -83,11 +83,10 @@ import {
 import { RoomEditSurface } from '@/editors/rooms/RoomEditSurface';
 import { RoomCompositionPane } from '@/editors/rooms/RoomCompositionPane';
 import {
-  RoomDisplayNameField,
   bufferedRoomFieldCommand,
   rebasedRoomDataCommand,
 } from '@/editors/rooms/room-buffered-fields';
-import { useNativeFieldDraft } from '@/commands/use-native-field-draft';
+import { ProjectFieldInput, useProjectField } from '@/commands/use-project-field';
 import {
   interpolateRoomEditNavigation,
   fitRoomEditSurfaceFrame,
@@ -574,7 +573,7 @@ function RoomDescriptionField({
   tabId: string;
   value: TextContent;
 }) {
-  const draft = useNativeFieldDraft({
+  const draft = useProjectField({
     tabId,
     saveUnitId: recordSaveUnitId('rooms', roomId),
     path: `/rooms/${roomId.replace(/~/gu, '~0').replace(/\//gu, '~1')}/data/description`,
@@ -1039,9 +1038,8 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   const executeRoomSelectionDelete = useCallback(
     (selection: readonly RoomEditSelection[]) => {
       if (!roomId || selection.length === 0) return;
-      void useCommandStore
-        .getState()
-        .executeCommandAsync({
+      void projectEdits
+        .execute({
           type: 'room.deleteSelection',
           label: t('roomEditor.compositionPane.deleteSelection'),
           payload: { roomId, selection },
@@ -1313,14 +1311,14 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     // snapshot. Preserve only this edit's intended delta, then rebase it on the
     // acknowledged Room after the command queue flushes pending field drafts.
     const command = rebasedRoomDataCommand(roomId, data, next, label);
-    if (command) void useCommandStore.getState().executeCommandAsync(command);
+    if (command) void projectEdits.execute(command);
   };
   const executeRoomEditCommand = (
     type: string,
     label: string,
     payload: Record<string, unknown>,
   ) => {
-    void useCommandStore.getState().executeCommandAsync({
+    void projectEdits.execute({
       type,
       label,
       payload: { roomId, ...payload },
@@ -1349,7 +1347,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     localProperties: OwnerLocalProperty[],
     change?: { kind: 'rename'; fromId: string; toId: string },
   ) => {
-    void useCommandStore.getState().executeCommandAsync({
+    void projectEdits.execute({
       type: 'project.applyPatch',
       label: `Update ${roomId} Properties`,
       payload: [
@@ -1372,7 +1370,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     });
   };
   const commitPropertyTraitState = (state: OwnerPropertyTraitState) => {
-    void useCommandStore.getState().executeCommandAsync({
+    void projectEdits.execute({
       type: 'project.applyPatch',
       label: `Update ${roomId} Trait Properties`,
       payload: [
@@ -1392,7 +1390,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     });
   };
   const executeHotspot = (type: string, label: string, payload: Record<string, unknown>) =>
-    useCommandStore.getState().executeCommandAsync({
+    projectEdits.execute({
       type,
       label,
       payload: { roomId, ...payload },
@@ -1765,7 +1763,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     instance: (typeof project.interactableInstances)[string],
     change?: { kind: 'rename'; fromId: string; toId: string },
   ) => {
-    void useCommandStore.getState().executeCommandAsync({
+    void projectEdits.execute({
       type: 'project.applyPatch',
       label: t('roomEditor.compositionPane.editor.updateInteractableInstanceProperties'),
       payload: [
@@ -1831,7 +1829,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       roomEditSelectionKey({ kind, id: placementId }),
     );
     for (const key of placementKeys) pendingSelectionRenames.current.set(key, nextId);
-    const result = await useCommandStore.getState().executeCommandAsync({
+    const result = await projectEdits.execute({
       type: 'room.replaceData',
       label: t('roomEditor.compositionPane.editor.renamePlacement'),
       payload: {
@@ -3390,11 +3388,17 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               <div className="space-y-1.5">
                 <Label>Display name</Label>
                 {roomId && (
-                  <RoomDisplayNameField
+                  <ProjectFieldInput
                     key={roomId}
-                    roomId={roomId}
+                    aria-label="Room display name"
                     tabId={tab.id}
+                    path={`/rooms/${roomId.replace(/~/gu, '~0').replace(/\//gu, '~1')}/data/displayName`}
+                    saveUnitId={recordSaveUnitId('rooms', roomId)}
                     value={data.displayName}
+                    label="Update room name"
+                    buildCommand={(next) =>
+                      bufferedRoomFieldCommand(roomId, 'displayName', next, 'Update room name')
+                    }
                   />
                 )}
               </div>
@@ -3837,7 +3841,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                                         },
                                       ],
                                     };
-                                void useCommandStore.getState().executeCommandAsync({
+                                void projectEdits.execute({
                                   type: 'room.replaceData',
                                   label: mismatchedReturnExit
                                     ? 'Correct reciprocal room exit direction'
@@ -4444,7 +4448,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                   )}
                   value={data.fallbackInteractablePlacementId}
                   onValueChange={(placementId) =>
-                    void useCommandStore.getState().executeCommandAsync({
+                    void projectEdits.execute({
                       type: 'room.setFallbackInteractablePlacement',
                       label: t(
                         'roomEditor.compositionPane.editor.setFallbackInteractablePlacement',

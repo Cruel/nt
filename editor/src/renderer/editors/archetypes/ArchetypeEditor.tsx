@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { OwnerDefaultPropertiesEditor } from '@/components/properties/OwnerDefaultPropertiesEditor';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
-import { useCommandStore } from '@/commands/command-store';
+import { projectEdits } from '@/commands/project-editing';
 import { useProjectStore } from '@/project/project-store';
 import { recordSaveUnitId } from '@/project/save-unit-registry';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
@@ -78,7 +78,7 @@ export function ArchetypeEditor({ tab }: WorkbenchEditorProps) {
     .sort(([, left], [, right]) => left.label.localeCompare(right.label));
 
   const execute = (type: string, label: string, payload: unknown) =>
-    useCommandStore.getState().executeCommandAsync({
+    projectEdits.execute({
       type,
       label,
       payload,

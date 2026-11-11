@@ -17,7 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useCommandStore } from '@/commands/command-store';
+import { projectEdits } from '@/commands/project-editing';
 import { recordSaveUnitId } from '@/project/save-unit-registry';
 import { MaterialPreview } from '@/material-preview/MaterialPreview';
 import { useMaterialPreviewResource } from '@/material-preview/material-preview-provider';
@@ -62,7 +62,7 @@ import {
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 
 function updateMaterial(materialId: string, next: MaterialData, label: string) {
-  void useCommandStore.getState().executeCommandAsync({
+  void projectEdits.execute({
     type: 'material.replaceData',
     label,
     payload: { materialId, data: next },

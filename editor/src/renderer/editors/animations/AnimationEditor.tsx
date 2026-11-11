@@ -21,7 +21,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useProjectStore } from '@/project/project-store';
-import { useCommandStore } from '@/commands/command-store';
+import { projectEdits } from '@/commands/project-editing';
 import { recordSaveUnitId } from '@/project/save-unit-registry';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 import { isAuthoringProjectView } from '../../../shared/project-schema/authoring-project-view';
@@ -184,7 +184,7 @@ export function AnimationEditor({ tab }: WorkbenchEditorProps) {
     return <div className="p-4">{t('animationEditor.unavailable')}</div>;
   const commit = (next: AnimationData) => {
     if (!animationDataSchema.safeParse(next).success) return;
-    void useCommandStore.getState().executeCommandAsync({
+    void projectEdits.execute({
       type: 'entity.replaceRecord',
       label: t('animationEditor.edit'),
       payload: { collection: 'animations', entityId: id, record: { ...record, data: next } },

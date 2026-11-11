@@ -14,7 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { TagInput } from '@/components/tags/TagInput';
-import { useCommandStore } from '@/commands/command-store';
+import { projectEdits } from '@/commands/project-editing';
 import type { CommandRequest } from '@/commands/command-types';
 import { MUTATION_SURFACE_ATTRIBUTIONS } from '@/project/save-unit-registry';
 import { buildDefaultRecordTab } from '@/workbench/editor-registry';
@@ -256,16 +256,15 @@ export function NewEntityWizardDialog({
     }
     setSubmitting(true);
     try {
-      const commandStore = useCommandStore.getState();
       const result = useTransaction
-        ? await commandStore.executeCommandBatchAsync(
+        ? await projectEdits.batch(
             {
               label: `Create ${metadata.singularLabel}`,
               ...MUTATION_SURFACE_ATTRIBUTIONS.newEntity,
             },
             requests,
           )
-        : await commandStore.executeCommandAsync(requests[0]!);
+        : await projectEdits.execute(requests[0]!);
       const failure = result.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
       if (!result.ok || failure) {
         setError(failure?.message ?? 'Create command failed.');

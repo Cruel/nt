@@ -3,6 +3,7 @@ import { Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useCommandStore } from '@/commands/command-store';
+import { projectEdits } from '@/commands/project-editing';
 import type { CommandRequest } from '@/commands/command-types';
 import { SAVE_UNIT_IDS } from '@/project/save-unit-registry';
 import { useProjectStore } from '@/project/project-store';
@@ -29,7 +30,7 @@ const CHAPTERS_TAB_STATE_SCHEMA = 'noveltea.editor.chapters-tab-state';
 
 export function ChaptersEditor({ tab }: WorkbenchEditorProps) {
   const document = useProjectStore((state) => state.document);
-  const executeCommand = useCommandStore((state) => state.executeCommandAsync);
+  const executeCommand = projectEdits.execute;
   const project = isAuthoringProjectView(document) ? document : null;
   const editorState = useMemo(
     () => (project ? editorProjectStateFromProject(project) : null),

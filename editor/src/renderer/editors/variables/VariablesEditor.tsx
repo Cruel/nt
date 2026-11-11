@@ -10,7 +10,7 @@ import {
   typedPropertyValueFromDraft,
   type TypedPropertyDraft,
 } from '@/components/properties/TypedPropertyFields';
-import { useCommandStore } from '@/commands/command-store';
+import { projectEdits } from '@/commands/project-editing';
 import type { CommandRequest } from '@/commands/command-types';
 import { referenceIndexFromCurrentGraph } from '@/project/authoring-graph-consumers';
 import { useCurrentAuthoringDependencyGraphSnapshot } from '@/project/authoring-dependency-graph-runtime';
@@ -100,7 +100,7 @@ function parseManagerState(value: unknown): PropertyManagerState | null {
 
 export function VariablesEditor({ tab }: WorkbenchEditorProps) {
   const projectDocument = useProjectStore((state) => state.document);
-  const executeCommand = useCommandStore((state) => state.executeCommandAsync);
+  const executeCommand = projectEdits.execute;
   const project = isAuthoringProjectView(projectDocument) ? projectDocument : null;
   const graphSnapshot = useCurrentAuthoringDependencyGraphSnapshot();
   const setUsages = useEntityUsagesStore((state) => state.setUsages);
@@ -232,7 +232,7 @@ export function VariablesEditor({ tab }: WorkbenchEditorProps) {
       label: `Update variable ${nextId}`,
       payload: { variableId: nextId, data: parsed.data },
     });
-    const result = await useCommandStore.getState().executeCommandBatchAsync(
+    const result = await projectEdits.batch(
       {
         label: `Update variable ${originalId}`,
         originSaveUnitId: SAVE_UNIT_IDS.variableCollection,

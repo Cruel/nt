@@ -1,7 +1,7 @@
 import { visualImageAssetId } from '../../../shared/project-schema/authoring-animations';
 import { create } from 'zustand';
 import { z } from 'zod';
-import { useCommandStore } from '@/commands/command-store';
+import { projectEdits } from '@/commands/project-editing';
 import type { HotspotTool } from '@/components/image-stage/hotspot-view-state';
 import type { ImageStageCamera } from '@/components/image-stage/image-stage-transforms';
 import { editorI18n } from '@/i18n';
@@ -628,7 +628,7 @@ export const useHotspotFocusStore = create<HotspotFocusStoreState>()((set, get) 
                 })(),
           );
     if (operation.diagnostics?.some((item) => item.severity === 'error')) return false;
-    const result = await useCommandStore.getState().executeCommandAsync({
+    const result = await projectEdits.execute({
       type: 'project.applyPatch',
       label:
         session.ownerKind === 'room'

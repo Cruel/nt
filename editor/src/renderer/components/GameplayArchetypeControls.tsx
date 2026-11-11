@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import { useCommandStore } from '@/commands/command-store';
+import { projectEdits } from '@/commands/project-editing';
 import { recordSaveUnitId } from '@/project/save-unit-registry';
 import { SearchSelectorDialog } from '@/workspace/SearchSelectorDialog';
 import { buildCommandPaletteItems, filterSelectorItems } from '@/workspace/command-palette-search';
@@ -49,7 +49,7 @@ export function GameplayArchetypeControls({
   const selectedItem = archetypeItems.find((item) => item.entityId === attached);
   const overrideCount = Object.keys(record.archetypeOverrides ?? {}).length;
   const execute = (type: string, label: string, payload: unknown) =>
-    useCommandStore.getState().executeCommandAsync({
+    projectEdits.execute({
       type,
       label,
       payload,

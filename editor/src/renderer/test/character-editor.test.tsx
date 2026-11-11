@@ -65,7 +65,10 @@ describe('CharacterEditor', () => {
         characters: { iris: { data: { dialogue: { name: 'Iris V.' } } } },
       });
     });
-    expect(useCommandStore.getState().history.entries.at(-1)?.type).toBe('character.replaceData');
+    expect(useCommandStore.getState().history.entries.at(-1)?.type).toBe('project.replaceAtPath');
+    expect(useCommandStore.getState().history.entries.at(-1)?.patches).toMatchObject([
+      { op: 'replace', path: '/characters/iris/data/dialogue/name', value: 'Iris V.' },
+    ]);
 
     fireEvent.click(screen.getByText('Add Pose'));
     await waitFor(() => {

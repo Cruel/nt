@@ -4,7 +4,7 @@ import { RecursiveConditionEditor } from '@/components/conditions/ConditionEdito
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
-import { useCommandStore } from '@/commands/command-store';
+import { projectEdits } from '@/commands/project-editing';
 import { recordSaveUnitId } from '@/project/save-unit-registry';
 import { useProjectStore } from '@/project/project-store';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
@@ -480,7 +480,7 @@ export function InteractionEditor({ tab }: WorkbenchEditorProps) {
   if (!project || !id || !record || !data)
     return <div className="p-4 text-sm text-muted-foreground">Interaction record not found.</div>;
   const commit = (next: InteractionData) =>
-    useCommandStore.getState().executeCommandAsync({
+    projectEdits.execute({
       type: 'interaction.replaceData',
       label: 'Update interaction',
       payload: { interactionId: id, data: next },

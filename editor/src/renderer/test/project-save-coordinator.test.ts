@@ -1496,6 +1496,49 @@ describe('project save coordinator', () => {
     Reflect.deleteProperty(window.noveltea, 'nativeProjectSaveUnit');
   });
 
+  it('excludes an unacknowledged native field from Save All without blocking an independent Room', async () => {
+    const saved = projectWithRooms();
+    const working = projectWithRooms();
+    working.rooms.foyer!.label = 'New Foyer';
+    working.rooms.kitchen!.label = 'New Kitchen';
+    const editorState = recoveryState({
+      'record:rooms:foyer': {
+        sequence: 1,
+        patches: [{ op: 'replace', path: '/rooms/foyer/label', value: 'New Foyer' }],
+        affectedPaths: ['/rooms/foyer'],
+        pendingRawInputByPath: {},
+        atomicTransactionGroupIds: [],
+      },
+      'record:rooms:kitchen': {
+        sequence: 2,
+        patches: [{ op: 'replace', path: '/rooms/kitchen/label', value: 'New Kitchen' }],
+        affectedPaths: ['/rooms/kitchen'],
+        pendingRawInputByPath: {},
+        atomicTransactionGroupIds: [],
+      },
+    });
+    loadProject(saved, working, editorState);
+    const nativeSave = admitNativeSaveWithoutExternalChanges();
+
+    const result = await saveAllSaveUnits(['record:rooms:kitchen']);
+
+    expect(result).toMatchObject({
+      success: true,
+      status: 'partially-saved',
+      savedSaveUnitIds: ['record:rooms:foyer'],
+      remainingDirtySaveUnitIds: ['record:rooms:kitchen'],
+    });
+    expect(result.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'editor.native-save-all.pending-field-rejected' }),
+      ]),
+    );
+    expect(nativeSave).toHaveBeenCalledWith('test-project-session', 0, 'record:rooms:foyer', {
+      comments: 'keep',
+    });
+    Reflect.deleteProperty(window.noveltea, 'nativeProjectSaveUnit');
+  });
+
   it('never splits an atomic group containing pending input, but saves unrelated units', async () => {
     const saved = projectWithRooms();
     const working = projectWithRooms();
