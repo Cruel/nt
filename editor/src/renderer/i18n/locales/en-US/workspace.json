@@ -1,6 +1,8 @@
 {
   "projectField": {
     "retry": "Retry",
+    "useCurrent": "Use current",
+    "keepMine": "Keep mine",
     "conflict": "This field changed elsewhere while your edit was pending. Resolve the conflict before retrying.",
     "discardPending": "A native field update is still completing. Try Don't Save again.",
     "savePending": "Resolve the pending field edit before saving this item.",

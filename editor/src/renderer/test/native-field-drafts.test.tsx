@@ -17,7 +17,7 @@ import {
 import { useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
 import { PROJECT_SETTINGS_SAVE_UNIT_ID } from '@/project/save-unit-registry';
-import { useDraftDirtyStore } from '@/workbench/draft-dirty-store';
+import { serializeDraftDirtyState, useDraftDirtyStore } from '@/workbench/draft-dirty-store';
 import { usePendingInputStore } from '@/workbench/pending-input-store';
 import {
   bufferedRoomFieldCommand,
@@ -71,6 +71,165 @@ beforeEach(() => {
 });
 
 describe('shared buffered native field intents', () => {
+  it('reconciles a blurred invalid number when another view repairs the shared field', async () => {
+    admitProject();
+    render(
+      <>
+        <ProjectFieldNumber
+          aria-label="Numeric A"
+          tabId="A"
+          path="/settings/app/buildNumber"
+          saveUnitId={PROJECT_SETTINGS_SAVE_UNIT_ID}
+          label="Build"
+          value={12}
+        />
+        <ProjectFieldNumber
+          aria-label="Numeric B"
+          tabId="B"
+          path="/settings/app/buildNumber"
+          saveUnitId={PROJECT_SETTINGS_SAVE_UNIT_ID}
+          label="Build"
+          value={12}
+        />
+      </>,
+    );
+    const a = screen.getByRole('textbox', { name: 'Numeric A' });
+    const b = screen.getByRole('textbox', { name: 'Numeric B' });
+    fireEvent.change(a, { target: { value: '-' } });
+    fireEvent.blur(a);
+    expect(a).toHaveValue('-');
+    fireEvent.change(b, { target: { value: '23' } });
+    expect(a).toHaveValue('23');
+    expect(
+      usePendingInputStore.getState().entriesBySaveUnitId[PROJECT_SETTINGS_SAVE_UNIT_ID],
+    ).toBeUndefined();
+    await act(async () => expect(await projectEdits.flush()).toBe(true));
+    expect(useProjectStore.getState().document).toMatchObject({
+      settings: { app: { buildNumber: 23 } },
+    });
+  });
+
+  it('supersedes an active numeric presentation when another view submits a newer generation', async () => {
+    admitProject();
+    render(
+      <>
+        <ProjectFieldNumber
+          aria-label="Decimal A"
+          tabId="A"
+          path="/settings/app/buildNumber"
+          saveUnitId={PROJECT_SETTINGS_SAVE_UNIT_ID}
+          label="Build"
+          value={12}
+          mode="decimal"
+        />
+        <ProjectFieldNumber
+          aria-label="Decimal B"
+          tabId="B"
+          path="/settings/app/buildNumber"
+          saveUnitId={PROJECT_SETTINGS_SAVE_UNIT_ID}
+          label="Build"
+          value={12}
+          mode="decimal"
+        />
+      </>,
+    );
+    const a = screen.getByRole('textbox', { name: 'Decimal A' });
+    const b = screen.getByRole('textbox', { name: 'Decimal B' });
+    fireEvent.change(a, { target: { value: '1.0' } });
+    expect(a).toHaveValue('1.0');
+    fireEvent.change(b, { target: { value: '23' } });
+    expect(a).toHaveValue('23');
+    await act(async () => expect(await projectEdits.flush()).toBe(true));
+    expect(useProjectStore.getState().document).toMatchObject({
+      settings: { app: { buildNumber: 23 } },
+    });
+  });
+
+  it('restores a conflicted field with its original baseline and resolves Use current', async () => {
+    admitProject();
+    const view = render(<NameField />);
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Local' } });
+    const saved = serializeDraftDirtyState(useDraftDirtyStore.getState());
+    const draft = saved[nativeFieldDraftKey(PROJECT_SETTINGS_SAVE_UNIT_ID, '/project/name')];
+    expect(draft?.payload).toMatchObject({
+      value: 'Local',
+      base: { exists: true, value: 'Original' },
+    });
+    view.unmount();
+    useProjectStore.getState().clearProject();
+    useDraftDirtyStore.getState().resetDraftDirty();
+    useCommandStore.getState().resetCommandHistory();
+    admitProject('External');
+    useDraftDirtyStore.getState().restoreSerializedDrafts(saved);
+    render(<NameField tabId="restored" />);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Use current' })).toBeVisible());
+    expect(await projectEdits.flush()).toBe(false);
+    fireEvent.change(screen.getByRole('textbox', { name: 'Project title restored' }), {
+      target: { value: 'External' },
+    });
+    // Matching the acknowledged text must not silently resolve a conflict.
+    expect(await projectEdits.flush()).toBe(false);
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Use current' })));
+    await waitFor(() =>
+      expect(screen.getByRole('textbox', { name: 'Project title restored' })).toHaveValue(
+        'External',
+      ),
+    );
+    expect(
+      useDraftDirtyStore.getState().entriesByKey[
+        nativeFieldDraftKey(PROJECT_SETTINGS_SAVE_UNIT_ID, '/project/name')
+      ],
+    ).toBeUndefined();
+    expect(await projectEdits.flush()).toBe(true);
+  });
+
+  it('rehydrates an unchanged field baseline without a spurious conflict', async () => {
+    admitProject();
+    const view = render(<NameField />);
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Recovered value' } });
+    const saved = serializeDraftDirtyState(useDraftDirtyStore.getState());
+    view.unmount();
+    useProjectStore.getState().clearProject();
+    useDraftDirtyStore.getState().resetDraftDirty();
+    useCommandStore.getState().resetCommandHistory();
+    const native = admitProject();
+    useDraftDirtyStore.getState().restoreSerializedDrafts(saved);
+    render(<NameField tabId="restored" />);
+    await waitFor(() =>
+      expect(screen.getByRole('textbox', { name: 'Project title restored' })).toHaveValue(
+        'Recovered value',
+      ),
+    );
+    await act(async () => expect(await projectEdits.flush()).toBe(true));
+    expect(native.patch).toHaveBeenCalledTimes(1);
+    expect(useProjectStore.getState().document).toMatchObject({
+      project: { name: 'Recovered value' },
+    });
+  });
+
+  it('requires explicit Keep mine and uses the new acknowledged baseline after restart', async () => {
+    admitProject();
+    const view = render(<NameField />);
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Local' } });
+    const saved = serializeDraftDirtyState(useDraftDirtyStore.getState());
+    view.unmount();
+    useProjectStore.getState().clearProject();
+    useDraftDirtyStore.getState().resetDraftDirty();
+    useCommandStore.getState().resetCommandHistory();
+    const native = admitProject('External');
+    useDraftDirtyStore.getState().restoreSerializedDrafts(saved);
+    render(<NameField tabId="restored" />);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Keep mine' })).toBeVisible());
+    const input = screen.getByRole('textbox', { name: 'Project title restored' });
+    fireEvent.change(input, { target: { value: 'Local again' } });
+    await act(async () => expect(await projectEdits.flush()).toBe(false));
+    expect(native.patch).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Keep mine' }));
+    await waitFor(() => expect(input).toHaveValue('Local again'));
+    await act(async () => expect(await projectEdits.flush()).toBe(true));
+    expect(native.patch).toHaveBeenCalledTimes(1);
+    expect(useProjectStore.getState().document).toMatchObject({ project: { name: 'Local again' } });
+  });
   it('preserves an overlapping external field change as a recoverable conflict instead of overwriting it', async () => {
     const native = admitProject();
     render(<NameField />);
@@ -119,7 +278,7 @@ describe('shared buffered native field intents', () => {
       useDraftDirtyStore.getState().entriesByKey[
         nativeFieldDraftKey(PROJECT_SETTINGS_SAVE_UNIT_ID, '/settings/app/buildNumber')
       ]?.payload,
-    ).toBeNull();
+    ).toMatchObject({ value: null, base: { exists: true, value: 12 } });
     view.unmount();
     render(
       <ProjectFieldNumber

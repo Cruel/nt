@@ -1,6 +1,8 @@
 {
   "projectField": {
     "retry": "[Rëtry]",
+    "useCurrent": "[Ûšë çûrrëñt]",
+    "keepMine": "[Këëp mïñë]",
     "conflict": "[Thïš fïëld çhâñgëd ëlšëwhërë whïlë yôûr ëdït wâš pëñdïñg. Rëšôlvë thë çôñflïçt bëfôrë rëtryïñg.]",
     "discardPending": "[Â ñâtïvë fïëld ûpdâtë ïš štïll çômplëtïñg. Try Dôñ't Šâvë âgâïñ.]",
     "savePending": "[Rëšôlvë thë pëñdïñg fïëld ëdït bëfôrë šâvïñg thïš ïtëm.]",

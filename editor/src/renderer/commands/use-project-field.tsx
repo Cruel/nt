@@ -20,6 +20,7 @@ import {
   NATIVE_FIELD_DRAFT_SCHEMA,
   nativeFieldDraftKey,
   nativeFieldKey,
+  parseNativeFieldRecovery,
   useNativeFieldDraftStore,
 } from './native-field-drafts';
 import { projectEdits } from './project-editing';
@@ -51,8 +52,8 @@ export function useProjectField<T extends JsonValue>({
   const savedDraft = useDraftDirtyStore((state) => state.entriesByKey[draftKey]);
   const restored =
     !entry && savedDraft?.schema === NATIVE_FIELD_DRAFT_SCHEMA
-      ? (savedDraft.payload as T | undefined)
-      : undefined;
+      ? parseNativeFieldRecovery(savedDraft.payload)
+      : null;
   const hydratedKey = useRef<string | null>(null);
   const change = useCallback(
     (next: T) => {
@@ -63,10 +64,36 @@ export function useProjectField<T extends JsonValue>({
   );
 
   useEffect(() => {
-    if (!projectSessionId || !projectInstanceId || hydratedKey.current === key) return;
+    if (
+      !projectSessionId ||
+      !projectInstanceId ||
+      entry ||
+      !restored ||
+      hydratedKey.current === key
+    )
+      return;
     hydratedKey.current = key;
-    if (restored !== undefined) change(restored);
-  }, [key, restored, projectSessionId, projectInstanceId, change]);
+    projectEdits.field({
+      tabId,
+      saveUnitId,
+      path,
+      value: restored.value as T,
+      restoredBase: restored.base,
+      label,
+      buildCommand,
+    });
+  }, [
+    key,
+    entry,
+    restored,
+    projectSessionId,
+    projectInstanceId,
+    tabId,
+    saveUnitId,
+    path,
+    label,
+    buildCommand,
+  ]);
 
   const inputSequence = entry?.sequence;
   const inputStartedAt = entry?.inputStartedAt;
@@ -86,23 +113,46 @@ export function useProjectField<T extends JsonValue>({
   }, [inputSequence, inputStartedAt, path]);
 
   return {
-    value: (entry ? entry.value : restored !== undefined ? restored : value) as T,
+    value: (entry ? entry.value : restored ? restored.value : value) as T,
     change,
     flush: () => projectEdits.flushField(path),
+    useCurrent: () => projectEdits.useCurrentField(path),
+    keepMine: () => projectEdits.keepMineField(path),
+    conflict: entry?.conflict ?? false,
+    sequence: entry?.sequence,
+    fieldKey: key,
     error: entry?.error ?? null,
   };
 }
 
 /** Shared localized presentation for all native field errors and retries. */
-export function ProjectFieldError({ error, retry }: { error: string | null; retry: () => void }) {
+export function ProjectFieldError({
+  field,
+}: {
+  field: Pick<
+    ReturnType<typeof useProjectField>,
+    'error' | 'conflict' | 'flush' | 'useCurrent' | 'keepMine'
+  >;
+}) {
   const { t } = useTranslation('workspace');
-  if (!error) return null;
+  if (!field.error) return null;
   return (
     <p role="alert" className="text-destructive text-xs">
-      {error}{' '}
-      <button type="button" className="underline" onClick={retry}>
-        {t('projectField.retry')}
-      </button>
+      {field.error}{' '}
+      {field.conflict ? (
+        <>
+          <button type="button" className="underline" onClick={() => void field.useCurrent()}>
+            {t('projectField.useCurrent')}
+          </button>{' '}
+          <button type="button" className="underline" onClick={() => void field.keepMine()}>
+            {t('projectField.keepMine')}
+          </button>
+        </>
+      ) : (
+        <button type="button" className="underline" onClick={() => void field.flush()}>
+          {t('projectField.retry')}
+        </button>
+      )}
     </p>
   );
 }
@@ -133,7 +183,7 @@ export function ProjectFieldInput({
           void draft.flush();
         }}
       />
-      <ProjectFieldError error={draft.error} retry={() => void draft.flush()} />
+      <ProjectFieldError field={draft} />
     </>
   );
 }
@@ -163,7 +213,7 @@ export function ProjectFieldSwitch({
         onCheckedChange={(checked) => draft.change(Boolean(checked))}
         onBlur={() => void draft.flush()}
       />
-      <ProjectFieldError error={draft.error} retry={() => void draft.flush()} />
+      <ProjectFieldError field={draft} />
     </>
   );
 }
@@ -195,7 +245,7 @@ export function ProjectFieldTextarea({
           void draft.flush();
         }}
       />
-      <ProjectFieldError error={draft.error} retry={() => void draft.flush()} />
+      <ProjectFieldError field={draft} />
     </>
   );
 }
@@ -225,7 +275,7 @@ export function ProjectFieldSelect<T extends JsonValue>({
       >
         {children}
       </Select>
-      <ProjectFieldError error={draft.error} retry={() => void draft.flush()} />
+      <ProjectFieldError field={draft} />
     </>
   );
 }
@@ -254,15 +304,39 @@ export function ProjectFieldNumber({
   // A valid numeric value does not imply that its exact in-progress text can be
   // reconstructed (1.0, +1, 01 and 2. must remain intact while editing).
   const editingKey = nativeFieldDraftKey(saveUnitId, path);
-  const [editingText, setEditingText] = useState<{ key: string; text: string } | null>(null);
+  const fieldKey = draft.fieldKey;
+  const [editingText, setEditingText] = useState<{
+    key: string;
+    text: string;
+    sequence?: number;
+    pendingValue?: string;
+    parsed?: number | null;
+  } | null>(null);
   const composing = useRef(false);
+  // The exact representation belongs only to this editing generation. A
+  // sibling's newer field intent or raw-input correction takes precedence.
+  const ownPresentation =
+    editingText?.key === editingKey &&
+    editingText.pendingValue === pending?.value &&
+    (editingText.sequence === draft.sequence ||
+      (draft.sequence === undefined &&
+        editingText.parsed !== undefined &&
+        Object.is(editingText.parsed, draft.value)));
   const raw =
-    (editingText?.key === editingKey ? editingText.text : null) ??
+    (ownPresentation ? editingText?.text : null) ??
     pending?.value ??
     (draft.value === null ? '' : String(draft.value));
   const updateNumber = (text: string) => {
-    setEditingText({ key: editingKey, text });
-    if (composing.current) return;
+    let parsedValue: number | null | undefined;
+    if (composing.current) {
+      setEditingText({
+        key: editingKey,
+        text,
+        sequence: draft.sequence,
+        pendingValue: pending?.value,
+      });
+      return;
+    }
     const complete =
       mode === 'integer' ? /^[+-]?\d+$/.test(text) : /^[+-]?(?:\d+|\d+\.\d+|\.\d+)$/.test(text);
     const parsed = Number(text);
@@ -272,6 +346,7 @@ export function ProjectFieldNumber({
     if (optional && text === '') {
       usePendingInputStore.getState().clearPendingInput(saveUnitId, path);
       draft.change(null);
+      parsedValue = null;
     } else if (
       complete &&
       (mode !== 'integer' || Number.isSafeInteger(parsed)) &&
@@ -280,12 +355,20 @@ export function ProjectFieldNumber({
     ) {
       usePendingInputStore.getState().clearPendingInput(saveUnitId, path);
       draft.change(parsed);
+      parsedValue = parsed;
     } else {
       usePendingInputStore.getState().setPendingInput(saveUnitId, path, {
         value: text,
         diagnosticCode: 'editor.pending-input.number.invalid',
       });
     }
+    setEditingText({
+      key: editingKey,
+      text,
+      sequence: useNativeFieldDraftStore.getState().entries[fieldKey]?.sequence,
+      pendingValue: selectPendingInput(usePendingInputStore.getState(), saveUnitId, path)?.value,
+      parsed: parsedValue,
+    });
   };
   return (
     <>
@@ -307,12 +390,11 @@ export function ProjectFieldNumber({
         }}
         onBlur={(event) => {
           onBlur?.(event);
-          if (!selectPendingInput(usePendingInputStore.getState(), saveUnitId, path))
-            setEditingText(null);
+          setEditingText(null);
           void draft.flush();
         }}
       />
-      <ProjectFieldError error={draft.error} retry={() => void draft.flush()} />
+      <ProjectFieldError field={draft} />
     </>
   );
 }

@@ -120,6 +120,21 @@ freezing it when the native queue becomes busy. Pending fields record a narrow a
 path baseline; if that path changes before dispatch, the queued edit remains visible as an error
 instead of silently overwriting the newer value. Changes to other paths do not block the field.
 
+The recovery schema `noveltea.editor.draft.native-field.v2` stores both the authored value
+(including an explicit `null`) and the original acknowledged-path baseline (`exists`, value when
+present, and editor revision). Restoring after a restart reuses that captured baseline rather than
+inventing a new one from the reopened document. Earlier value-only v1 drafts cannot establish
+their precondition and are not treated as v2 field intents. An overlapping native/external change
+exposes localized **Use current** (discard the pending field) and **Keep mine** (explicitly adopt
+the latest acknowledged baseline and submit through the revision-checked native queue). Retry is
+reserved for non-conflict failures. Merely typing more into a conflicted field never resets its
+baseline, and an explicit rebase is still checked again when the queue actually dispatches.
+
+Exact numeric presentation is confined to the current editing interaction. Once a numeric input
+blurs, invalid text remains in the shared pending-input store, while representable text is shown
+from the shared overlay. A different view's newer field generation or raw-input update supersedes
+any local numeric presentation, avoiding stale values across duplicate views.
+
 Native failures
 leave the draft visible with an actionable error and do not advance Project authority. Active Save
 flushes its logical save unit, Save All flushes current buffered fields, and ordinary dependent

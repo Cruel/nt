@@ -8,9 +8,14 @@ import {
   flushNativeField,
   flushNativeFields,
   discardNativeField,
+  keepMineNativeField,
   nativeFieldDraftKey,
   nativeFieldKey,
+  nativeFieldRecoveryPayload,
   stageNativeField,
+  chooseCurrentNativeField,
+  useNativeFieldDraftStore,
+  type NativeFieldBase,
 } from './native-field-drafts';
 import type { JsonValue } from '@/project/json-value';
 import { toJsonValue } from '@/project/json-value';
@@ -59,6 +64,8 @@ export interface ProjectFieldIntent<T extends JsonValue> {
   value: T;
   label: string;
   buildCommand?: (value: T) => CommandRequest;
+  /** Only used when rehydrating an already-existing recoverable field intent. */
+  restoredBase?: NativeFieldBase;
 }
 
 export const projectEdits = {
@@ -103,6 +110,7 @@ export const projectEdits = {
         saveUnitId: intent.saveUnitId,
         path: intent.path,
         value: intent.value,
+        restoredBase: intent.restoredBase,
       },
       (readAtDispatch) =>
         useCommandStore.getState().executeCommandAsync(
@@ -121,12 +129,14 @@ export const projectEdits = {
     const draftKey = nativeFieldDraftKey(intent.saveUnitId, intent.path);
     const existing = drafts.entriesByKey[draftKey];
     const fieldKey = nativeFieldKey(projectSessionId, projectInstanceId, intent.path);
+    const entry = useNativeFieldDraftStore.getState().entries[fieldKey];
+    if (!entry) return false;
     drafts.setDraftDirty(draftKey, {
       tabId: existing?.tabId ?? intent.tabId,
       dirty: true,
       label: intent.label,
       schema: NATIVE_FIELD_DRAFT_SCHEMA,
-      payload: intent.value,
+      payload: nativeFieldRecoveryPayload(entry),
       apply: () => flushNativeField(fieldKey),
       discard: () => discardNativeField(fieldKey),
     });
@@ -141,6 +151,18 @@ export const projectEdits = {
     const { projectSessionId, projectInstanceId } = useProjectStore.getState();
     if (!projectSessionId || !projectInstanceId) return Promise.resolve(false);
     return flushNativeField(nativeFieldKey(projectSessionId, projectInstanceId, path));
+  },
+
+  useCurrentField(path: string): Promise<boolean> {
+    const { projectSessionId, projectInstanceId } = useProjectStore.getState();
+    if (!projectSessionId || !projectInstanceId) return Promise.resolve(false);
+    return chooseCurrentNativeField(nativeFieldKey(projectSessionId, projectInstanceId, path));
+  },
+
+  keepMineField(path: string): Promise<boolean> {
+    const { projectSessionId, projectInstanceId } = useProjectStore.getState();
+    if (!projectSessionId || !projectInstanceId) return Promise.resolve(false);
+    return keepMineNativeField(nativeFieldKey(projectSessionId, projectInstanceId, path));
   },
 };
 

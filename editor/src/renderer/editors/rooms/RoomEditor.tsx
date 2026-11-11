@@ -589,7 +589,7 @@ function RoomDescriptionField({
   return (
     <>
       <TextContentEditor value={draft.value} onChange={draft.change} />
-      <ProjectFieldError error={draft.error} retry={() => void draft.flush()} />
+      <ProjectFieldError field={draft} />
     </>
   );
 }
