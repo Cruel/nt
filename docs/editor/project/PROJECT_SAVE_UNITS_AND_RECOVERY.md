@@ -125,6 +125,60 @@ input-to-paint benchmark. A paired packaged-editor baseline/after profile,
 including unrelated component renders and 500/1,000 ms worker delays,
 remains necessary before claiming the ≤16 ms input acceptance target.
 
+### Packaged Linux UI latency harness (#603)
+
+`pnpm -C editor run benchmark:packaged-fields` runs the **latest unpacked packaged
+application**, not a mocked renderer. It copies `tests/projects/feature-lab` to
+a disposable directory, opens it through the normal workspace UI event, and
+types 20 characters into Project Settings using Electron/Chromium text insertion
+at 30 ms intervals. The suite repeats for 0, 500, and 1,000 ms *artificial
+native acknowledgment delay*, bounded exclusively by the benchmark flag.
+This injects delay **after** native ProjectSession admission and before its IPC
+acknowledgment; it is not a claim about native worker compute time. It records
+input→next-renderer-frame readiness, idle frame cadence, native acknowledgement
+latency, and real patch IPC counts without recording source text. The full
+typed value must remain visible across delayed acknowledgments and must be
+read back after an ordinary scoped Save from the disposable `project.yaml`.
+The harness fails on lost or unmeasured input events, missing acknowledgments,
+unbounded requests, or failed saved readback. It automatically removes the
+temporary Project and profile, and does not modify the source fixture.
+
+The first two successful Linux x64 / Xvfb software-display runs on November
+11, 2026 used a **new package** containing this foundation refactor; each
+case recorded 20 presentation samples and a bounded 2–4 native patches:
+
+| Run | Simulated acknowledgment | Input median | Input p95 | Input max |
+| --- | --- | ---: | ---: | ---: |
+| 1 | 0 ms | 16.35 ms | 32.15 ms | 64.27 ms |
+| 1 | 500 ms | 9.40 ms | 14.58 ms | 14.73 ms |
+| 1 | 1,000 ms | 9.05 ms | 16.25 ms | 61.07 ms |
+| 2 | 0 ms | 21.34 ms | 149.57 ms | 156.77 ms |
+| 2 | 500 ms | 24.22 ms | 33.69 ms | 84.77 ms |
+| 2 | 1,000 ms | 17.02 ms | 29.97 ms | 66.44 ms |
+
+Both runs passed exact presentation and saved YAML readback. They show
+substantial **run-to-run variance**, and the ≤16 ms acceptance target is
+**not consistently met** on this virtual-display host. No pre-#603
+same-host baseline package was recorded, and these figures are not a
+before/after improvement claim. Neither an idle-frame comparison, unrelated
+React component render count, actual physical scanout, nor multi-platform
+interactive recovery verification is established by the first two runs.
+The harness now also captures the idle Chromium frame cadence to help
+separate headless frame scheduling from editor work on future runs.
+
+The third pass, with the idle-frame measurement and dedicated Electron
+application profile, also passed saved readback. On the same Linux x64 host
+(AMD Ryzen 7 5700G, Node 24.18.0, Electron 43.1.1, Chromium 150.0.7871.114)
+the input median/p95 was **14.90/34.33 ms** at 0 ms delay,
+**8.51/15.45 ms** at 500 ms delay and **8.88/16.25 ms** at 1,000 ms
+delay; three, two and two native patch calls respectively. Idle-frame median
+was ~16.67 ms for every case, but the first case's **idle p95 was 83.33 ms**
+even without editing. Software Xvfb frame pacing is therefore demonstrably
+variable on this host; that does **not** prove all editing-path outliers are
+display scheduling, since later cases still had long maximum input samples.
+No release latency pass or paired baseline is asserted. The explicit
+benchmark profile is isolated from the normal appData/userData directory.
+
 All migrated renderer content mutations enter through `commands/project-editing.ts`:
 `projectEdits.execute(request)` for semantic/structural commands, `projectEdits.batch(...)`
 for transactions, and `projectEdits.field(intent)` for high-frequency field edits. This

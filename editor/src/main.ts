@@ -111,6 +111,11 @@ import {
   runPackageSmoke,
   THUMBNAIL_PROTOCOL_CHARACTERIZATION_SCHEME,
 } from './main/package-smoke';
+import {
+  FIELD_BENCHMARK_FLAG,
+  FIELD_BENCHMARK_PREFIX,
+  runPackagedFieldBenchmark,
+} from './main/field-latency-benchmark';
 import { ActiveProjectSessionService } from './main/services/active-project-session-service';
 import { importAssets, reimportAsset } from './main/services/asset-import-service';
 import { AssetMetadataInspectionService } from './main/services/asset-metadata-inspection-service';
@@ -243,6 +248,15 @@ configureSharpPlatformImageService();
 const USER_DATA_DIRECTORY_NAME = 'noveltea-editor';
 
 function configureApplicationPaths() {
+  if (process.argv.includes(FIELD_BENCHMARK_FLAG)) {
+    const scratchProfile = process.env.NOVELTEA_FIELD_BENCHMARK_PROFILE;
+    if (!scratchProfile || !path.isAbsolute(scratchProfile))
+      throw new Error('Packaged benchmark requires an isolated profile directory.');
+    const isolatedData = path.join(scratchProfile, USER_DATA_DIRECTORY_NAME);
+    fs.mkdirSync(isolatedData, { recursive: true });
+    app.setPath('userData', isolatedData);
+    return;
+  }
   const appDataRoot = app.getPath('appData');
   const userDataPath = path.join(appDataRoot, USER_DATA_DIRECTORY_NAME);
   app.setPath('userData', userDataPath);
@@ -355,6 +369,9 @@ const nativeEditorObservers = new WeakMap<
   NativeEditorSessionController,
   NativeEditorObserverWatchService
 >();
+// Synthetic latency is confined to an explicitly opted-in packaged benchmark.
+let fieldBenchmarkAcknowledgmentDelayMs = 0;
+let fieldBenchmarkNativePatchCalls = 0;
 function createNativeEditorController(): NativeEditorSessionController {
   const addonPath =
     process.env.NOVELTEA_AUTHORING_NODE_ADDON?.trim() ||
@@ -1270,12 +1287,23 @@ void app.whenReady().then(async () => {
       // never expose a path to a parallel Project writer.
       if (!nativeEditorAdmission)
         throw new Error('Native Project mutation is not enabled for this editor.');
-      return nativeEditorAdmission.applyRevisionedPatches(
+      const patch = nativeEditorAdmission.applyRevisionedPatches(
         projectSessionId,
         expectedRevision,
         patches,
         layoutCopySources,
       );
+      if (!process.argv.includes(FIELD_BENCHMARK_FLAG)) return patch;
+      fieldBenchmarkNativePatchCalls++;
+      const delayMs = fieldBenchmarkAcknowledgmentDelayMs;
+      return (async () => {
+        try {
+          return await patch;
+        } finally {
+          // Test acknowledgment queueing without delaying local paint.
+          if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
+        }
+      })();
     },
   );
 
@@ -2223,7 +2251,17 @@ void app.whenReady().then(async () => {
   );
 
   const window = createWindow();
-  if (process.argv.includes(PACKAGE_SMOKE_FLAG)) {
+  if (process.argv.includes(FIELD_BENCHMARK_FLAG)) {
+    void runPackagedFieldBenchmark(window, {
+      setAcknowledgmentDelay: (milliseconds) => {
+        fieldBenchmarkAcknowledgmentDelayMs = milliseconds;
+      },
+      patchCalls: () => fieldBenchmarkNativePatchCalls,
+    }).then((result) => {
+      process.stdout.write(`${FIELD_BENCHMARK_PREFIX}${JSON.stringify(result)}\n`);
+      app.exit(result.success ? 0 : 1);
+    });
+  } else if (process.argv.includes(PACKAGE_SMOKE_FLAG)) {
     void runPackageSmoke(window, enginePreviewServer).then((result) => {
       process.stdout.write(`${PACKAGE_SMOKE_PREFIX}${JSON.stringify(result)}\n`);
       app.exit(result.success ? 0 : 1);

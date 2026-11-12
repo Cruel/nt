@@ -42,6 +42,7 @@
     "package": "node scripts/build-editor-artifact.mjs --dir",
     "artifact": "node scripts/build-editor-artifact.mjs --artifact",
     "package:smoke": "node scripts/run-package-smoke.mjs",
+    "benchmark:packaged-fields": "node scripts/benchmark-packaged-project-fields.mjs",
     "project:compile": "node scripts/run-project-compiler.mjs",
     "noveltea": "node scripts/run-noveltea-cli.mjs",
     "noveltea:build": "node scripts/build-noveltea-cli.mjs",
