@@ -8,6 +8,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import userEvent from '@testing-library/user-event';
 import { RoomEditor } from '@/editors/rooms/RoomEditor';
 import { RoomCollectionVisibility } from '@/editors/rooms/RoomCollectionVisibility';
+import { RoomCollectionCondition } from '@/editors/rooms/RoomCollectionCondition';
 import {
   createAuthoringProject,
   isAuthoringProject,
@@ -183,6 +184,72 @@ describe('RoomEditor', () => {
       expect(parseRoomData(doc.rooms.foyer?.data)?.overlays).toMatchObject([
         { id: 'first', visible: false },
         { id: 'second', visible: false },
+      ]);
+    });
+    expect(native.patch.mock.calls.length).toBeLessThanOrEqual(2);
+  });
+
+  it('retains immediate Overlay condition and visibility edits in one native collection revision', async () => {
+    const project = createAuthoringProject();
+    project.layouts.panel = { id: 'panel', label: 'Panel', data: defaultLayoutData('Panel') };
+    const room = defaultRoomData('Foyer');
+    room.overlays = [
+      {
+        id: 'first',
+        layout: { $ref: { collection: 'layouts', id: 'panel' } },
+        condition: { kind: 'always' },
+        visible: true,
+        order: 0,
+      },
+      {
+        id: 'second',
+        layout: { $ref: { collection: 'layouts', id: 'panel' } },
+        condition: { kind: 'always' },
+        visible: true,
+        order: 1,
+      },
+    ];
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    const native = admitNativeRendererCommandFixture(project);
+    const held = holdFirstNativeProjectPatch();
+    render(
+      <>
+        <label>
+          First visibility
+          <RoomCollectionVisibility
+            roomId="foyer"
+            tabId={tab.id}
+            collection="overlays"
+            items={room.overlays}
+            itemId="first"
+          />
+        </label>
+        <RoomCollectionCondition
+          roomId="foyer"
+          tabId={tab.id}
+          collection="overlays"
+          items={room.overlays}
+          itemId="second"
+          project={project}
+        />
+      </>,
+    );
+    fireEvent.click(screen.getByRole('checkbox', { name: 'First visibility' }));
+    await waitFor(() => expect(held.isHeld()).toBe(true));
+    const condition = screen.getByRole('combobox');
+    await userEvent.setup().click(condition);
+    await userEvent.setup().click(screen.getByRole('option', { name: 'Not' }));
+    expect(screen.getByRole('checkbox', { name: 'First visibility' })).not.toBeChecked();
+    expect(condition).toHaveTextContent('Not');
+    expect(native.patch).not.toHaveBeenCalled();
+    await act(async () => held.release());
+    await waitFor(() => {
+      const doc = useProjectStore.getState().document;
+      expect(isAuthoringProject(doc)).toBe(true);
+      if (!isAuthoringProject(doc)) return;
+      expect(parseRoomData(doc.rooms.foyer?.data)?.overlays).toMatchObject([
+        { id: 'first', visible: false },
+        { id: 'second', condition: { kind: 'not' } },
       ]);
     });
     expect(native.patch.mock.calls.length).toBeLessThanOrEqual(2);

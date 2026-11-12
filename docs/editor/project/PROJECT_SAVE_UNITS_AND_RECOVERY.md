@@ -316,6 +316,17 @@ and paint immediately. Other editors in those sections still rely on native
 acknowledgment and require further #602 migration; the shared semantic item
 planner itself is a correctness layer, not a second optimistic scheduler.
 
+Room Contents conditions for Overlay, Cast, Prop and Environment, and Material
+Applications for Prop and Environment, now join those visibility controls on a
+single `useRoomCollectionItem` optimistic owner-scoped collection binding. The
+recursive condition and Material Application editors render from the latest
+staged collection member and target edits by stable semantic item ID, even
+while native dispatch is blocked. A delayed-native test confirms that a
+condition change on one Overlay and visibility change on another are both
+visible and acknowledged. Environment Material clearing remains disallowed.
+This migration does not imply that all contents IDs, placements, numeric
+geometry, assets, and other nested editor surfaces have completed #602.
+
 The default field operation chooses a narrow native add/replace patch against the **current**
 acknowledged Project. Fields with schema-specific initialization (such as Title Screen) supply
 their existing semantic command instead. Reusable gameplay-record planners handle archetyped

@@ -90,6 +90,8 @@ import {
 } from '@/components/gameplay-commands/GameplayCommandEditor';
 import { RoomEditSurface } from '@/editors/rooms/RoomEditSurface';
 import { RoomCollectionVisibility } from '@/editors/rooms/RoomCollectionVisibility';
+import { RoomCollectionCondition } from '@/editors/rooms/RoomCollectionCondition';
+import { RoomCollectionMaterial } from '@/editors/rooms/RoomCollectionMaterial';
 import { RoomAnchors, RoomNamedCameraViews } from '@/editors/rooms/RoomCameraCollections';
 import { toJsonValue } from '@/project/json-value';
 import { RoomCompositionPane } from '@/editors/rooms/RoomCompositionPane';
@@ -2563,24 +2565,26 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                   ) : null}
                 </div>
               </div>
-              <MaterialApplicationEditor
+              <RoomCollectionMaterial
+                roomId={roomId}
+                tabId={tab.id}
+                collection="props"
+                items={data.props}
+                itemId={occurrence.id}
                 project={project}
-                value={occurrence.materialApplication}
-                expectedRole="engine-2d"
                 properties={roomMaterialProperties}
                 ariaLabel={t('roomEditor.compositionPane.editor.propMaterialAriaLabel', {
                   id: occurrence.id,
                 })}
                 overrideLabel={t('roomEditor.compositionPane.editor.propOverride')}
-                onChange={(materialApplication) =>
-                  replaceProp(occurrence.id, { materialApplication })
-                }
               />
-              <RecursiveConditionEditor
-                value={occurrence.condition}
+              <RoomCollectionCondition
+                roomId={roomId}
+                tabId={tab.id}
+                collection="props"
+                items={data.props}
+                itemId={occurrence.id}
                 project={project}
-                scope={{ currentRoom: true }}
-                onChange={(condition) => replaceProp(occurrence.id, { condition })}
               />
             </div>
           );
@@ -2758,11 +2762,13 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                   </div>
                 ))}
               </div>
-              <RecursiveConditionEditor
-                value={occurrence.condition}
+              <RoomCollectionCondition
+                roomId={roomId}
+                tabId={tab.id}
+                collection="cast"
+                items={data.cast}
+                itemId={occurrence.id}
                 project={project}
-                scope={{ currentRoom: true }}
-                onChange={(condition) => replaceCast(occurrence.id, { condition })}
               />
             </div>
           );
@@ -2858,20 +2864,19 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                   </Select>
                 </div>
               </div>
-              <MaterialApplicationEditor
+              <RoomCollectionMaterial
+                roomId={roomId}
+                tabId={tab.id}
+                collection="environments"
+                items={data.environments}
+                itemId={occurrence.id}
                 project={project}
-                value={occurrence.materialApplication}
-                expectedRole="engine-2d"
                 properties={roomMaterialProperties}
                 ariaLabel={t('roomEditor.compositionPane.editor.environmentMaterialAriaLabel', {
                   id: occurrence.id,
                 })}
                 overrideLabel={t('roomEditor.compositionPane.editor.environmentOverride')}
                 allowClear={false}
-                onChange={(materialApplication) => {
-                  if (materialApplication)
-                    replaceEnvironment(occurrence.id, { materialApplication });
-                }}
               />
               <div className="grid gap-2 @3xl:grid-cols-3">
                 <label className="flex items-center gap-2">
@@ -2976,11 +2981,13 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                   </div>
                 ))}
               </div>
-              <RecursiveConditionEditor
-                value={occurrence.condition}
+              <RoomCollectionCondition
+                roomId={roomId}
+                tabId={tab.id}
+                collection="environments"
+                items={data.environments}
+                itemId={occurrence.id}
                 project={project}
-                scope={{ currentRoom: true }}
-                onChange={(condition) => replaceEnvironment(occurrence.id, { condition })}
               />
             </div>
           );
@@ -3030,11 +3037,13 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                   {t('roomEditor.compositionPane.editor.visible')}
                 </label>
               </div>
-              <RecursiveConditionEditor
-                value={overlay.condition}
+              <RoomCollectionCondition
+                roomId={roomId}
+                tabId={tab.id}
+                collection="overlays"
+                items={data.overlays}
+                itemId={overlay.id}
                 project={project}
-                scope={{ currentRoom: true }}
-                onChange={(condition) => replaceOverlay(overlay.id, { condition })}
               />
             </div>
           );
@@ -4453,11 +4462,13 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                     />
                   </div>
                   <div className="@3xl:col-span-4">
-                    <RecursiveConditionEditor
-                      value={entry.condition}
+                    <RoomCollectionCondition
+                      roomId={roomId}
+                      tabId={tab.id}
+                      collection="cast"
+                      items={data.cast}
+                      itemId={entry.id}
                       project={project}
-                      scope={{ currentRoom: true }}
-                      onChange={(condition) => replaceCast(entry.id, { condition })}
                     />
                   </div>
                 </div>
@@ -4554,26 +4565,28 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                   </div>
                   <div className="space-y-1 @3xl:col-span-4">
                     <Label>Material</Label>
-                    <MaterialApplicationEditor
+                    <RoomCollectionMaterial
+                      roomId={roomId}
+                      tabId={tab.id}
+                      collection="props"
+                      items={data.props}
+                      itemId={entry.id}
                       project={project}
-                      value={entry.materialApplication}
-                      expectedRole="engine-2d"
                       properties={roomMaterialProperties}
                       ariaLabel={t('roomEditor.compositionPane.editor.propMaterialAriaLabel', {
                         id: entry.id,
                       })}
                       overrideLabel={t('roomEditor.compositionPane.editor.propOverride')}
-                      onChange={(materialApplication) =>
-                        replaceProp(entry.id, { materialApplication })
-                      }
                     />
                   </div>
                   <div className="@3xl:col-span-4">
-                    <RecursiveConditionEditor
-                      value={entry.condition}
+                    <RoomCollectionCondition
+                      roomId={roomId}
+                      tabId={tab.id}
+                      collection="props"
+                      items={data.props}
+                      itemId={entry.id}
                       project={project}
-                      scope={{ currentRoom: true }}
-                      onChange={(condition) => replaceProp(entry.id, { condition })}
                     />
                   </div>
                 </div>
@@ -4661,10 +4674,13 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                   </div>
                   <div className="space-y-1 @3xl:col-span-4">
                     <Label>Material</Label>
-                    <MaterialApplicationEditor
+                    <RoomCollectionMaterial
+                      roomId={roomId}
+                      tabId={tab.id}
+                      collection="environments"
+                      items={data.environments}
+                      itemId={entry.id}
                       project={project}
-                      value={entry.materialApplication}
-                      expectedRole="engine-2d"
                       properties={roomMaterialProperties}
                       ariaLabel={t(
                         'roomEditor.compositionPane.editor.environmentMaterialAriaLabel',
@@ -4672,10 +4688,6 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                       )}
                       overrideLabel={t('roomEditor.compositionPane.editor.environmentOverride')}
                       allowClear={false}
-                      onChange={(materialApplication) => {
-                        if (materialApplication)
-                          replaceEnvironment(entry.id, { materialApplication });
-                      }}
                     />
                   </div>
                   <label className="flex items-end gap-2 pb-2">
@@ -4827,11 +4839,13 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                     />
                   </div>
                   <div className="@3xl:col-span-4">
-                    <RecursiveConditionEditor
-                      value={entry.condition}
+                    <RoomCollectionCondition
+                      roomId={roomId}
+                      tabId={tab.id}
+                      collection="environments"
+                      items={data.environments}
+                      itemId={entry.id}
                       project={project}
-                      scope={{ currentRoom: true }}
-                      onChange={(condition) => replaceEnvironment(entry.id, { condition })}
                     />
                   </div>
                 </div>
