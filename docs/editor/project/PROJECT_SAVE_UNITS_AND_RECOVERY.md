@@ -419,6 +419,28 @@ explicit Keep mine), immediate Asset Memory creation/duplication with native
 held, and simultaneous Display/Accessibility edits under a blocked worker.
 This is an automated integration result, not the human Feature Lab gate.
 
+The fresh Linux x64 packaged Electron distribution at **`69eb83560d9c`**
+passed `package`, `package:smoke` (including native addon/CLI, preload,
+production protocols, media, node-pty and security checks), and
+`benchmark:packaged-fields`. The unmodified Project-title typing harness
+typed 20 characters in each case, asserted exact renderer presentation,
+and verified native YAML saved readback after 2–3 patches:
+
+| Simulated native acknowledgment | Input median | Input p95 | Input max | Patch calls | Xvfb idle-frame p95 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 0 ms | 15.57 ms | 27.88 ms | 30.47 ms | 3 | 66.66 ms |
+| 500 ms | 11.32 ms | 15.86 ms | 20.74 ms | 2 | 16.67 ms |
+| 1,000 ms | 9.29 ms | 15.89 ms | 80.73 ms | 2 | 16.67 ms |
+
+Environment: Linux x64, AMD Ryzen 7 5700G, Node 24.18.0,
+Electron 43.1.1, Chromium 150.0.7871.114, Xvfb software display;
+`XDG_SESSION_TYPE=tty`, no interactive physical desktop session. These
+measure next-frame presentation **only for Project title**, not physical
+scan-out nor the new exact-Instance/Property/Settings controls. The
+zero-delay p95 exceeds the 16 ms target amid Xvfb idle-frame stalls.
+The eight human-driven Feature Lab cases, a physical <16 ms measurement,
+and Windows/macOS/Linux desktop-host qualification remain **unaccepted**.
+
 The Linux x64 packaged Electron distribution built from `71e3e703da0b`
 also passed packaged smoke and the existing Project-title typing benchmark.
 The benchmark typed 20 characters per run and verified exact renderer
