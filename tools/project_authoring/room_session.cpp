@@ -4231,6 +4231,55 @@ ProjectSession::resolve_save_units(const std::vector<std::string>& save_unit_ids
     const auto add = [&](const std::string& owner, std::string path) {
         result[owner].push_back(std::move(path));
     };
+    // Exact Interactable Instances live in project.yaml, even when edited by
+    // their Room or Definition. Include only dirty Instance subtrees belonging
+    // to the selected logical owner; never save the whole Manifest as a side
+    // effect of an otherwise independent Room or Definition Save.
+    const auto manifest = source_->snapshot();
+    std::set<std::string> dirty_instance_ids;
+    bool all_instances_dirty = false;
+    constexpr std::string_view prefix = "/interactableInstances/";
+    for (const auto& patch : manifest.dirty_patches) {
+        if (patch.path == "/interactableInstances")
+            all_instances_dirty = true;
+        else if (patch.path.starts_with(prefix)) {
+            const auto member = std::string_view(patch.path).substr(prefix.size());
+            dirty_instance_ids.insert(parse_pointer_token(member.substr(0, member.find('/'))));
+        }
+    }
+    std::optional<Json> working_manifest;
+    std::optional<Json> baseline_manifest;
+    if (all_instances_dirty || !dirty_instance_ids.empty()) {
+        working_manifest = Json::parse(manifest.source_json);
+        baseline_manifest = Json::parse(manifest.baseline_json);
+        if (all_instances_dirty) {
+            for (const auto* source : {&*working_manifest, &*baseline_manifest}) {
+                if (source->contains("interactableInstances"))
+                    for (const auto& entry : source->at("interactableInstances").object_range())
+                        dirty_instance_ids.insert(std::string(entry.key()));
+            }
+        }
+    }
+    const auto instance_matches_owner = [&](const Json& source, std::string_view instance_id,
+                                            std::string_view family, std::string_view owner_id) {
+        if (!source.is_object() || !source.contains("interactableInstances"))
+            return false;
+        const auto& instances = source.at("interactableInstances");
+        if (!instances.is_object() || !instances.contains(std::string(instance_id)))
+            return false;
+        const auto& instance = instances.at(std::string(instance_id));
+        if (!instance.is_object())
+            return false;
+        if (family == "interactables")
+            return instance.contains("definition") &&
+                   instance.at("definition").at("$ref").at("id") == owner_id;
+        if (family == "rooms" && instance.contains("location")) {
+            const auto& location = instance.at("location");
+            return location.is_object() && location.at("kind") == "room" &&
+                   location.at("room").at("$ref").at("id") == owner_id;
+        }
+        return false;
+    };
     for (const auto& unit : save_unit_ids) {
         if (unit.starts_with("record:")) {
             const auto separator = unit.find(':', sizeof("record:") - 1);
@@ -4243,6 +4292,14 @@ ProjectSession::resolve_save_units(const std::vector<std::string>& save_unit_ids
                 throw std::runtime_error("Invalid native record Save unit.");
             add(family + "/" + id, "/");
             add("editor", "/recordMetadata/" + family + "/" + id);
+            if (!dirty_instance_ids.empty() && (family == "rooms" || family == "interactables")) {
+                for (const auto& instance_id : dirty_instance_ids) {
+                    const auto pointer = "/interactableInstances/" + pointer_token(instance_id);
+                    if (instance_matches_owner(*working_manifest, instance_id, family, id) ||
+                        instance_matches_owner(*baseline_manifest, instance_id, family, id))
+                        add("project", pointer);
+                }
+            }
         } else if (unit.starts_with("collection:")) {
             const auto family = unit.substr(sizeof("collection:") - 1);
             if (family != "assets" && family != "materials" && family != "tests" &&

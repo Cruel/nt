@@ -344,4 +344,265 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
       await rm(root, { recursive: true, force: true });
     }
   }, 120_000);
+
+  it('rejects an intervening second external YAML edit after conflict review, preserving the local Save for a new review', async () => {
+    const root = await disposableProject();
+    const sessions = new ActiveProjectSessionService();
+    let controller = nativeHarness(sessions);
+    try {
+      const { id, revision } = await admit(root, sessions, controller);
+      const first = await controller.applyRevisionedPatches(id, revision, [
+        { op: 'replace', path: `/rooms/${roomA}/data/displayName`, value: 'My reviewed value' },
+      ]);
+      expect(first.accepted, first.error).toBe(true);
+      const original = await roomBytes(root, roomA);
+      const firstExternal = original.replace(
+        'displayName: Active Text',
+        'displayName: First external',
+      );
+      const filename = path.join(root, `records/rooms/${roomA}.yaml`);
+      await writeFile(filename, firstExternal);
+      const reconciled = await controller.reconcile(
+        id,
+        first.snapshot.workingRevision,
+        `rooms/${roomA}`,
+      );
+      expect(reconciled.accepted, reconciled.error).toBe(true);
+
+      // The review applied to First external only. A second disk writer must
+      // invalidate the Keep Mine precondition instead of being overwritten.
+      const secondExternal = firstExternal.replace(
+        'displayName: First external',
+        'displayName: Second external',
+      );
+      await writeFile(filename, secondExternal);
+      const staleSave = await controller.saveUnit(
+        id,
+        controller.currentRevision(id),
+        `record:rooms:${roomA}`,
+        { keepMine: true },
+      );
+      expect(staleSave.accepted).toBe(false);
+      expect(await roomBytes(root, roomA)).toBe(secondExternal);
+      expect((await controller.currentWorkingProject(id)).rooms[roomA]?.data.displayName).toBe(
+        'My reviewed value',
+      );
+
+      const reviewedAgain = await controller.reconcile(
+        id,
+        controller.currentRevision(id),
+        `rooms/${roomA}`,
+      );
+      expect(reviewedAgain.accepted, reviewedAgain.error).toBe(true);
+      const committed = await controller.saveUnit(
+        id,
+        controller.currentRevision(id),
+        `record:rooms:${roomA}`,
+        { keepMine: true },
+      );
+      expect(committed.accepted, committed.error).toBe(true);
+      expect(await roomBytes(root, roomA)).toContain('My reviewed value');
+      controller.dispose();
+      sessions.closeActiveProject();
+      controller = nativeHarness(sessions);
+      const reopened = await admit(root, sessions, controller);
+      expect(
+        (await controller.currentWorkingProject(reopened.id)).rooms[roomA]?.data.displayName,
+      ).toBe('My reviewed value');
+    } finally {
+      controller.dispose();
+      sessions.dispose();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it('keeps export on verified saved sources while native edits are dirty and admits the newly saved bytes afterward', async () => {
+    const root = await disposableProject();
+    const sessions = new ActiveProjectSessionService();
+    const controller = nativeHarness(sessions);
+    try {
+      const { id, revision } = await admit(root, sessions, controller);
+      const original = await roomBytes(root, roomA);
+      const patched = await controller.applyRevisionedPatches(id, revision, [
+        { op: 'replace', path: `/rooms/${roomA}/data/displayName`, value: 'Saved export only' },
+      ]);
+      expect(patched.accepted, patched.error).toBe(true);
+      expect((await controller.currentWorkingProject(id)).rooms[roomA]?.data.displayName).toBe(
+        'Saved export only',
+      );
+      await expect(controller.prepareCleanExportAdmission(id)).rejects.toThrow(
+        'Save or resolve all dirty Project and source files before exporting.',
+      );
+      expect(await roomBytes(root, roomA)).toBe(original);
+      const saved = await controller.saveUnit(
+        id,
+        patched.snapshot.workingRevision,
+        `record:rooms:${roomA}`,
+        {},
+      );
+      expect(saved.accepted, saved.error).toBe(true);
+      const admission = await controller.prepareCleanExportAdmission(id);
+      expect(admission.project.rooms[roomA]?.data.displayName).toBe('Saved export only');
+      expect(admission.sourceRevisions['records/rooms/active-text.yaml']).toMatch(
+        /^xxh3-128:[a-f0-9]{32}$/u,
+      );
+      expect(await roomBytes(root, roomA)).toContain('Saved export only');
+    } finally {
+      controller.dispose();
+      sessions.dispose();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it('saves an exact Room-owned Interactable Instance field through native physical project.yaml and cold reopening', async () => {
+    const root = await disposableProject();
+    const sessions = new ActiveProjectSessionService();
+    let controller = nativeHarness(sessions);
+    try {
+      const { id, revision } = await admit(root, sessions, controller);
+      const original = await readFile(path.join(root, 'project.yaml'), 'utf8');
+      const changed = await controller.applyRevisionedPatches(id, revision, [
+        {
+          op: 'add',
+          path: '/interactableInstances/rule-exact-target/editorLabel',
+          value: 'Inspected Instance',
+        },
+      ]);
+      expect(changed.accepted, changed.error).toBe(true);
+      expect(
+        (await controller.currentWorkingProject(id)).interactableInstances['rule-exact-target']
+          ?.editorLabel,
+      ).toBe('Inspected Instance');
+      expect(await readFile(path.join(root, 'project.yaml'), 'utf8')).toBe(original);
+      const saved = await controller.saveUnit(
+        id,
+        changed.snapshot.workingRevision,
+        'record:rooms:interaction-rules',
+        {},
+      );
+      expect(saved.accepted, saved.error).toBe(true);
+      expect(await readFile(path.join(root, 'project.yaml'), 'utf8')).not.toBe(original);
+      controller.dispose();
+      sessions.closeActiveProject();
+      controller = nativeHarness(sessions);
+      const reopened = await admit(root, sessions, controller);
+      expect(
+        (await controller.currentWorkingProject(reopened.id)).interactableInstances[
+          'rule-exact-target'
+        ]?.editorLabel,
+      ).toBe('Inspected Instance');
+    } finally {
+      controller.dispose();
+      sessions.dispose();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it('persists only the selected exact Instance, leaving another Room Instance dirty and recoverable', async () => {
+    const root = await disposableProject();
+    const sessions = new ActiveProjectSessionService();
+    let controller = nativeHarness(sessions);
+    try {
+      const { id, revision } = await admit(root, sessions, controller);
+      const original = await readFile(path.join(root, 'project.yaml'), 'utf8');
+      const first = await controller.applyRevisionedPatches(id, revision, [
+        {
+          op: 'add',
+          path: '/interactableInstances/rule-exact-target/editorLabel',
+          value: 'Scoped Room Instance',
+        },
+      ]);
+      expect(first.accepted, first.error).toBe(true);
+      const other = await controller.applyRevisionedPatches(id, first.snapshot.workingRevision, [
+        {
+          op: 'add',
+          path: '/interactableInstances/alpha-board/editorLabel',
+          value: 'Pending Alpha Instance',
+        },
+      ]);
+      expect(other.accepted, other.error).toBe(true);
+      const saved = await controller.saveUnit(
+        id,
+        other.snapshot.workingRevision,
+        'record:rooms:interaction-rules',
+        {},
+      );
+      expect(saved.accepted, saved.error).toBe(true);
+      const disk = await readFile(path.join(root, 'project.yaml'), 'utf8');
+      expect(disk).not.toBe(original);
+      expect(disk).toContain('Scoped Room Instance');
+      expect(disk).not.toContain('Pending Alpha Instance');
+      expect(
+        (await controller.currentWorkingProject(id)).interactableInstances['alpha-board']
+          ?.editorLabel,
+      ).toBe('Pending Alpha Instance');
+      controller.dispose();
+      sessions.closeActiveProject();
+      controller = nativeHarness(sessions);
+      const reopened = await admit(root, sessions, controller);
+      expect(
+        (await controller.currentWorkingProject(reopened.id)).interactableInstances['alpha-board']
+          ?.editorLabel,
+      ).toBe('Pending Alpha Instance');
+      expect(await readFile(path.join(root, 'project.yaml'), 'utf8')).toBe(disk);
+      const final = await controller.saveUnit(
+        reopened.id,
+        reopened.revision,
+        'record:rooms:hotspots-and-cursors',
+        {},
+      );
+      expect(final.accepted, final.error).toBe(true);
+      expect(await readFile(path.join(root, 'project.yaml'), 'utf8')).toContain(
+        'Pending Alpha Instance',
+      );
+    } finally {
+      controller.dispose();
+      sessions.dispose();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it('saves a Definition-owned exact Instance through its Interactable Save unit without committing a dirty Room', async () => {
+    const root = await disposableProject();
+    const sessions = new ActiveProjectSessionService();
+    const controller = nativeHarness(sessions);
+    try {
+      const { id, revision } = await admit(root, sessions, controller);
+      const originalRoom = await roomBytes(root, roomB);
+      const room = await controller.applyRevisionedPatches(id, revision, [
+        {
+          op: 'replace',
+          path: `/rooms/${roomB}/data/displayName`,
+          value: 'Unrelated pending Room',
+        },
+      ]);
+      expect(room.accepted, room.error).toBe(true);
+      const instance = await controller.applyRevisionedPatches(id, room.snapshot.workingRevision, [
+        {
+          op: 'add',
+          path: '/interactableInstances/rule-exact-target/editorLabel',
+          value: 'Definition Instance',
+        },
+      ]);
+      expect(instance.accepted, instance.error).toBe(true);
+      const saved = await controller.saveUnit(
+        id,
+        instance.snapshot.workingRevision,
+        'record:interactables:lab-command-target',
+        {},
+      );
+      expect(saved.accepted, saved.error).toBe(true);
+      expect(await readFile(path.join(root, 'project.yaml'), 'utf8')).toContain(
+        'Definition Instance',
+      );
+      expect(await roomBytes(root, roomB)).toBe(originalRoom);
+      expect((await controller.currentWorkingProject(id)).rooms[roomB]?.data.displayName).toBe(
+        'Unrelated pending Room',
+      );
+    } finally {
+      controller.dispose();
+      sessions.dispose();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 120_000);
 });

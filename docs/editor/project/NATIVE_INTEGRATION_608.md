@@ -54,6 +54,23 @@ claimed here; the packaged/host certification belongs to #609.
   retain their original correct Save units, and no dangling field draft remains.
   This is deterministic renderer/native-ack simulation, not physical native
   Instance YAML readback.
+- Discovered and repaired a **native Save correctness defect**: an exact
+  Interactable Instance could be edited and acknowledged in the native working
+  Project, but `record:rooms:<id>` or `record:interactables:<id>` Save reported
+  success without writing the dirty Instance to `project.yaml`. The native
+  resolver previously selected only its record YAML plus editor metadata.
+  `tools/project_authoring/room_session.cpp` now resolves dirty exact Instance
+  subtrees to their physical Manifest source for matching Room location or
+  Definition, preserving independent per-Instance paths rather than selecting
+  the whole Project. The resolver indexes **only dirty Instance IDs**; it does
+  not iterate every Instance against every patch when saving ordinary records.
+  Three new real-addon regressions verify physical project.yaml and native
+  restart for Room Save, two independent Rooms' Instance isolation/recovery,
+  and Definition Save alongside a separately dirty Room.
+- Two more native/disk tests confirm that an intervening **second external
+  mutation** invalidates the earlier reviewed Keep Mine precondition and that
+  a dirty Project cannot pass clean export admission; after the exact owner is
+  saved, clean export admission includes the new verified native source bytes.
 - The earlier deterministic coordinator fixture holds **native IPC acknowledgment** but uses a controlled
   in-memory native response and projects `savedDocument`/`document`. Its proof
   is exact Save-unit and ordering behavior, **not** that physical native YAML
@@ -75,8 +92,17 @@ claimed here; the packaged/host certification belongs to #609.
 - `pnpm -C editor run noveltea:certify:native-production-unit`: **23/23 passed**;
   this proves production contract qualification checks, not a packaged GUI
   run or full native CLI integration qualification.
-- No full-suite result is claimed **after** the second batch of tests; rerun
-  the full suite for #608 closure. Do not close #608 based on partial gates.
+- Following the native Instance Save fix and rebuilt addon (Linux x86_64,
+  SHA-256 `23c23f53dd2faf0dbfb21c921b03d1a41e86746d2d4ec7362f715230aa053d18`):
+  all **10/10** physical Save/disk/recovery integration tests passed;
+  `native_authoring_project_session` and `native_authoring_interactable_inventory`
+  native CTest cases passed (**2/2**).
+- Full addon-backed editor suite **after the native C++ fix and all new tests**:
+  **311 test files, 2,366 tests passed; 9 files / 94 tests skipped**. An earlier
+  full run had one non-reproduced `native-field-drafts.test.tsx` headless Select
+  option query failure (`Overscan`); its isolated retry passed, followed by
+  the full clean suite. This does not qualify the still-open integrated
+  lifecycle scenarios or physical packaged editor UI.
 
 ## Eight required integrated workflows
 
@@ -89,10 +115,10 @@ test is not automatically credit for full integrated native certification.
 | 1 | Active owner Save with another pending owner: stale Save or collateral dirty clearance | `project-save-coordinator.test.ts` scoped Save and dependent-owner tests; `native-field-drafts.test.tsx` field coalescer | **New addon/disk pass:** 500/1,000-ms held-IPC selective flush; actual Room/Scene/Dialogue native owner-scoped YAML Save and cold recovery of independent owner. **Still needed:** combined physical UI/renderer IPC seam under hold |
 | 2 | Save All partial failure/retry: failed native patch or Save falsely marks owners clean or loses recoverable text | `project-save-coordinator.test.ts` pending-field exclusion, native refusal, all-owner atomic Save and invalid raw inputs | **New addon/disk pass:** mixed-owner Save fails atomically on real external conflict; reconcile + Keep Mine persists both; Use Disk preserves unrelated unsaved owner. **Still needed:** rejected native flush and separate physical Save failure with local draft/retry |
 | 3 | Save As/copy/restart: old Project overwritten, pending drafts silently committed or copied incompletely | `project-save-coordinator.test.ts` baseline-plus-recovery copy, pending number and unmounted draft; `native-dirty-recovery.test.ts` checkpoint identity | **New addon/disk pass:** `native-project-copy-service.test.ts` reopens the physical copy with two independently dirty native owners and an unacknowledged field draft; saving in the copy does not affect original physical YAML; original reopens with its native recovery intact. Existing destination-scoped journal and stale-copy refusal also pass. **Still needed:** pending invalid numeric input coupled with source text and physical copy, lifecycle cancellation/in-flight race |
-| 4 | Shared exact Instance: stale old owner dispatch, close while queued, dropped new owner intent | `exact-instance-drafts.test.tsx` ownership transfer, queued replanning, overlap and failed recovery; `dirty-close-dialog.test.tsx` duplicate-close behavior | **New deterministic pass:** close Definition view while its native patch is dispatched and Room's newer exact-pointer draft is pending; correct history owners and latest Room value. **Still needed:** physical native Instance YAML, Save and cold recovery after cross-owner tab close |
+| 4 | Shared exact Instance: stale old owner dispatch, close while queued, dropped new owner intent | `exact-instance-drafts.test.tsx` ownership transfer, queued replanning, overlap and failed recovery; `dirty-close-dialog.test.tsx` duplicate-close behavior | **Native defect fixed:** exact Room/Definition Save now includes matching dirty Instance subpaths in physical project.yaml; Room and Definition physical Save, cross-Room isolation and cold recovery pass. **Deterministic pass:** close Definition during dispatched patch; Room retains latest intent. **Still needed:** combine real native IPC and UI tab close in one physical end-to-end case; cross-owner source attribution when current Room relationship is not the Instance location |
 | 5 | Undo/Redo plus structural operations: stale text resurrected or wrong unit saved after create/delete/move | `native-field-drafts.test.tsx` field generations and Undo/Redo; `project-save-coordinator.test.ts` atomic closures; `project-explorer.test.tsx` structural controls | **Partial:** integrate pending field + structural move/delete + Undo/Redo + Save with a real native source round trip and persisted readback |
-| 6 | External edit and cold restart: disjoint changes fail to rebase, overlapping field silently overwrites disk | `project-external-reconciliation.test.ts`, `project-save-coordinator.test.ts` Use Disk/Keep Mine and CAS, `exact-instance-drafts.test.tsx` recovery | **New addon/disk pass:** external disjoint YAML reconciliation; physical same-pointer overlap, failed atomic Save, explicit Keep Mine and Use Disk, independent owner isolation and cold reopen. **Still needed:** second intervening external edit and cold recovery of unresolved conflict |
-| 7 | Close/reload/preview/test/validation/export: unsaved data dropped, preview/export consumes stale source or native error ignored | `dirty-close-dialog.test.tsx`, `native-editor-session-controller.test.ts`, preview/asset export suites and recovery tests | **Partial:** integrated dirty-state entrance/exit and native worker failure paths, never using headless preview as physical UI qualification |
+| 6 | External edit and cold restart: disjoint changes fail to rebase, overlapping field silently overwrites disk | `project-external-reconciliation.test.ts`, `project-save-coordinator.test.ts` Use Disk/Keep Mine and CAS, `exact-instance-drafts.test.tsx` recovery | **New addon/disk pass:** external disjoint YAML reconciliation; physical same-pointer overlap, failed atomic Save, explicit Keep Mine and Use Disk, independent owner isolation and cold reopen; **second intervening external edit** rejects stale reviewed Keep Mine and requires new review. **Still needed:** cold recovery with an *unresolved* conflicting edit |
+| 7 | Close/reload/preview/test/validation/export: unsaved data dropped, preview/export consumes stale source or native error ignored | `dirty-close-dialog.test.tsx`, `native-editor-session-controller.test.ts`, preview/asset export suites and recovery tests | **New addon/disk pass:** clean export admission rejects dirty working source, then admits only a verified saved source; physical Session close/reopen preserves unsaved content. **Still needed:** integrated Preview/Test entry, validation under pending drafts, worker crash and renderer reload with staged text |
 | 8 | Stale session/revision: old Project acknowledgment corrupts a newly opened Project | `native-editor-session-controller.test.ts` stale response/admission guards; `native-field-drafts.test.tsx` Project-instance isolation | **Partial:** carry real deferred old-session acknowledgment across Project reopen/Save and inspect both working and persisted sources |
 
 ## Initial integration finding
