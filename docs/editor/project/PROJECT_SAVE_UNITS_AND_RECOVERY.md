@@ -180,6 +180,28 @@ display scheduling, since later cases still had long maximum input samples.
 No release latency pass or paired baseline is asserted. The explicit
 benchmark profile is isolated from the normal appData/userData directory.
 
+The next #602 migration increment, `99ae37c4`, produced a fresh Linux x64
+unpacked Electron package with the new Room camera, Character initial-state and
+Project transition field adapters. Its packaged smoke suite passed. The
+unmodified packaged **Project-title** typing harness passed for 20 insertions
+per delay, with exact visible text and saved `project.yaml` readback:
+
+| Simulated acknowledgment | Input median | Input p95 | Input max | Native patch calls | Idle-frame p95 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 0 ms | 14.51 ms | 32.31 ms | 138.76 ms | 3 | 83.34 ms |
+| 500 ms | 8.78 ms | 15.76 ms | 74.07 ms | 2 | 16.67 ms |
+| 1,000 ms | 10.26 ms | 15.41 ms | 61.31 ms | 2 | 16.67 ms |
+
+Host: AMD Ryzen 7 5700G, Node 24.18.0, Electron 43.1.1, Chromium
+150.0.7871.114, Linux Xvfb software display. These numbers exercise the
+existing Project-title path in the **new package**, not separate packaged
+input traces for every newly migrated camera/state control; those were covered
+by delayed-native React/component tests instead. The p95 does not uniformly
+meet 16 ms, especially when idle Xvfb frame pacing degrades; this neither
+establishes physical scanout latency nor passes the required human Feature Lab
+matrix on Windows/Linux/macOS. #602 and #522 remain open for those gates and
+the remaining legacy form/list/geometry editor surfaces.
+
 All migrated renderer content mutations enter through `commands/project-editing.ts`:
 `projectEdits.execute(request)` for semantic/structural commands, `projectEdits.batch(...)`
 for transactions, and `projectEdits.field(intent)` for high-frequency field edits. This
