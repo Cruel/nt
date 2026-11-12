@@ -14,7 +14,10 @@ import { resolveSaveUnitForTab } from '@/project/save-unit-registry';
 import { usePendingInputStore } from '@/workbench/pending-input-store';
 import type { CommandExecutionResult } from './command-types';
 import { measureProjectEdit } from './project-edit-timings';
-import { resolveProjectFieldIdentity } from './project-field-identity';
+import {
+  resolveProjectFieldIdentity,
+  resolveExactInstanceFieldIdentity,
+} from './project-field-identity';
 import { NATIVE_FIELD_DRAFT_SCHEMA } from './native-field-recovery-schema';
 export { NATIVE_FIELD_DRAFT_SCHEMA } from './native-field-recovery-schema';
 
@@ -156,12 +159,15 @@ export function unresolvedNativeFieldOwners(): {
         !project.projectInstanceId
       )
         throw new Error('Invalid native field identity.');
-      resolveProjectFieldIdentity({
+      const identity = {
         projectSessionId: project.projectSessionId,
         projectInstanceId: project.projectInstanceId,
         saveUnitId: decoded[0],
         path: decoded[1],
-      });
+      };
+      if (decoded[1].startsWith('/interactableInstances/'))
+        resolveExactInstanceFieldIdentity(identity, project.document);
+      else resolveProjectFieldIdentity(identity);
       saveUnitIds.add(decoded[0]);
     } catch {
       unattributed = true;
@@ -266,6 +272,8 @@ export function stageNativeField(
   const key = nativeFieldKey(input.projectSessionId, input.projectInstanceId, input.path);
   if (!sameProject(input)) return;
   const existing = useNativeFieldDraftStore.getState().entries[key];
+  if (existing && existing.saveUnitId !== input.saveUnitId)
+    throw new Error('An exact field already has a pending edit owned by another Save unit.');
   if (existing && jsonValuesEqual(existing.value, input.value) && !existing.error) return;
   const base = existing?.base ?? input.restoredBase ?? fieldBase(input.path);
   // The acknowledged Project is immutable within a revision. In the normal

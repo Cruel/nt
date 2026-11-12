@@ -68,6 +68,8 @@ import {
   type OwnerPropertyTraitState,
 } from '@/components/properties/OwnerLocalPropertiesEditor';
 import { InteractableInstancePropertiesEditor } from '@/components/properties/InteractablePropertyEditors';
+import { ExactInstanceDrafts } from '@/components/properties/ExactInstanceDrafts';
+import { RecordPropertyArrayDrafts } from '@/components/properties/RecordPropertyArrayDrafts';
 import { HotspotAuthoringPanel } from '@/components/hotspots/HotspotAuthoringPanel';
 import {
   HotspotFocusWorkspace,
@@ -2449,15 +2451,25 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                 }
               />
               {instance ? (
-                <InteractableInstancePropertiesEditor
-                  compact
-                  project={project}
+                <ExactInstanceDrafts
                   instanceId={occurrence.interactable.$ref.id}
                   instance={instance}
-                  onChange={(next, change) =>
+                  owner={{ collection: 'rooms', id: roomId }}
+                  tabId={tab.id}
+                  onAtomicRename={(next, change) =>
                     commitInteractableInstance(occurrence.interactable.$ref.id, next, change)
                   }
-                />
+                >
+                  {(current, update) => (
+                    <InteractableInstancePropertiesEditor
+                      compact
+                      project={project}
+                      instanceId={occurrence.interactable.$ref.id}
+                      instance={current}
+                      onChange={update}
+                    />
+                  )}
+                </ExactInstanceDrafts>
               ) : null}
             </div>
           );
@@ -3513,44 +3525,57 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
         ) : null}
 
         {activeCategory === 'properties' ? (
-          <OwnerLocalPropertiesEditor
-            ownerLabel={`Room '${record.label}'`}
+          <RecordPropertyArrayDrafts
+            collection="rooms"
+            recordId={roomId}
+            tabId={tab.id}
+            fieldName="localProperties"
             properties={record.localProperties ?? []}
-            onChange={commitLocalProperties}
-            traits={project.traits}
-            ownerKind="room"
-            attachedTraits={effectiveRecord?.traits ?? record.traits ?? []}
-            inheritedTraits={inheritedPropertyConfiguration?.traits ?? []}
-            inheritedProperties={(inheritedPropertyConfiguration?.defaultProperties ?? []).map(
-              (property) => ({
-                property,
-                sourceLabel: record.archetype
-                  ? (project.archetypes[record.archetype.$ref.id]?.label ?? 'Archetype')
-                  : 'Archetype',
-              }),
+          >
+            {(properties, changeProperties) => (
+              <OwnerLocalPropertiesEditor
+                ownerLabel={`Room '${record.label}'`}
+                properties={properties}
+                onChange={(next, change) =>
+                  change ? commitLocalProperties(next, change) : changeProperties(next)
+                }
+                traits={project.traits}
+                ownerKind="room"
+                attachedTraits={effectiveRecord?.traits ?? record.traits ?? []}
+                inheritedTraits={inheritedPropertyConfiguration?.traits ?? []}
+                inheritedProperties={(inheritedPropertyConfiguration?.defaultProperties ?? []).map(
+                  (property) => ({
+                    property,
+                    sourceLabel: record.archetype
+                      ? (project.archetypes[record.archetype.$ref.id]?.label ?? 'Archetype')
+                      : 'Archetype',
+                  }),
+                )}
+                traitColorFor={(traitId) =>
+                  project.editor.recordMetadata.traits?.[traitId]?.color ?? null
+                }
+                onTraitStateChange={commitPropertyTraitState}
+                usageCountFor={(propertyId) =>
+                  ownerLocalPropertyReferences(project, { kind: 'room', id: roomId }, propertyId)
+                    .length
+                }
+                onShowUsages={(propertyId) => {
+                  const usages = ownerLocalPropertyReferences(
+                    project,
+                    { kind: 'room', id: roomId },
+                    propertyId,
+                  );
+                  setUsages(
+                    { collection: 'rooms', id: roomId },
+                    usages,
+                    `room/${roomId} · ${propertyId}`,
+                  );
+                  setActiveBottomPanel('references');
+                }}
+                anchor="room.properties"
+              />
             )}
-            traitColorFor={(traitId) =>
-              project.editor.recordMetadata.traits?.[traitId]?.color ?? null
-            }
-            onTraitStateChange={commitPropertyTraitState}
-            usageCountFor={(propertyId) =>
-              ownerLocalPropertyReferences(project, { kind: 'room', id: roomId }, propertyId).length
-            }
-            onShowUsages={(propertyId) => {
-              const usages = ownerLocalPropertyReferences(
-                project,
-                { kind: 'room', id: roomId },
-                propertyId,
-              );
-              setUsages(
-                { collection: 'rooms', id: roomId },
-                usages,
-                `room/${roomId} · ${propertyId}`,
-              );
-              setActiveBottomPanel('references');
-            }}
-            anchor="room.properties"
-          />
+          </RecordPropertyArrayDrafts>
         ) : null}
 
         {activeCategory === 'hotspots' ? (

@@ -891,7 +891,9 @@ describe('ProjectSettingsEditor', () => {
       });
     });
 
-    expect(screen.getByLabelText('Quantity for credits')).toHaveValue(4);
+    // The shared numeric draft retains exact editing text, unlike a native
+    // number input which normalizes intermediate representations.
+    expect(screen.getByLabelText('Quantity for credits')).toHaveValue('4');
     fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
     await waitFor(() =>
       expect(useProjectStore.getState().document).toMatchObject({

@@ -352,17 +352,42 @@ Dedicated blocked-native UI regressions verify immediate Character Inventory
 and pose changes, Room exit edits, and Interactable Definition Inventory and
 Feature changes, followed by native acknowledgment and readback.
 
-**Exceptions still requiring certification:** Exact Interactable Instance
-properties, location and quantity reside in the infrastructure-owned
-`/interactableInstances` registry, not under any one Definition's record
-Save unit. Their embedded owner-specific commands must not be replaced
-with a falsely attributed scalar `recordField` draft. Room geometry/drag,
-hotspot semantic edits and source editors also retain their own atomic
-interaction or source-buffer contracts. These surfaces need explicit
-owner-correct optimistic editing or documented interactive acceptance,
-including the shared Save/Undo/recovery/worker-failure and external-conflict
-matrix. Native-addon and Xvfb-package smoke tests are insufficient to
-certify physical desktop input latency or the eight human Feature Lab cases.
+The next #602 Property Manager and exact-Instance pass gives Room and Character
+local Property collections, and Interactable Definition Property Defaults,
+the same owner-scoped field projection. Property row creation, deletion and
+ordinary schema/value updates publish immediately, while reference-remapping
+Property renames and multi-path Trait changes retain their atomic semantic
+commands. The Property Manager dialog itself still owns unsubmitted form text;
+only accepted edits become native field intents.
+
+Exact Interactable Instance Property, Trait, Feature Override and Material
+collections now use separate field drafts under their exact
+`/interactableInstances/<id>` paths, without replacing a stale whole Instance
+on every change. Definition Instance labels and quantities are buffered too;
+Project Settings starting-Inventory quantities and removals use the same
+native scheduler. The scoped identity resolver **does not** extend ordinary
+`fieldSaveUnitForPath` to this infrastructure registry. It verifies the actual
+presenting owner: the Instance's Definition record, a Room whose composition
+references that exact Instance, or Project Settings for quantities/locations
+inside its starting Inventory. Owner-specific serialized recovery validation
+uses the same identity check. Another Save unit cannot silently take over an
+existing in-flight draft of the same exact path. Identity changes and
+Property-reference rewrites remain coordinated atomic commands, not scalar
+drafts. Test fixtures hold the first native acknowledgment while two distinct
+fields or owners are edited; the overlay and latest native readback remain
+correct, and clearing an optional Instance label leaves its quantity intact.
+
+**Still requiring #602 certification:** Exact-Instance cross-owner concurrent
+edit handling needs explicit conflict UX beyond its current fail-closed owner
+guard. Room geometry/drag, hotspot semantic edits and source editors retain
+their respective atomic interaction/source-buffer contracts; the remaining
+Project Settings, Character, asset and other nested editor controls still
+need a complete field-by-field audit and interactive acceptance. The Save,
+Undo/recovery, worker-failure and external-conflict matrix must be exercised
+for the newly migrated Property and Instance surfaces. Native-addon and
+Xvfb-packaged smoke tests alone cannot certify physical desktop input latency
+or the eight human Feature Lab cases. Neither #602 nor #522 may close based
+solely on the automated tests reported here.
 
 The Linux x64 packaged Electron distribution built from `71e3e703da0b`
 also passed packaged smoke and the existing Project-title typing benchmark.

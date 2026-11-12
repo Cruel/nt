@@ -35,6 +35,7 @@ interface NativeFieldOptions<T extends JsonValue> {
   value: T;
   label: string;
   buildCommand?: (next: T) => CommandRequest;
+  scope?: 'exact-instance';
 }
 
 /** Stable control-facing contract. Native command acknowledgments, not the
@@ -63,6 +64,7 @@ export function useProjectField<T extends JsonValue>({
   value,
   label,
   buildCommand,
+  scope,
 }: NativeFieldOptions<T>): ProjectFieldController<T> {
   const projectSessionId = useProjectStore((state) => state.projectSessionId);
   const projectInstanceId = useProjectStore((state) => state.projectInstanceId);
@@ -78,8 +80,8 @@ export function useProjectField<T extends JsonValue>({
   const hydratedKey = useRef<string | null>(null);
   // Inline buildCommand closures and labels can change on every parent render;
   // keep the input handler stable while always submitting the latest options.
-  const intentRef = useRef({ tabId, saveUnitId, path, label, buildCommand });
-  intentRef.current = { tabId, saveUnitId, path, label, buildCommand };
+  const intentRef = useRef({ tabId, saveUnitId, path, label, buildCommand, scope });
+  intentRef.current = { tabId, saveUnitId, path, label, buildCommand, scope };
   const change = useCallback(
     (next: T) => {
       if (!projectSessionId || !projectInstanceId) return;
@@ -106,6 +108,7 @@ export function useProjectField<T extends JsonValue>({
       restoredBase: restored.base,
       label,
       buildCommand,
+      scope,
     });
   }, [
     key,
@@ -118,6 +121,7 @@ export function useProjectField<T extends JsonValue>({
     path,
     label,
     buildCommand,
+    scope,
   ]);
 
   const inputSequence = entry?.sequence;
@@ -207,10 +211,11 @@ export function ProjectFieldInput({
   value,
   label,
   buildCommand,
+  scope,
   onBlur,
   ...inputProps
 }: ProjectFieldInputProps) {
-  const draft = useProjectField({ tabId, saveUnitId, path, value, label, buildCommand });
+  const draft = useProjectField({ tabId, saveUnitId, path, value, label, buildCommand, scope });
   return (
     <>
       <Input
@@ -345,12 +350,13 @@ export function ProjectFieldNumber({
   value,
   label,
   buildCommand,
+  scope,
   mode = 'integer',
   optional = false,
   onBlur,
   ...props
 }: ProjectFieldNumberProps) {
-  const draft = useProjectField({ tabId, saveUnitId, path, value, label, buildCommand });
+  const draft = useProjectField({ tabId, saveUnitId, path, value, label, buildCommand, scope });
   const pending = usePendingInputStore((state) => selectPendingInput(state, saveUnitId, path));
   // A valid numeric value does not imply that its exact in-progress text can be
   // reconstructed (1.0, +1, 01 and 2. must remain intact while editing).

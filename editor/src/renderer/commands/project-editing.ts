@@ -36,7 +36,10 @@ import { gameplayRecordDescriptors, type GameplayRecordRef } from './gameplay-re
 import { useProjectStore } from '@/project/project-store';
 import { useDraftDirtyStore } from '@/workbench/draft-dirty-store';
 import { NATIVE_FIELD_DRAFT_SCHEMA } from './native-field-drafts';
-import { resolveProjectFieldIdentity } from './project-field-identity';
+import {
+  resolveProjectFieldIdentity,
+  resolveExactInstanceFieldIdentity,
+} from './project-field-identity';
 import {
   applySemanticCollectionOperation,
   applySemanticItemPatch,
@@ -61,6 +64,8 @@ export interface ProjectFieldIntent<T extends JsonValue> {
   value: T;
   label: string;
   buildCommand?: (value: T) => CommandRequest;
+  /** Explicit owner-validated exception for the infrastructure Instance registry. */
+  scope?: 'exact-instance';
   /** Only used when rehydrating an already-existing recoverable field intent. */
   restoredBase?: NativeFieldBase;
 }
@@ -175,12 +180,15 @@ export const projectEdits = {
     if (!projectSessionId || !projectInstanceId) return false;
     // Reject a contradictory caller before it can create an overlay or a
     // recoverable draft under a different owner from the native attribution.
-    resolveProjectFieldIdentity({
+    const identity = {
       projectSessionId,
       projectInstanceId,
       saveUnitId: intent.saveUnitId,
       path: intent.path,
-    });
+    };
+    if (intent.scope === 'exact-instance')
+      resolveExactInstanceFieldIdentity(identity, useProjectStore.getState().document);
+    else resolveProjectFieldIdentity(identity);
     const fieldKey = nativeFieldKey(projectSessionId, projectInstanceId, intent.path);
     stageNativeField(
       {

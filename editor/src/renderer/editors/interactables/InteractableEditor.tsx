@@ -19,6 +19,8 @@ import {
   InteractableInstanceFeatureOverridesEditor,
   InteractableInstancePropertiesEditor,
 } from '@/components/properties/InteractablePropertyEditors';
+import { ExactInstanceDrafts } from '@/components/properties/ExactInstanceDrafts';
+import { RecordPropertyArrayDrafts } from '@/components/properties/RecordPropertyArrayDrafts';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { FeatureAuthoringPanel } from '@/components/features/FeatureAuthoringPanel';
@@ -43,8 +45,8 @@ import {
   ProjectFieldSwitch,
 } from '@/commands/use-project-field';
 import { useGameplayRecordField } from '@/commands/gameplay-record-fields';
-import { toJsonValue } from '@/project/json-value';
-import { buildJsonPointer } from '@/project/json-pointer';
+import { jsonValuesEqual, toJsonValue } from '@/project/json-value';
+import { buildJsonPointer, hasJsonAtPointer } from '@/project/json-pointer';
 import { useCurrentAuthoringDependencyGraphSnapshot } from '@/project/authoring-dependency-graph-runtime';
 import { renameInteractableInstancePatches } from '@/project/interactable-instance-operations';
 import { renameOwnerLocalPropertyReferencePatches } from '@/project/owner-local-property-references';
@@ -567,40 +569,62 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
         />
       </div>
       <div className="mt-4 max-w-3xl">
-        <InteractableDefinitionPropertiesEditor
-          project={project}
-          definitionId={interactableId}
+        <RecordPropertyArrayDrafts
+          collection="interactables"
+          recordId={interactableId}
+          tabId={tab.id}
+          fieldName="defaultProperties"
           properties={record.defaultProperties ?? []}
-          attachedTraits={effectiveRecord?.traits ?? record.traits ?? []}
-          onChange={(state) => {
-            const base = `/interactables/${escapePointerSegment(interactableId)}`;
-            const patches: Array<Record<string, unknown>> = [
-              {
-                op: Object.prototype.hasOwnProperty.call(record, 'defaultProperties')
-                  ? 'replace'
-                  : 'add',
-                path: `${base}/defaultProperties`,
-                value: state.properties,
-              },
-            ];
-            if (record.archetype) {
-              patches.push({
-                op: Object.prototype.hasOwnProperty.call(record, 'archetypeOverrides')
-                  ? 'replace'
-                  : 'add',
-                path: `${base}/archetypeOverrides`,
-                value: { ...record.archetypeOverrides, '/traits': state.traits },
-              });
-            } else {
-              patches.push({
-                op: Object.prototype.hasOwnProperty.call(record, 'traits') ? 'replace' : 'add',
-                path: `${base}/traits`,
-                value: state.traits,
-              });
-            }
-            applyProjectPatches('Update Interactable Properties', patches);
-          }}
-        />
+        >
+          {(properties, changeProperties) => (
+            <InteractableDefinitionPropertiesEditor
+              project={project}
+              definitionId={interactableId}
+              properties={properties}
+              attachedTraits={effectiveRecord?.traits ?? record.traits ?? []}
+              onChange={(state) => {
+                // Changing only Property schemas or Defaults is a single stable
+                // record field. Trait attachment is a coordinated semantic edit
+                // and keeps its atomic command instead of splitting owners.
+                if (
+                  jsonValuesEqual(
+                    toJsonValue(state.traits),
+                    toJsonValue(effectiveRecord?.traits ?? record.traits ?? []),
+                  )
+                ) {
+                  changeProperties(state.properties);
+                  return;
+                }
+                const base = `/interactables/${escapePointerSegment(interactableId)}`;
+                const patches: Array<Record<string, unknown>> = [
+                  {
+                    op: Object.prototype.hasOwnProperty.call(record, 'defaultProperties')
+                      ? 'replace'
+                      : 'add',
+                    path: `${base}/defaultProperties`,
+                    value: state.properties,
+                  },
+                ];
+                if (record.archetype) {
+                  patches.push({
+                    op: Object.prototype.hasOwnProperty.call(record, 'archetypeOverrides')
+                      ? 'replace'
+                      : 'add',
+                    path: `${base}/archetypeOverrides`,
+                    value: { ...record.archetypeOverrides, '/traits': state.traits },
+                  });
+                } else {
+                  patches.push({
+                    op: Object.prototype.hasOwnProperty.call(record, 'traits') ? 'replace' : 'add',
+                    path: `${base}/traits`,
+                    value: state.traits,
+                  });
+                }
+                applyProjectPatches('Update Interactable Properties', patches);
+              }}
+            />
+          )}
+        </RecordPropertyArrayDrafts>
       </div>
       <div
         data-workbench-anchor="interactable.summary"
@@ -748,177 +772,201 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
         </div>
         {declaredInstances.length ? (
           <div className="mt-3 divide-y rounded border">
-            {declaredInstances.map(([instanceId, instance]) => (
-              <div key={instanceId} className="space-y-2 px-3 py-3 text-sm">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="truncate font-medium">{instance.editorLabel ?? instanceId}</div>
-                    {instance.editorLabel ? (
-                      <div className="truncate text-xs text-muted-foreground">{instanceId}</div>
-                    ) : null}
-                  </div>
-                  <div className="shrink-0 text-xs text-muted-foreground">
-                    {instance.location.kind === 'room'
-                      ? `Room: ${instance.location.room.$ref.id}`
-                      : instance.location.kind === 'inventory'
-                        ? `Inventory: ${instance.location.inventory.inventoryId}`
-                        : 'Unplaced'}
-                  </div>
-                </div>
-                <div className="grid max-w-xl gap-1">
-                  <Label htmlFor={`interactable-editor-label-${instanceId}`}>Editor label</Label>
-                  <Input
-                    id={`interactable-editor-label-${instanceId}`}
-                    value={instance.editorLabel ?? ''}
-                    placeholder="Optional non-semantic label"
-                    onChange={(event) =>
-                      applyProjectPatches('Update Interactable Instance editor label', [
-                        {
-                          op: 'replace',
-                          path: `/interactableInstances/${escapePointerSegment(instanceId)}`,
-                          value: {
-                            ...instance,
-                            editorLabel: event.currentTarget.value.trim() || undefined,
-                          },
-                        },
-                      ])
-                    }
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Editor-only. This does not change the exact gameplay identity.
-                  </p>
-                </div>
-                <details className="max-w-xl rounded border p-2">
-                  <summary className="cursor-pointer text-xs font-medium">
-                    Advanced identity
-                  </summary>
-                  <div className="mt-2 grid gap-1">
-                    <Label htmlFor={`interactable-instance-id-${instanceId}`}>Instance ID</Label>
-                    <Input
-                      key={instanceId}
-                      id={`interactable-instance-id-${instanceId}`}
-                      defaultValue={instanceId}
-                      onBlur={(event) => {
-                        const nextId = event.currentTarget.value.trim();
-                        if (
-                          nextId === instanceId ||
-                          !entityIdSchema.safeParse(nextId).success ||
-                          project.interactableInstances[nextId]
-                        ) {
-                          event.currentTarget.value = instanceId;
-                          return;
-                        }
-                        const patches = renameInteractableInstancePatches(
-                          project,
-                          instanceId,
-                          nextId,
-                        );
-                        if (patches.length)
-                          applyProjectPatches('Rename Interactable Instance ID', patches);
-                      }}
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Advanced: rewrites typed references to preserve this exact identity under a
-                      new authored ID.
-                    </p>
-                  </div>
-                </details>
-                <div className="max-w-40">
-                  <Label htmlFor={`interactable-quantity-${instanceId}`}>Quantity</Label>
-                  <Input
-                    id={`interactable-quantity-${instanceId}`}
-                    type="number"
-                    min={1}
-                    step={1}
-                    value={instance.quantity}
-                    onChange={(event) => {
-                      const quantity = Number(event.currentTarget.value);
-                      if (!Number.isSafeInteger(quantity) || quantity <= 0) return;
-                      applyProjectPatches('Update Interactable Instance Quantity', [
-                        {
-                          op: 'replace',
-                          path: `/interactableInstances/${escapePointerSegment(instanceId)}/quantity`,
-                          value: quantity,
-                        },
-                      ]);
-                    }}
-                  />
-                  {!data.stackable && instance.quantity !== 1 ? (
-                    <p className="mt-1 text-xs text-destructive">
-                      Non-stackable Interactable Instances must use quantity 1.
-                    </p>
-                  ) : null}
-                </div>
-                <MaterialApplicationSpecializationEditor
-                  project={project}
-                  inheritedValue={data.presentation.materialApplication}
-                  value={instance.materialApplication}
-                  properties={effectiveInteractableInstanceProperties(project, instance)}
-                  ariaLabel={`Choose ${instance.editorLabel ?? instanceId} material`}
-                  onChange={(materialApplication) =>
-                    applyProjectPatches('Update Interactable Instance Material Application', [
-                      {
-                        op: 'replace',
-                        path: `/interactableInstances/${escapePointerSegment(instanceId)}/materialApplication`,
-                        value: materialApplication,
-                      },
-                    ])
-                  }
-                />
-                <InteractableInstancePropertiesEditor
-                  compact
-                  project={project}
-                  instanceId={instanceId}
-                  instance={instance}
-                  onChange={(next, change) =>
-                    applyProjectPatches('Update Interactable Instance Properties', [
-                      {
-                        op: 'replace',
-                        path: `/interactableInstances/${escapePointerSegment(instanceId)}`,
-                        value: next,
-                      },
-                      ...(change
-                        ? renameOwnerLocalPropertyReferencePatches(
-                            project,
-                            { kind: 'interactable', id: instanceId },
-                            change.fromId,
-                            change.toId,
-                          )
-                        : []),
-                    ])
-                  }
-                />
-                {!data.stackable && data.features.length ? (
-                  <div className="space-y-2 border-t pt-3">
-                    <div>
-                      <Label>Feature Overrides</Label>
+            {declaredInstances.map(([instanceId, acknowledgedInstance]) => (
+              <ExactInstanceDrafts
+                key={instanceId}
+                instanceId={instanceId}
+                instance={acknowledgedInstance}
+                owner={{ collection: 'interactables', id: interactableId }}
+                tabId={tab.id}
+                onAtomicRename={(next, change) =>
+                  applyProjectPatches('Update Interactable Instance Properties', [
+                    {
+                      op: 'replace',
+                      path: `/interactableInstances/${escapePointerSegment(instanceId)}`,
+                      value: next,
+                    },
+                    ...renameOwnerLocalPropertyReferencePatches(
+                      project,
+                      { kind: 'interactable', id: instanceId },
+                      change.fromId,
+                      change.toId,
+                    ),
+                  ])
+                }
+              >
+                {(instance, updateInstance) => (
+                  <div key={instanceId} className="space-y-2 px-3 py-3 text-sm">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate font-medium">
+                          {instance.editorLabel ?? instanceId}
+                        </div>
+                        {instance.editorLabel ? (
+                          <div className="truncate text-xs text-muted-foreground">{instanceId}</div>
+                        ) : null}
+                      </div>
+                      <div className="shrink-0 text-xs text-muted-foreground">
+                        {instance.location.kind === 'room'
+                          ? `Room: ${instance.location.room.$ref.id}`
+                          : instance.location.kind === 'inventory'
+                            ? `Inventory: ${instance.location.inventory.inventoryId}`
+                            : 'Unplaced'}
+                      </div>
+                    </div>
+                    <div className="grid max-w-xl gap-1">
+                      <Label htmlFor={`interactable-editor-label-${instanceId}`}>
+                        Editor label
+                      </Label>
+                      <ProjectFieldInput
+                        id={`interactable-editor-label-${instanceId}`}
+                        value={instance.editorLabel ?? ''}
+                        placeholder="Optional non-semantic label"
+                        tabId={tab.id}
+                        saveUnitId={recordSaveUnitId('interactables', interactableId)}
+                        path={`/interactableInstances/${escapePointerSegment(instanceId)}/editorLabel`}
+                        scope="exact-instance"
+                        label="Update Interactable Instance editor label"
+                        buildCommand={(next) => {
+                          const latest = useProjectStore.getState().document;
+                          if (!isAuthoringProjectView(latest))
+                            throw new Error('The Project is no longer open.');
+                          const current = latest.interactableInstances[instanceId];
+                          if (!current) throw new Error('The exact Instance was removed.');
+                          const owner = recordSaveUnitId('interactables', interactableId);
+                          const root = buildJsonPointer(['interactableInstances', instanceId]);
+                          const path = `${root}/editorLabel`;
+                          if (next.trim())
+                            return {
+                              type: hasJsonAtPointer(latest, path)
+                                ? 'project.replaceAtPath'
+                                : 'project.addAtPath',
+                              label: 'Update Interactable Instance editor label',
+                              payload: { path, value: next },
+                              originSaveUnitId: owner,
+                              persistencePolicy: 'manual-save',
+                            };
+                          if (hasJsonAtPointer(latest, path))
+                            return {
+                              type: 'project.removeAtPath',
+                              label: 'Clear Interactable Instance editor label',
+                              payload: { path },
+                              originSaveUnitId: owner,
+                              persistencePolicy: 'manual-save',
+                            };
+                          // Clearing an already-empty optional field cannot
+                          // issue a remove; preserve the latest Instance as-is.
+                          return {
+                            type: 'project.replaceAtPath',
+                            label: 'Clear Interactable Instance editor label',
+                            payload: { path: root, value: toJsonValue(current) },
+                            originSaveUnitId: owner,
+                            persistencePolicy: 'manual-save',
+                          };
+                        }}
+                      />
                       <p className="text-xs text-muted-foreground">
-                        Sparse Trait and Property state for Features realized on this exact
-                        Instance.
+                        Editor-only. This does not change the exact gameplay identity.
                       </p>
                     </div>
-                    {data.features.map((feature) => (
-                      <InteractableInstanceFeatureOverridesEditor
-                        key={feature.id}
-                        project={project}
-                        instanceId={instanceId}
-                        instance={instance}
-                        featureId={feature.id}
-                        featureLabel={`${feature.label} (${feature.id})`}
-                        onChange={(next) =>
-                          applyProjectPatches('Update Interactable Instance Feature Override', [
-                            {
-                              op: 'replace',
-                              path: `/interactableInstances/${escapePointerSegment(instanceId)}`,
-                              value: next,
-                            },
-                          ])
-                        }
+                    <details className="max-w-xl rounded border p-2">
+                      <summary className="cursor-pointer text-xs font-medium">
+                        Advanced identity
+                      </summary>
+                      <div className="mt-2 grid gap-1">
+                        <Label htmlFor={`interactable-instance-id-${instanceId}`}>
+                          Instance ID
+                        </Label>
+                        <Input
+                          key={instanceId}
+                          id={`interactable-instance-id-${instanceId}`}
+                          defaultValue={instanceId}
+                          onBlur={(event) => {
+                            const nextId = event.currentTarget.value.trim();
+                            if (
+                              nextId === instanceId ||
+                              !entityIdSchema.safeParse(nextId).success ||
+                              project.interactableInstances[nextId]
+                            ) {
+                              event.currentTarget.value = instanceId;
+                              return;
+                            }
+                            const patches = renameInteractableInstancePatches(
+                              project,
+                              instanceId,
+                              nextId,
+                            );
+                            if (patches.length)
+                              applyProjectPatches('Rename Interactable Instance ID', patches);
+                          }}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Advanced: rewrites typed references to preserve this exact identity under
+                          a new authored ID.
+                        </p>
+                      </div>
+                    </details>
+                    <div className="max-w-40">
+                      <Label htmlFor={`interactable-quantity-${instanceId}`}>Quantity</Label>
+                      <ProjectFieldNumber
+                        id={`interactable-quantity-${instanceId}`}
+                        min={1}
+                        step={1}
+                        scope="exact-instance"
+                        tabId={tab.id}
+                        saveUnitId={recordSaveUnitId('interactables', interactableId)}
+                        path={`/interactableInstances/${escapePointerSegment(instanceId)}/quantity`}
+                        label="Update Interactable Instance Quantity"
+                        value={instance.quantity}
                       />
-                    ))}
+                      {!data.stackable && instance.quantity !== 1 ? (
+                        <p className="mt-1 text-xs text-destructive">
+                          Non-stackable Interactable Instances must use quantity 1.
+                        </p>
+                      ) : null}
+                    </div>
+                    <MaterialApplicationSpecializationEditor
+                      project={project}
+                      inheritedValue={data.presentation.materialApplication}
+                      value={instance.materialApplication}
+                      properties={effectiveInteractableInstanceProperties(project, instance)}
+                      ariaLabel={`Choose ${instance.editorLabel ?? instanceId} material`}
+                      onChange={(materialApplication) =>
+                        updateInstance({ ...instance, materialApplication })
+                      }
+                    />
+                    <InteractableInstancePropertiesEditor
+                      compact
+                      project={project}
+                      instanceId={instanceId}
+                      instance={instance}
+                      onChange={updateInstance}
+                    />
+                    {!data.stackable && data.features.length ? (
+                      <div className="space-y-2 border-t pt-3">
+                        <div>
+                          <Label>Feature Overrides</Label>
+                          <p className="text-xs text-muted-foreground">
+                            Sparse Trait and Property state for Features realized on this exact
+                            Instance.
+                          </p>
+                        </div>
+                        {data.features.map((feature) => (
+                          <InteractableInstanceFeatureOverridesEditor
+                            key={feature.id}
+                            project={project}
+                            instanceId={instanceId}
+                            instance={instance}
+                            featureId={feature.id}
+                            featureLabel={`${feature.label} (${feature.id})`}
+                            onChange={updateInstance}
+                          />
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
-                ) : null}
-              </div>
+                )}
+              </ExactInstanceDrafts>
             ))}
           </div>
         ) : (

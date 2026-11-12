@@ -73,6 +73,55 @@ beforeEach(() => {
 });
 
 describe('InteractableEditor', () => {
+  it('keeps exact Instance label and quantity edits immediate under a delayed native patch', async () => {
+    const project = createAuthoringProject();
+    const data = defaultInteractableData('Door');
+    data.stackable = true;
+    data.stackLimit = 99;
+    project.interactables.door = { id: 'door', label: 'Door', traits: [], data };
+    project.interactableInstances['door-instance'] = defaultInteractableInstanceData(
+      'door-instance',
+      'door',
+    );
+    const native = admitNativeRendererCommandFixture(project);
+    const held = holdFirstNativeProjectPatch();
+    renderEditor();
+
+    const label = screen.getByRole('textbox', { name: 'Editor label' });
+    fireEvent.change(label, { target: { value: 'First' } });
+    expect(label).toHaveValue('First');
+    await waitFor(() => expect(held.isHeld()).toBe(true));
+    fireEvent.change(label, { target: { value: 'Final label' } });
+    const quantity = screen.getByRole('textbox', { name: 'Quantity' });
+    fireEvent.change(quantity, { target: { value: '12' } });
+    expect(label).toHaveValue('Final label');
+    expect(quantity).toHaveValue('12');
+    expect(native.patch).not.toHaveBeenCalled();
+
+    await act(async () => held.release());
+    await waitFor(() => {
+      const current = useProjectStore.getState().document as ReturnType<
+        typeof createAuthoringProject
+      >;
+      expect(current.interactableInstances['door-instance']).toMatchObject({
+        editorLabel: 'Final label',
+        quantity: 12,
+      });
+    });
+    expect(native.patch.mock.calls.length).toBeLessThanOrEqual(3);
+
+    fireEvent.change(label, { target: { value: '' } });
+    expect(label).toHaveValue('');
+    await waitFor(() => {
+      const current = useProjectStore.getState().document as ReturnType<
+        typeof createAuthoringProject
+      >;
+      expect(current.interactableInstances['door-instance']?.editorLabel).toBeUndefined();
+    });
+    expect(useProjectStore.getState().document).toMatchObject({
+      interactableInstances: { 'door-instance': { quantity: 12 } },
+    });
+  });
   it('keeps Interactable inventories and Feature declarations immediate while native is blocked', async () => {
     const project = createAuthoringProject();
     project.interactables.door = {

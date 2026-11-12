@@ -15,6 +15,7 @@ import {
   OwnerLocalPropertiesEditor,
   type OwnerPropertyTraitState,
 } from '@/components/properties/OwnerLocalPropertiesEditor';
+import { RecordPropertyArrayDrafts } from '@/components/properties/RecordPropertyArrayDrafts';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -1100,47 +1101,60 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
       </div>
 
       <div className="mt-4">
-        <OwnerLocalPropertiesEditor
-          ownerLabel={`Character '${activeRecord.label}'`}
+        <RecordPropertyArrayDrafts
+          collection="characters"
+          recordId={activeCharacterId}
+          tabId={tab.id}
+          fieldName="localProperties"
           properties={activeRecord.localProperties ?? []}
-          onChange={commitLocalProperties}
-          traits={activeProject.traits}
-          ownerKind="character"
-          attachedTraits={effectiveRecord?.traits ?? activeRecord.traits ?? []}
-          inheritedTraits={inheritedPropertyConfiguration?.traits ?? []}
-          inheritedProperties={(inheritedPropertyConfiguration?.defaultProperties ?? []).map(
-            (property) => ({
-              property,
-              sourceLabel: activeRecord.archetype
-                ? (activeProject.archetypes[activeRecord.archetype.$ref.id]?.label ?? 'Archetype')
-                : 'Archetype',
-            }),
+        >
+          {(properties, changeProperties) => (
+            <OwnerLocalPropertiesEditor
+              ownerLabel={`Character '${activeRecord.label}'`}
+              properties={properties}
+              onChange={(next, change) =>
+                change ? commitLocalProperties(next, change) : changeProperties(next)
+              }
+              traits={activeProject.traits}
+              ownerKind="character"
+              attachedTraits={effectiveRecord?.traits ?? activeRecord.traits ?? []}
+              inheritedTraits={inheritedPropertyConfiguration?.traits ?? []}
+              inheritedProperties={(inheritedPropertyConfiguration?.defaultProperties ?? []).map(
+                (property) => ({
+                  property,
+                  sourceLabel: activeRecord.archetype
+                    ? (activeProject.archetypes[activeRecord.archetype.$ref.id]?.label ??
+                      'Archetype')
+                    : 'Archetype',
+                }),
+              )}
+              traitColorFor={(traitId) =>
+                activeProject.editor.recordMetadata.traits?.[traitId]?.color ?? null
+              }
+              onTraitStateChange={commitPropertyTraitState}
+              usageCountFor={(propertyId) =>
+                ownerLocalPropertyReferences(
+                  activeProject,
+                  { kind: 'character', id: activeCharacterId },
+                  propertyId,
+                ).length
+              }
+              onShowUsages={(propertyId) => {
+                const usages = ownerLocalPropertyReferences(
+                  activeProject,
+                  { kind: 'character', id: activeCharacterId },
+                  propertyId,
+                );
+                setUsages(
+                  { collection: 'characters', id: activeCharacterId },
+                  usages,
+                  `character/${activeCharacterId} · ${propertyId}`,
+                );
+                setActiveBottomPanel('references');
+              }}
+            />
           )}
-          traitColorFor={(traitId) =>
-            activeProject.editor.recordMetadata.traits?.[traitId]?.color ?? null
-          }
-          onTraitStateChange={commitPropertyTraitState}
-          usageCountFor={(propertyId) =>
-            ownerLocalPropertyReferences(
-              activeProject,
-              { kind: 'character', id: activeCharacterId },
-              propertyId,
-            ).length
-          }
-          onShowUsages={(propertyId) => {
-            const usages = ownerLocalPropertyReferences(
-              activeProject,
-              { kind: 'character', id: activeCharacterId },
-              propertyId,
-            );
-            setUsages(
-              { collection: 'characters', id: activeCharacterId },
-              usages,
-              `character/${activeCharacterId} · ${propertyId}`,
-            );
-            setActiveBottomPanel('references');
-          }}
-        />
+        </RecordPropertyArrayDrafts>
       </div>
 
       <div className="mt-4 grid gap-4 @7xl:grid-cols-[1fr_320px]">

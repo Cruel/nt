@@ -29,6 +29,8 @@ import { DiagnosticList } from '@/diagnostics/DiagnosticList';
 import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
 import { useNativeProjectDiagnostics } from '@/project/native-project-diagnostics';
 import { projectForEditor } from '@/project/project-for-editor';
+import { buildJsonPointer } from '@/project/json-pointer';
+import { toJsonValue } from '@/project/json-value';
 import { useProjectStore } from '@/project/project-store';
 import { PROJECT_SETTINGS_SAVE_UNIT_ID } from '@/project/save-unit-registry';
 import { usePreferencesStore } from '@/stores/preferences-store';
@@ -84,6 +86,7 @@ import {
 import {
   defaultInteractableInstanceData,
   parseInteractableData,
+  type InteractableInstanceData,
 } from '../../../shared/project-schema/authoring-interactables';
 import {
   defaultInteractionProgram,
@@ -590,7 +593,86 @@ function runProjectCommand(type: string, payload: unknown, label: string) {
   });
 }
 
-function ProjectInventoryContentsEditor({ project }: { project: AuthoringProject }) {
+function ProjectInventoryInstanceRow({
+  instance,
+  tabId,
+  label,
+  stackable,
+  stackLimit,
+}: {
+  instance: InteractableInstanceData;
+  tabId: string;
+  label: string;
+  stackable: boolean;
+  stackLimit: number | null;
+}) {
+  const location = useProjectField({
+    tabId,
+    saveUnitId: PROJECT_SETTINGS_SAVE_UNIT_ID,
+    path: buildJsonPointer(['interactableInstances', instance.id, 'location']),
+    label: `Remove ${label} from Inventory`,
+    value: toJsonValue(instance.location),
+    scope: 'exact-instance',
+  });
+  // Retain the mounted field controller while a removal is pending so its
+  // recoverable native intent survives the optimistic row disappearance.
+  // A failed native removal must remain visible for Use Current / Keep Mine.
+  const removed = (location.value as InteractableInstanceData['location']).kind !== 'inventory';
+  if (removed && location.status !== 'error' && location.status !== 'conflict') return null;
+  return (
+    <div className="grid gap-2 rounded border p-2 @3xl:grid-cols-[minmax(0,1fr)_7rem_auto] @3xl:items-center">
+      <div className="min-w-0">
+        <div className="truncate text-sm font-medium">{label}</div>
+        <div className="truncate text-xs text-muted-foreground">{instance.id}</div>
+      </div>
+      {stackable ? (
+        <Label className="gap-1">
+          Quantity
+          <ProjectFieldNumber
+            aria-label={`Quantity for ${instance.id}`}
+            tabId={tabId}
+            saveUnitId={PROJECT_SETTINGS_SAVE_UNIT_ID}
+            path={buildJsonPointer(['interactableInstances', instance.id, 'quantity'])}
+            scope="exact-instance"
+            label={`Update ${label} quantity`}
+            value={instance.quantity}
+            min={1}
+            max={stackLimit ?? undefined}
+          />
+        </Label>
+      ) : (
+        <span className="text-xs text-muted-foreground">Quantity 1</span>
+      )}
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        onClick={() => {
+          // Quantity is a dependent edit: enqueue its latest native value
+          // before removing this item from the Settings-owned Inventory.
+          if (stackable)
+            void projectEdits.flushField(
+              buildJsonPointer(['interactableInstances', instance.id, 'quantity']),
+            );
+          location.change({ kind: 'unplaced' });
+          location.endSession();
+          void location.flush();
+        }}
+      >
+        Remove
+      </Button>
+      <ProjectFieldError field={location} />
+    </div>
+  );
+}
+
+function ProjectInventoryContentsEditor({
+  project,
+  tabId,
+}: {
+  project: AuthoringProject;
+  tabId: string;
+}) {
   const definitions = Object.values(project.interactables)
     .map((record) => ({ record, data: parseInteractableData(record.data) }))
     .filter(
@@ -652,61 +734,14 @@ function ProjectInventoryContentsEditor({ project }: { project: AuthoringProject
             const definition = project.interactables[instance.definition.$ref.id];
             const data = definition ? parseInteractableData(definition.data) : null;
             return (
-              <div
+              <ProjectInventoryInstanceRow
                 key={instance.id}
-                className="grid gap-2 rounded border p-2 @3xl:grid-cols-[minmax(0,1fr)_7rem_auto] @3xl:items-center"
-              >
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-medium">
-                    {definition?.label ?? instance.definition.$ref.id}
-                  </div>
-                  <div className="truncate text-xs text-muted-foreground">{instance.id}</div>
-                </div>
-                {data?.stackable ? (
-                  <Label className="gap-1">
-                    Quantity
-                    <Input
-                      aria-label={`Quantity for ${instance.id}`}
-                      type="number"
-                      min={1}
-                      max={data.stackLimit ?? undefined}
-                      value={instance.quantity}
-                      onChange={(event) => {
-                        const next = Number(event.currentTarget.value);
-                        if (!Number.isSafeInteger(next) || next <= 0) return;
-                        const clamped = Math.min(next, data.stackLimit ?? Number.MAX_SAFE_INTEGER);
-                        void runProjectCommand(
-                          'project.replaceAtPath',
-                          {
-                            path: `/interactableInstances/${instance.id}/quantity`,
-                            value: clamped,
-                          },
-                          `Update ${definition?.label ?? instance.id} quantity`,
-                        );
-                      }}
-                    />
-                  </Label>
-                ) : (
-                  <span className="text-xs text-muted-foreground">Quantity 1</span>
-                )}
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() =>
-                    runProjectCommand(
-                      'project.replaceAtPath',
-                      {
-                        path: `/interactableInstances/${instance.id}/location`,
-                        value: { kind: 'unplaced' },
-                      },
-                      `Remove ${definition?.label ?? instance.id} from Inventory`,
-                    )
-                  }
-                >
-                  Remove
-                </Button>
-              </div>
+                instance={instance}
+                tabId={tabId}
+                label={definition?.label ?? instance.definition.$ref.id}
+                stackable={Boolean(data?.stackable)}
+                stackLimit={data?.stackLimit ?? null}
+              />
             );
           })}
         </div>
@@ -1979,7 +2014,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                   ))}
                 </select>
               </div>
-              <ProjectInventoryContentsEditor project={project} />
+              <ProjectInventoryContentsEditor project={project} tabId={tab.id} />
               <div className="space-y-1">
                 <Label htmlFor="default-verb-menu-layout">Default Verb Menu Layout</Label>
                 <select
