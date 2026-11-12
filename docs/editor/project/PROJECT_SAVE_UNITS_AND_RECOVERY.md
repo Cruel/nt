@@ -364,6 +364,25 @@ including the shared Save/Undo/recovery/worker-failure and external-conflict
 matrix. Native-addon and Xvfb-package smoke tests are insufficient to
 certify physical desktop input latency or the eight human Feature Lab cases.
 
+The Linux x64 packaged Electron distribution built from `71e3e703da0b`
+also passed packaged smoke and the existing Project-title typing benchmark.
+The benchmark typed 20 characters per run and verified exact renderer
+presentation and native YAML saved readback for all simulated acknowledgment
+delays, with only 2–3 native patch calls per burst:
+
+| Simulated acknowledgment | Input median | Input p95 | Input max | Native patch calls | Idle-frame p95 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 0 ms | 14.66 ms | 37.14 ms | 143.69 ms | 3 | 83.34 ms |
+| 500 ms | 10.71 ms | 15.65 ms | 75.24 ms | 2 | 16.67 ms |
+| 1,000 ms | 9.16 ms | 14.99 ms | 70.47 ms | 2 | 16.67 ms |
+
+Host: Ryzen 7 5700G, Node 24.18.0, Electron 43.1.1, Chromium
+150.0.7871.114, Linux x64 with Xvfb software display. This is the
+Project-title **next-frame proxy** on the package containing the migration,
+not a physical scanout measurement of the newly migrated Room/Character/
+Interactable controls. The 0 ms p95 exceeds 16 ms amid Xvfb idle-frame
+stalls; the human interactive and cross-platform acceptance gates remain open.
+
 The default field operation chooses a narrow native add/replace patch against the **current**
 acknowledged Project. Fields with schema-specific initialization (such as Title Screen) supply
 their existing semantic command instead. Reusable gameplay-record planners handle archetyped
