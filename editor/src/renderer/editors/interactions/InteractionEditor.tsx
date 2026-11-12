@@ -1,15 +1,20 @@
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { RecursiveConditionEditor } from '@/components/conditions/ConditionEditor';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
-import { projectEdits } from '@/commands/project-editing';
-import { recordSaveUnitId } from '@/project/save-unit-registry';
+import {
+  AuthoredRecordErrors,
+  AuthoredMemberIdInput,
+  AuthoredMemberNumber,
+  commitAuthoredRecord,
+  useAuthoredRecordField,
+} from '@/commands/authored-record-fields';
 import { useProjectStore } from '@/project/project-store';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 import {
   parseInteractionData,
+  defaultInteractionData,
   type InteractionRule,
 } from '../../../shared/project-schema/authoring-interactions';
 import { parseVerbData } from '../../../shared/project-schema/authoring-verbs';
@@ -61,6 +66,8 @@ function GuardEditor({
 
 function RuleEditor({
   rule,
+  interactionId,
+  ruleIds,
   analysis,
   index,
   count,
@@ -70,6 +77,8 @@ function RuleEditor({
   onDelete,
 }: {
   rule: InteractionRule;
+  interactionId: string;
+  ruleIds: readonly string[];
   analysis: RuleAnalysis;
   index: number;
   count: number;
@@ -86,9 +95,14 @@ function RuleEditor({
       <div className="grid gap-2 @3xl:grid-cols-4">
         <div>
           <Label>Rule ID</Label>
-          <Input
-            value={rule.id}
-            onChange={(event) => onChange({ ...rule, id: event.currentTarget.value })}
+          <AuthoredMemberIdInput
+            collection="interactions"
+            recordId={interactionId}
+            family="rules"
+            memberId={rule.id}
+            ids={ruleIds}
+            label="Rule ID"
+            onCommit={(id) => onChange({ ...rule, id })}
           />
         </div>
         <div>
@@ -113,12 +127,15 @@ function RuleEditor({
         </div>
         <div>
           <Label>Priority</Label>
-          <Input
-            type="number"
+          <AuthoredMemberNumber
+            collection="interactions"
+            recordId={interactionId}
+            memberId={rule.id}
+            field="priority"
+            label="Priority"
+            mode="integer"
             value={rule.priority}
-            onChange={(event) =>
-              onChange({ ...rule, priority: Number(event.currentTarget.value) || 0 })
-            }
+            onChange={(priority) => onChange({ ...rule, priority })}
           />
         </div>
         <div className="flex items-end gap-1">
@@ -318,15 +335,15 @@ function RuleEditor({
             </div>
             <div>
               <Label>Authored rank</Label>
-              <Input
-                type="number"
+              <AuthoredMemberNumber
+                collection="interactions"
+                recordId={interactionId}
+                memberId={rule.id}
+                field="offer/rank"
+                label="Authored rank"
+                mode="integer"
                 value={rule.offer.rank}
-                onChange={(event) =>
-                  onChange({
-                    ...rule,
-                    offer: { ...rule.offer!, rank: Number(event.currentTarget.value) || 0 },
-                  })
-                }
+                onChange={(rank) => onChange({ ...rule, offer: { ...rule.offer!, rank } })}
               />
             </div>
             <label className="flex items-end gap-2 text-sm">
@@ -452,6 +469,8 @@ function InteractionForm({
         <RuleEditor
           key={rule.id}
           rule={rule}
+          interactionId={interactionId}
+          ruleIds={data.rules.map((rule) => rule.id)}
           analysis={analyses[index]!}
           index={index}
           count={data.rules.length}
@@ -476,16 +495,21 @@ export function InteractionEditor({ tab }: WorkbenchEditorProps) {
   const project = authoringProjectFromDocument(document);
   const id = tab.resource?.entityId;
   const record = id && project ? project.interactions[id] : null;
-  const data = parseInteractionData(record?.data);
-  if (!project || !id || !record || !data)
+  const acknowledged = parseInteractionData(record?.data) ?? defaultInteractionData();
+  const kind = useAuthoredRecordField('interactions', id, tab.id, 'kind', acknowledged.kind);
+  const rules = useAuthoredRecordField('interactions', id, tab.id, 'rules', acknowledged.rules);
+  const fields = { kind, rules };
+  const data: InteractionData = { kind: kind.value, rules: rules.value };
+  if (!project || !id || !record || !parseInteractionData(record.data))
     return <div className="p-4 text-sm text-muted-foreground">Interaction record not found.</div>;
   const commit = (next: InteractionData) =>
-    projectEdits.execute({
-      type: 'interaction.replaceData',
+    commitAuthoredRecord({
+      collection: 'interactions',
+      id,
+      before: data,
+      after: next,
+      fields,
       label: 'Update interaction',
-      payload: { interactionId: id, data: next },
-      originSaveUnitId: recordSaveUnitId('interactions', id),
-      persistencePolicy: 'manual-save',
     });
   return (
     <div className="h-full overflow-auto bg-background p-4">
@@ -493,6 +517,7 @@ export function InteractionEditor({ tab }: WorkbenchEditorProps) {
         <h2 className="text-lg font-semibold">{record.label}</h2>
         <Badge variant="outline">{id}</Badge>
       </div>
+      <AuthoredRecordErrors fields={fields} collection="interactions" recordId={id} />
       <InteractionForm interactionId={id} data={data} project={project} onChange={commit} />
     </div>
   );

@@ -4,12 +4,21 @@ import { RecursiveConditionEditor } from '@/components/conditions/ConditionEdito
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
-import { projectEdits } from '@/commands/project-editing';
-import { recordSaveUnitId } from '@/project/save-unit-registry';
+import {
+  AuthoredRecordErrors,
+  AuthoredMemberIdInput,
+  AuthoredMemberNumber,
+  commitAuthoredRecord,
+  useAuthoredRecordField,
+} from '@/commands/authored-record-fields';
 import { useProjectStore } from '@/project/project-store';
+import { buildJsonPointer } from '@/project/json-pointer';
+import { recordSaveUnitId } from '@/project/save-unit-registry';
+import { selectPendingInput, usePendingInputStore } from '@/workbench/pending-input-store';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 import type { Condition, TextContent } from '../../../shared/project-schema/authoring-flow';
-import { parseVerbData } from '../../../shared/project-schema/authoring-verbs';
+import { renameVerbSlot } from './verb-slot-rename';
+import { defaultVerbData, parseVerbData } from '../../../shared/project-schema/authoring-verbs';
 import {
   SubjectSelectorEditor,
   defaultSubjectSelector,
@@ -25,15 +34,23 @@ type VerbData = NonNullable<ReturnType<typeof parseVerbData>>;
 function TextContentEditor({
   value,
   onChange,
+  pending,
 }: {
   value: TextContent;
   onChange: (next: TextContent) => void;
+  pending: { owner: string; path: string };
 }) {
+  const raw = usePendingInputStore((state) =>
+    selectPendingInput(state, pending.owner, pending.path),
+  );
+  const clearRaw = () =>
+    usePendingInputStore.getState().clearPendingInput(pending.owner, pending.path);
   return (
     <div className="grid gap-2 @3xl:grid-cols-3">
       <Select
         value={value.source.kind}
         onValueChange={(kind) => {
+          clearRaw();
           if (kind === 'localized') onChange({ ...value, source: { kind, key: 'text.key' } });
           else if (kind === 'lua-expression')
             onChange({ ...value, source: { kind, source: 'return ""' } });
@@ -45,22 +62,36 @@ function TextContentEditor({
         <SelectItem value="lua-expression">Lua string</SelectItem>
       </Select>
       <Input
+        aria-invalid={Boolean(raw)}
         value={
-          value.source.kind === 'inline'
+          raw?.value ??
+          (value.source.kind === 'inline'
             ? value.source.text
             : value.source.kind === 'localized'
               ? value.source.key
-              : value.source.source
+              : value.source.source)
         }
         onChange={(event) => {
+          const nextText = event.currentTarget.value;
+          if (value.source.kind === 'lua-expression' && nextText === '') {
+            // Empty Lua source is intentionally invalid, but must stay visible
+            // and recoverable as exact raw input rather than being coerced or
+            // dispatched to the native authoring state.
+            usePendingInputStore.getState().setPendingInput(pending.owner, pending.path, {
+              value: nextText,
+              diagnosticCode: 'editor.pending-input.expression.invalid',
+            });
+            return;
+          }
+          clearRaw();
           if (value.source.kind === 'inline')
-            onChange({ ...value, source: { kind: 'inline', text: event.currentTarget.value } });
+            onChange({ ...value, source: { kind: 'inline', text: nextText } });
           else if (value.source.kind === 'localized')
-            onChange({ ...value, source: { kind: 'localized', key: event.currentTarget.value } });
+            onChange({ ...value, source: { kind: 'localized', key: nextText } });
           else
             onChange({
               ...value,
-              source: { kind: 'lua-expression', source: event.currentTarget.value || ' ' },
+              source: { ...value.source, source: nextText },
             });
         }}
       />
@@ -88,14 +119,19 @@ function ConditionEditor({
 }
 
 function VerbForm({
+  verbId,
   data,
   project,
   onChange,
 }: {
+  verbId: string;
   data: VerbData;
   project: AuthoringEditorProject;
   onChange: (next: VerbData) => void;
 }) {
+  const owner = recordSaveUnitId('verbs', verbId);
+  const rawPath = (...parts: string[]) =>
+    buildJsonPointer(['verbs', verbId, 'data', ...parts, 'source', 'source']);
   const addSlot = () => {
     const used = new Set(data.slots.map((slot) => slot.id));
     let index = data.slots.length + 1;
@@ -149,6 +185,7 @@ function VerbForm({
         <Label>Action text</Label>
         <TextContentEditor
           value={data.actionText}
+          pending={{ owner, path: rawPath('actionText') }}
           onChange={(actionText) => onChange({ ...data, actionText })}
         />
       </div>
@@ -156,6 +193,7 @@ function VerbForm({
         <Label>Completed command text</Label>
         <TextContentEditor
           value={data.completedCommandText}
+          pending={{ owner, path: rawPath('completedCommandText') }}
           onChange={(completedCommandText) => onChange({ ...data, completedCommandText })}
         />
       </div>
@@ -164,23 +202,14 @@ function VerbForm({
         {data.slots.map((slot, index) => (
           <section className="space-y-2 rounded border p-3" key={slot.id}>
             <div className="grid gap-2 @3xl:grid-cols-[1fr_auto_auto_auto]">
-              <Input
-                value={slot.id}
-                onChange={(event) => {
-                  const id = event.currentTarget.value;
-                  onChange({
-                    ...data,
-                    slots: data.slots.map((item, current) =>
-                      current === index ? { ...item, id } : item,
-                    ),
-                    bindingOrder: data.bindingOrder.map((current) =>
-                      current === slot.id ? id : current,
-                    ),
-                    offers: data.offers.map((offer) =>
-                      offer.slotId === slot.id ? { ...offer, slotId: id } : offer,
-                    ),
-                  });
-                }}
+              <AuthoredMemberIdInput
+                collection="verbs"
+                recordId={verbId}
+                family="slots"
+                memberId={slot.id}
+                ids={data.slots.map((item) => item.id)}
+                label="Subject slot ID"
+                onCommit={(id) => onChange(renameVerbSlot(data, slot.id, id))}
               />
               <Button
                 type="button"
@@ -232,6 +261,7 @@ function VerbForm({
               <Label>Slot label</Label>
               <TextContentEditor
                 value={slot.label}
+                pending={{ owner, path: rawPath('slots', '@' + slot.id, 'label') }}
                 onChange={(label) =>
                   onChange({
                     ...data,
@@ -246,6 +276,7 @@ function VerbForm({
               <Label>Slot prompt</Label>
               <TextContentEditor
                 value={slot.prompt}
+                pending={{ owner, path: rawPath('slots', '@' + slot.id, 'prompt') }}
                 onChange={(prompt) =>
                   onChange({
                     ...data,
@@ -331,15 +362,18 @@ function VerbForm({
             <div className="grid gap-2 @3xl:grid-cols-4">
               <div>
                 <Label>Offer ID</Label>
-                <Input
-                  value={offer.id}
-                  onChange={(event) =>
+                <AuthoredMemberIdInput
+                  collection="verbs"
+                  recordId={verbId}
+                  family="offers"
+                  memberId={offer.id}
+                  ids={data.offers.map((item) => item.id)}
+                  label="Offer ID"
+                  onCommit={(id) =>
                     onChange({
                       ...data,
                       offers: data.offers.map((current, index) =>
-                        index === offerIndex
-                          ? { ...current, id: event.currentTarget.value }
-                          : current,
+                        index === offerIndex ? { ...current, id } : current,
                       ),
                     })
                   }
@@ -367,16 +401,19 @@ function VerbForm({
               </div>
               <div>
                 <Label>Authored rank</Label>
-                <Input
-                  type="number"
+                <AuthoredMemberNumber
+                  collection="verbs"
+                  recordId={verbId}
+                  memberId={offer.id}
+                  field="rank"
+                  label="Authored rank"
+                  mode="integer"
                   value={offer.rank}
-                  onChange={(event) =>
+                  onChange={(rank) =>
                     onChange({
                       ...data,
                       offers: data.offers.map((current, index) =>
-                        index === offerIndex
-                          ? { ...current, rank: Number(event.currentTarget.value) || 0 }
-                          : current,
+                        index === offerIndex ? { ...current, rank } : current,
                       ),
                     })
                   }
@@ -547,16 +584,75 @@ export function VerbEditor({ tab }: WorkbenchEditorProps) {
   const project = authoringProjectFromDocument(document);
   const id = tab.resource?.entityId;
   const record = id && project ? project.verbs[id] : null;
-  const data = parseVerbData(record?.data);
-  if (!project || !id || !record || !data)
+  const acknowledged = parseVerbData(record?.data) ?? defaultVerbData();
+  const kind = useAuthoredRecordField('verbs', id, tab.id, 'kind', acknowledged.kind);
+  const slots = useAuthoredRecordField('verbs', id, tab.id, 'slots', acknowledged.slots);
+  const bindingOrder = useAuthoredRecordField(
+    'verbs',
+    id,
+    tab.id,
+    'bindingOrder',
+    acknowledged.bindingOrder,
+  );
+  const actionText = useAuthoredRecordField(
+    'verbs',
+    id,
+    tab.id,
+    'actionText',
+    acknowledged.actionText,
+  );
+  const completedCommandText = useAuthoredRecordField(
+    'verbs',
+    id,
+    tab.id,
+    'completedCommandText',
+    acknowledged.completedCommandText,
+  );
+  const offers = useAuthoredRecordField('verbs', id, tab.id, 'offers', acknowledged.offers);
+  const availability = useAuthoredRecordField(
+    'verbs',
+    id,
+    tab.id,
+    'availability',
+    acknowledged.availability,
+  );
+  const defaultProgram = useAuthoredRecordField(
+    'verbs',
+    id,
+    tab.id,
+    'defaultProgram',
+    acknowledged.defaultProgram,
+  );
+  const fields = {
+    kind,
+    slots,
+    bindingOrder,
+    actionText,
+    completedCommandText,
+    offers,
+    availability,
+    defaultProgram,
+  };
+  const data: VerbData = {
+    kind: kind.value,
+    slots: slots.value,
+    bindingOrder: bindingOrder.value,
+    actionText: actionText.value,
+    completedCommandText: completedCommandText.value,
+    offers: offers.value,
+    availability: availability.value,
+    defaultProgram: defaultProgram.value,
+  };
+  if (!project || !id || !record || !parseVerbData(record.data))
     return <div className="p-4 text-sm text-muted-foreground">Verb record not found.</div>;
   const commit = (next: VerbData) =>
-    projectEdits.execute({
-      type: 'verb.replaceData',
+    commitAuthoredRecord({
+      collection: 'verbs',
+      id,
+      before: data,
+      after: next,
+      fields,
       label: 'Update verb',
-      payload: { verbId: id, data: next },
-      originSaveUnitId: recordSaveUnitId('verbs', id),
-      persistencePolicy: 'manual-save',
     });
   return (
     <div className="h-full overflow-auto bg-background p-4">
@@ -564,7 +660,8 @@ export function VerbEditor({ tab }: WorkbenchEditorProps) {
         <h2 className="text-lg font-semibold">{record.label}</h2>
         <Badge variant="outline">{id}</Badge>
       </div>
-      <VerbForm data={data} project={project} onChange={commit} />
+      <AuthoredRecordErrors fields={fields} collection="verbs" recordId={id} />
+      <VerbForm verbId={id} data={data} project={project} onChange={commit} />
     </div>
   );
 }

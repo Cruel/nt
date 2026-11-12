@@ -76,7 +76,7 @@ describe('TestsEditor', () => {
     expect(screen.getByText('Selected step')).toBeInTheDocument();
   });
 
-  it('commits metadata and step edits through test.replaceData', async () => {
+  it('commits metadata through an exact native Test field', async () => {
     const project = createAuthoringProject();
     project.tests.smoke = { id: 'smoke', label: 'Smoke', data: defaultTestData('Smoke') };
     admitNativeRendererCommandFixture(project);
@@ -89,7 +89,10 @@ describe('TestsEditor', () => {
         tests: { smoke: { data: { displayName: 'Smoke Edited' } } },
       });
     });
-    expect(useCommandStore.getState().history.entries.at(-1)?.type).toBe('test.replaceData');
+    expect(useCommandStore.getState().history.entries.at(-1)).toMatchObject({
+      type: 'project.applyPatch',
+      originSaveUnitId: 'record:tests:smoke',
+    });
 
     fireEvent.click(screen.getByText('Continue'));
     await waitFor(() => {
@@ -100,7 +103,7 @@ describe('TestsEditor', () => {
     });
   });
 
-  it('authors step and final semantic expectations through test.replaceData', async () => {
+  it('authors step and final semantic expectations with field-scoped patches', async () => {
     const project = createAuthoringProject();
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
     project.entrypoint = { kind: 'room', id: 'foyer' };
@@ -142,10 +145,13 @@ describe('TestsEditor', () => {
         operator: 'present',
       });
     });
-    expect(useCommandStore.getState().history.entries.at(-1)?.type).toBe('test.replaceData');
+    expect(useCommandStore.getState().history.entries.at(-1)).toMatchObject({
+      type: 'project.applyPatch',
+      originSaveUnitId: 'record:tests:smoke',
+    });
   });
 
-  it('commits semantic identity edits through test.replaceData', async () => {
+  it('commits stable Test step references without a stale whole-record proposal', async () => {
     const project = createAuthoringProject();
     const data = defaultTestData('Smoke');
     data.steps = [{ ...defaultTestStep('dialogue-choice'), id: 'choose', label: 'Choose route' }];
@@ -162,7 +168,10 @@ describe('TestsEditor', () => {
       };
       expect(document.tests.smoke.data.steps[0]?.dialogueChoice.edgeId).toBe('accept');
     });
-    expect(useCommandStore.getState().history.entries.at(-1)?.type).toBe('test.replaceData');
+    expect(useCommandStore.getState().history.entries.at(-1)).toMatchObject({
+      type: 'project.applyPatch',
+      originSaveUnitId: 'record:tests:smoke',
+    });
   });
 
   it('authors stable UI click addresses and selectors', async () => {
@@ -209,7 +218,10 @@ describe('TestsEditor', () => {
         selector: '#confirm',
       });
     });
-    expect(useCommandStore.getState().history.entries.at(-1)?.type).toBe('test.replaceData');
+    expect(useCommandStore.getState().history.entries.at(-1)).toMatchObject({
+      type: 'project.applyPatch',
+      originSaveUnitId: 'record:tests:smoke',
+    });
   });
 
   it('runs semantic tests against the prepared compiled project', async () => {

@@ -545,6 +545,67 @@ non-#604 editor files. Both are outstanding integration gates, not #604
 acceptance passes. The #604 files' own lint check passed with zero warnings
 and errors; TypeScript passed separately.
 
+##### Authored Test, Interaction and Verb controls (#605)
+
+The `authored-record-fields.tsx` adapter uses `useProjectField` and the shared
+`nativeFieldJsonPatches` planner for field-scoped native commands; the native
+working/saved Project, revision and validation remain authoritative. Rendered
+values are transient recoverable fields shared by session, record and path,
+not per-tab whole-record drafts. There is no additional per-editor scheduler.
+
+| Authoring surface | Native Save owner | Ordinary buffered fields and semantic boundaries |
+| --- | --- | --- |
+| Test metadata | `record:tests:<id>` | `/tests/<id>/data/displayName`; immediate text, separate from playback reports and native run results |
+| Test steps, expectations and preview selection | Same Test owner | `/steps`, `/finalExpectations`, `/preview` independently buffered. Step IDs and expectation IDs select stable members; step append/duplicate/remove/reorder and selection updates are rebased into the latest draft. A step plus preview change uses one late-bound atomic native `project.applyPatch` transaction |
+| Interaction rules | `record:interactions:<id>` | `/rules` is the transient stable-ID collection. Rule label/verb, priority, selectors, guard, Offer, nested program, conditions and ordering are projected without a stale whole-record acknowledgment. Structural/multi-field changes remain atomic |
+| Verb text and program | `record:verbs:<id>` | `/actionText`, `/completedCommandText`, `/availability`, `/defaultProgram` are independent native field drafts. Inline text source, localized key, Lua expression, markup, conditions, and programs update the selected field |
+| Verb slots, order and Offers | Same Verb owner | `/slots`, `/bindingOrder`, `/offers` retain stable IDs. A slot rename updates slot identity, binding order, Offer references, nested conditions/program slot operands and named inline text placeholders together via late-bound atomic `project.applyPatch`; associated Interaction rules and Test `run-interaction` step bindings referring to that Verb are remapped in the same multi-owner native transaction. Selector, rank and boolean controls use field drafts |
+
+Numeric step and rule controls retain incomplete text in the shared pending-input
+store under *synthetic*, stable-ID `@...` paths, never native positional
+JSON Pointers; invalid text blocks Save and dependent operations. Rule, slot,
+Offer and expectation IDs similarly retain raw values until blur, enforce
+unique lowercase kebab-case identities, and do not remount keyed rows on
+each keystroke. A native rejection keeps its edit and error in recoverable
+field state. `TestsEditor` flushes its own dirty fields before asking native
+readiness to run a Test. Test execution, observations, diagnostic reports and
+non-content preview UI do not become Project field drafts.
+Empty Lua expression text stays visible and recoverable as pending raw input;
+the schema's `additionalDependencies` survives ordinary source edits. Explicit
+native command rejection of a coordinated semantic edit retains the whole
+before/after intent with a Retry/Discard action. Ambiguous transport failures
+remain fail-closed at the ProjectSession boundary; they cannot be blindly
+retried until the authoritative native state is reconciled.
+
+Native physical YAML is sparse: older Interaction Rules may store typed
+collection references as bare IDs rather than expanded `$ref` objects.
+Replacing entire normalized lists can be accepted as a working edit but break
+Save or produce YAML that does not decode. The shared patch planner uses
+late-bound leaf patches for changed members; same-length renames/reorders use
+atomic positional leaf transactions rather than remove/reinsert of normalized
+members. `RoomSession::patch` also projects newly added typed collection refs
+in Test/Interaction/Verb record source to bare IDs even if the *intermediate*
+union variant is not valid while a multi-patch transaction is underway.
+Explicit registry refs remain objects. This is native source projection,
+not an editor-side YAML writer.
+
+`NOVELTEA_AUTHORING_NODE_ADDON=... node editor/scripts/certify-native-authored-record-save.mjs`
+copies the canonical Feature Lab Project, executes the **same planner** used
+by the editors against real normalized native Test, Interaction and Verb data,
+then checks physical scoped Saves, unchanged unrelated-owner YAML, and a
+fresh native open/record inspection plus sparse YAML decoding. It covers a
+Test label/step edit, an Interaction rule rename/reorder/priority change and
+a Verb action-text edit. The disposable Project is removed afterward.
+An isolated additional Verb fixture also exercises an actual multi-field
+slot/template/Offer rename, physical scoped Save and fresh native reopen;
+the fixture source is not modified. Linked Interaction/Test slot remapping and
+rejected-transaction retry are covered by the renderer command regression.
+Renderer regression tests separately cover withheld native acknowledgments,
+same-owner duplicate tabs, Undo/Redo, rejected draft retention, semantic
+member merges, raw invalid numbers and an atomic Verb slot/reference rename.
+Neither these tests nor native source readback establish physical input-to-paint
+latency or complete the parent #602's platform/human gates.
+
 This inventory identifies **entrypoints**, not a claim that every occurrence
 is defective: many Character, Room, Project Settings and other controls already
 use optimistic collection adapters, while read-only inputs and locally staged

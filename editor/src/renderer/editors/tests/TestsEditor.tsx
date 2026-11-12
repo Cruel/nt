@@ -1,5 +1,12 @@
 import { useCommandStore } from '@/commands/command-store';
 import { projectEdits } from '@/commands/project-editing';
+import {
+  AuthoredRecordErrors,
+  AuthoredMemberIdInput,
+  commitAuthoredRecord,
+  useAuthoredRecordField,
+  AuthoredMemberNumber,
+} from '@/commands/authored-record-fields';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -119,16 +126,6 @@ function selectedStep(data: TestData) {
   );
 }
 
-function commitTest(testId: string, next: TestData, label: string) {
-  void projectEdits.execute({
-    type: 'test.replaceData',
-    label,
-    payload: { testId, data: next },
-    originSaveUnitId: recordSaveUnitId('tests', testId),
-    persistencePolicy: 'manual-save',
-  });
-}
-
 function reportObservationMap(
   report: unknown,
 ): Map<number, { handled: boolean; diagnostics: unknown[]; expectations: unknown[] }> {
@@ -210,10 +207,16 @@ function persistableFromText(value: string): LayoutPersistableValue {
 }
 
 function ExpectationEditor({
+  testId,
+  family,
+  ids,
   expectation,
   onChange,
   onDelete,
 }: {
+  testId: string;
+  family: string;
+  ids: readonly string[];
   expectation: TestExpectationData;
   onChange: (expectation: TestExpectationData) => void;
   onDelete: () => void;
@@ -233,10 +236,14 @@ function ExpectationEditor({
       data-test-expectation={expectation.id}
     >
       <div className="grid gap-2 @3xl:grid-cols-[1fr_1fr_1fr_auto]">
-        <Input
-          aria-label="Expectation ID"
-          value={expectation.id}
-          onChange={(event) => patch({ id: event.currentTarget.value })}
+        <AuthoredMemberIdInput
+          collection="tests"
+          recordId={testId}
+          family={family}
+          memberId={expectation.id}
+          ids={ids}
+          label="Expectation ID"
+          onCommit={(id) => patch({ id })}
         />
         <Select
           value={expectation.type}
@@ -438,15 +445,15 @@ function ExpectationEditor({
               })
             }
           />
-          <Input
-            aria-label="Expected quantity"
-            type="number"
-            value={String(expectation.quantity.value)}
-            onChange={(event) =>
-              patch({
-                quantity: { ...expectation.quantity, value: Number(event.currentTarget.value) },
-              })
-            }
+          <AuthoredMemberNumber
+            collection="tests"
+            recordId={testId}
+            memberId={`${family}/${expectation.id}`}
+            field="quantity/value"
+            label="Expected quantity"
+            mode="integer"
+            value={expectation.quantity.value}
+            onChange={(value) => patch({ quantity: { ...expectation.quantity, value } })}
           />
         </div>
       ) : null}
@@ -650,7 +657,45 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
   const project = isAuthoringProjectView(projectDocument) ? projectDocument : null;
   const record = testId && project ? project.tests[testId] : null;
   const parsedData = parseTestData(record?.data);
-  const data = parsedData ?? defaultTestData(record?.label ?? testId ?? 'Test');
+  const acknowledged = parsedData ?? defaultTestData(record?.label ?? testId ?? 'Test');
+  const kind = useAuthoredRecordField('tests', testId, tab.id, 'kind', acknowledged.kind);
+  const displayName = useAuthoredRecordField(
+    'tests',
+    testId,
+    tab.id,
+    'displayName',
+    acknowledged.displayName,
+  );
+  const steps = useAuthoredRecordField('tests', testId, tab.id, 'steps', acknowledged.steps);
+  const finalExpectations = useAuthoredRecordField(
+    'tests',
+    testId,
+    tab.id,
+    'finalExpectations',
+    acknowledged.finalExpectations,
+  );
+  const preview = useAuthoredRecordField('tests', testId, tab.id, 'preview', acknowledged.preview);
+  const fields = { kind, displayName, steps, finalExpectations, preview };
+  const data: TestData = {
+    kind: kind.value,
+    displayName: displayName.value,
+    steps: steps.value,
+    finalExpectations: finalExpectations.value,
+    preview: preview.value,
+  };
+  const commit = (next: TestData, label = 'Update test') => {
+    if (testId)
+      commitAuthoredRecord({
+        collection: 'tests',
+        id: testId,
+        before: data,
+        after: next,
+        fields,
+        label,
+      });
+  };
+  const navigationEditRef = useRef({ data, commit });
+  navigationEditRef.current = { data, commit };
   const setLastPlaybackReport = useWorkspaceStore((state) => state.setLastPlaybackReport);
   const addTimelineEntry = useWorkspaceStore((state) => state.addTimelineEntry);
   const setStatusMessage = useWorkspaceStore((state) => state.setStatusMessage);
@@ -719,17 +764,17 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
       registerWorkbenchTargetHandler(tab.id, 'test.step', (target) => {
         if (!testId || !target.id.startsWith('test.step.')) return false;
         const stepId = target.id.slice('test.step.'.length);
+        const { data, commit } = navigationEditRef.current;
         if (!data.steps.some((step) => step.id === stepId)) return false;
         if (data.preview.selectedStepId !== stepId) {
-          commitTest(
-            testId,
+          commit(
             { ...data, preview: { ...data.preview, selectedStepId: stepId } },
             'Select test step',
           );
         }
         return false;
       }),
-    [data, tab.id, testId],
+    [tab.id, testId],
   );
 
   if (!testId || !record || !project)
@@ -788,10 +833,6 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
       }));
     }),
   ];
-
-  function commit(next: TestData, label = 'Update test') {
-    commitTest(activeTestId, next, label);
-  }
 
   function patch(patchData: Partial<TestData>, label = 'Update test') {
     commit({ ...data, ...patchData }, label);
@@ -916,6 +957,12 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
 
   async function runCurrentTest() {
     setBottomPanel('test-playback');
+    // A test run consumes the native acknowledged authoring state, never a
+    // transient renderer draft. Incomplete/rejected edits must block the run.
+    if (!(await projectEdits.flush(recordSaveUnitId('tests', activeTestId)))) {
+      setStatusMessage('Finish or resolve pending Test edits before running the Test.');
+      return;
+    }
     const currentReadiness = await getNativeTestRunReadiness(activeTestId);
     setReadiness(currentReadiness);
     if (!currentReadiness.runnable) {
@@ -987,6 +1034,7 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
           Run Test
         </Button>
       </div>
+      <AuthoredRecordErrors fields={fields} collection="tests" recordId={activeTestId} />
 
       {!parsedData ? (
         <div className="mt-3 rounded border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">
@@ -1087,6 +1135,9 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
               {data.finalExpectations.map((expectation, index) => (
                 <ExpectationEditor
                   key={`${expectation.id}-${index}`}
+                  testId={activeTestId}
+                  family="finalExpectations"
+                  ids={data.finalExpectations.map((item) => item.id)}
                   expectation={expectation}
                   onChange={(next) => replaceFinalExpectation(index, next)}
                   onDelete={() => deleteFinalExpectation(index)}
@@ -1215,16 +1266,18 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
                 </div>
               ) : null}
               {activeStep.input === 'tick' ? (
-                <Input
-                  aria-label="Tick delta seconds"
-                  value={String(activeStep.tick.deltaSeconds)}
-                  onChange={(event) =>
+                <AuthoredMemberNumber
+                  collection="tests"
+                  recordId={activeTestId}
+                  memberId={activeStep.id}
+                  field="tick/deltaSeconds"
+                  label="Tick delta seconds"
+                  min={0}
+                  value={activeStep.tick.deltaSeconds}
+                  onChange={(deltaSeconds) =>
                     replaceStep(activeStep.id, {
                       tick: {
-                        deltaSeconds: Math.max(
-                          0,
-                          Number.parseFloat(event.currentTarget.value) || 0,
-                        ),
+                        deltaSeconds,
                       },
                     })
                   }
@@ -1518,6 +1571,9 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
                 {activeStep.expectations.map((expectation, index) => (
                   <ExpectationEditor
                     key={`${expectation.id}-${index}`}
+                    testId={activeTestId}
+                    family={`steps/${activeStep.id}/expectations`}
+                    ids={activeStep.expectations.map((item) => item.id)}
                     expectation={expectation}
                     onChange={(next) => replaceStepExpectation(activeStep.id, index, next)}
                     onDelete={() => deleteStepExpectation(activeStep.id, index)}

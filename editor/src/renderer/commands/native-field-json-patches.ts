@@ -24,7 +24,14 @@ export function nativeFieldJsonPatches(
     ) {
       const commonBefore = oldIds.filter((id) => newIds.includes(id));
       const commonAfter = newIds.filter((id) => oldIds.includes(id));
-      if (commonBefore.every((id, i) => id === commonAfter[i])) {
+      // A same-length membership change may be a rename. Removing and
+      // re-inserting a normalized member would persist expanded shorthand
+      // references and fail the native sparse-YAML Save projection. Such
+      // replacements use the index-relative leaf-diff transaction below.
+      if (
+        (before.length !== after.length || oldIds.every((id, i) => id === newIds[i])) &&
+        commonBefore.every((id, i) => id === commonAfter[i])
+      ) {
         const patches: JsonPatchOperation[] = [];
         const kept = new Set(newIds);
         for (let index = before.length - 1; index >= 0; index--)

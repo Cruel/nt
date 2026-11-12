@@ -6403,6 +6403,24 @@ RoomSessionResult RoomSession::patch(std::uint64_t expected_working_revision,
                         }
                     }
                 }
+                // A multi-patch union-variant edit can be temporarily invalid
+                // between changing its discriminator and adding the new typed
+                // reference. Projection of a newly added collection reference
+                // must not depend on snapshot() being normalizable mid-batch.
+                // These three families encode typed collection references as
+                // bare IDs in physical YAML; explicit registry refs stay as
+                // objects. The existing-raw Replace path above is unchanged.
+                if (concrete.operation == RoomPatch::Operation::Add &&
+                    (record_family_ == "interactions" || record_family_ == "verbs" ||
+                     record_family_ == "tests")) {
+                    const auto replacement = Json::parse(concrete.value_json);
+                    if (replacement.is_object() && replacement.contains("$ref")) {
+                        const auto& ref = replacement.at("$ref");
+                        if (ref.is_object() && ref.contains("collection") &&
+                            ref.contains("id") && ref.at("id").is_string())
+                            concrete.value_json = ref.at("id").to_string();
+                    }
+                }
             }
             if (concrete.operation == RoomPatch::Operation::Add && !is_project_) {
                 if (is_editor_)
