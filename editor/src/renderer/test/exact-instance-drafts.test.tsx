@@ -234,6 +234,41 @@ describe('exact Interactable Instance owner-scoped drafts', () => {
     expect(Object.keys(useNativeFieldDraftStore.getState().entries)).toHaveLength(0);
   });
 
+  it('preserves the latest Room owner when the Definition view closes during a dispatched native Instance edit', async () => {
+    const native = admitNativeRendererCommandFixture(projectWithRoomInstance());
+    const held = holdFirstNativeProjectPatch();
+    const view = render(
+      <>
+        <SharedInstanceField owner="record:interactables:door" tabId="definition" />
+        <SharedInstanceField owner="record:rooms:hall" tabId="room" />
+      </>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Update definition' }));
+    await waitFor(() => expect(held.isHeld()).toBe(true));
+    fireEvent.click(screen.getByRole('button', { name: 'Update room' }));
+    expect(screen.getByTestId('room')).toHaveTextContent('room');
+    expect(
+      useDraftDirtyStore.getState().entriesByKey[
+        nativeFieldDraftKey('record:rooms:hall', sharedPropertyPath)
+      ]?.dirty,
+    ).toBe(true);
+
+    // Closing only the stale Definition tab must not revoke the live Room's
+    // owner-specific draft, even though Definition's older patch is dispatched.
+    view.rerender(<SharedInstanceField owner="record:rooms:hall" tabId="room" />);
+    await act(async () => held.release());
+    await act(async () => expect(await projectEdits.flush()).toBe(true));
+    expect(screen.getByTestId('room')).toHaveTextContent('room');
+    expect(native.patch).toHaveBeenCalledTimes(2);
+    expect(
+      useCommandStore.getState().history.entries.map((entry) => entry.originSaveUnitId),
+    ).toEqual(['record:interactables:door', 'record:rooms:hall']);
+    expect(useProjectStore.getState().document).toMatchObject({
+      interactableInstances: { 'door-1': { localProperties: [{ id: 'clue', value: 'room' }] } },
+    });
+    expect(Object.keys(useNativeFieldDraftStore.getState().entries)).toHaveLength(0);
+  });
+
   it('retains a failed native exact-Instance field through Project restart and replay', async () => {
     admitNativeRendererCommandFixture(projectWithRoomInstance());
     const view = render(

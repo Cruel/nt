@@ -18,6 +18,7 @@ import { ActiveProjectSessionService } from '../../main/services/active-project-
 import { NativeAuthoringSessionBridge } from '../../main/services/native-authoring-session-bridge';
 import { NativeAuthoringWorkingProject } from '../../main/services/native-authoring-working-project';
 import { openNativeEditorProject } from '../../main/services/native-editor-project-open';
+import { NATIVE_FIELD_DRAFT_SCHEMA, nativeFieldDraftKey } from '../commands/native-field-drafts';
 
 const roots: string[] = [];
 async function fixture() {
@@ -46,6 +47,156 @@ afterEach(async () => {
 });
 
 describe('native saved Project Copy As', () => {
+  it.skipIf(!process.env.NOVELTEA_AUTHORING_NODE_ADDON)(
+    'copies two native dirty owners and an unacknowledged field while preserving the original Project',
+    async () => {
+      const parent = await mkdtemp(path.join(tmpdir(), 'nt-native-copy-mixed-608-'));
+      roots.push(parent);
+      const source = path.join(parent, 'source');
+      const destination = path.join(parent, 'destination');
+      await cp(path.resolve(process.cwd(), '../tests/projects/feature-lab'), source, {
+        recursive: true,
+        filter: (entry) => !entry.split(path.sep).includes('.noveltea'),
+      });
+      await mkdir(destination);
+      dialogState.destination = destination;
+      const originalRoom = path.join(source, 'records/rooms/active-text.yaml');
+      const originalScene = path.join(source, 'records/scenes/background-stories.yaml');
+      const beforeRoom = await readFile(originalRoom, 'utf8');
+      const beforeScene = await readFile(originalScene, 'utf8');
+      const sessions = new ActiveProjectSessionService();
+      const makeController = () => {
+        const bridge = new NativeAuthoringSessionBridge(sessions, {
+          addonPath: process.env.NOVELTEA_AUTHORING_NODE_ADDON!,
+          workerScript: path.resolve(
+            process.cwd(),
+            'dist-electron/authoring-worker/native-authoring-worker.cjs',
+          ),
+          pollIntervalMs: 100,
+        });
+        return new NativeEditorSessionController(
+          sessions,
+          bridge,
+          new NativeAuthoringWorkingProject(bridge),
+        );
+      };
+      let controller = makeController();
+      try {
+        const opened = await openNativeEditorProject(
+          source,
+          sessions.beginProjectActivation(),
+          sessions,
+          controller,
+        );
+        expect(opened.success, opened.error).toBe(true);
+        const id = opened.projectSessionId!;
+        const room = await controller.applyRevisionedPatches(id, opened.nativeWorkingRevision!, [
+          {
+            op: 'replace',
+            path: '/rooms/active-text/data/displayName',
+            value: 'Original dirty Room',
+          },
+        ]);
+        expect(room.accepted, room.error).toBe(true);
+        const scene = await controller.applyRevisionedPatches(id, room.snapshot.workingRevision, [
+          {
+            op: 'replace',
+            path: '/scenes/background-stories/data/displayName',
+            value: 'Original dirty Scene',
+          },
+        ]);
+        expect(scene.accepted, scene.error).toBe(true);
+        const draftKey = nativeFieldDraftKey(
+          'record:rooms:active-text',
+          '/rooms/active-text/data/displayName',
+        );
+        const pendingField = {
+          tabId: 'closed-other-view',
+          schema: NATIVE_FIELD_DRAFT_SCHEMA,
+          payload: {
+            value: 'Unacknowledged draft',
+            base: {
+              revision: scene.snapshot.workingRevision,
+              exists: true,
+              value: 'Original dirty Room',
+            },
+          },
+        };
+        const editor = {
+          ...opened.editorState,
+          draftsByKey: { ...opened.editorState?.draftsByKey, [draftKey]: pendingField },
+        };
+        const copied = await saveNativeProjectCopyAs(
+          {} as never,
+          source,
+          { editor },
+          () => controller.verifySavedCopySources(id),
+          () => controller.copyRecovery(id),
+        );
+        expect(copied.success, copied.error).toBe(true);
+        expect(controller.isAdmitted(id)).toBe(true);
+        expect(await readFile(originalRoom, 'utf8')).toBe(beforeRoom);
+        expect(await readFile(originalScene, 'utf8')).toBe(beforeScene);
+        expect(
+          await readFile(path.join(destination, 'records/rooms/active-text.yaml'), 'utf8'),
+        ).toBe(beforeRoom);
+        expect(
+          await readFile(path.join(destination, 'records/scenes/background-stories.yaml'), 'utf8'),
+        ).toBe(beforeScene);
+
+        controller.dispose();
+        sessions.closeActiveProject();
+        controller = makeController();
+        const copyOpen = await openNativeEditorProject(
+          destination,
+          sessions.beginProjectActivation(),
+          sessions,
+          controller,
+        );
+        expect(copyOpen.success, copyOpen.error).toBe(true);
+        expect(copyOpen.nativeRecoveredContentProject).toMatchObject({
+          rooms: { 'active-text': { data: { displayName: 'Original dirty Room' } } },
+          scenes: { 'background-stories': { data: { displayName: 'Original dirty Scene' } } },
+        });
+        expect(copyOpen.editorState?.draftsByKey?.[draftKey]).toMatchObject({
+          payload: { value: 'Unacknowledged draft' },
+        });
+        const savedInCopy = await controller.saveUnit(
+          copyOpen.projectSessionId!,
+          copyOpen.nativeWorkingRevision!,
+          'record:scenes:background-stories',
+          {},
+        );
+        expect(savedInCopy.accepted, savedInCopy.error).toBe(true);
+        expect(
+          await readFile(path.join(destination, 'records/scenes/background-stories.yaml'), 'utf8'),
+        ).toContain('Original dirty Scene');
+        expect(await readFile(originalScene, 'utf8')).toBe(beforeScene);
+
+        controller.dispose();
+        sessions.closeActiveProject();
+        controller = makeController();
+        const sourceOpen = await openNativeEditorProject(
+          source,
+          sessions.beginProjectActivation(),
+          sessions,
+          controller,
+        );
+        expect(sourceOpen.success, sourceOpen.error).toBe(true);
+        expect(sourceOpen.nativeRecoveredContentProject).toMatchObject({
+          rooms: { 'active-text': { data: { displayName: 'Original dirty Room' } } },
+          scenes: { 'background-stories': { data: { displayName: 'Original dirty Scene' } } },
+        });
+        expect(await readFile(originalRoom, 'utf8')).toBe(beforeRoom);
+        expect(await readFile(originalScene, 'utf8')).toBe(beforeScene);
+      } finally {
+        controller.dispose();
+        sessions.dispose();
+      }
+    },
+    120_000,
+  );
+
   it.skipIf(!process.env.NOVELTEA_AUTHORING_NODE_ADDON)(
     'reopens a copy of a dirty native Project with its acknowledged edits still unsaved',
     async () => {
