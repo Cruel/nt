@@ -1,9 +1,13 @@
 import { admitNativeRendererCommandFixture } from '../test-support/native-acknowledged-command-fixture';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { DialogueEditor } from '@/editors/dialogues/DialogueEditor';
+import { projectEdits } from '@/commands/project-editing';
+import { saveActiveSaveUnit } from '@/project/project-save-coordinator';
 import { useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
+import { usePendingInputStore } from '@/workbench/pending-input-store';
+import { useDraftDirtyStore } from '@/workbench/draft-dirty-store';
 import {
   captureWorkbenchTabState,
   clearWorkbenchTabStates,
@@ -13,6 +17,7 @@ import {
 import type { WorkbenchTab } from '@/workbench/workbench-types';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultDialogueData } from '../../shared/project-schema/authoring-dialogues';
+import { holdFirstNativeProjectPatch } from '../test-support/native-acknowledged-command-fixture';
 
 vi.mock('@xyflow/react', () => ({
   Background: () => <div data-testid="xyflow-background" />,
@@ -94,6 +99,8 @@ const tab: WorkbenchTab = {
 beforeEach(() => {
   useCommandStore.getState().resetCommandHistory();
   useProjectStore.getState().clearProject();
+  usePendingInputStore.getState().resetPendingInputs();
+  useDraftDirtyStore.getState().resetDraftDirty();
   clearWorkbenchTabStates();
 });
 
@@ -104,6 +111,90 @@ function loadDialogue() {
 }
 
 describe('DialogueEditor', () => {
+  it('keeps inline Dialogue source typing and sibling metadata immediate during held native work', async () => {
+    loadDialogue();
+    const held = holdFirstNativeProjectPatch();
+    const view = render(<DialogueEditor tab={tab} />);
+    const source = view.container.querySelector<HTMLTextAreaElement>('textarea')!;
+    expect(source).not.toBeNull();
+    fireEvent.change(source, { target: { value: 'Hello' } });
+    expect(source).toHaveValue('Hello');
+    await waitFor(() => expect(held.isHeld()).toBe(true));
+
+    for (const raw of ['Hello world', 'Hello wor', 'Hello scene!']) {
+      fireEvent.change(source, { target: { value: raw } });
+      expect(source).toHaveValue(raw);
+    }
+    const name = screen.getByDisplayValue('Intro');
+    fireEvent.change(name, { target: { value: 'Intro renamed' } });
+    expect(name).toHaveValue('Intro renamed');
+    await act(async () => held.release());
+    await waitFor(() => {
+      const data = (
+        useProjectStore.getState().document as {
+          dialogues: { intro: { data: ReturnType<typeof defaultDialogueData> } };
+        }
+      ).dialogues.intro.data;
+      expect(data.displayName).toBe('Intro renamed');
+      const segment = data.blocks[0]?.type === 'sequence' ? data.blocks[0].segments[0] : null;
+      expect(
+        segment?.type === 'line' &&
+          segment.text.source.kind === 'inline' &&
+          segment.text.source.text,
+      ).toBe('Hello scene!');
+    });
+    expect(source).toHaveValue('Hello scene!');
+    await act(async () => expect(await projectEdits.flush('record:dialogues:intro')).toBe(true));
+    const result = await saveActiveSaveUnit('record:dialogues:intro');
+    expect(result.success).toBe(true);
+  });
+
+  it('reuses the native grouped history for Dialogue text Undo and Redo', async () => {
+    loadDialogue();
+    render(<DialogueEditor tab={tab} />);
+    const name = screen.getByDisplayValue('Intro');
+    fireEvent.change(name, { target: { value: 'Intro editing' } });
+    fireEvent.change(name, { target: { value: 'Intro edited' } });
+    await act(async () => expect(await projectEdits.flush('record:dialogues:intro')).toBe(true));
+    await act(async () => expect((await projectEdits.undo()).ok).toBe(true));
+    expect(name).toHaveValue('Intro');
+    await act(async () => expect((await projectEdits.redo()).ok).toBe(true));
+    expect(name).toHaveValue('Intro edited');
+  });
+
+  it.each([500, 1000])(
+    'keeps Dialogue typing and independently edited block label under %i ms held native patch',
+    async (delay) => {
+      loadDialogue();
+      const held = holdFirstNativeProjectPatch();
+      render(<DialogueEditor tab={tab} />);
+      const name = screen.getByDisplayValue('Intro');
+      fireEvent.change(name, { target: { value: 'Intro 1' } });
+      await waitFor(() => expect(held.isHeld()).toBe(true));
+      for (const text of ['Intro 12', 'Intro 123', 'Intro 12', 'Intro pasted']) {
+        fireEvent.change(name, { target: { value: text } });
+        expect(name).toHaveValue(text);
+      }
+      const blockLabel = screen.getByDisplayValue('Sequence');
+      fireEvent.change(blockLabel, { target: { value: 'First conversation' } });
+      expect(blockLabel).toHaveValue('First conversation');
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      expect(name).toHaveValue('Intro pasted');
+      expect(blockLabel).toHaveValue('First conversation');
+      await act(async () => held.release());
+      await waitFor(() => {
+        const document = useProjectStore.getState().document as {
+          dialogues: { intro: { data: ReturnType<typeof defaultDialogueData> } };
+        };
+        expect(document.dialogues.intro.data.displayName).toBe('Intro pasted');
+        expect(document.dialogues.intro.data.blocks[0]?.label).toBe('First conversation');
+      });
+      expect(vi.mocked(window.noveltea.nativeProjectPatch).mock.calls.length).toBeLessThanOrEqual(
+        4,
+      );
+    },
+    15000,
+  );
   it('renders the strict Dialogue graph and preview', () => {
     loadDialogue();
     render(<DialogueEditor tab={tab} />);
@@ -248,7 +339,7 @@ describe('DialogueEditor', () => {
         }),
       ]);
     });
-    expect(useCommandStore.getState().history.entries.at(-1)?.type).toBe('dialogue.replaceData');
+    expect(useCommandStore.getState().history.entries.at(-1)?.type).toBe('project.replaceAtPath');
   });
 
   it('captures and restores graph, selection, preview, and layout state in the editor boundary', async () => {

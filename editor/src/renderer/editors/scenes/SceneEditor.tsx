@@ -1,4 +1,8 @@
-import { projectEdits } from '@/commands/project-editing';
+import {
+  SemanticIdInput,
+  SemanticNumberInput,
+  useSceneEditorFields,
+} from '../scene-dialogue-fields';
 import { RecursiveConditionEditor } from '@/components/conditions/ConditionEditor';
 import {
   GameplayCommandListEditor,
@@ -22,13 +26,13 @@ import { useOptionalMaterialPreviewProjectResources } from '@/material-preview/m
 import { DerivedPreviewPane } from '@/preview/DerivedPreviewPane';
 import { useNativeProjectDiagnostics } from '@/project/native-project-diagnostics';
 import { useProjectStore } from '@/project/project-store';
-import { recordSaveUnitId } from '@/project/save-unit-registry';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 import { useEffect, useState } from 'react';
 import { emptyMaterialApplication } from '../../../shared/project-schema/authoring-material-applications';
 import { resolveMaterialData } from '../../../shared/project-schema/authoring-materials';
 import { isAuthoringProjectView } from '../../../shared/project-schema/authoring-project-view';
 import { parseRoomData } from '../../../shared/project-schema/authoring-rooms';
+import { isValidEntityId } from '../../../shared/project-schema/authoring-common';
 import {
   defaultSceneData,
   defaultSceneStep,
@@ -43,7 +47,6 @@ import {
   sceneStepTypeValues,
   sceneVariableRef,
   type SceneConditionData,
-  type SceneData,
   type SceneInputBinding,
   type SceneInputDefinition,
   type SceneStepData,
@@ -61,20 +64,6 @@ import {
 } from '../../../shared/project-schema/scene-project';
 import type { MaterialDerivedInterface } from '../../../shared/project-schema/shader-material-project';
 
-function commitScene(
-  sceneId: string,
-  data: SceneData,
-  label: string,
-  semanticOwnerMoves?: { fromPrefix: string; toPrefix: string }[],
-) {
-  void projectEdits.execute({
-    type: 'scene.replaceData',
-    label,
-    payload: { sceneId, data, semanticOwnerMoves },
-    originSaveUnitId: recordSaveUnitId('scenes', sceneId),
-    persistencePolicy: 'manual-save',
-  });
-}
 function title(value: string) {
   return value
     .split('-')
@@ -321,7 +310,12 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
   >({});
   const sceneId = tab.resource?.entityId;
   const record = sceneId && project ? project.scenes[sceneId] : null;
-  const data = parseSceneData(record?.data) ?? defaultSceneData(record?.label ?? 'Scene');
+  const acknowledged = parseSceneData(record?.data) ?? defaultSceneData(record?.label ?? 'Scene');
+  const { data, commit, commitChecked, feedback } = useSceneEditorFields(
+    sceneId,
+    tab.id,
+    acknowledged,
+  );
   const [selectedId, setSelectedId] = useState<string | null>(data.events[0]?.id ?? null);
   const [scrubMs, setScrubMs] = useState(0);
   const [timelinePlaying, setTimelinePlaying] = useState(false);
@@ -393,11 +387,6 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
       anchorId: anchor.id,
     }));
   });
-  const commit = (
-    next: SceneData,
-    label = 'Update scene',
-    semanticOwnerMoves?: { fromPrefix: string; toPrefix: string }[],
-  ) => commitScene(sceneId, next, label, semanticOwnerMoves);
   const replaceStep = (next: SceneStepData) =>
     commit(
       { ...data, events: data.events.map((step) => (step.id === next.id ? next : step)) },
@@ -529,9 +518,9 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
     [steps[index], steps[target]] = [steps[target]!, steps[index]!];
     commit({ ...data, events: steps }, 'Reorder scene events');
   };
-  const renameStep = (nextId: string) => {
-    if (!selected || nextId === selected.id || data.events.some((step) => step.id === nextId))
-      return;
+  const renameStep = async (nextId: string): Promise<boolean> => {
+    if (!selected || !isValidEntityId(nextId) || data.events.some((step) => step.id === nextId))
+      return false;
     const previousId = selected.id;
     const steps = data.events.map((step): SceneStepData => {
       const renamed = step.id === previousId ? ({ ...step, id: nextId } as SceneStepData) : step;
@@ -554,13 +543,14 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
         };
       return renamed;
     });
-    commit({ ...data, events: steps }, 'Rename scene event', [
+    const accepted = await commitChecked({ ...data, events: steps }, 'Rename scene event', [
       {
         fromPrefix: `/scenes/${sceneId}/data/events/@${previousId}`,
         toPrefix: `/scenes/${sceneId}/data/events/@${nextId}`,
       },
     ]);
-    setSelectedId(nextId);
+    if (accepted) setSelectedId(nextId);
+    return accepted;
   };
 
   const terminalOptions = [
@@ -621,6 +611,7 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
   return (
     <div className="grid h-full min-h-0 grid-cols-[minmax(240px,0.7fr)_minmax(360px,1.3fr)_minmax(320px,1fr)]">
       <section className="min-h-0 overflow-auto border-r p-3">
+        {feedback}
         <div className="mb-3 flex gap-2">
           <DropdownMenu>
             <DropdownMenuTrigger render={<Button size="sm" variant="outline" />}>
@@ -861,13 +852,23 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                 key={`${input.id}-${index}`}
                 className="grid grid-cols-[1fr_1fr_110px_auto] gap-2"
               >
-                <Input
+                <SemanticIdInput
+                  collection="scenes"
+                  recordId={sceneId}
+                  pathParts={['inputs', '@' + input.id, 'id']}
                   value={input.id}
                   aria-label={`Input ${index + 1} ID`}
-                  onChange={(event) => {
-                    const inputs = [...data.inputs];
-                    inputs[index] = { ...input, id: event.target.value };
-                    commit({ ...data, inputs });
+                  onCommit={(nextId) => {
+                    if (data.inputs.some((entry) => entry.id === nextId)) return false;
+                    const inputs = data.inputs.map((entry) =>
+                      entry.id === input.id ? { ...entry, id: nextId } : entry,
+                    );
+                    return commitChecked({ ...data, inputs }, 'Rename Scene input', [
+                      {
+                        fromPrefix: `/scenes/${sceneId}/data/inputs/@${input.id}`,
+                        toPrefix: `/scenes/${sceneId}/data/inputs/@${nextId}`,
+                      },
+                    ]);
                   }}
                 />
                 <Input
@@ -934,13 +935,27 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
             </div>
             {data.outcomes.map((outcome, index) => (
               <div key={`${outcome.id}-${index}`} className="grid grid-cols-[1fr_1fr_auto] gap-2">
-                <Input
+                <SemanticIdInput
+                  collection="scenes"
+                  recordId={sceneId}
+                  pathParts={['outcomes', '@' + outcome.id, 'id']}
                   value={outcome.id}
                   aria-label={`Outcome ${index + 1} ID`}
-                  onChange={(event) => {
-                    const outcomes = [...data.outcomes];
-                    outcomes[index] = { ...outcome, id: event.target.value };
-                    commit({ ...data, outcomes });
+                  onCommit={(nextId) => {
+                    if (data.outcomes.some((entry) => entry.id === nextId)) return false;
+                    const outcomes = data.outcomes.map((entry) =>
+                      entry.id === outcome.id ? { ...entry, id: nextId } : entry,
+                    );
+                    const terminal =
+                      data.terminal.kind === 'return' && data.terminal.outcome === outcome.id
+                        ? { ...data.terminal, outcome: nextId }
+                        : data.terminal;
+                    return commitChecked({ ...data, outcomes, terminal }, 'Rename Scene outcome', [
+                      {
+                        fromPrefix: `/scenes/${sceneId}/data/outcomes/@${outcome.id}`,
+                        toPrefix: `/scenes/${sceneId}/data/outcomes/@${nextId}`,
+                      },
+                    ]);
                   }}
                 />
                 <Input
@@ -1175,7 +1190,13 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
             </Label>
             <Label>
               Event ID
-              <Input value={selected.id} onChange={(event) => renameStep(event.target.value)} />
+              <SemanticIdInput
+                collection="scenes"
+                recordId={sceneId}
+                pathParts={['events', '@' + selected.id, 'id']}
+                value={selected.id}
+                onCommit={renameStep}
+              />
             </Label>
             <Label>
               Label
@@ -1201,8 +1222,11 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
               </Label>
               <Label>
                 Start (ms)
-                <Input
-                  type="number"
+                <SemanticNumberInput
+                  collection="scenes"
+                  recordId={sceneId}
+                  pathParts={['events', '@' + selected.id, 'timeline', 'startMs']}
+                  mode="integer"
                   min={0}
                   value={selected.timeline.startMs}
                   onChange={(event) =>
@@ -1218,8 +1242,11 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
               </Label>
               <Label>
                 Duration (ms)
-                <Input
-                  type="number"
+                <SemanticNumberInput
+                  collection="scenes"
+                  recordId={sceneId}
+                  pathParts={['events', '@' + selected.id, 'timeline', 'durationMs']}
+                  mode="integer"
                   min={0}
                   value={selected.timeline.durationMs}
                   onChange={(event) =>
@@ -1375,9 +1402,12 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                 </Label>
                 <Label>
                   Duration (ms)
-                  <Input
+                  <SemanticNumberInput
                     disabled={selected.transition !== 'fade'}
-                    type="number"
+                    collection="scenes"
+                    recordId={sceneId}
+                    pathParts={['events', '@' + selected.id, 'durationMs']}
+                    mode="integer"
                     min="0"
                     value={selected.durationMs}
                     onChange={(event) =>
@@ -1499,8 +1529,10 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                 </Label>
                 <Label>
                   Offset X
-                  <Input
-                    type="number"
+                  <SemanticNumberInput
+                    collection="scenes"
+                    recordId={sceneId}
+                    pathParts={['events', '@' + selected.id, 'offset', 'x']}
                     value={selected.offset.x}
                     onChange={(event) =>
                       replaceStep({
@@ -1512,8 +1544,10 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                 </Label>
                 <Label>
                   Offset Y
-                  <Input
-                    type="number"
+                  <SemanticNumberInput
+                    collection="scenes"
+                    recordId={sceneId}
+                    pathParts={['events', '@' + selected.id, 'offset', 'y']}
                     value={selected.offset.y}
                     onChange={(event) =>
                       replaceStep({
@@ -1525,8 +1559,10 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                 </Label>
                 <Label>
                   Scale
-                  <Input
-                    type="number"
+                  <SemanticNumberInput
+                    collection="scenes"
+                    recordId={sceneId}
+                    pathParts={['events', '@' + selected.id, 'scale']}
                     min="0.01"
                     step="0.05"
                     value={selected.scale}
@@ -1558,9 +1594,12 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                 </Label>
                 <Label>
                   Duration (ms)
-                  <Input
+                  <SemanticNumberInput
                     disabled={selected.transition === 'none'}
-                    type="number"
+                    collection="scenes"
+                    recordId={sceneId}
+                    pathParts={['events', '@' + selected.id, 'durationMs']}
+                    mode="integer"
                     min="0"
                     value={selected.durationMs}
                     onChange={(event) =>
@@ -1865,8 +1904,10 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                 </Label>
                 <Label>
                   Gain
-                  <Input
-                    type="number"
+                  <SemanticNumberInput
+                    collection="scenes"
+                    recordId={sceneId}
+                    pathParts={['events', '@' + selected.id, 'gain']}
                     min="0"
                     max="1"
                     step="0.05"
@@ -1878,8 +1919,10 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                 </Label>
                 <Label>
                   Stereo pan
-                  <Input
-                    type="number"
+                  <SemanticNumberInput
+                    collection="scenes"
+                    recordId={sceneId}
+                    pathParts={['events', '@' + selected.id, 'pan']}
                     min="-1"
                     max="1"
                     step="0.05"
@@ -1982,8 +2025,11 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                 ) : null}
                 <Label>
                   Fade (ms)
-                  <Input
-                    type="number"
+                  <SemanticNumberInput
+                    collection="scenes"
+                    recordId={sceneId}
+                    pathParts={['events', '@' + selected.id, 'fadeMs']}
+                    mode="integer"
                     min="0"
                     value={selected.fadeMs}
                     onChange={(event) =>
@@ -2278,8 +2324,11 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                 {selected.waitKind === 'duration' && (
                   <Label>
                     Duration (ms)
-                    <Input
-                      type="number"
+                    <SemanticNumberInput
+                      collection="scenes"
+                      recordId={sceneId}
+                      pathParts={['events', '@' + selected.id, 'durationMs']}
+                      mode="integer"
                       min="0"
                       value={selected.durationMs}
                       onChange={(event) =>
@@ -2623,9 +2672,12 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                 </Label>
                 <Label>
                   Duration (ms)
-                  <Input
+                  <SemanticNumberInput
                     disabled={selected.transition === 'none'}
-                    type="number"
+                    collection="scenes"
+                    recordId={sceneId}
+                    pathParts={['events', '@' + selected.id, 'durationMs']}
+                    mode="integer"
                     min="0"
                     value={selected.durationMs}
                     onChange={(event) =>
@@ -2894,8 +2946,11 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                       <>
                         <Label>
                           Duration (ms)
-                          <Input
-                            type="number"
+                          <SemanticNumberInput
+                            collection="scenes"
+                            recordId={sceneId}
+                            pathParts={['events', '@' + selected.id, 'durationMs']}
+                            mode="integer"
                             min="1"
                             value={selected.durationMs}
                             onChange={(event) =>
@@ -3025,8 +3080,11 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                         </Label>
                         <Label>
                           Order
-                          <Input
-                            type="number"
+                          <SemanticNumberInput
+                            collection="scenes"
+                            recordId={sceneId}
+                            pathParts={['events', '@' + selected.id, 'order']}
+                            mode="integer"
                             value={selected.order}
                             onChange={(event) =>
                               replaceStep({ ...selected, order: Number(event.target.value) })
@@ -3074,8 +3132,11 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                 </Label>
                 <Label>
                   Duration (ms)
-                  <Input
-                    type="number"
+                  <SemanticNumberInput
+                    collection="scenes"
+                    recordId={sceneId}
+                    pathParts={['events', '@' + selected.id, 'durationMs']}
+                    mode="integer"
                     min="0"
                     value={selected.durationMs}
                     onChange={(event) =>
@@ -3428,8 +3489,17 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                             </Label>
                             <Label>
                               Offset X
-                              <Input
-                                type="number"
+                              <SemanticNumberInput
+                                collection="scenes"
+                                recordId={sceneId}
+                                pathParts={[
+                                  'events',
+                                  '@' + selected.id,
+                                  'children',
+                                  '@' + child.id,
+                                  'offset',
+                                  'x',
+                                ]}
                                 value={child.offset.x}
                                 onChange={(event) =>
                                   updateChild({
@@ -3441,8 +3511,17 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                             </Label>
                             <Label>
                               Offset Y
-                              <Input
-                                type="number"
+                              <SemanticNumberInput
+                                collection="scenes"
+                                recordId={sceneId}
+                                pathParts={[
+                                  'events',
+                                  '@' + selected.id,
+                                  'children',
+                                  '@' + child.id,
+                                  'offset',
+                                  'y',
+                                ]}
                                 value={child.offset.y}
                                 onChange={(event) =>
                                   updateChild({
@@ -3454,8 +3533,16 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                             </Label>
                             <Label>
                               Scale
-                              <Input
-                                type="number"
+                              <SemanticNumberInput
+                                collection="scenes"
+                                recordId={sceneId}
+                                pathParts={[
+                                  'events',
+                                  '@' + selected.id,
+                                  'children',
+                                  '@' + child.id,
+                                  'scale',
+                                ]}
                                 min="0.01"
                                 step="0.05"
                                 value={child.scale}

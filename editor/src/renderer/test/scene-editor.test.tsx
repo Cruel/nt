@@ -1,13 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { SceneEditor } from '@/editors/scenes/SceneEditor';
+import { projectEdits } from '@/commands/project-editing';
+import { saveActiveSaveUnit } from '@/project/project-save-coordinator';
 import { useCommandStore } from '@/commands/command-store';
+import { useDraftDirtyStore } from '@/workbench/draft-dirty-store';
+import { usePendingInputStore } from '@/workbench/pending-input-store';
 import { useProjectStore } from '@/project/project-store';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { defaultSceneData, defaultSceneStep } from '../../shared/project-schema/authoring-scenes';
-import { admitNativeRendererCommandFixture } from '../test-support/native-acknowledged-command-fixture';
+import {
+  admitNativeRendererCommandFixture,
+  holdFirstNativeProjectPatch,
+} from '../test-support/native-acknowledged-command-fixture';
 
 vi.mock('@/preview/DerivedPreviewPane', () => ({
   DerivedPreviewPane: ({
@@ -39,6 +46,8 @@ beforeEach(() => {
   window.PointerEvent = window.PointerEvent ?? window.MouseEvent;
   useProjectStore.getState().clearProject();
   useCommandStore.getState().resetCommandHistory();
+  useDraftDirtyStore.getState().resetDraftDirty();
+  usePendingInputStore.getState().resetPendingInputs();
 });
 
 afterEach(() => {
@@ -64,6 +73,236 @@ function loadTimelineScene() {
 }
 
 describe('SceneEditor', () => {
+  it('rebases sibling Event edits and reorder across a held native acknowledgment', async () => {
+    const project = loadTimelineScene();
+    const held = holdFirstNativeProjectPatch();
+    const nativePatch = window.noveltea.nativeProjectPatch;
+    render(<SceneEditor tab={tab} />);
+    const label = screen.getByDisplayValue('Opening text');
+    fireEvent.change(label, { target: { value: 'Fresh opening' } });
+    expect(label).toHaveValue('Fresh opening');
+    await waitFor(() => expect(held.isHeld()).toBe(true));
+
+    fireEvent.click(screen.getByTitle('Overlapping note · 300–700 ms'));
+    const secondLabel = screen.getByDisplayValue('Overlapping note');
+    fireEvent.change(secondLabel, { target: { value: 'Fresh note' } });
+    expect(secondLabel).toHaveValue('Fresh note');
+    fireEvent.click(screen.getByRole('button', { name: 'Up' }));
+    await act(async () => held.release());
+    await waitFor(() => {
+      const events = (useProjectStore.getState().document as typeof project).scenes.opening!.data
+        .events;
+      expect(events.map((event) => event.id)).toEqual([
+        'overlapping-note',
+        'opening-text',
+        'effect-hold',
+      ]);
+      expect(events.map((event) => event.label)).toEqual([
+        'Fresh note',
+        'Fresh opening',
+        'Effect hold',
+      ]);
+    });
+    expect(nativePatch).toHaveBeenCalled();
+  });
+
+  it('retains incomplete Scene timeline numbers and blocks active Save until completed', async () => {
+    const project = loadTimelineScene();
+    const native = admitNativeRendererCommandFixture(project);
+    render(<SceneEditor tab={tab} />);
+    const start = screen.getByLabelText('Start (ms)');
+    fireEvent.change(start, { target: { value: '-' } });
+    expect(start).toHaveValue('-');
+    expect(
+      usePendingInputStore.getState().entriesBySaveUnitId['record:scenes:opening'],
+    ).toHaveProperty('/scenes/opening/data/events/@opening-text/timeline/startMs');
+    expect((await saveActiveSaveUnit('record:scenes:opening')).success).toBe(false);
+    expect(
+      (useProjectStore.getState().document as typeof project).scenes.opening!.data.events[0]!
+        .timeline.startMs,
+    ).toBe(100);
+
+    fireEvent.change(start, { target: { value: '320' } });
+    expect(start).toHaveValue('320');
+    await act(async () => expect(await projectEdits.flush('record:scenes:opening')).toBe(true));
+    expect(
+      (useProjectStore.getState().document as typeof project).scenes.opening!.data.events[0]!
+        .timeline.startMs,
+    ).toBe(320);
+    const saved = await saveActiveSaveUnit('record:scenes:opening');
+    expect(saved.success).toBe(true);
+    expect(native.save).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(Number),
+      'record:scenes:opening',
+      expect.any(Object),
+    );
+  });
+
+  it('stages an Event ID locally and renames only on blur, preserving raw invalid IDs', async () => {
+    const project = loadTimelineScene();
+    const native = admitNativeRendererCommandFixture(project);
+    render(<SceneEditor tab={tab} />);
+    const id = screen.getByLabelText('Event ID');
+    fireEvent.change(id, { target: { value: 'invalid id' } });
+    fireEvent.blur(id);
+    expect(id).toHaveValue('invalid id');
+    expect(native.patch).not.toHaveBeenCalled();
+    expect((await saveActiveSaveUnit('record:scenes:opening')).success).toBe(false);
+    fireEvent.change(id, { target: { value: 'opening-renamed' } });
+    fireEvent.blur(id);
+    await waitFor(() => {
+      const events = (useProjectStore.getState().document as typeof project).scenes.opening!.data
+        .events;
+      expect(events[0]?.id).toBe('opening-renamed');
+    });
+    expect(native.patch).toHaveBeenCalledTimes(1);
+    expect(
+      usePendingInputStore.getState().entriesBySaveUnitId['record:scenes:opening'],
+    ).toBeUndefined();
+  });
+
+  it('preserves and exposes a native-rejected semantic Event rename for retry', async () => {
+    const project = loadTimelineScene();
+    const native = admitNativeRendererCommandFixture(project);
+    const actualPatch = window.noveltea.nativeProjectPatch;
+    vi.spyOn(window.noveltea, 'nativeProjectPatch').mockImplementationOnce(async () => ({
+      accepted: false,
+      error: 'Native rejected Scene identity',
+      snapshot: {
+        workingRevision: 0,
+        diskSourceRevision: `sha256:${'0'.repeat(64)}`,
+        source: project,
+        normalized: project,
+        dirtyPatches: [],
+        dirty: false,
+        valid: true,
+        diagnostics: [],
+        inventory: [],
+        recordSnapshots: {},
+      },
+      affectedRecords: [],
+      diagnosticsAdded: [],
+      diagnosticsRemoved: [],
+    }));
+    render(<SceneEditor tab={tab} />);
+    const id = screen.getByLabelText('Event ID');
+    fireEvent.change(id, { target: { value: 'renamed' } });
+    fireEvent.blur(id);
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent('Native rejected Scene identity'),
+    );
+    expect(id).toHaveValue('renamed');
+    expect(
+      (useProjectStore.getState().document as typeof project).scenes.opening!.data.events[0]!.id,
+    ).toBe('opening-text');
+    expect((await saveActiveSaveUnit('record:scenes:opening')).success).toBe(false);
+    expect(useCommandStore.getState().nativeMutationFailure).toBeNull();
+    fireEvent.focus(id);
+    fireEvent.blur(id);
+    await waitFor(() => {
+      expect(
+        (useProjectStore.getState().document as typeof project).scenes.opening!.data.events[0]!.id,
+      ).toBe('renamed');
+    });
+    expect(native.patch).toHaveBeenCalledTimes(2);
+    expect(actualPatch).toBeTypeOf('function');
+  });
+
+  it.each([500, 1000])(
+    'keeps Scene name and independent Event label visible during a %i ms native acknowledgment',
+    async (delay) => {
+      const project = loadTimelineScene();
+      const held = holdFirstNativeProjectPatch();
+      const view = render(<SceneEditor tab={tab} />);
+      const name = screen.getByDisplayValue('Opening');
+      fireEvent.change(name, { target: { value: 'Opening 1' } });
+      expect(name).toHaveValue('Opening 1');
+      await waitFor(() => expect(held.isHeld()).toBe(true));
+
+      for (const text of ['Opening 12', 'Opening 123', 'Opening 12', 'Opening paste']) {
+        fireEvent.change(name, { target: { value: text } });
+        expect(name).toHaveValue(text);
+      }
+      (name as HTMLInputElement).setSelectionRange(3, 3);
+      const label = screen.getByDisplayValue('Opening text');
+      fireEvent.change(label, { target: { value: 'Updated scene event' } });
+      expect(label).toHaveValue('Updated scene event');
+      expect(
+        (useProjectStore.getState().document as typeof project).scenes.opening!.data.displayName,
+      ).toBe('Opening');
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      expect(name).toHaveValue('Opening paste');
+      expect(label).toHaveValue('Updated scene event');
+      expect((name as HTMLInputElement).selectionStart).toBe(3);
+
+      await act(async () => held.release());
+      await waitFor(() => {
+        const current = (useProjectStore.getState().document as typeof project).scenes.opening!
+          .data;
+        expect(current.displayName).toBe('Opening paste');
+        expect(current.events.find((step) => step.id === 'opening-text')?.label).toBe(
+          'Updated scene event',
+        );
+      });
+      expect(name).toHaveValue('Opening paste');
+      expect(label).toHaveValue('Updated scene event');
+      expect((name as HTMLInputElement).selectionStart).toBe(3);
+      expect(vi.mocked(window.noveltea.nativeProjectPatch).mock.calls.length).toBeLessThanOrEqual(
+        4,
+      );
+      view.unmount();
+    },
+    15000,
+  );
+
+  it('shares Scene draft values between views and retains a failed native edit until retry', async () => {
+    const project = loadTimelineScene();
+    const originalPatch = window.noveltea.nativeProjectPatch;
+    const rejected = vi.fn(async (...args: Parameters<typeof originalPatch>) => {
+      if (rejected.mock.calls.length === 1)
+        return {
+          accepted: false,
+          error: 'Scene patch rejected',
+          snapshot: {
+            workingRevision: 0,
+            diskSourceRevision: `sha256:${'0'.repeat(64)}`,
+            source: project,
+            normalized: project,
+            dirty: false,
+            valid: true,
+            diagnostics: [],
+            inventory: [],
+          },
+          affectedRecords: [],
+          diagnosticsAdded: [],
+          diagnosticsRemoved: [],
+        };
+      return originalPatch(...args);
+    });
+    Object.defineProperty(window.noveltea, 'nativeProjectPatch', {
+      configurable: true,
+      value: rejected,
+    });
+    render(<SceneEditor tab={tab} />);
+    const name = screen.getByDisplayValue('Opening');
+    fireEvent.change(name, { target: { value: 'Retry me' } });
+    render(<SceneEditor tab={{ ...tab, id: 'scene-second-view' }} />);
+    expect(screen.getAllByDisplayValue('Retry me')).toHaveLength(2);
+    await waitFor(() =>
+      expect(screen.getAllByText(/Scene patch rejected/u).length).toBeGreaterThan(0),
+    );
+    expect(
+      (useProjectStore.getState().document as typeof project).scenes.opening!.data.displayName,
+    ).toBe('Opening');
+    fireEvent.click(screen.getAllByRole('button', { name: /retry/i })[0]!);
+    await waitFor(() => {
+      expect(
+        (useProjectStore.getState().document as typeof project).scenes.opening!.data.displayName,
+      ).toBe('Retry me');
+    });
+    expect(rejected).toHaveBeenCalledTimes(2);
+  });
   it('renders strict scene data and keeps selection out of project data', async () => {
     const project = createAuthoringProject();
     project.scenes.opening = { id: 'opening', label: 'Opening', data: defaultSceneData('Opening') };

@@ -457,6 +457,65 @@ bound to native-acknowledged record data. This prevents declaring the requested
 | Interaction and Verb | `InteractionEditor.tsx` / `VerbEditor.tsx`, `*.replaceData` | Scope nested rule/value controls independently of structural and reference-remapping commands |
 | Other custom editors | Animation, asset/attachment, localization, chapter, source, and specialized preview/export editors retain direct controls | Complete a per-control owner/path inventory; source buffers, stage gestures and generated/preview tools require documented distinct lifecycles |
 
+##### Scene and Dialogue control inventory (#604)
+
+The Scene and Dialogue editor migration uses the ordinary `useProjectField`
+native field lifecycle through `editors/scene-dialogue-fields.tsx`. The projected
+values are **not** a renderer-owned Project document: they are narrowly keyed
+transient drafts, with the native ProjectSession retaining the working/saved
+revisions, validation and YAML ownership. Both editor instances subscribe by
+Project session and exact field path, independently of tab identity.
+
+| Surface | Control/action inventory | Native owner and editing treatment |
+| --- | --- | --- |
+| Scene metadata | Display name text | `record:scenes:<id>`, `/scenes/<id>/data/displayName`; immediate scalar draft |
+| Scene Stage | Kind, staged Room, blank background/Material/layout, asset, color and fit selectors | Same owner, `/scenes/<id>/data/stage` composite draft; dependent variant initialization stays together |
+| Scene inputs and outcomes | Member labels and type selectors; add/remove; stable IDs | Same owner, `/inputs` or `/outcomes` semantic-ID collection draft. Add/remove and rename use atomic commands; ID text is staged until blur and includes the exact semantic owner move. Rename of a referenced return outcome includes the terminal change |
+| Scene terminal | Kind, target, return outcome and continuation bindings | Same owner, `/terminal` field; changing discriminated target initializes its complete typed variant. Contained input binding arrays are not addressed by positional patches |
+| Scene Events | Labels, track and timing, enabled/status, cues, conditions, gameplay batches, transitions, dependencies, material options and specialized event parameters | Same owner, `/events` semantic-ID collection draft. Every ordinary nested edit merges by stable item ID, including independent sibling fields. Add/duplicate/delete/reorder, type changes and IDs remain atomic; rename retains owner-move attribution |
+| Scene local-only | Timeline scrub/play/reset, Event selection, material/preview loading, diagnostics, JSON source parse buffer | Not native Project fields until an explicitly valid editor commit; scrub, selection, preview and parsing text are transient |
+| Dialogue metadata | Display name, speaker, log settings, completion and entry-block selector | `record:dialogues:<id>`, corresponding `/dialogues/<id>/data/<field>` drafts. Completion/type variants are coherent objects |
+| Dialogue Stage and Media Slots | Labels, initial state, visibility, speaker sync, Character/profile/pose/appearance, content/position/scale and selectors | Same owner, `/stageSlots` and `/mediaSlots` stable-ID collection drafts. Add/remove and dependent cue rewrites are atomic; individual member updates never use array-index pointers |
+| Dialogue Blocks | Labels, default speakers, redirect/comment content, line/source/markup, cues, conditions, commands, presentation mutations, choice parameters and nested segment controls | Same owner, `/blocks` stable-ID drafts. Segment and cue edits resolve semantic IDs from the latest staged collection, while graph-changing add/remove/type/rename/reorder operations remain atomic and preserve owner moves |
+| Dialogue edges | Choice/next-edge label, target, condition, effects, logging/safe-point controls | Same owner, `/edges` stable-ID draft for ordinary member fields; graph membership, ID, reorder and target rewrites remain semantic transactions |
+| Dialogue local-only | Graph positioning/pan/selection, transcript collapsing, preview settings, source editor view state, diagnostics | Locally staged editor view state or read-only. In-line source changes become typed, recoverable `/blocks` intents, not a second YAML writer |
+
+Scene/Dialogue numeric inputs use raw, recoverable synthetic `@<semantic-id>`
+paths in the pending-input store, **never** as native JSON Pointers. Incomplete
+text, including temporary signs and decimal separators, blocks dependent
+commands and content Save rather than being coerced to zero. Identity inputs
+similarly keep invalid/in-progress text and only invoke a rename on blur; a
+rejected native rename remains available to correct or retry. The shared
+trailing-150-ms/max-500-ms scheduler and native queue remain unchanged, and
+there is no per-editor debounce. Ordinary typing does not submit stale
+`scene.replaceData` or `dialogue.replaceData`; those commands are retained only
+for native-atomic semantic transactions.
+
+Focused component and semantic tests cover 500/1,000 ms withheld native patches,
+same-collection sibling edits, ID-based reordering, invalid raw input, native
+rejection and retry, duplicate views, exact acknowledged document contents,
+active owner Save and Dialogue Undo/Redo. Native addon YAML readback and full
+editor test-suite results are separately recorded with the #604 completion
+evidence; these component tests do not claim physical scanout timing or final
+multi-platform #602 acceptance.
+
+On November 12, 2026, the #604 focused Vitest suites passed **25/25 tests**
+covering the Scene and Dialogue editors and stable semantic merging, including
+synthetic 500/1,000 ms acknowledgment holds, bounded requests and caret
+retention. The real Linux native Node addon independently passed
+`node editor/scripts/certify-native-scene-dialogue-save.mjs` using a disposable
+Feature Lab copy: both owner-qualified patch sets were acknowledged, a Scene
+scoped Save left Dialogue YAML untouched, and a subsequent Dialogue scoped
+Save produced exact decoded physical record values for both owners. This is
+native source readback, not a claim that fake Vitest workers wrote YAML.
+The first full editor suite run passed 2,307 tests and failed one concurrently
+under-development **Authored Test** field regression in
+`authored-record-fields.test.tsx`; that failure was reproduced in isolation.
+The repo-wide check was also blocked by formatter issues in eight concurrent
+non-#604 editor files. Both are outstanding integration gates, not #604
+acceptance passes. The #604 files' own lint check passed with zero warnings
+and errors; TypeScript passed separately.
+
 This inventory identifies **entrypoints**, not a claim that every occurrence
 is defective: many Character, Room, Project Settings and other controls already
 use optimistic collection adapters, while read-only inputs and locally staged

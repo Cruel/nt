@@ -1,4 +1,8 @@
-import { projectEdits } from '@/commands/project-editing';
+import {
+  SemanticIdInput,
+  SemanticNumberInput,
+  useDialogueEditorFields,
+} from '../scene-dialogue-fields';
 import { RecursiveConditionEditor } from '@/components/conditions/ConditionEditor';
 import { GameplayCommandListEditor } from '@/components/gameplay-commands/GameplayCommandEditor';
 import { SourceEditor } from '@/components/source/SourceEditor';
@@ -14,7 +18,6 @@ import type { AuthoringEditorProject } from '@/editors/interactions/InteractionP
 import { DerivedPreviewPane } from '@/preview/DerivedPreviewPane';
 import { useNativeProjectDiagnostics } from '@/project/native-project-diagnostics';
 import { useProjectStore } from '@/project/project-store';
-import { recordSaveUnitId } from '@/project/save-unit-registry';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 import { registerWorkbenchTargetHandler } from '@/workbench/workbench-navigation';
 import {
@@ -234,21 +237,6 @@ function parseDialogueEditorTabState(
   };
 }
 
-function commitDialogue(
-  dialogueId: string,
-  next: DialogueData,
-  label: string,
-  semanticOwnerMoves?: { fromPrefix: string; toPrefix: string }[],
-) {
-  void projectEdits.execute({
-    type: 'dialogue.replaceData',
-    label,
-    payload: { dialogueId, data: next, semanticOwnerMoves },
-    originSaveUnitId: recordSaveUnitId('dialogues', dialogueId),
-    persistencePolicy: 'manual-save',
-  });
-}
-
 function nextUniqueId(existing: Iterable<string>, base: string) {
   const used = new Set(existing);
   if (!used.has(base)) return base;
@@ -311,37 +299,6 @@ function dialogueSceneInputValue(
   if (!Number.isFinite(number)) return undefined;
   if (input.type === 'integer' && !Number.isInteger(number)) return undefined;
   return number;
-}
-
-function StableIdInput({
-  value,
-  onCommit,
-}: {
-  value: string;
-  onCommit: (nextId: string) => boolean;
-}) {
-  const [draft, setDraft] = useState(value);
-  useEffect(() => setDraft(value), [value]);
-
-  const commit = () => {
-    if (draft === value) return;
-    if (!onCommit(draft)) setDraft(value);
-  };
-
-  return (
-    <Input
-      value={draft}
-      onChange={(event) => setDraft(event.currentTarget.value)}
-      onBlur={commit}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter') event.currentTarget.blur();
-        if (event.key === 'Escape') {
-          setDraft(value);
-          event.currentTarget.blur();
-        }
-      }}
-    />
-  );
 }
 
 function targetValue(target: FlowTarget): string {
@@ -411,7 +368,11 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
   const project = isAuthoringProjectView(projectDocument) ? projectDocument : null;
   const record = dialogueId && project ? project.dialogues[dialogueId] : null;
   const parsedData = parseDialogueData(record?.data);
-  const data = parsedData ?? defaultDialogueData(record?.label ?? dialogueId ?? 'Dialogue');
+  const { data, commit, commitChecked, feedback } = useDialogueEditorFields(
+    dialogueId,
+    tab.id,
+    parsedData ?? defaultDialogueData(record?.label ?? dialogueId ?? 'Dialogue'),
+  );
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const graphViewportRef = useRef<GraphViewportState | null>(null);
   const [graphViewport, setGraphViewport] = useState<GraphViewportState | null>(null);
@@ -619,14 +580,6 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
     }),
   };
 
-  function commit(
-    next: DialogueData,
-    label = 'Update dialogue',
-    semanticOwnerMoves?: { fromPrefix: string; toPrefix: string }[],
-  ) {
-    commitDialogue(activeDialogueId, next, label, semanticOwnerMoves);
-  }
-
   function selectBlock(id: string) {
     const block = data.blocks.find((candidate) => candidate.id === id);
     setSelectedBlockId(id);
@@ -669,7 +622,7 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
     }));
   }
 
-  function renameBlock(oldId: string, newId: string) {
+  async function renameBlock(oldId: string, newId: string): Promise<boolean> {
     if (newId === oldId) return true;
     if (!isValidEntityId(newId) || data.blocks.some((block) => block.id === newId)) return false;
     const blocks = data.blocks.map((block): DialogueBlockData => {
@@ -683,7 +636,7 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
       fromBlockId: edge.fromBlockId === oldId ? newId : edge.fromBlockId,
       toBlockId: edge.toBlockId === oldId ? newId : edge.toBlockId,
     }));
-    commit(
+    const accepted = await commitChecked(
       {
         ...data,
         entryBlockId: data.entryBlockId === oldId ? newId : data.entryBlockId,
@@ -698,6 +651,7 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
         },
       ],
     );
+    if (!accepted) return false;
     setSelectedBlockId(newId);
     setGraphPositions((positions) => {
       const next = { ...positions, [newId]: positions[oldId] ?? { x: 0, y: 0 } };
@@ -860,7 +814,11 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
     );
   }
 
-  function renameSegment(block: DialogueSequenceBlockData, oldId: string, newId: string) {
+  async function renameSegment(
+    block: DialogueSequenceBlockData,
+    oldId: string,
+    newId: string,
+  ): Promise<boolean> {
     const ids = data.blocks.flatMap((candidate) =>
       candidate.type === 'sequence' ? candidate.segments.map((segment) => segment.id) : [],
     );
@@ -872,7 +830,7 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
         segment.id === oldId ? { ...segment, id: newId } : segment,
       ),
     };
-    commit(
+    const accepted = await commitChecked(
       {
         ...data,
         blocks: data.blocks.map((candidate) =>
@@ -887,8 +845,8 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
         },
       ],
     );
-    setSelectedSegmentId(newId);
-    return true;
+    if (accepted) setSelectedSegmentId(newId);
+    return accepted;
   }
 
   function changeSegmentType(
@@ -971,10 +929,10 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
     );
   }
 
-  function renameEdge(oldId: string, newId: string) {
+  async function renameEdge(oldId: string, newId: string): Promise<boolean> {
     if (newId === oldId) return true;
     if (!isValidEntityId(newId) || data.edges.some((edge) => edge.id === newId)) return false;
-    commit(
+    return commitChecked(
       {
         ...data,
         edges: data.edges.map((edge) => (edge.id === oldId ? { ...edge, id: newId } : edge)),
@@ -987,7 +945,6 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
         },
       ],
     );
-    return true;
   }
 
   function moveEdge(id: string, direction: -1 | 1) {
@@ -1145,6 +1102,7 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
         Strict Sequence, Choice, Redirect, and Comment graph with typed transcript and completion
         behavior.
       </p>
+      {feedback}
       {!parsedData ? (
         <div className="mt-3 rounded border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">
           Dialogue data is invalid; editable current defaults are shown.
@@ -1466,8 +1424,10 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
                         </Label>
                         <Label>
                           Scale
-                          <Input
-                            type="number"
+                          <SemanticNumberInput
+                            collection="dialogues"
+                            recordId={activeDialogueId}
+                            pathParts={['stageSlots', '@' + slot.id, 'initial', 'scale']}
                             min="0.01"
                             step="0.05"
                             value={slot.initial.scale}
@@ -1788,7 +1748,10 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
               </div>
               <Label>
                 Block ID
-                <StableIdInput
+                <SemanticIdInput
+                  collection="dialogues"
+                  recordId={activeDialogueId}
+                  pathParts={['blocks', '@' + activeBlock.id, 'id']}
                   value={activeBlock.id}
                   onCommit={(nextId) => renameBlock(activeBlock.id, nextId)}
                 />
@@ -1930,7 +1893,16 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
               </div>
               <Label>
                 Segment ID
-                <StableIdInput
+                <SemanticIdInput
+                  collection="dialogues"
+                  recordId={activeDialogueId}
+                  pathParts={[
+                    'blocks',
+                    '@' + activeBlock.id,
+                    'segments',
+                    '@' + activeSegment.id,
+                    'id',
+                  ]}
                   value={activeSegment.id}
                   onCommit={(nextId) => renameSegment(activeBlock, activeSegment.id, nextId)}
                 />
@@ -2247,8 +2219,20 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
                           </Label>
                           <Label>
                             Offset
-                            <Input
-                              type="number"
+                            <SemanticNumberInput
+                              collection="dialogues"
+                              recordId={activeDialogueId}
+                              pathParts={[
+                                'blocks',
+                                '@' + activeBlock.id,
+                                'segments',
+                                '@' + activeSegment.id,
+                                'cues',
+                                '@' + cue.id,
+                                'position',
+                                'offset',
+                              ]}
+                              mode="integer"
                               min="0"
                               value={cue.position.offset}
                               onChange={(event) => {
@@ -2271,8 +2255,20 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
                           </Label>
                           <Label>
                             Order
-                            <Input
-                              type="number"
+                            <SemanticNumberInput
+                              collection="dialogues"
+                              recordId={activeDialogueId}
+                              pathParts={[
+                                'blocks',
+                                '@' + activeBlock.id,
+                                'segments',
+                                '@' + activeSegment.id,
+                                'cues',
+                                '@' + cue.id,
+                                'position',
+                                'order',
+                              ]}
+                              mode="integer"
                               min="0"
                               value={cue.position.order}
                               onChange={(event) => {
@@ -2408,8 +2404,18 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
                               </Label>
                               <Label>
                                 Gain
-                                <Input
-                                  type="number"
+                                <SemanticNumberInput
+                                  collection="dialogues"
+                                  recordId={activeDialogueId}
+                                  pathParts={[
+                                    'blocks',
+                                    '@' + activeBlock.id,
+                                    'segments',
+                                    '@' + activeSegment.id,
+                                    'cues',
+                                    '@' + cue.id,
+                                    'gain',
+                                  ]}
                                   min="0"
                                   max="1"
                                   step="0.05"
@@ -2426,8 +2432,18 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
                               </Label>
                               <Label>
                                 Pan
-                                <Input
-                                  type="number"
+                                <SemanticNumberInput
+                                  collection="dialogues"
+                                  recordId={activeDialogueId}
+                                  pathParts={[
+                                    'blocks',
+                                    '@' + activeBlock.id,
+                                    'segments',
+                                    '@' + activeSegment.id,
+                                    'cues',
+                                    '@' + cue.id,
+                                    'pan',
+                                  ]}
                                   min="-1"
                                   max="1"
                                   step="0.05"
@@ -2579,8 +2595,20 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
                               </Label>
                               <Label>
                                 Duration (ms)
-                                <Input
-                                  type="number"
+                                <SemanticNumberInput
+                                  collection="dialogues"
+                                  recordId={activeDialogueId}
+                                  pathParts={[
+                                    'blocks',
+                                    '@' + activeBlock.id,
+                                    'segments',
+                                    '@' + activeSegment.id,
+                                    'cues',
+                                    '@' + cue.id,
+                                    'emphasis',
+                                    'durationMs',
+                                  ]}
+                                  mode="integer"
                                   min="1"
                                   value={cue.emphasis.durationMs}
                                   onChange={(event) => {
@@ -2628,8 +2656,20 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
                               <div className="grid gap-2 @3xl:grid-cols-3">
                                 <Label>
                                   Amplitude X
-                                  <Input
-                                    type="number"
+                                  <SemanticNumberInput
+                                    collection="dialogues"
+                                    recordId={activeDialogueId}
+                                    pathParts={[
+                                      'blocks',
+                                      '@' + activeBlock.id,
+                                      'segments',
+                                      '@' + activeSegment.id,
+                                      'cues',
+                                      '@' + cue.id,
+                                      'emphasis',
+                                      'amplitude',
+                                      'x',
+                                    ]}
                                     value={cue.emphasis.amplitude.x}
                                     onChange={(event) => {
                                       if (cue.emphasis.kind !== 'shake') return;
@@ -2647,8 +2687,20 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
                                 </Label>
                                 <Label>
                                   Amplitude Y
-                                  <Input
-                                    type="number"
+                                  <SemanticNumberInput
+                                    collection="dialogues"
+                                    recordId={activeDialogueId}
+                                    pathParts={[
+                                      'blocks',
+                                      '@' + activeBlock.id,
+                                      'segments',
+                                      '@' + activeSegment.id,
+                                      'cues',
+                                      '@' + cue.id,
+                                      'emphasis',
+                                      'amplitude',
+                                      'y',
+                                    ]}
                                     value={cue.emphasis.amplitude.y}
                                     onChange={(event) => {
                                       if (cue.emphasis.kind !== 'shake') return;
@@ -2666,8 +2718,19 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
                                 </Label>
                                 <Label>
                                   Frequency (Hz)
-                                  <Input
-                                    type="number"
+                                  <SemanticNumberInput
+                                    collection="dialogues"
+                                    recordId={activeDialogueId}
+                                    pathParts={[
+                                      'blocks',
+                                      '@' + activeBlock.id,
+                                      'segments',
+                                      '@' + activeSegment.id,
+                                      'cues',
+                                      '@' + cue.id,
+                                      'emphasis',
+                                      'frequencyHz',
+                                    ]}
                                     min="0.01"
                                     step="0.5"
                                     value={cue.emphasis.frequencyHz}
@@ -2688,8 +2751,20 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
                               <div className="grid gap-2 @3xl:grid-cols-4">
                                 <Label>
                                   Translation X
-                                  <Input
-                                    type="number"
+                                  <SemanticNumberInput
+                                    collection="dialogues"
+                                    recordId={activeDialogueId}
+                                    pathParts={[
+                                      'blocks',
+                                      '@' + activeBlock.id,
+                                      'segments',
+                                      '@' + activeSegment.id,
+                                      'cues',
+                                      '@' + cue.id,
+                                      'emphasis',
+                                      'translation',
+                                      'x',
+                                    ]}
                                     value={cue.emphasis.translation.x}
                                     onChange={(event) => {
                                       if (cue.emphasis.kind !== 'punch') return;
@@ -2707,8 +2782,20 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
                                 </Label>
                                 <Label>
                                   Translation Y
-                                  <Input
-                                    type="number"
+                                  <SemanticNumberInput
+                                    collection="dialogues"
+                                    recordId={activeDialogueId}
+                                    pathParts={[
+                                      'blocks',
+                                      '@' + activeBlock.id,
+                                      'segments',
+                                      '@' + activeSegment.id,
+                                      'cues',
+                                      '@' + cue.id,
+                                      'emphasis',
+                                      'translation',
+                                      'y',
+                                    ]}
                                     value={cue.emphasis.translation.y}
                                     onChange={(event) => {
                                       if (cue.emphasis.kind !== 'punch') return;
@@ -2726,8 +2813,19 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
                                 </Label>
                                 <Label>
                                   Zoom Delta
-                                  <Input
-                                    type="number"
+                                  <SemanticNumberInput
+                                    collection="dialogues"
+                                    recordId={activeDialogueId}
+                                    pathParts={[
+                                      'blocks',
+                                      '@' + activeBlock.id,
+                                      'segments',
+                                      '@' + activeSegment.id,
+                                      'cues',
+                                      '@' + cue.id,
+                                      'emphasis',
+                                      'zoomDelta',
+                                    ]}
                                     step="0.05"
                                     value={cue.emphasis.zoomDelta}
                                     onChange={(event) => {
@@ -2743,8 +2841,19 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
                                 </Label>
                                 <Label>
                                   Rotation
-                                  <Input
-                                    type="number"
+                                  <SemanticNumberInput
+                                    collection="dialogues"
+                                    recordId={activeDialogueId}
+                                    pathParts={[
+                                      'blocks',
+                                      '@' + activeBlock.id,
+                                      'segments',
+                                      '@' + activeSegment.id,
+                                      'cues',
+                                      '@' + cue.id,
+                                      'emphasis',
+                                      'rotationDegrees',
+                                    ]}
                                     step="0.5"
                                     value={cue.emphasis.rotationDegrees}
                                     onChange={(event) => {
@@ -2779,8 +2888,19 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
                                 </Label>
                                 <Label>
                                   Opacity
-                                  <Input
-                                    type="number"
+                                  <SemanticNumberInput
+                                    collection="dialogues"
+                                    recordId={activeDialogueId}
+                                    pathParts={[
+                                      'blocks',
+                                      '@' + activeBlock.id,
+                                      'segments',
+                                      '@' + activeSegment.id,
+                                      'cues',
+                                      '@' + cue.id,
+                                      'emphasis',
+                                      'opacity',
+                                    ]}
                                     min="0"
                                     max="1"
                                     step="0.05"
@@ -3077,8 +3197,23 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
                             </Label>
                             <Label>
                               Offset X
-                              <Input
-                                type="number"
+                              <SemanticNumberInput
+                                collection="dialogues"
+                                recordId={activeDialogueId}
+                                pathParts={[
+                                  'blocks',
+                                  '@' + activeBlock.id,
+                                  'segments',
+                                  '@' + activeSegment.id,
+                                  'cues',
+                                  '@' +
+                                    (activeSegment.cues.filter((item) => item.kind === 'stage')[
+                                      mutationIndex
+                                    ]?.id ?? 'missing'),
+                                  'mutation',
+                                  'offset',
+                                  'x',
+                                ]}
                                 value={mutation.offset?.x ?? ''}
                                 placeholder="preserve"
                                 onChange={(event) => {
@@ -3102,8 +3237,23 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
                             </Label>
                             <Label>
                               Offset Y
-                              <Input
-                                type="number"
+                              <SemanticNumberInput
+                                collection="dialogues"
+                                recordId={activeDialogueId}
+                                pathParts={[
+                                  'blocks',
+                                  '@' + activeBlock.id,
+                                  'segments',
+                                  '@' + activeSegment.id,
+                                  'cues',
+                                  '@' +
+                                    (activeSegment.cues.filter((item) => item.kind === 'stage')[
+                                      mutationIndex
+                                    ]?.id ?? 'missing'),
+                                  'mutation',
+                                  'offset',
+                                  'y',
+                                ]}
                                 value={mutation.offset?.y ?? ''}
                                 placeholder="preserve"
                                 onChange={(event) => {
@@ -3127,8 +3277,22 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
                             </Label>
                             <Label>
                               Scale
-                              <Input
-                                type="number"
+                              <SemanticNumberInput
+                                collection="dialogues"
+                                recordId={activeDialogueId}
+                                pathParts={[
+                                  'blocks',
+                                  '@' + activeBlock.id,
+                                  'segments',
+                                  '@' + activeSegment.id,
+                                  'cues',
+                                  '@' +
+                                    (activeSegment.cues.filter((item) => item.kind === 'stage')[
+                                      mutationIndex
+                                    ]?.id ?? 'missing'),
+                                  'mutation',
+                                  'scale',
+                                ]}
                                 min="0.01"
                                 step="0.05"
                                 value={mutation.scale ?? ''}
@@ -3575,7 +3739,10 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
                 >
                   <Label>
                     Edge ID
-                    <StableIdInput
+                    <SemanticIdInput
+                      collection="dialogues"
+                      recordId={activeDialogueId}
+                      pathParts={['edges', '@' + edge.id, 'id']}
                       value={edge.id}
                       onCommit={(nextId) => renameEdge(edge.id, nextId)}
                     />
@@ -3648,7 +3815,10 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
                     </div>
                     <Label>
                       Edge ID
-                      <StableIdInput
+                      <SemanticIdInput
+                        collection="dialogues"
+                        recordId={activeDialogueId}
+                        pathParts={['edges', '@' + edge.id, 'id']}
                         value={edge.id}
                         onCommit={(nextId) => renameEdge(edge.id, nextId)}
                       />
