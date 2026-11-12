@@ -327,6 +327,43 @@ visible and acknowledged. Environment Material clearing remains disallowed.
 This migration does not imply that all contents IDs, placements, numeric
 geometry, assets, and other nested editor surfaces have completed #602.
 
+The next #602 implementation pass also migrates the Room Navigation exit
+inspector to a single owner-scoped `/exits` optimistic collection field.
+Directions, labels, nested conditions, transitions, add/remove, and the
+separately mounted destination selector read/update the same latest staged
+array by semantic exit ID. ID renames share the pending/validated-on-blur
+input with Camera View and Anchor IDs; raw incomplete/duplicate IDs are
+recoverable and blocked from native submission. The common ID/number raw
+input UI moved into `RoomSemanticInputs.tsx` without changing its Save unit.
+The Navigation add/direction menus derive from optimistic rather than
+acknowledged exit choices. Cross-Room reciprocal-exit repairs still execute
+their original stable-ID semantic native commands.
+
+Character Inventory declarations, presentation profile/pose hierarchies,
+expressions, appearances, idles and gestures now render from the existing
+owner-scoped optimistic field projections. Same-collection edits read the
+latest staged array at input time; structural operations that also rewrite
+defaults, cross-profile references or gestures remain atomic native semantic
+commands. Character and Interactable Definition Inventory declarations share
+one `GameplayInventoriesField` control. Interactable Definition Feature
+authoring is optimistic for edits and additions; deleting a Feature retains
+the coordinated native transaction that removes exact-Instance overrides.
+Dedicated blocked-native UI regressions verify immediate Character Inventory
+and pose changes, Room exit edits, and Interactable Definition Inventory and
+Feature changes, followed by native acknowledgment and readback.
+
+**Exceptions still requiring certification:** Exact Interactable Instance
+properties, location and quantity reside in the infrastructure-owned
+`/interactableInstances` registry, not under any one Definition's record
+Save unit. Their embedded owner-specific commands must not be replaced
+with a falsely attributed scalar `recordField` draft. Room geometry/drag,
+hotspot semantic edits and source editors also retain their own atomic
+interaction or source-buffer contracts. These surfaces need explicit
+owner-correct optimistic editing or documented interactive acceptance,
+including the shared Save/Undo/recovery/worker-failure and external-conflict
+matrix. Native-addon and Xvfb-package smoke tests are insufficient to
+certify physical desktop input latency or the eight human Feature Lab cases.
+
 The default field operation chooses a narrow native add/replace patch against the **current**
 acknowledged Project. Fields with schema-specific initialization (such as Title Screen) supply
 their existing semantic command instead. Reusable gameplay-record planners handle archetyped

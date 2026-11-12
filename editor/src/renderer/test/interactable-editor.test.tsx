@@ -73,6 +73,43 @@ beforeEach(() => {
 });
 
 describe('InteractableEditor', () => {
+  it('keeps Interactable inventories and Feature declarations immediate while native is blocked', async () => {
+    const project = createAuthoringProject();
+    project.interactables.door = {
+      id: 'door',
+      label: 'Door',
+      traits: [],
+      data: defaultInteractableData('Door'),
+    };
+    const native = admitNativeRendererCommandFixture(project);
+    const held = holdFirstNativeProjectPatch();
+    renderEditor();
+
+    const inventorySection = screen.getByText('Interactable Inventories').closest('section')!;
+    fireEvent.click(within(inventorySection).getByRole('button', { name: 'Add' }));
+    await waitFor(() => expect(held.isHeld()).toBe(true));
+    const inventoryLabel = within(inventorySection).getByRole('textbox', {
+      name: 'Inventory label',
+    });
+    fireEvent.change(inventoryLabel, { target: { value: 'Pouch' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add Feature' }));
+    expect(inventoryLabel).toHaveValue('Pouch');
+    expect(screen.getByDisplayValue('feature')).toBeInTheDocument();
+    expect(native.patch).not.toHaveBeenCalled();
+
+    await act(async () => held.release());
+    await waitFor(() => {
+      const doc = useProjectStore.getState().document;
+      expect(isAuthoringProject(doc)).toBe(true);
+      if (!isAuthoringProject(doc)) return;
+      const definition = parseInteractableData(doc.interactables.door?.data);
+      expect(definition?.inventories).toEqual([{ id: 'inventory', label: 'Pouch' }]);
+      expect(definition?.features).toEqual(
+        expect.arrayContaining([expect.objectContaining({ id: 'feature' })]),
+      );
+    });
+    expect(native.patch.mock.calls.length).toBeLessThanOrEqual(3);
+  });
   it('updates Animation motion and playback immediately across delayed native acknowledgments', async () => {
     const project = createAuthoringProject();
     project.assets.frame = {

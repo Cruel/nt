@@ -2,7 +2,7 @@ import { useGameplayRecordField } from '@/commands/gameplay-record-fields';
 import { useNativeFieldDraftStore } from '@/commands/native-field-drafts';
 import { toJsonValue } from '@/project/json-value';
 
-export type RoomContentsCollection = 'overlays' | 'cast' | 'props' | 'environments';
+export type RoomContentsCollection = 'overlays' | 'cast' | 'props' | 'environments' | 'exits';
 
 /** A collection is one recoverable native field; the child uses its stable ID,
  * never an array-index pointer. The event handler reads the latest staged

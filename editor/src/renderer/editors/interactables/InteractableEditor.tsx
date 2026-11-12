@@ -25,7 +25,7 @@ import { FeatureAuthoringPanel } from '@/components/features/FeatureAuthoringPan
 import { HotspotAuthoringPanel } from '@/components/hotspots/HotspotAuthoringPanel';
 import { HotspotFocusWorkspace } from '@/components/hotspots/HotspotFocusWorkspace';
 import { useHotspotFocusStore } from '@/components/hotspots/hotspot-focus-store';
-import { InventoryDeclarationsEditor } from '@/components/inventories/InventoryControls';
+import { GameplayInventoriesField } from '@/components/inventories/GameplayInventoriesField';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -330,9 +330,20 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
   const record = interactableId && project ? project.interactables[interactableId] : null;
   const effectiveRecord =
     project && record ? resolveGameplayInstanceRecord(project, 'interactable', record) : record;
-  const data =
+  const acknowledgedData =
     parseInteractableData(effectiveRecord?.data) ??
     defaultInteractableData(record?.label ?? interactableId ?? 'Interactable');
+  const featuresDraft = useGameplayRecordField({
+    record: { collection: 'interactables', id: interactableId ?? '__missing__' },
+    tabId: tab.id,
+    field: '/features',
+    value: toJsonValue(acknowledgedData.features),
+    label: 'Update Interactable Features',
+  });
+  const data: InteractableData = {
+    ...acknowledgedData,
+    features: featuresDraft.value as InteractableData['features'],
+  };
   const selectorItems = useMemo(() => buildCommandPaletteItems(project, t), [project, t]);
   const imageAssetItems = useMemo(
     () => [
@@ -917,9 +928,11 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
         )}
       </div>
       <div className="mt-4 max-w-5xl space-y-4">
-        <InventoryDeclarationsEditor
+        <GameplayInventoriesField
+          collection="interactables"
+          recordId={interactableId}
+          tabId={tab.id}
           inventories={data.inventories}
-          onChange={(inventories, label) => commit({ ...data, inventories }, label)}
           title="Interactable Inventories"
         />
         <FeatureAuthoringPanel
@@ -941,7 +954,7 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
           propertyMode="default"
           onChange={(features, label) => {
             if (label !== 'Delete Feature') {
-              commit({ ...data, features }, label);
+              featuresDraft.change(toJsonValue(features));
               return;
             }
             const remainingIds = new Set(features.map((feature) => feature.id));

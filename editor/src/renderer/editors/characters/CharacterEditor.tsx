@@ -1,12 +1,15 @@
 import { projectEdits } from '@/commands/project-editing';
+import { useNativeFieldDraftStore } from '@/commands/native-field-drafts';
 import {
   ProjectFieldError,
   ProjectFieldInput,
   ProjectFieldSelect,
 } from '@/commands/use-project-field';
 import { GameplayFieldCheckbox, useGameplayRecordField } from '@/commands/gameplay-record-fields';
+import type { ProjectFieldController } from '@/commands/use-project-field';
+import type { JsonValue } from '@/project/json-value';
 import { GameplayArchetypeControls } from '@/components/GameplayArchetypeControls';
-import { InventoryDeclarationsEditor } from '@/components/inventories/InventoryControls';
+import { GameplayInventoriesField } from '@/components/inventories/GameplayInventoriesField';
 import { MaterialApplicationEditor } from '@/components/materials/MaterialApplicationEditor';
 import {
   OwnerLocalPropertiesEditor,
@@ -197,6 +200,29 @@ function selectedVisual(value: string): Visual {
       };
 }
 
+/** Stable-ID array replacement against the latest presentation revision,
+ * shared by the nested Character profile/pose/expression/idle editors. */
+function stageCharacterItem<T extends { id: string }>(
+  draft: ProjectFieldController<JsonValue>,
+  items: readonly T[],
+  id: string,
+  patch: Partial<T>,
+) {
+  mutateCharacterItem(draft, items, id, (entry) => ({ ...entry, ...patch }));
+}
+
+function mutateCharacterItem<T extends { id: string }>(
+  draft: ProjectFieldController<JsonValue>,
+  items: readonly T[],
+  id: string,
+  mutate: (entry: T) => T,
+) {
+  const staged = useNativeFieldDraftStore.getState().entries[draft.fieldKey]?.value;
+  const latest = Array.isArray(staged) ? (staged as T[]) : items;
+  if (!latest.some((entry) => entry.id === id)) return;
+  draft.change(toJsonValue(latest.map((entry) => (entry.id === id ? mutate(entry) : entry))));
+}
+
 function profileForPreview(data: CharacterData) {
   return (
     data.profiles.find((profile) => profile.id === data.defaults.profileId) ??
@@ -236,7 +262,51 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
       ? resolveArchetypeConfiguration(project, record.archetype.$ref.id)
       : null;
   const parsedData = parseCharacterData(effectiveRecord?.data);
-  const data = parsedData ?? defaultCharacterData(record?.label ?? characterId ?? 'Character');
+  const acknowledgedData =
+    parsedData ?? defaultCharacterData(record?.label ?? characterId ?? 'Character');
+  const profilesDraft = useGameplayRecordField({
+    record: { collection: 'characters', id: characterId ?? '__missing__' },
+    tabId: tab.id,
+    field: '/profiles',
+    value: toJsonValue(acknowledgedData.profiles),
+    label: 'Update character presentation profiles',
+  });
+  const expressionsDraft = useGameplayRecordField({
+    record: { collection: 'characters', id: characterId ?? '__missing__' },
+    tabId: tab.id,
+    field: '/expressions',
+    value: toJsonValue(acknowledgedData.expressions),
+    label: 'Update character expressions',
+  });
+  const appearancesDraft = useGameplayRecordField({
+    record: { collection: 'characters', id: characterId ?? '__missing__' },
+    tabId: tab.id,
+    field: '/appearances',
+    value: toJsonValue(acknowledgedData.appearances),
+    label: 'Update character appearances',
+  });
+  const idlesDraft = useGameplayRecordField({
+    record: { collection: 'characters', id: characterId ?? '__missing__' },
+    tabId: tab.id,
+    field: '/idles',
+    value: toJsonValue(acknowledgedData.idles),
+    label: 'Update character idle behavior',
+  });
+  const gesturesDraft = useGameplayRecordField({
+    record: { collection: 'characters', id: characterId ?? '__missing__' },
+    tabId: tab.id,
+    field: '/gestures',
+    value: toJsonValue(acknowledgedData.gestures),
+    label: 'Update character gestures',
+  });
+  const data: CharacterData = {
+    ...acknowledgedData,
+    profiles: profilesDraft.value as CharacterData['profiles'],
+    expressions: expressionsDraft.value as CharacterData['expressions'],
+    appearances: appearancesDraft.value as CharacterData['appearances'],
+    idles: idlesDraft.value as CharacterData['idles'],
+    gestures: gesturesDraft.value as CharacterData['gestures'],
+  };
   const nativeDiagnostics = useNativeProjectDiagnostics(`/characters/${characterId}`);
   const diagnostics = nativeDiagnostics;
   const diagnosticItems = useMemo(
@@ -410,23 +480,35 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
   }
 
   function replaceProfile(profileId: string, patch: Partial<CharacterPresentationProfileData>) {
-    commit(
-      {
-        ...data,
-        profiles: data.profiles.map((profile) =>
-          profile.id === profileId ? { ...profile, ...patch } : profile,
-        ),
-      },
-      'Update character presentation profile',
-    );
+    stageCharacterItem(profilesDraft, data.profiles, profileId, patch);
   }
 
   function replacePose(profileId: string, poseId: string, patch: Partial<CharacterPoseData>) {
-    const profile = data.profiles.find((item) => item.id === profileId);
-    if (!profile) return;
-    replaceProfile(profileId, {
+    mutateCharacterItem(profilesDraft, data.profiles, profileId, (profile) => ({
+      ...profile,
       poses: profile.poses.map((pose) => (pose.id === poseId ? { ...pose, ...patch } : pose)),
-    });
+    }));
+  }
+
+  function mutatePoseLayer(
+    profileId: string,
+    poseId: string,
+    layerId: string,
+    mutate: (layer: CharacterLayerCompositionData) => CharacterLayerCompositionData,
+  ) {
+    mutateCharacterItem(profilesDraft, data.profiles, profileId, (profile) => ({
+      ...profile,
+      poses: profile.poses.map((pose) =>
+        pose.id === poseId
+          ? {
+              ...pose,
+              layers: pose.layers.map((layer) =>
+                layer.layerId === layerId ? mutate(layer) : layer,
+              ),
+            }
+          : pose,
+      ),
+    }));
   }
 
   function replacePoseLayer(
@@ -435,44 +517,28 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
     layerId: string,
     patch: Partial<CharacterLayerCompositionData>,
   ) {
-    const profile = data.profiles.find((item) => item.id === profileId);
-    const pose = profile?.poses.find((item) => item.id === poseId);
-    if (!profile || !pose) return;
-    replacePose(profileId, poseId, {
-      layers: pose.layers.map((layer) =>
-        layer.layerId === layerId ? { ...layer, ...patch } : layer,
+    mutatePoseLayer(profileId, poseId, layerId, (layer) => ({ ...layer, ...patch }));
+  }
+
+  function replaceAnimationClip(
+    profileId: string,
+    clipId: string,
+    patch: Partial<CharacterPresentationProfileData['animationClips'][number]>,
+  ) {
+    mutateCharacterItem(profilesDraft, data.profiles, profileId, (profile) => ({
+      ...profile,
+      animationClips: profile.animationClips.map((clip) =>
+        clip.id === clipId ? { ...clip, ...patch } : clip,
       ),
-    });
+    }));
   }
 
   function replaceExpression(expressionId: string, patch: Partial<CharacterExpressionData>) {
-    const previous = data.expressions.find((expression) => expression.id === expressionId);
-    if (!previous) return;
-    void projectEdits.execute(
-      projectEdits.recordList({
-        record: { collection: 'characters', id: activeCharacterId },
-        field: '/expressions',
-        action: {
-          kind: 'replace',
-          id: expressionId,
-          before: previous,
-          after: { ...previous, ...patch },
-        },
-        label: 'Update character expression',
-      }),
-    );
+    stageCharacterItem(expressionsDraft, data.expressions, expressionId, patch);
   }
 
   function replaceAppearance(appearanceId: string, patch: Partial<CharacterAppearanceData>) {
-    commit(
-      {
-        ...data,
-        appearances: data.appearances.map((appearance) =>
-          appearance.id === appearanceId ? { ...appearance, ...patch } : appearance,
-        ),
-      },
-      'Update character appearance',
-    );
+    stageCharacterItem(appearancesDraft, data.appearances, appearanceId, patch);
   }
 
   function replaceSemanticOverride(
@@ -505,25 +571,11 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
   }
 
   function replaceIdle(idleId: string, patch: Partial<CharacterIdleData>) {
-    commit(
-      {
-        ...data,
-        idles: data.idles.map((idle) => (idle.id === idleId ? { ...idle, ...patch } : idle)),
-      },
-      'Update character idle',
-    );
+    stageCharacterItem(idlesDraft, data.idles, idleId, patch);
   }
 
   function replaceGesture(gestureId: string, patch: Partial<CharacterGestureData>) {
-    commit(
-      {
-        ...data,
-        gestures: data.gestures.map((gesture) =>
-          gesture.id === gestureId ? { ...gesture, ...patch } : gesture,
-        ),
-      },
-      'Update character gesture',
-    );
+    stageCharacterItem(gesturesDraft, data.gestures, gestureId, patch);
   }
 
   function addAnimationClip(profileId: string) {
@@ -578,20 +630,6 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
       },
       'Delete character animation clip',
     );
-  }
-
-  function replaceAnimationClip(
-    profileId: string,
-    clipId: string,
-    patch: Partial<CharacterPresentationProfileData['animationClips'][number]>,
-  ) {
-    const profile = data.profiles.find((item) => item.id === profileId);
-    if (!profile) return;
-    replaceProfile(profileId, {
-      animationClips: profile.animationClips.map((clip) =>
-        clip.id === clipId ? { ...clip, ...patch } : clip,
-      ),
-    });
   }
 
   function replaceAnimationFrame(
@@ -748,39 +786,35 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
       data.profiles.map((profile) => profile.id),
       'profile',
     );
-    commit(
-      {
-        ...data,
-        profiles: [
-          ...data.profiles,
-          {
-            id,
-            label: 'Profile',
-            layers: [{ id: 'body', label: 'Body', role: 'body' }],
-            defaultPoseId: 'default',
-            animationClips: [],
-            automaticAnimations: { blink: null, speaking: null },
-            poses: [
-              {
-                id: 'default',
-                label: 'Default',
-                layers: [
-                  {
-                    layerId: 'body',
-                    visual: null,
-                    materialApplication: null,
-                    offset: { x: 0, y: 0 },
-                    scale: 1,
-                    anchor: { x: 0.5, y: 1 },
-                    visible: true,
-                  },
-                ],
-              },
-            ],
-          },
-        ],
-      },
-      'Add character presentation profile',
+    profilesDraft.change(
+      toJsonValue([
+        ...data.profiles,
+        {
+          id,
+          label: 'Profile',
+          layers: [{ id: 'body', label: 'Body', role: 'body' }],
+          defaultPoseId: 'default',
+          animationClips: [],
+          automaticAnimations: { blink: null, speaking: null },
+          poses: [
+            {
+              id: 'default',
+              label: 'Default',
+              layers: [
+                {
+                  layerId: 'body',
+                  visual: null,
+                  materialApplication: null,
+                  offset: { x: 0, y: 0 },
+                  scale: 1,
+                  anchor: { x: 0.5, y: 1 },
+                  visible: true,
+                },
+              ],
+            },
+          ],
+        },
+      ]),
     );
   }
 
@@ -1345,9 +1379,11 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
             </label>
           </section>
 
-          <InventoryDeclarationsEditor
+          <GameplayInventoriesField
+            collection="characters"
+            recordId={activeCharacterId}
+            tabId={tab.id}
             inventories={data.inventories}
-            onChange={(inventories, label) => commit({ ...data, inventories }, label)}
             title="Character Inventories"
           />
 

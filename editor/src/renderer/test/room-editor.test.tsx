@@ -123,6 +123,108 @@ beforeEach(() => {
   });
 });
 describe('RoomEditor', () => {
+  it('keeps Room Exit labels, directions, and insertions visible while native is blocked', async () => {
+    const project = createAuthoringProject();
+    const foyer = defaultRoomData('Foyer');
+    foyer.exits = [
+      {
+        id: 'hallway-exit',
+        label: 'Hallway',
+        direction: 'east',
+        target: { $ref: { collection: 'rooms', id: 'foyer' } },
+        condition: { kind: 'always' },
+        onRejected: [],
+        transition: null,
+      },
+    ];
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: foyer };
+    const native = admitNativeRendererCommandFixture(project);
+    const held = holdFirstNativeProjectPatch();
+    renderEditor();
+    selectRoomCategory('Navigation');
+
+    const first = document.querySelector('[data-workbench-anchor="room.exit.hallway-exit"]')!;
+    const label = within(first as HTMLElement).getByDisplayValue('Hallway');
+    fireEvent.change(label, { target: { value: 'Long corridor' } });
+    await waitFor(() => expect(held.isHeld()).toBe(true));
+    fireEvent.click(within(first as HTMLElement).getByRole('button', { name: 'Northwest' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add exit' }));
+    expect(label).toHaveValue('Long corridor');
+    expect(within(first as HTMLElement).getByRole('button', { name: 'Northwest' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(screen.getByDisplayValue('Exit')).toBeInTheDocument();
+    expect(native.patch).not.toHaveBeenCalled();
+    await act(async () => held.release());
+    await waitFor(() => {
+      const doc = useProjectStore.getState().document;
+      expect(isAuthoringProject(doc)).toBe(true);
+      if (!isAuthoringProject(doc)) return;
+      expect(parseRoomData(doc.rooms.foyer?.data)?.exits).toEqual([
+        expect.objectContaining({
+          id: 'hallway-exit',
+          label: 'Long corridor',
+          direction: 'northwest',
+        }),
+        expect.objectContaining({ id: 'exit', label: 'Exit' }),
+      ]);
+    });
+    expect(native.patch.mock.calls.length).toBeLessThanOrEqual(2);
+  });
+  it('keeps invalid Room exit IDs recoverable and commits valid semantic renames only on blur', async () => {
+    const project = createAuthoringProject();
+    const room = defaultRoomData('Foyer');
+    room.exits = [
+      {
+        id: 'door',
+        label: 'Door',
+        direction: 'east',
+        target: { $ref: { collection: 'rooms', id: 'foyer' } },
+        condition: { kind: 'always' },
+        onRejected: [],
+        transition: null,
+      },
+      {
+        id: 'other',
+        label: 'Other',
+        direction: 'west',
+        target: { $ref: { collection: 'rooms', id: 'foyer' } },
+        condition: { kind: 'always' },
+        onRejected: [],
+        transition: null,
+      },
+    ];
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    const native = admitNativeRendererCommandFixture(project);
+    renderEditor();
+    selectRoomCategory('Navigation');
+    const exit = document.querySelector('[data-workbench-anchor="room.exit.door"]')!;
+    const input = within(exit as HTMLElement).getByRole('textbox', { name: 'Room Exit ID' });
+    fireEvent.change(input, { target: { value: 'other' } });
+    fireEvent.blur(input);
+    expect(input).toHaveValue('other');
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+    expect(native.patch).not.toHaveBeenCalled();
+    expect(selectPendingSaveUnitIds(usePendingInputStore.getState())).toContain(
+      'record:rooms:foyer',
+    );
+    fireEvent.change(input, { target: { value: 'new-door' } });
+    fireEvent.blur(input);
+    expect(selectPendingSaveUnitIds(usePendingInputStore.getState())).not.toContain(
+      'record:rooms:foyer',
+    );
+    expect(document.querySelector('[data-workbench-anchor="room.exit.new-door"]')).not.toBeNull();
+    await waitFor(() => {
+      const doc = useProjectStore.getState().document;
+      expect(isAuthoringProject(doc)).toBe(true);
+      if (!isAuthoringProject(doc)) return;
+      expect(parseRoomData(doc.rooms.foyer?.data)?.exits.map((entry) => entry.id)).toEqual([
+        'new-door',
+        'other',
+      ]);
+    });
+  });
   it('keeps multiple Room overlay visibility toggles immediate during a blocked native acknowledgment', async () => {
     const project = createAuthoringProject();
     project.layouts.panel = { id: 'panel', label: 'Panel', data: defaultLayoutData('Panel') };

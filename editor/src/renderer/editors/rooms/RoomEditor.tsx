@@ -91,6 +91,8 @@ import {
 import { RoomEditSurface } from '@/editors/rooms/RoomEditSurface';
 import { RoomCollectionVisibility } from '@/editors/rooms/RoomCollectionVisibility';
 import { RoomCollectionCondition } from '@/editors/rooms/RoomCollectionCondition';
+import { RoomExitsField, stageRoomExitSelection } from '@/editors/rooms/RoomExitsField';
+import { RoomCollectionIdInput, relocatePendingItem } from '@/editors/rooms/RoomSemanticInputs';
 import { RoomCollectionMaterial } from '@/editors/rooms/RoomCollectionMaterial';
 import { RoomAnchors, RoomNamedCameraViews } from '@/editors/rooms/RoomCameraCollections';
 import { toJsonValue } from '@/project/json-value';
@@ -1635,14 +1637,6 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     });
   };
   const rooms = Object.entries(project.rooms).map(([id, value]) => ({ id, label: value.label }));
-  const exitDestinationItems = data.exits.map((exit) => ({
-    id: exit.target.$ref.id,
-    label: rooms.find((room) => room.id === exit.target.$ref.id)?.label ?? exit.target.$ref.id,
-  }));
-  const usedExitDirections = new Set(data.exits.map((exit) => exit.direction));
-  const nextExitDirection = roomExitDirectionValues.find(
-    (direction) => !usedExitDirections.has(direction),
-  );
   const assets = Object.entries(project.assets).map(([id, value]) => ({ id, label: value.label }));
   const selectedBackgroundItem = imageAssetItems.find(
     (item) => item.entityId === data.background.asset?.$ref.id,
@@ -1878,14 +1872,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     label: value.label,
   }));
   const updateRoomListEntry = <T extends { id: string }>(
-    field:
-      | '/exits'
-      | '/overlays'
-      | '/cast'
-      | '/props'
-      | '/environments'
-      | '/interactables'
-      | '/placements',
+    field: '/overlays' | '/cast' | '/props' | '/environments' | '/interactables' | '/placements',
     entries: readonly T[],
     id: string,
     patch: Partial<T>,
@@ -1903,8 +1890,6 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     });
     if (intent) void projectEdits.execute(intent);
   };
-  const replaceExit = (id: string, patch: Partial<RoomExitData>) =>
-    updateRoomListEntry('/exits', data.exits, id, patch, 'Update room exit');
   const projectDisplay = projectSettingsFromProject(project).display;
   const referenceResolution = projectDisplay.referenceResolution;
   const fittedRoomEditSurfaceSize = fitRoomEditSurfaceFrame(
@@ -3612,47 +3597,60 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
         ) : null}
 
         {activeCategory === 'navigation' ? (
-          <section
-            className="overflow-hidden rounded-lg border bg-card/30"
-            data-workbench-anchor="room.exits"
-          >
-            <div className="flex items-center justify-between gap-3 border-b px-3 py-2">
-              <div className="flex min-w-0 items-baseline gap-2">
-                <h3 className="shrink-0 text-sm font-semibold">Exits</h3>
-                {exitDestinationItems.length > 0 ? (
-                  <div className="flex min-w-0 items-baseline gap-1 truncate text-xs text-muted-foreground">
-                    <span aria-hidden="true">·</span>
-                    {exitDestinationItems.map((destination, index) => (
-                      <span key={`${destination.id}-${index}`} className="inline-flex min-w-0">
-                        <button
-                          type="button"
-                          className="truncate text-left underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
-                          title={`Open ${destination.label}`}
-                          onClick={() =>
-                            openTab(buildRoomDetailTabForRecord(destination.id, destination.label))
-                          }
-                        >
-                          {destination.label}
-                        </button>
-                        {index < exitDestinationItems.length - 1 ? <span>,</span> : null}
-                      </span>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-              <Button
-                size="sm"
-                disabled={!nextExitDirection}
-                onClick={() =>
-                  nextExitDirection &&
-                  commit(
-                    {
-                      ...data,
-                      exits: [
-                        ...data.exits,
-                        {
+          <RoomExitsField roomId={roomId} tabId={tab.id} exits={data.exits}>
+            {(exits, { update: updateExit, add: addExit, remove: removeExit }) => {
+              const exitDestinationItems = exits.map((exit) => ({
+                id: exit.target.$ref.id,
+                label:
+                  rooms.find((room) => room.id === exit.target.$ref.id)?.label ??
+                  exit.target.$ref.id,
+              }));
+              const usedExitDirections = new Set(exits.map((exit) => exit.direction));
+              const nextExitDirection = roomExitDirectionValues.find(
+                (direction) => !usedExitDirections.has(direction),
+              );
+              return (
+                <section
+                  className="overflow-hidden rounded-lg border bg-card/30"
+                  data-workbench-anchor="room.exits"
+                >
+                  <div className="flex items-center justify-between gap-3 border-b px-3 py-2">
+                    <div className="flex min-w-0 items-baseline gap-2">
+                      <h3 className="shrink-0 text-sm font-semibold">Exits</h3>
+                      {exitDestinationItems.length > 0 ? (
+                        <div className="flex min-w-0 items-baseline gap-1 truncate text-xs text-muted-foreground">
+                          <span aria-hidden="true">·</span>
+                          {exitDestinationItems.map((destination, index) => (
+                            <span
+                              key={`${destination.id}-${index}`}
+                              className="inline-flex min-w-0"
+                            >
+                              <button
+                                type="button"
+                                className="truncate text-left underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+                                title={`Open ${destination.label}`}
+                                onClick={() =>
+                                  openTab(
+                                    buildRoomDetailTabForRecord(destination.id, destination.label),
+                                  )
+                                }
+                              >
+                                {destination.label}
+                              </button>
+                              {index < exitDestinationItems.length - 1 ? <span>,</span> : null}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                    <Button
+                      size="sm"
+                      disabled={!nextExitDirection}
+                      onClick={() =>
+                        nextExitDirection &&
+                        addExit({
                           id: nextId(
-                            data.exits.map((exit) => exit.id),
+                            exits.map((exit) => exit.id),
                             'exit',
                           ),
                           label: 'Exit',
@@ -3661,303 +3659,313 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                           condition: { kind: 'always' },
                           onRejected: [],
                           transition: null,
-                        },
-                      ],
-                    },
-                    'Add room exit',
-                  )
-                }
-              >
-                <Plus data-icon="inline-start" />
-                Add exit
-              </Button>
-            </div>
-            <div className="space-y-1.5 p-2">
-              {data.exits.length === 0 ? (
-                <div className="rounded-md border border-dashed px-3 py-5 text-center">
-                  <ArrowRight className="mx-auto size-4 text-muted-foreground" aria-hidden="true" />
-                  <p className="mt-1.5 text-xs font-medium">No exits yet</p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Add an exit to connect this room to another room.
-                  </p>
-                </div>
-              ) : null}
-              {data.exits.map((exit) => {
-                const targetRoom = rooms.find((room) => room.id === exit.target.$ref.id);
-                const targetRecord = project.rooms[exit.target.$ref.id];
-                const targetData =
-                  exit.target.$ref.id === roomId
-                    ? data
-                    : targetRecord
-                      ? parseRoomData(targetRecord.data)
-                      : null;
-                const returnDirection = oppositeExitDirection[exit.direction];
-                const returnExits =
-                  targetData?.exits.filter((candidate) => candidate.target.$ref.id === roomId) ??
-                  [];
-                const matchingReturnExit = returnExits.find(
-                  (candidate) => candidate.direction === returnDirection,
-                );
-                const mismatchedReturnExit = returnExits.find(
-                  (candidate) => candidate.direction !== returnDirection,
-                );
-                return (
-                  <article
-                    key={exit.id}
-                    data-workbench-anchor={`room.exit.${exit.id}`}
-                    className="overflow-hidden rounded-md border bg-background/80"
-                  >
-                    <div className="flex items-center gap-2 p-2">
-                      <div className="shrink-0">
-                        <RoomExitDirectionSelector
-                          value={exit.direction}
-                          disabledDirections={data.exits
-                            .filter((candidate) => candidate.id !== exit.id)
-                            .map((candidate) => candidate.direction)}
-                          onValueChange={(direction) => replaceExit(exit.id, { direction })}
+                        })
+                      }
+                    >
+                      <Plus data-icon="inline-start" />
+                      Add exit
+                    </Button>
+                  </div>
+                  <div className="space-y-1.5 p-2">
+                    {exits.length === 0 ? (
+                      <div className="rounded-md border border-dashed px-3 py-5 text-center">
+                        <ArrowRight
+                          className="mx-auto size-4 text-muted-foreground"
+                          aria-hidden="true"
                         />
+                        <p className="mt-1.5 text-xs font-medium">No exits yet</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Add an exit to connect this room to another room.
+                        </p>
                       </div>
-                      <div className="min-w-0 flex-1 space-y-1.5">
-                        <div className="grid gap-6 @3xl:grid-cols-2 @7xl:grid-cols-3">
-                          <div className="flex min-w-0 items-center gap-1.5">
-                            <Label className="shrink-0 text-[11px]">Label</Label>
-                            <Input
-                              className="min-w-0 flex-1"
-                              value={exit.label}
-                              onChange={(event) =>
-                                replaceExit(exit.id, { label: event.currentTarget.value })
-                              }
-                            />
-                          </div>
-                          <div className="flex min-w-0 items-center gap-1.5">
-                            <Label className="shrink-0 text-[11px]">Destination</Label>
-                            <button
-                              type="button"
-                              aria-label={`Choose destination, currently ${
-                                targetRoom?.label ?? exit.target.$ref.id
-                              }`}
-                              className="flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md border bg-background px-2 text-left text-xs transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
-                              onClick={() => setDestinationSelectorExitId(exit.id)}
-                            >
-                              <span className="min-w-0 flex-1 truncate font-medium">
-                                {targetRoom?.label ?? exit.target.$ref.id}
-                              </span>
-                              <ChevronsUpDown
-                                className="size-3.5 shrink-0 text-muted-foreground"
-                                aria-hidden="true"
+                    ) : null}
+                    {exits.map((exit) => {
+                      const targetRoom = rooms.find((room) => room.id === exit.target.$ref.id);
+                      const targetRecord = project.rooms[exit.target.$ref.id];
+                      const targetData =
+                        exit.target.$ref.id === roomId
+                          ? data
+                          : targetRecord
+                            ? parseRoomData(targetRecord.data)
+                            : null;
+                      const returnDirection = oppositeExitDirection[exit.direction];
+                      const returnExits =
+                        targetData?.exits.filter(
+                          (candidate) => candidate.target.$ref.id === roomId,
+                        ) ?? [];
+                      const matchingReturnExit = returnExits.find(
+                        (candidate) => candidate.direction === returnDirection,
+                      );
+                      const mismatchedReturnExit = returnExits.find(
+                        (candidate) => candidate.direction !== returnDirection,
+                      );
+                      return (
+                        <article
+                          key={exit.id}
+                          data-workbench-anchor={`room.exit.${exit.id}`}
+                          className="overflow-hidden rounded-md border bg-background/80"
+                        >
+                          <div className="flex items-center gap-2 p-2">
+                            <div className="shrink-0">
+                              <RoomExitDirectionSelector
+                                value={exit.direction}
+                                disabledDirections={exits
+                                  .filter((candidate) => candidate.id !== exit.id)
+                                  .map((candidate) => candidate.direction)}
+                                onValueChange={(direction) => updateExit(exit.id, { direction })}
                               />
-                            </button>
-                          </div>
-                          <div className="flex min-w-0 items-center gap-1.5">
-                            <Label className="shrink-0 text-[11px]">Internal ID</Label>
-                            <Input
-                              className="min-w-0 flex-1 font-mono"
-                              value={exit.id}
-                              onChange={(event) =>
-                                replaceExit(exit.id, { id: event.currentTarget.value })
-                              }
-                            />
-                          </div>
-                        </div>
-                        {targetData && !matchingReturnExit ? (
-                          <div className="flex flex-wrap items-center gap-1.5 rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-950 dark:text-amber-100">
-                            <AlertTriangle
-                              className="size-3.5 shrink-0 text-amber-600 dark:text-amber-400"
-                              aria-hidden="true"
-                            />
-                            <p className="min-w-48 flex-1">
-                              {mismatchedReturnExit
-                                ? t('roomExits.mismatchedReturn', {
-                                    actual: mismatchedReturnExit.direction,
-                                    destination: targetRoom?.label ?? exit.target.$ref.id,
-                                    expected: returnDirection,
-                                    source: record.label || data.displayName || roomId,
-                                  })
-                                : t('roomExits.missingReturn', {
-                                    destination: targetRoom?.label ?? exit.target.$ref.id,
-                                    direction: returnDirection,
-                                    source: record.label || data.displayName || roomId,
-                                  })}
-                            </p>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              className="border-amber-500/30 bg-background/80"
-                              onClick={() => {
-                                const targetRoomId = exit.target.$ref.id;
-                                void projectEdits.execute(
-                                  projectEdits.recordList({
-                                    record: { collection: 'rooms', id: targetRoomId },
-                                    field: '/exits',
-                                    action: mismatchedReturnExit
-                                      ? {
-                                          kind: 'replace',
-                                          id: mismatchedReturnExit.id,
-                                          before: mismatchedReturnExit,
-                                          after: {
-                                            ...mismatchedReturnExit,
-                                            direction: returnDirection,
-                                          },
-                                        }
-                                      : {
-                                          kind: 'insert',
-                                          item: {
-                                            id: nextId(
-                                              targetData.exits.map((candidate) => candidate.id),
-                                              'return-exit',
-                                            ),
-                                            label: `To ${record.label || data.displayName || roomId}`,
-                                            direction: returnDirection,
-                                            target: roomRoomRef(roomId),
-                                            condition: { kind: 'always' as const },
-                                            onRejected: [],
-                                            transition: null,
-                                          },
-                                        },
-                                    label: mismatchedReturnExit
-                                      ? 'Correct reciprocal room exit direction'
-                                      : 'Add reciprocal room exit',
-                                  }),
-                                );
-                              }}
-                            >
-                              {mismatchedReturnExit
-                                ? t('roomExits.fixReturn', { direction: returnDirection })
-                                : t('roomExits.addReturn')}
-                            </Button>
-                          </div>
-                        ) : null}
-                        <div className="flex min-w-0 flex-wrap items-center gap-2 rounded bg-muted/10 p-1.5">
-                          <Label className="shrink-0 text-[11px]">Available when</Label>
-                          <RecursiveConditionEditor
-                            value={exit.condition}
-                            project={project}
-                            scope={{ currentRoom: true }}
-                            compact
-                            onChange={(condition) => replaceExit(exit.id, { condition })}
-                          />
-                        </div>
-                        <details className="group rounded-md border bg-muted/10">
-                          <summary className="cursor-pointer select-none px-2 py-1.5 text-[11px] font-medium marker:text-muted-foreground">
-                            Transition{' '}
-                            {exit.transition ? `· ${exit.transition.kind}` : '· Project default'}
-                          </summary>
-                          <div className="grid gap-2 border-t p-2 @3xl:grid-cols-3">
-                            {exit.transition ? (
-                              <>
+                            </div>
+                            <div className="min-w-0 flex-1 space-y-1.5">
+                              <div className="grid gap-6 @3xl:grid-cols-2 @7xl:grid-cols-3">
                                 <div className="flex min-w-0 items-center gap-1.5">
-                                  <Label className="shrink-0 text-[11px]">Style</Label>
-                                  <Select
-                                    items={[
-                                      { value: 'cut', label: 'Cut' },
-                                      { value: 'fade', label: 'Fade' },
-                                      { value: 'dissolve', label: 'Dissolve' },
-                                    ]}
-                                    value={exit.transition.kind}
-                                    onValueChange={(value) =>
-                                      replaceExit(exit.id, {
-                                        transition: {
-                                          ...exit.transition!,
-                                          kind: value as typeof exit.transition.kind,
-                                        },
+                                  <Label className="shrink-0 text-[11px]">Label</Label>
+                                  <Input
+                                    className="min-w-0 flex-1"
+                                    value={exit.label}
+                                    onChange={(event) =>
+                                      updateExit(exit.id, { label: event.currentTarget.value })
+                                    }
+                                  />
+                                </div>
+                                <div className="flex min-w-0 items-center gap-1.5">
+                                  <Label className="shrink-0 text-[11px]">Destination</Label>
+                                  <button
+                                    type="button"
+                                    aria-label={`Choose destination, currently ${
+                                      targetRoom?.label ?? exit.target.$ref.id
+                                    }`}
+                                    className="flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md border bg-background px-2 text-left text-xs transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+                                    onClick={() => setDestinationSelectorExitId(exit.id)}
+                                  >
+                                    <span className="min-w-0 flex-1 truncate font-medium">
+                                      {targetRoom?.label ?? exit.target.$ref.id}
+                                    </span>
+                                    <ChevronsUpDown
+                                      className="size-3.5 shrink-0 text-muted-foreground"
+                                      aria-hidden="true"
+                                    />
+                                  </button>
+                                </div>
+                                <div className="flex min-w-0 items-center gap-1.5">
+                                  <Label className="shrink-0 text-[11px]">Internal ID</Label>
+                                  <RoomCollectionIdInput
+                                    roomId={roomId}
+                                    collection="exits"
+                                    itemId={exit.id}
+                                    allIds={exits.map((item) => item.id)}
+                                    label="Room Exit ID"
+                                    onCommit={(id) => {
+                                      updateExit(exit.id, { id });
+                                      relocatePendingItem(roomId, 'exits', exit.id, id);
+                                    }}
+                                  />
+                                </div>
+                              </div>
+                              {targetData && !matchingReturnExit ? (
+                                <div className="flex flex-wrap items-center gap-1.5 rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-950 dark:text-amber-100">
+                                  <AlertTriangle
+                                    className="size-3.5 shrink-0 text-amber-600 dark:text-amber-400"
+                                    aria-hidden="true"
+                                  />
+                                  <p className="min-w-48 flex-1">
+                                    {mismatchedReturnExit
+                                      ? t('roomExits.mismatchedReturn', {
+                                          actual: mismatchedReturnExit.direction,
+                                          destination: targetRoom?.label ?? exit.target.$ref.id,
+                                          expected: returnDirection,
+                                          source: record.label || data.displayName || roomId,
+                                        })
+                                      : t('roomExits.missingReturn', {
+                                          destination: targetRoom?.label ?? exit.target.$ref.id,
+                                          direction: returnDirection,
+                                          source: record.label || data.displayName || roomId,
+                                        })}
+                                  </p>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    className="border-amber-500/30 bg-background/80"
+                                    onClick={() => {
+                                      const targetRoomId = exit.target.$ref.id;
+                                      void projectEdits.execute(
+                                        projectEdits.recordList({
+                                          record: { collection: 'rooms', id: targetRoomId },
+                                          field: '/exits',
+                                          action: mismatchedReturnExit
+                                            ? {
+                                                kind: 'replace',
+                                                id: mismatchedReturnExit.id,
+                                                before: mismatchedReturnExit,
+                                                after: {
+                                                  ...mismatchedReturnExit,
+                                                  direction: returnDirection,
+                                                },
+                                              }
+                                            : {
+                                                kind: 'insert',
+                                                item: {
+                                                  id: nextId(
+                                                    targetData.exits.map(
+                                                      (candidate) => candidate.id,
+                                                    ),
+                                                    'return-exit',
+                                                  ),
+                                                  label: `To ${record.label || data.displayName || roomId}`,
+                                                  direction: returnDirection,
+                                                  target: roomRoomRef(roomId),
+                                                  condition: { kind: 'always' as const },
+                                                  onRejected: [],
+                                                  transition: null,
+                                                },
+                                              },
+                                          label: mismatchedReturnExit
+                                            ? 'Correct reciprocal room exit direction'
+                                            : 'Add reciprocal room exit',
+                                        }),
+                                      );
+                                    }}
+                                  >
+                                    {mismatchedReturnExit
+                                      ? t('roomExits.fixReturn', { direction: returnDirection })
+                                      : t('roomExits.addReturn')}
+                                  </Button>
+                                </div>
+                              ) : null}
+                              <div className="flex min-w-0 flex-wrap items-center gap-2 rounded bg-muted/10 p-1.5">
+                                <Label className="shrink-0 text-[11px]">Available when</Label>
+                                <RecursiveConditionEditor
+                                  value={exit.condition}
+                                  project={project}
+                                  scope={{ currentRoom: true }}
+                                  compact
+                                  onChange={(condition) => updateExit(exit.id, { condition })}
+                                />
+                              </div>
+                              <details className="group rounded-md border bg-muted/10">
+                                <summary className="cursor-pointer select-none px-2 py-1.5 text-[11px] font-medium marker:text-muted-foreground">
+                                  Transition{' '}
+                                  {exit.transition
+                                    ? `· ${exit.transition.kind}`
+                                    : '· Project default'}
+                                </summary>
+                                <div className="grid gap-2 border-t p-2 @3xl:grid-cols-3">
+                                  {exit.transition ? (
+                                    <>
+                                      <div className="flex min-w-0 items-center gap-1.5">
+                                        <Label className="shrink-0 text-[11px]">Style</Label>
+                                        <Select
+                                          items={[
+                                            { value: 'cut', label: 'Cut' },
+                                            { value: 'fade', label: 'Fade' },
+                                            { value: 'dissolve', label: 'Dissolve' },
+                                          ]}
+                                          value={exit.transition.kind}
+                                          onValueChange={(value) =>
+                                            updateExit(exit.id, {
+                                              transition: {
+                                                ...exit.transition!,
+                                                kind: value as typeof exit.transition.kind,
+                                              },
+                                            })
+                                          }
+                                        >
+                                          <SelectTrigger size="sm" aria-label="Transition style">
+                                            <SelectValue />
+                                          </SelectTrigger>
+                                          <SelectContent>
+                                            <SelectItem value="cut">Cut</SelectItem>
+                                            <SelectItem value="fade">Fade</SelectItem>
+                                            <SelectItem value="dissolve">Dissolve</SelectItem>
+                                          </SelectContent>
+                                        </Select>
+                                      </div>
+                                      <div className="flex min-w-0 items-center gap-1.5">
+                                        <Label className="shrink-0 text-[11px]">
+                                          Duration (ms)
+                                        </Label>
+                                        <Input
+                                          className="min-w-0 flex-1"
+                                          value={String(exit.transition.durationMs)}
+                                          onChange={(event) =>
+                                            updateExit(exit.id, {
+                                              transition: {
+                                                ...exit.transition!,
+                                                durationMs: numberValue(
+                                                  event.currentTarget.value,
+                                                  exit.transition!.durationMs,
+                                                ),
+                                              },
+                                            })
+                                          }
+                                        />
+                                      </div>
+                                      <div className="flex min-w-0 items-center gap-1.5">
+                                        <Label className="shrink-0 text-[11px]">Fade color</Label>
+                                        <Input
+                                          className="min-w-0 flex-1"
+                                          placeholder="Project default"
+                                          value={exit.transition.color ?? ''}
+                                          onChange={(event) =>
+                                            updateExit(exit.id, {
+                                              transition: {
+                                                ...exit.transition!,
+                                                color: event.currentTarget.value || null,
+                                              },
+                                            })
+                                          }
+                                        />
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <p className="self-center text-xs text-muted-foreground @3xl:col-span-2">
+                                      This exit uses the project transition settings.
+                                    </p>
+                                  )}
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="justify-self-start @3xl:col-start-3 @3xl:justify-self-end"
+                                    onClick={() =>
+                                      updateExit(exit.id, {
+                                        transition: exit.transition
+                                          ? null
+                                          : {
+                                              kind: 'fade',
+                                              durationMs: 250,
+                                              color: null,
+                                              skippable: true,
+                                            },
                                       })
                                     }
                                   >
-                                    <SelectTrigger size="sm" aria-label="Transition style">
-                                      <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      <SelectItem value="cut">Cut</SelectItem>
-                                      <SelectItem value="fade">Fade</SelectItem>
-                                      <SelectItem value="dissolve">Dissolve</SelectItem>
-                                    </SelectContent>
-                                  </Select>
+                                    {exit.transition
+                                      ? 'Use project default'
+                                      : 'Override transition'}
+                                  </Button>
                                 </div>
-                                <div className="flex min-w-0 items-center gap-1.5">
-                                  <Label className="shrink-0 text-[11px]">Duration (ms)</Label>
-                                  <Input
-                                    className="min-w-0 flex-1"
-                                    value={String(exit.transition.durationMs)}
-                                    onChange={(event) =>
-                                      replaceExit(exit.id, {
-                                        transition: {
-                                          ...exit.transition!,
-                                          durationMs: numberValue(
-                                            event.currentTarget.value,
-                                            exit.transition!.durationMs,
-                                          ),
-                                        },
-                                      })
-                                    }
-                                  />
-                                </div>
-                                <div className="flex min-w-0 items-center gap-1.5">
-                                  <Label className="shrink-0 text-[11px]">Fade color</Label>
-                                  <Input
-                                    className="min-w-0 flex-1"
-                                    placeholder="Project default"
-                                    value={exit.transition.color ?? ''}
-                                    onChange={(event) =>
-                                      replaceExit(exit.id, {
-                                        transition: {
-                                          ...exit.transition!,
-                                          color: event.currentTarget.value || null,
-                                        },
-                                      })
-                                    }
-                                  />
-                                </div>
-                              </>
-                            ) : (
-                              <p className="self-center text-xs text-muted-foreground @3xl:col-span-2">
-                                This exit uses the project transition settings.
-                              </p>
-                            )}
+                              </details>
+                            </div>
                             <Button
-                              size="sm"
-                              variant="outline"
-                              className="justify-self-start @3xl:col-start-3 @3xl:justify-self-end"
-                              onClick={() =>
-                                replaceExit(exit.id, {
-                                  transition: exit.transition
-                                    ? null
-                                    : {
-                                        kind: 'fade',
-                                        durationMs: 250,
-                                        color: null,
-                                        skippable: true,
-                                      },
-                                })
-                              }
+                              type="button"
+                              size="icon-sm"
+                              variant="ghost"
+                              aria-label={`Delete ${exit.label || exit.id}`}
+                              title="Delete exit"
+                              className="shrink-0 self-center"
+                              onClick={() => removeExit(exit.id)}
                             >
-                              {exit.transition ? 'Use project default' : 'Override transition'}
+                              <Trash2 />
                             </Button>
                           </div>
-                        </details>
-                      </div>
-                      <Button
-                        type="button"
-                        size="icon-sm"
-                        variant="ghost"
-                        aria-label={`Delete ${exit.label || exit.id}`}
-                        title="Delete exit"
-                        className="shrink-0 self-center"
-                        onClick={() =>
-                          commit(
-                            { ...data, exits: data.exits.filter((item) => item.id !== exit.id) },
-                            'Delete room exit',
-                          )
-                        }
-                      >
-                        <Trash2 />
-                      </Button>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          </section>
+                        </article>
+                      );
+                    })}
+                  </div>
+                </section>
+              );
+            }}
+          </RoomExitsField>
         ) : null}
 
         {activeCategory === 'camera' ? (
@@ -5099,7 +5107,13 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
           }}
           onSelect={(item) => {
             if (!destinationSelectorExitId || !item.entityId) return;
-            replaceExit(destinationSelectorExitId, { target: roomRoomRef(item.entityId) });
+            stageRoomExitSelection({
+              roomId,
+              tabId: tab.id,
+              exits: data.exits,
+              exitId: destinationSelectorExitId,
+              patch: { target: roomRoomRef(item.entityId) },
+            });
           }}
         />
         <Dialog

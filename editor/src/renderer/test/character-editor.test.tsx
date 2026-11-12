@@ -77,6 +77,65 @@ describe('CharacterEditor', () => {
     });
     expect(native.patch).toHaveBeenCalledTimes(2);
   });
+  it('keeps Character inventory additions and label edits immediate during delayed native acknowledgment', async () => {
+    const project = createAuthoringProject();
+    project.characters.iris = { id: 'iris', label: 'Iris', data: defaultCharacterData('Iris') };
+    const native = admitNativeRendererCommandFixture(project);
+    const held = holdFirstNativeProjectPatch();
+    render(<CharacterEditor tab={tab} />);
+
+    const inventorySection = screen.getByText('Character Inventories').closest('section')!;
+    fireEvent.click(within(inventorySection).getByRole('button', { name: 'Add' }));
+    await waitFor(() => expect(held.isHeld()).toBe(true));
+    const label = within(inventorySection).getByRole('textbox', { name: 'Inventory label' });
+    fireEvent.change(label, { target: { value: 'Backpack' } });
+    expect(label).toHaveValue('Backpack');
+    expect(within(inventorySection).getByRole('textbox', { name: 'Inventory ID' })).toHaveValue(
+      'inventory',
+    );
+    expect(native.patch).not.toHaveBeenCalled();
+
+    await act(async () => held.release());
+    await waitFor(() => {
+      const doc = useProjectStore.getState().document;
+      expect(isAuthoringProject(doc)).toBe(true);
+      if (!isAuthoringProject(doc)) return;
+      expect(parseCharacterData(doc.characters.iris?.data)?.inventories).toEqual([
+        { id: 'inventory', label: 'Backpack' },
+      ]);
+    });
+    expect(native.patch.mock.calls.length).toBeLessThanOrEqual(2);
+  });
+  it('keeps Character pose creation and label edits immediate while native is blocked', async () => {
+    const project = createAuthoringProject();
+    project.characters.iris = { id: 'iris', label: 'Iris', data: defaultCharacterData('Iris') };
+    const native = admitNativeRendererCommandFixture(project);
+    const held = holdFirstNativeProjectPatch();
+    render(<CharacterEditor tab={tab} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add Pose' }));
+    await waitFor(() => expect(held.isHeld()).toBe(true));
+    const poseDetails = screen.getByDisplayValue('pose').closest('[data-workbench-anchor]');
+    expect(poseDetails).not.toBeNull();
+    const poseLabel = within(poseDetails as HTMLElement).getByDisplayValue('Pose');
+    fireEvent.change(poseLabel, { target: { value: 'Opening pose' } });
+    expect(poseLabel).toHaveValue('Opening pose');
+    expect(native.patch).not.toHaveBeenCalled();
+
+    await act(async () => held.release());
+    await waitFor(() => {
+      const doc = useProjectStore.getState().document;
+      expect(isAuthoringProject(doc)).toBe(true);
+      if (!isAuthoringProject(doc)) return;
+      const profile = parseCharacterData(doc.characters.iris?.data)?.profiles.find(
+        (entry) => entry.id === 'stage',
+      );
+      expect(profile?.poses).toEqual(
+        expect.arrayContaining([expect.objectContaining({ id: 'pose', label: 'Opening pose' })]),
+      );
+    });
+    expect(native.patch.mock.calls.length).toBeLessThanOrEqual(2);
+  });
   it('renders typed character defaults', () => {
     const project = createAuthoringProject();
     project.characters.iris = { id: 'iris', label: 'Iris', data: defaultCharacterData('Iris') };
@@ -127,7 +186,11 @@ describe('CharacterEditor', () => {
         },
       });
     });
-    expect(useCommandStore.getState().history.entries.at(-1)?.type).toBe('character.replaceData');
+    await waitFor(() => {
+      expect(useCommandStore.getState().history.entries.at(-1)?.patches).toMatchObject([
+        { op: 'replace', path: '/characters/iris/data/profiles' },
+      ]);
+    });
   });
 
   it('selects a named Animation Visual while Gesture audio remains an Asset reference', async () => {
@@ -255,7 +318,11 @@ describe('CharacterEditor', () => {
         },
       }),
     );
-    expect(useCommandStore.getState().history.entries.at(-1)?.type).toBe('character.replaceData');
+    await waitFor(() =>
+      expect(useCommandStore.getState().history.entries.at(-1)?.patches).toMatchObject([
+        { op: 'replace', path: '/characters/iris/data/gestures' },
+      ]),
+    );
   });
 
   it('captures scroll tab state for the inspector', () => {
