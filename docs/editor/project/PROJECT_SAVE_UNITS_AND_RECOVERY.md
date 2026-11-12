@@ -202,6 +202,26 @@ establishes physical scanout latency nor passes the required human Feature Lab
 matrix on Windows/Linux/macOS. #602 and #522 remain open for those gates and
 the remaining legacy form/list/geometry editor surfaces.
 
+The next nested-editor migration, `aa98bc80`, also built and passed the Linux
+x64 packaged smoke suite. The same **Project-title** typing benchmark passed
+all 0/500/1,000 ms acknowledgment-delay cases, with exact presentation,
+bounded requests and saved YAML readback:
+
+| Simulated acknowledgment | Input median | Input p95 | Input max | Native patch calls | Idle-frame p95 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 0 ms | 14.63 ms | 102.24 ms | 130.51 ms | 3 | 83.34 ms |
+| 500 ms | 10.02 ms | 16.20 ms | 83.20 ms | 2 | 16.67 ms |
+| 1,000 ms | 10.90 ms | 17.13 ms | 68.61 ms | 2 | 16.67 ms |
+
+Environment: Linux x64/Xvfb software display, Ryzen 7 5700G, Node 24.18.0,
+Electron 43.1.1, Chromium 150.0.7871.114. The benchmark measures
+input-to-next-renderer-frame readiness, not physical screen scanout. Variable
+idle Xvfb frame pacing and input outliers mean **the strict ≤16 ms p95 target
+is not certified**. This harness covers Project-title typing only; the newly
+migrated Room/Character/Interactable nested controls were exercised through
+blocked-native-acknowledgment component tests, not this packaged input loop.
+Cross-platform interactive certification and remaining #602 surfaces stay open.
+
 All migrated renderer content mutations enter through `commands/project-editing.ts`:
 `projectEdits.execute(request)` for semantic/structural commands, `projectEdits.batch(...)`
 for transactions, and `projectEdits.field(intent)` for high-frequency field edits. This
