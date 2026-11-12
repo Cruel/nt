@@ -642,15 +642,14 @@ A Layout companion-source regression confirms that consecutive RML edits
 paint from the source buffer without invoking a Project content patch.
 The final four focused component suites passed **29 tests** after this source
 handoff and the numeric/semantic-field changes.
-The native-addon-backed editor suite passed **306 files, 2,323 tests**
-with **94 skips** before the final incremental raw-number changes. Two
-subsequent complete runs each passed **305 files and 2,325 tests**, but
-each had one different failure outside #606: a temporary-directory
-`ENOTEMPTY` in native editor-session cleanup and a workspace Preview-locale
-metadata-save timing assertion. Both failing tests passed in isolation;
-there is **not yet a clean full-suite pass against the final tree**. Final
-editor formatting, lint (zero warnings), TypeScript, schema policy and
-generated contract checks passed. The disposable native test
+The final native-addon-backed editor suite at `a02c0675` passed **306 files,
+2,327 tests**, with **94 skips and zero failures**. Two earlier complete runs
+each had one *different*, outside-#606 intermittent test failure: a temporary
+directory `ENOTEMPTY` in native editor-session cleanup and a workspace
+Preview-locale metadata-save timing assertion. Both passed when rerun in
+isolation; the final full run also passed. Final editor formatting, lint
+(zero warnings), TypeScript, schema policy and generated contract checks
+passed. The disposable native test
 `editor/scripts/certify-native-layout-map-material-animation-save.mjs`
 passed physical owner-scoped YAML Save/readback and a fresh Project reopen
 for all four editor families. Native Room/Map, ProjectSession, Layout and YAML
