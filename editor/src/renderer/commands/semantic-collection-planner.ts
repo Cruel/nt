@@ -1,4 +1,7 @@
 import { jsonValuesEqual, isJsonObject, type JsonValue } from '@/project/json-value';
+import { applyJsonPatch } from '@/project/json-patch';
+import { getJsonAtPointer, hasJsonAtPointer } from '@/project/json-pointer';
+import { diffJsonDocuments } from '@/project/project-external-reconciliation';
 
 /** List controls address items by a semantic ID, never a stale JSON Pointer index.
  * The operation resolves its index against the latest native acknowledgment. */
@@ -54,5 +57,51 @@ export function applySemanticCollectionOperation(
       next.splice(before, 0, item!);
     }
   }
+  return next;
+}
+
+/**
+ * Update an individual collection entry by stable ID. The event-time delta
+ * is applied to the *latest* entry at queue dispatch. Overlapping changes
+ * fail closed; disjoint changes to this or other items, and reordered arrays,
+ * remain intact.
+ */
+export function applySemanticItemPatch(
+  latest: JsonValue,
+  options: { id: string; before: JsonValue; after: JsonValue },
+): JsonValue[] {
+  if (!Array.isArray(latest)) throw new Error('Semantic patch target is not a collection.');
+  const ids = latest.map(idOf);
+  if (new Set(ids).size !== ids.length)
+    throw new Error('Semantic collection has duplicate item IDs.');
+  const { id, before, after } = options;
+  if (idOf(before) !== id)
+    throw new Error(`Collection item '${id}' has an invalid event-time baseline.`);
+  const index = ids.indexOf(id);
+  if (index < 0) throw new Error(`Collection item '${id}' was removed.`);
+  const changes = diffJsonDocuments(before, after);
+  if (changes.length === 0) return latest;
+  const current = latest[index]!;
+  for (const change of changes) {
+    const previousExists = hasJsonAtPointer(before, change.path);
+    const currentExists = hasJsonAtPointer(current, change.path);
+    if (
+      previousExists !== currentExists ||
+      (previousExists &&
+        !jsonValuesEqual(
+          getJsonAtPointer(before, change.path),
+          getJsonAtPointer(current, change.path),
+        ))
+    )
+      throw new Error(
+        `Collection item '${id}' field '${change.path}' changed before this edit was applied.`,
+      );
+  }
+  const updated = applyJsonPatch(current, changes).document;
+  const nextId = idOf(updated);
+  if (nextId !== id && ids.includes(nextId))
+    throw new Error(`Collection item '${nextId}' already exists.`);
+  const next = [...latest];
+  next[index] = updated;
   return next;
 }

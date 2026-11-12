@@ -39,6 +39,7 @@ import { NATIVE_FIELD_DRAFT_SCHEMA } from './native-field-drafts';
 import { resolveProjectFieldIdentity } from './project-field-identity';
 import {
   applySemanticCollectionOperation,
+  applySemanticItemPatch,
   type SemanticCollectionOperation,
 } from './semantic-collection-planner';
 
@@ -136,6 +137,27 @@ export const projectEdits = {
       const latest = latestGameplayRecord(record);
       const items = getJsonAtPointer(latest, field);
       const next = applySemanticCollectionOperation(items, action);
+      return gameplayRecordFieldCommand({ record, field, value: next, label });
+    };
+  },
+
+  /** Late-bound, field-granular delta for one stable-ID collection entry. */
+  recordItem(options: {
+    record: GameplayRecordRef;
+    field: string;
+    id: string;
+    before: unknown;
+    after: unknown;
+    label: string;
+  }): (() => CommandRequest) | null {
+    const { record, field, id, before, after, label } = options;
+    const previous = toJsonValue(before);
+    const nextValue = toJsonValue(after);
+    if (jsonValuesEqual(previous, nextValue)) return null;
+    return () => {
+      const latest = latestGameplayRecord(record);
+      const items = getJsonAtPointer(latest, field);
+      const next = applySemanticItemPatch(items, { id, before: previous, after: nextValue });
       return gameplayRecordFieldCommand({ record, field, value: next, label });
     };
   },

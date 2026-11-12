@@ -89,6 +89,7 @@ import {
   type GameplayCommandKind,
 } from '@/components/gameplay-commands/GameplayCommandEditor';
 import { RoomEditSurface } from '@/editors/rooms/RoomEditSurface';
+import { RoomCollectionVisibility } from '@/editors/rooms/RoomCollectionVisibility';
 import { RoomAnchors, RoomNamedCameraViews } from '@/editors/rooms/RoomCameraCollections';
 import { toJsonValue } from '@/project/json-value';
 import { RoomCompositionPane } from '@/editors/rooms/RoomCompositionPane';
@@ -1874,11 +1875,34 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     id,
     label: value.label,
   }));
+  const updateRoomListEntry = <T extends { id: string }>(
+    field:
+      | '/exits'
+      | '/overlays'
+      | '/cast'
+      | '/props'
+      | '/environments'
+      | '/interactables'
+      | '/placements',
+    entries: readonly T[],
+    id: string,
+    patch: Partial<T>,
+    label: string,
+  ) => {
+    const before = entries.find((entry) => entry.id === id);
+    if (!before) return;
+    const intent = projectEdits.recordItem({
+      record: { collection: 'rooms', id: roomId },
+      field,
+      id,
+      before,
+      after: { ...before, ...patch },
+      label,
+    });
+    if (intent) void projectEdits.execute(intent);
+  };
   const replaceExit = (id: string, patch: Partial<RoomExitData>) =>
-    commit(
-      { ...data, exits: data.exits.map((exit) => (exit.id === id ? { ...exit, ...patch } : exit)) },
-      'Update room exit',
-    );
+    updateRoomListEntry('/exits', data.exits, id, patch, 'Update room exit');
   const projectDisplay = projectSettingsFromProject(project).display;
   const referenceResolution = projectDisplay.referenceResolution;
   const fittedRoomEditSurfaceSize = fitRoomEditSurfaceFrame(
@@ -1904,61 +1928,41 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     projectDisplay.worldRasterPolicy,
   );
   const replaceOverlay = (id: string, patch: Partial<RoomOverlayData>) =>
-    commit(
-      {
-        ...data,
-        overlays: data.overlays.map((overlay) =>
-          overlay.id === id ? { ...overlay, ...patch } : overlay,
-        ),
-      },
-      'Update room overlay',
-    );
+    updateRoomListEntry('/overlays', data.overlays, id, patch, 'Update room overlay');
   const replaceCast = (id: string, patch: Partial<RoomCastData>) =>
-    commit(
-      {
-        ...data,
-        cast: data.cast.map((entry) => (entry.id === id ? { ...entry, ...patch } : entry)),
-      },
+    updateRoomListEntry(
+      '/cast',
+      data.cast,
+      id,
+      patch,
       t('roomEditor.compositionPane.editor.updateRoomCast'),
     );
   const replaceProp = (id: string, patch: Partial<RoomPropData>) =>
-    commit(
-      {
-        ...data,
-        props: data.props.map((entry) => (entry.id === id ? { ...entry, ...patch } : entry)),
-      },
+    updateRoomListEntry(
+      '/props',
+      data.props,
+      id,
+      patch,
       t('roomEditor.compositionPane.editor.updateRoomProp'),
     );
   const replaceEnvironment = (id: string, patch: Partial<RoomEnvironmentData>) =>
-    commit(
-      {
-        ...data,
-        environments: data.environments.map((entry) =>
-          entry.id === id ? { ...entry, ...patch } : entry,
-        ),
-      },
+    updateRoomListEntry(
+      '/environments',
+      data.environments,
+      id,
+      patch,
       t('roomEditor.compositionPane.editor.updateRoomEnvironment'),
     );
   const replaceInteractableOccurrence = (id: string, patch: Partial<RoomInteractableData>) =>
-    commit(
-      {
-        ...data,
-        interactables: data.interactables.map((entry) =>
-          entry.id === id ? { ...entry, ...patch } : entry,
-        ),
-      },
+    updateRoomListEntry(
+      '/interactables',
+      data.interactables,
+      id,
+      patch,
       t('roomEditor.compositionPane.editor.updateRoomInteractableOccurrence'),
     );
   const replacePlacement = (id: string, patch: Partial<RoomPlacementData>, label: string) =>
-    commit(
-      {
-        ...data,
-        placements: data.placements.map((placement) =>
-          placement.id === id ? { ...placement, ...patch } : placement,
-        ),
-      },
-      label,
-    );
+    updateRoomListEntry('/placements', data.placements, id, patch, label);
   const commitInteractableInstance = (
     instanceId: string,
     instance: (typeof project.interactableInstances)[string],
@@ -2520,12 +2524,12 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                   </Select>
                 </div>
                 <label className="flex items-end gap-2 pb-2">
-                  <input
-                    type="checkbox"
-                    checked={occurrence.visible}
-                    onChange={(event) =>
-                      replaceProp(occurrence.id, { visible: event.currentTarget.checked })
-                    }
+                  <RoomCollectionVisibility
+                    roomId={roomId}
+                    tabId={tab.id}
+                    collection="props"
+                    items={data.props}
+                    itemId={occurrence.id}
                   />
                   {t('roomEditor.compositionPane.editor.visible')}
                 </label>
@@ -2724,12 +2728,12 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                 </div>
               </div>
               <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={occurrence.visible}
-                  onChange={(event) =>
-                    replaceCast(occurrence.id, { visible: event.currentTarget.checked })
-                  }
+                <RoomCollectionVisibility
+                  roomId={roomId}
+                  tabId={tab.id}
+                  collection="cast"
+                  items={data.cast}
+                  itemId={occurrence.id}
                 />
                 {t('roomEditor.compositionPane.editor.visible')}
               </label>
@@ -2871,12 +2875,12 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               />
               <div className="grid gap-2 @3xl:grid-cols-3">
                 <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={occurrence.visible}
-                    onChange={(event) =>
-                      replaceEnvironment(occurrence.id, { visible: event.currentTarget.checked })
-                    }
+                  <RoomCollectionVisibility
+                    roomId={roomId}
+                    tabId={tab.id}
+                    collection="environments"
+                    items={data.environments}
+                    itemId={occurrence.id}
                   />
                   {t('roomEditor.compositionPane.editor.visible')}
                 </label>
@@ -3016,12 +3020,12 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                   </Button>
                 </div>
                 <label className="flex items-end gap-2 pb-2">
-                  <input
-                    type="checkbox"
-                    checked={overlay.visible}
-                    onChange={(event) =>
-                      replaceOverlay(overlay.id, { visible: event.currentTarget.checked })
-                    }
+                  <RoomCollectionVisibility
+                    roomId={roomId}
+                    tabId={tab.id}
+                    collection="overlays"
+                    items={data.overlays}
+                    itemId={overlay.id}
                   />
                   {t('roomEditor.compositionPane.editor.visible')}
                 </label>
@@ -4319,12 +4323,12 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                     </Button>
                   </div>
                   <label className="flex items-end gap-2 pb-2">
-                    <input
-                      type="checkbox"
-                      checked={overlay.visible}
-                      onChange={(event) =>
-                        replaceOverlay(overlay.id, { visible: event.currentTarget.checked })
-                      }
+                    <RoomCollectionVisibility
+                      roomId={roomId}
+                      tabId={tab.id}
+                      collection="overlays"
+                      items={data.overlays}
+                      itemId={overlay.id}
                     />
                     Visible
                   </label>
@@ -4412,12 +4416,12 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                     </Select>
                   </div>
                   <label className="flex items-end gap-2 pb-2">
-                    <input
-                      type="checkbox"
-                      checked={entry.visible}
-                      onChange={(event) =>
-                        replaceCast(entry.id, { visible: event.currentTarget.checked })
-                      }
+                    <RoomCollectionVisibility
+                      roomId={roomId}
+                      tabId={tab.id}
+                      collection="cast"
+                      items={data.cast}
+                      itemId={entry.id}
                     />
                     Visible
                   </label>
@@ -4675,12 +4679,12 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                     />
                   </div>
                   <label className="flex items-end gap-2 pb-2">
-                    <input
-                      type="checkbox"
-                      checked={entry.visible}
-                      onChange={(event) =>
-                        replaceEnvironment(entry.id, { visible: event.currentTarget.checked })
-                      }
+                    <RoomCollectionVisibility
+                      roomId={roomId}
+                      tabId={tab.id}
+                      collection="environments"
+                      items={data.environments}
+                      itemId={entry.id}
                     />
                     Visible
                   </label>

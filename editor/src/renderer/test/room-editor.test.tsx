@@ -7,6 +7,7 @@ import { StrictMode } from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { RoomEditor } from '@/editors/rooms/RoomEditor';
+import { RoomCollectionVisibility } from '@/editors/rooms/RoomCollectionVisibility';
 import {
   createAuthoringProject,
   isAuthoringProject,
@@ -121,6 +122,71 @@ beforeEach(() => {
   });
 });
 describe('RoomEditor', () => {
+  it('keeps multiple Room overlay visibility toggles immediate during a blocked native acknowledgment', async () => {
+    const project = createAuthoringProject();
+    project.layouts.panel = { id: 'panel', label: 'Panel', data: defaultLayoutData('Panel') };
+    const room = defaultRoomData('Foyer');
+    room.overlays = [
+      {
+        id: 'first',
+        layout: { $ref: { collection: 'layouts', id: 'panel' } },
+        condition: { kind: 'always' },
+        visible: true,
+        order: 0,
+      },
+      {
+        id: 'second',
+        layout: { $ref: { collection: 'layouts', id: 'panel' } },
+        condition: { kind: 'always' },
+        visible: true,
+        order: 1,
+      },
+    ];
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    const native = admitNativeRendererCommandFixture(project);
+    const held = holdFirstNativeProjectPatch();
+    render(
+      <>
+        <label>
+          First
+          <RoomCollectionVisibility
+            roomId="foyer"
+            tabId={tab.id}
+            collection="overlays"
+            items={room.overlays}
+            itemId="first"
+          />
+        </label>
+        <label>
+          Second
+          <RoomCollectionVisibility
+            roomId="foyer"
+            tabId={tab.id}
+            collection="overlays"
+            items={room.overlays}
+            itemId="second"
+          />
+        </label>
+      </>,
+    );
+    fireEvent.click(screen.getByRole('checkbox', { name: 'First' }));
+    await waitFor(() => expect(held.isHeld()).toBe(true));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Second' }));
+    expect(screen.getByRole('checkbox', { name: 'First' })).not.toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Second' })).not.toBeChecked();
+    expect(native.patch).not.toHaveBeenCalled();
+    await act(async () => held.release());
+    await waitFor(() => {
+      const doc = useProjectStore.getState().document;
+      expect(isAuthoringProject(doc)).toBe(true);
+      if (!isAuthoringProject(doc)) return;
+      expect(parseRoomData(doc.rooms.foyer?.data)?.overlays).toMatchObject([
+        { id: 'first', visible: false },
+        { id: 'second', visible: false },
+      ]);
+    });
+    expect(native.patch.mock.calls.length).toBeLessThanOrEqual(2);
+  });
   it('splits Room editing into the shared categorical layout', () => {
     const project = createAuthoringProject();
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };

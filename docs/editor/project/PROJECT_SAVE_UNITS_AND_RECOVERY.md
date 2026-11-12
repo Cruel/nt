@@ -298,6 +298,24 @@ Room component regressions exercise blocked native acknowledgment, independent
 item edits, exact incomplete numeric text, collision rejection, rename on blur
 and Add View against staged Default Camera framing.
 
+For Room Contents and Navigation, `projectEdits.recordItem` now provides a
+late-bound semantic-ID operation for editing an existing Exit, Overlay, Cast,
+Prop, Environment, Interactable occurrence, or Placement. It captures the
+field-level event-time difference, locates the item by ID in the latest
+native-acknowledged collection and applies **only** nonconflicting changed
+fields. Reorders, unrelated items and disjoint nested fields are preserved;
+deletion, duplicate target ID, and overlapping field modifications fail
+closed rather than overwriting newer edits. The existing collection list
+insert/remove/reorder planners remain separate.
+
+Selected Room Overlay, Cast, Prop and Environment visibility checkboxes
+now use the same recoverable owner-scoped optimistic field contract across
+the Contents list and Composition inspector. Different checkbox edits in
+one collection read the latest staged array, combine before native dispatch,
+and paint immediately. Other editors in those sections still rely on native
+acknowledgment and require further #602 migration; the shared semantic item
+planner itself is a correctness layer, not a second optimistic scheduler.
+
 The default field operation chooses a narrow native add/replace patch against the **current**
 acknowledged Project. Fields with schema-specific initialization (such as Title Screen) supply
 their existing semantic command instead. Reusable gameplay-record planners handle archetyped
