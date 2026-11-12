@@ -4273,6 +4273,16 @@ ProjectSession::resolve_save_units(const std::vector<std::string>& save_unit_ids
         if (family == "interactables")
             return instance.contains("definition") &&
                    instance.at("definition").at("$ref").at("id") == owner_id;
+        if (family == "project-inventory" && instance.contains("location")) {
+            const auto& location = instance.at("location");
+            if (!location.is_object() || !location.contains("kind") ||
+                location.at("kind") != "inventory" || !location.contains("inventory"))
+                return false;
+            const auto& inventory = location.at("inventory");
+            return inventory.is_object() && inventory.contains("owner") &&
+                   inventory.at("owner").at("kind") == "project" &&
+                   inventory.at("inventoryId") == "inventory";
+        }
         if (family == "rooms" && instance.contains("location")) {
             const auto& location = instance.at("location");
             return location.is_object() && location.at("kind") == "room" &&
@@ -4293,9 +4303,55 @@ ProjectSession::resolve_save_units(const std::vector<std::string>& save_unit_ids
             add(family + "/" + id, "/");
             add("editor", "/recordMetadata/" + family + "/" + id);
             if (!dirty_instance_ids.empty() && (family == "rooms" || family == "interactables")) {
+                // The Room editor owns exact Instances by placement, not only
+                // by their runtime world location. Those may intentionally
+                // differ (e.g. a staged lever placed in Scene Director while
+                // its gameplay location is another Room). Include current and
+                // saved placements so a pending structural move cannot make
+                // an acknowledged Instance edit unsaveable.
+                std::set<std::string> room_placements;
+                if (family == "rooms") {
+                    const auto collect = [&](std::string_view source) {
+                        if (source.empty())
+                            return;
+                        const auto room = Json::parse(source);
+                        if (!room.is_object() || !room.contains("data") ||
+                            !room.at("data").is_object() ||
+                            !room.at("data").contains("interactables") ||
+                            !room.at("data").at("interactables").is_array())
+                            return;
+                        for (const auto& placed :
+                             room.at("data").at("interactables").array_range()) {
+                            if (!placed.is_object() || !placed.contains("interactable"))
+                                continue;
+                            const auto& target = placed.at("interactable");
+                            if (!target.is_object() || !target.contains("$ref") ||
+                                !target.at("$ref").is_object() ||
+                                !target.at("$ref").contains("id") ||
+                                !target.at("$ref").at("id").is_string())
+                                continue;
+                            room_placements.insert(target.at("$ref").at("id").as<std::string>());
+                        }
+                    };
+                    const auto room_owner = "rooms/" + id;
+                    if (const auto found = records_.find(room_owner); found != records_.end()) {
+                        const auto room = found->second->snapshot();
+                        collect(room.source_json);
+                        collect(room.baseline_json);
+                    } else {
+                        // In a cold Project session the Room might not have
+                        // been inspected yet. Resolve its native record once
+                        // only when there are dirty exact Instances to Save.
+                        std::string error;
+                        const auto room = RoomSession::open_record(root_, "rooms", id, error);
+                        if (room)
+                            collect(room->snapshot().source_json);
+                    }
+                }
                 for (const auto& instance_id : dirty_instance_ids) {
                     const auto pointer = "/interactableInstances/" + pointer_token(instance_id);
-                    if (instance_matches_owner(*working_manifest, instance_id, family, id) ||
+                    if (room_placements.contains(instance_id) ||
+                        instance_matches_owner(*working_manifest, instance_id, family, id) ||
                         instance_matches_owner(*baseline_manifest, instance_id, family, id))
                         add("project", pointer);
                 }
@@ -4335,6 +4391,15 @@ ProjectSession::resolve_save_units(const std::vector<std::string>& save_unit_ids
             for (const auto* path : {"/project", "/settings", "/bootstrapModule", "/entrypoint",
                                      "/prefetchHints", "/export/assetMemoryPolicies"})
                 add("project", path);
+            // Project Settings also owns the initial Project Inventory. A
+            // location edit may move an Instance out of it, so include the
+            // pre-edit membership as well as the current membership.
+            for (const auto& instance_id : dirty_instance_ids)
+                if (instance_matches_owner(*working_manifest, instance_id, "project-inventory",
+                                           "") ||
+                    instance_matches_owner(*baseline_manifest, instance_id, "project-inventory",
+                                           ""))
+                    add("project", "/interactableInstances/" + pointer_token(instance_id));
         } else
             throw std::runtime_error("Unsupported native logical Save unit: " + unit);
     }

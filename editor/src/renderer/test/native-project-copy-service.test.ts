@@ -62,8 +62,12 @@ describe('native saved Project Copy As', () => {
       dialogState.destination = destination;
       const originalRoom = path.join(source, 'records/rooms/active-text.yaml');
       const originalScene = path.join(source, 'records/scenes/background-stories.yaml');
+      const luaPath = 'scripts/notice-board.lua';
+      const originalLua = path.join(source, luaPath);
       const beforeRoom = await readFile(originalRoom, 'utf8');
       const beforeScene = await readFile(originalScene, 'utf8');
+      const beforeLua = await readFile(originalLua, 'utf8');
+      const changedLua = beforeLua + '\n-- staged only in native recovery\n';
       const sessions = new ActiveProjectSessionService();
       const makeController = () => {
         const bridge = new NativeAuthoringSessionBridge(sessions, {
@@ -74,6 +78,9 @@ describe('native saved Project Copy As', () => {
           ),
           pollIntervalMs: 100,
         });
+        sessions.setNativeSourceRevisionFor(
+          (bytes) => bridge.sourceRevision(bytes) as `xxh3-128:${string}`,
+        );
         return new NativeEditorSessionController(
           sessions,
           bridge,
@@ -106,6 +113,14 @@ describe('native saved Project Copy As', () => {
           },
         ]);
         expect(scene.accepted, scene.error).toBe(true);
+        const stagedSource = await controller.stageText(
+          id,
+          scene.snapshot.workingRevision,
+          luaPath,
+          controller.sourceRevisionFor()!(Buffer.from(beforeLua)),
+          changedLua,
+        );
+        expect(stagedSource.accepted, stagedSource.error).toBe(true);
         const draftKey = nativeFieldDraftKey(
           'record:rooms:active-text',
           '/rooms/active-text/data/displayName',
@@ -116,15 +131,35 @@ describe('native saved Project Copy As', () => {
           payload: {
             value: 'Unacknowledged draft',
             base: {
-              revision: scene.snapshot.workingRevision,
+              revision: stagedSource.snapshot.workingRevision,
               exists: true,
               value: 'Original dirty Room',
             },
           },
         };
+        const pendingNumberKey = nativeFieldDraftKey(
+          'record:rooms:active-text',
+          '/rooms/active-text/data/presentationSpace/size/width',
+        );
+        const pendingNumber = {
+          tabId: 'closed-number-view',
+          schema: NATIVE_FIELD_DRAFT_SCHEMA,
+          payload: {
+            value: '-',
+            base: {
+              revision: stagedSource.snapshot.workingRevision,
+              exists: true,
+              value: 1920,
+            },
+          },
+        };
         const editor = {
           ...opened.editorState,
-          draftsByKey: { ...opened.editorState?.draftsByKey, [draftKey]: pendingField },
+          draftsByKey: {
+            ...opened.editorState?.draftsByKey,
+            [draftKey]: pendingField,
+            [pendingNumberKey]: pendingNumber,
+          },
         };
         const copied = await saveNativeProjectCopyAs(
           {} as never,
@@ -137,12 +172,14 @@ describe('native saved Project Copy As', () => {
         expect(controller.isAdmitted(id)).toBe(true);
         expect(await readFile(originalRoom, 'utf8')).toBe(beforeRoom);
         expect(await readFile(originalScene, 'utf8')).toBe(beforeScene);
+        expect(await readFile(originalLua, 'utf8')).toBe(beforeLua);
         expect(
           await readFile(path.join(destination, 'records/rooms/active-text.yaml'), 'utf8'),
         ).toBe(beforeRoom);
         expect(
           await readFile(path.join(destination, 'records/scenes/background-stories.yaml'), 'utf8'),
         ).toBe(beforeScene);
+        expect(await readFile(path.join(destination, luaPath), 'utf8')).toBe(beforeLua);
 
         controller.dispose();
         sessions.closeActiveProject();
@@ -161,6 +198,10 @@ describe('native saved Project Copy As', () => {
         expect(copyOpen.editorState?.draftsByKey?.[draftKey]).toMatchObject({
           payload: { value: 'Unacknowledged draft' },
         });
+        expect(copyOpen.editorState?.draftsByKey?.[pendingNumberKey]).toMatchObject({
+          payload: { value: '-' },
+        });
+        expect(controller.recoveredTextSources()[luaPath]?.text).toBe(changedLua);
         const savedInCopy = await controller.saveUnit(
           copyOpen.projectSessionId!,
           copyOpen.nativeWorkingRevision!,
@@ -172,6 +213,8 @@ describe('native saved Project Copy As', () => {
           await readFile(path.join(destination, 'records/scenes/background-stories.yaml'), 'utf8'),
         ).toContain('Original dirty Scene');
         expect(await readFile(originalScene, 'utf8')).toBe(beforeScene);
+        expect(controller.recoveredTextSources()[luaPath]?.text).toBe(changedLua);
+        expect(await readFile(originalLua, 'utf8')).toBe(beforeLua);
 
         controller.dispose();
         sessions.closeActiveProject();

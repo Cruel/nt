@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vite-plus/test';
+import { describe, expect, it, vi } from 'vite-plus/test';
 import path from 'node:path';
 import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -6,6 +6,8 @@ import { ActiveProjectSessionService } from '../../main/services/active-project-
 import { NativeAuthoringSessionBridge } from '../../main/services/native-authoring-session-bridge';
 import { NativeAuthoringWorkingProject } from '../../main/services/native-authoring-working-project';
 import { NativeEditorSessionController } from '../../main/services/native-editor-session-controller';
+import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
+import { Worker, type WorkerOptions } from 'node:worker_threads';
 
 const addonPath = process.env.NOVELTEA_AUTHORING_NODE_ADDON;
 const featureLab = path.resolve(process.cwd(), '../tests/projects/feature-lab');
@@ -47,7 +49,7 @@ async function admit(
   const result = await controller.admitFromNative(id);
   await sessions.acceptNativeProject(id, result.savedProject);
   sessions.commitStagedNativeProject(id, generation);
-  return { id, revision: result.revision };
+  return { id, revision: result.revision, sourceRevisions: result.sourceRevisions };
 }
 
 async function roomBytes(root: string, id: string) {
@@ -599,6 +601,706 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
       expect((await controller.currentWorkingProject(id)).rooms[roomB]?.data.displayName).toBe(
         'Unrelated pending Room',
       );
+    } finally {
+      controller.dispose();
+      sessions.dispose();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it('rejects a missing-owner native field patch without losing another owner and retries against the same native revision', async () => {
+    const root = await disposableProject();
+    const sessions = new ActiveProjectSessionService();
+    let controller = nativeHarness(sessions);
+    try {
+      const { id, revision } = await admit(root, sessions, controller);
+      const diskA = await roomBytes(root, roomA);
+      const diskB = await roomBytes(root, roomB);
+      const first = await controller.applyRevisionedPatches(id, revision, [
+        {
+          op: 'replace',
+          path: `/rooms/${roomB}/data/displayName`,
+          value: 'Independent working title',
+        },
+      ]);
+      expect(first.accepted, first.error).toBe(true);
+      const beforeRejection = first.snapshot.workingRevision;
+      const rejected = await controller.applyRevisionedPatches(id, beforeRejection, [
+        {
+          op: 'replace',
+          path: '/rooms/nonexistent-608-room/data/displayName',
+          value: 'Invalid owner',
+        },
+      ]);
+      expect(rejected.accepted).toBe(false);
+      expect(controller.currentRevision(id)).toBe(beforeRejection);
+      expect(await roomBytes(root, roomA)).toBe(diskA);
+      expect(await roomBytes(root, roomB)).toBe(diskB);
+      expect((await controller.currentWorkingProject(id)).rooms[roomB]?.data.displayName).toBe(
+        'Independent working title',
+      );
+      const recovered = await controller.applyRevisionedPatches(id, beforeRejection, [
+        {
+          op: 'replace',
+          path: `/rooms/${roomA}/data/displayName`,
+          value: 'Corrected native field',
+        },
+      ]);
+      expect(recovered.accepted, recovered.error).toBe(true);
+      const saved = await controller.saveUnit(
+        id,
+        recovered.snapshot.workingRevision,
+        `record:rooms:${roomA}`,
+        {},
+      );
+      expect(saved.accepted, saved.error).toBe(true);
+      expect(await roomBytes(root, roomA)).toContain('Corrected native field');
+      expect(await roomBytes(root, roomB)).toBe(diskB);
+      controller.dispose();
+      sessions.closeActiveProject();
+      controller = nativeHarness(sessions);
+      const reopened = await admit(root, sessions, controller);
+      expect(
+        (await controller.currentWorkingProject(reopened.id)).rooms[roomB]?.data.displayName,
+      ).toBe('Independent working title');
+    } finally {
+      controller.dispose();
+      sessions.dispose();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it('round-trips structural Room create, undo deletion, redo and atomic move while another Room remains dirty', async () => {
+    const root = await disposableProject();
+    const sessions = new ActiveProjectSessionService();
+    let controller = nativeHarness(sessions);
+    const created = 'integration-608-room';
+    const createdFile = path.join(root, `records/rooms/${created}.yaml`);
+    const createdRoom = {
+      id: created,
+      label: 'Certification Room',
+      data: defaultRoomData('Certification Room'),
+    };
+    try {
+      const { id, revision } = await admit(root, sessions, controller);
+      const originalB = await roomBytes(root, roomB);
+      const pending = await controller.applyRevisionedPatches(id, revision, [
+        {
+          op: 'replace',
+          path: `/rooms/${roomB}/data/displayName`,
+          value: 'Still pending across structural undo',
+        },
+      ]);
+      expect(pending.accepted, pending.error).toBe(true);
+      const addition = await controller.applyRevisionedPatches(
+        id,
+        pending.snapshot.workingRevision,
+        [{ op: 'add', path: `/rooms/${created}`, value: createdRoom }],
+      );
+      expect(addition.accepted, addition.error).toBe(true);
+      await expect(readFile(createdFile, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+      const saved = await controller.saveUnit(
+        id,
+        addition.snapshot.workingRevision,
+        `record:rooms:${created}`,
+        {},
+      );
+      expect(saved.accepted, saved.error).toBe(true);
+      expect(await readFile(createdFile, 'utf8')).toContain('Certification Room');
+      expect(await roomBytes(root, roomB)).toBe(originalB);
+      // These are the same inverse/forward structural intents emitted by the
+      // renderer command history; the native worker remains YAML authority.
+      const undone = await controller.applyRevisionedPatches(id, saved.snapshot.workingRevision, [
+        { op: 'remove', path: `/rooms/${created}` },
+      ]);
+      expect(undone.accepted, undone.error).toBe(true);
+      const deletion = await controller.saveUnit(
+        id,
+        undone.snapshot.workingRevision,
+        `record:rooms:${created}`,
+        {},
+      );
+      expect(deletion.accepted, deletion.error).toBe(true);
+      await expect(readFile(createdFile, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+      const redone = await controller.applyRevisionedPatches(
+        id,
+        deletion.snapshot.workingRevision,
+        [{ op: 'add', path: `/rooms/${created}`, value: createdRoom }],
+      );
+      expect(redone.accepted, redone.error).toBe(true);
+      const final = await controller.saveUnit(
+        id,
+        redone.snapshot.workingRevision,
+        `record:rooms:${created}`,
+        {},
+      );
+      expect(final.accepted, final.error).toBe(true);
+      expect(await readFile(createdFile, 'utf8')).toContain('Certification Room');
+      expect(await roomBytes(root, roomB)).toBe(originalB);
+      const movedId = 'integration-608-moved-room';
+      const movedFile = path.join(root, `records/rooms/${movedId}.yaml`);
+      const moved = await controller.applyRevisionedPatches(id, final.snapshot.workingRevision, [
+        { op: 'remove', path: `/rooms/${created}` },
+        {
+          op: 'add',
+          path: `/rooms/${movedId}`,
+          value: { ...createdRoom, id: movedId },
+        },
+      ]);
+      expect(moved.accepted, moved.error).toBe(true);
+      const movedSave = await controller.saveUnit(
+        id,
+        moved.snapshot.workingRevision,
+        [`record:rooms:${created}`, `record:rooms:${movedId}`],
+        {},
+      );
+      expect(movedSave.accepted, movedSave.error).toBe(true);
+      await expect(readFile(createdFile, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+      expect(await readFile(movedFile, 'utf8')).toContain(movedId);
+      expect(await roomBytes(root, roomB)).toBe(originalB);
+      controller.dispose();
+      sessions.closeActiveProject();
+      controller = nativeHarness(sessions);
+      const reopened = await admit(root, sessions, controller);
+      expect((await controller.currentWorkingProject(reopened.id)).rooms[movedId]?.id).toBe(
+        movedId,
+      );
+      expect((await controller.currentWorkingProject(reopened.id)).rooms[created]).toBeUndefined();
+      expect(
+        (await controller.currentWorkingProject(reopened.id)).rooms[roomB]?.data.displayName,
+      ).toBe('Still pending across structural undo');
+      expect(await roomBytes(root, roomB)).toBe(originalB);
+    } finally {
+      controller.dispose();
+      sessions.dispose();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it('rehydrates a reviewed but unresolved physical conflict with both disk and local values intact', async () => {
+    const root = await disposableProject();
+    const sessions = new ActiveProjectSessionService();
+    let controller = nativeHarness(sessions);
+    try {
+      const { id, revision } = await admit(root, sessions, controller);
+      const savedBytes = await roomBytes(root, roomA);
+      const dirty = await controller.applyRevisionedPatches(id, revision, [
+        {
+          op: 'replace',
+          path: `/rooms/${roomA}/data/displayName`,
+          value: 'Local retained through restart',
+        },
+      ]);
+      expect(dirty.accepted, dirty.error).toBe(true);
+      const external = savedBytes.replace(
+        'displayName: Active Text',
+        'displayName: External retained',
+      );
+      await writeFile(path.join(root, `records/rooms/${roomA}.yaml`), external);
+      const reconciled = await controller.reconcile(
+        id,
+        dirty.snapshot.workingRevision,
+        `rooms/${roomA}`,
+      );
+      expect(reconciled.accepted, reconciled.error).toBe(true);
+      expect(
+        reconciled.snapshot.recordSnapshots?.[`rooms/${roomA}`]?.conflictingPaths?.length,
+      ).toBeGreaterThan(0);
+      controller.dispose();
+      sessions.closeActiveProject();
+      controller = nativeHarness(sessions);
+      const reopened = await admit(root, sessions, controller);
+      expect(await roomBytes(root, roomA)).toBe(external);
+      expect(
+        (await controller.currentWorkingProject(reopened.id)).rooms[roomA]?.data.displayName,
+      ).toBe('Local retained through restart');
+      expect(controller.recoveredConflicts()[`rooms/${roomA}`]?.paths.length).toBeGreaterThan(0);
+      const saved = await controller.saveUnit(
+        reopened.id,
+        reopened.revision,
+        `record:rooms:${roomA}`,
+        {},
+      );
+      expect(saved.accepted).toBe(false);
+      expect(await roomBytes(root, roomA)).toBe(external);
+      const explicit = await controller.useDiskUnit(
+        reopened.id,
+        controller.currentRevision(reopened.id),
+        `record:rooms:${roomA}`,
+      );
+      expect(explicit.accepted, explicit.error).toBe(true);
+      expect(
+        (await controller.currentWorkingProject(reopened.id)).rooms[roomA]?.data.displayName,
+      ).toBe('External retained');
+    } finally {
+      controller.dispose();
+      sessions.dispose();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it('never publishes a late real-native patch acknowledgment into a newly activated Project', async () => {
+    const oldRoot = await disposableProject();
+    const newRoot = await disposableProject();
+    const sessions = new ActiveProjectSessionService();
+    const bridge = new NativeAuthoringSessionBridge(sessions, {
+      addonPath: addonPath!,
+      workerScript: path.resolve(
+        process.cwd(),
+        'dist-electron/authoring-worker/native-authoring-worker.cjs',
+      ),
+      pollIntervalMs: 100,
+    });
+    const working = new NativeAuthoringWorkingProject(bridge);
+    const controller = new NativeEditorSessionController(sessions, bridge, working);
+    let newController: NativeEditorSessionController | null = null;
+    let release!: () => void;
+    let acknowledge!: () => void;
+    const nativeAccepted = new Promise<void>((resolve) => (acknowledge = resolve));
+    const holdPublication = new Promise<void>((resolve) => (release = resolve));
+    const originalApply = working.applyRevisionedPatches.bind(working);
+    const intercepted = vi
+      .spyOn(working, 'applyRevisionedPatches')
+      .mockImplementationOnce(async (revision, patches, layoutCopySources) => {
+        const result = await originalApply(revision, patches, layoutCopySources);
+        acknowledge();
+        await holdPublication;
+        return result;
+      });
+    try {
+      const { id, revision } = await admit(oldRoot, sessions, controller);
+      const originalOld = await roomBytes(oldRoot, roomA);
+      const originalNew = await roomBytes(newRoot, roomA);
+      const stale = controller.applyRevisionedPatches(id, revision, [
+        { op: 'replace', path: `/rooms/${roomA}/data/displayName`, value: 'Only old Project RAM' },
+      ]);
+      await nativeAccepted;
+      controller.close();
+      sessions.closeActiveProject();
+      newController = nativeHarness(sessions);
+      const next = await admit(newRoot, sessions, newController);
+      expect(next.id).not.toBe(id);
+      const changed = await newController.applyRevisionedPatches(next.id, next.revision, [
+        {
+          op: 'replace',
+          path: `/rooms/${roomA}/data/displayName`,
+          value: 'New Project authoritative',
+        },
+      ]);
+      expect(changed.accepted, changed.error).toBe(true);
+      const committed = await newController.saveUnit(
+        next.id,
+        changed.snapshot.workingRevision,
+        `record:rooms:${roomA}`,
+        {},
+      );
+      expect(committed.accepted, committed.error).toBe(true);
+      release();
+      await expect(stale).rejects.toThrow('superseded');
+      expect(await roomBytes(oldRoot, roomA)).toBe(originalOld);
+      expect(await roomBytes(newRoot, roomA)).not.toBe(originalNew);
+      expect(await roomBytes(newRoot, roomA)).toContain('New Project authoritative');
+      expect(
+        (await newController.currentWorkingProject(next.id)).rooms[roomA]?.data.displayName,
+      ).toBe('New Project authoritative');
+    } finally {
+      release();
+      intercepted.mockRestore();
+      controller.dispose();
+      newController?.dispose();
+      sessions.dispose();
+      await rm(oldRoot, { recursive: true, force: true });
+      await rm(newRoot, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it('validates and prepares preview/Test against dirty native source without writing YAML or Lua until Save', async () => {
+    const root = await disposableProject();
+    const sessions = new ActiveProjectSessionService();
+    let controller = nativeHarness(sessions);
+    const source = 'scripts/feature-lab-bootstrap.lua';
+    const file = path.join(root, source);
+    try {
+      const { id, revision, sourceRevisions } = await admit(root, sessions, controller);
+      const original = await readFile(file, 'utf8');
+      const originalRoom = await roomBytes(root, roomA);
+      const changed = await controller.applyRevisionedPatches(id, revision, [
+        { op: 'replace', path: `/rooms/${roomA}/data/displayName`, value: 'Dirty during preview' },
+      ]);
+      expect(changed.accepted, changed.error).toBe(true);
+      const invalidRoom = await controller.applyRevisionedPatches(
+        id,
+        changed.snapshot.workingRevision,
+        [
+          {
+            op: 'replace',
+            path: `/rooms/${roomA}/data/background/asset`,
+            value: 'missing-608-preview-asset',
+          },
+        ],
+      );
+      expect(invalidRoom.accepted, invalidRoom.error).toBe(true);
+      const broken = await controller.stageText(
+        id,
+        invalidRoom.snapshot.workingRevision,
+        source,
+        sourceRevisions[source]!,
+        original + '\n-- preview should not write this staged source\n',
+      );
+      expect(broken.accepted, broken.error).toBe(true);
+      expect(await readFile(file, 'utf8')).toBe(original);
+      expect(await roomBytes(root, roomA)).toBe(originalRoom);
+      const validation = await controller.validate(id, broken.snapshot.workingRevision);
+      expect(validation.success).toBe(false);
+      const preview = await controller.prepareRuntime(
+        id,
+        broken.snapshot.workingRevision,
+        'glsl-330',
+      );
+      expect(preview.status).toBe('blocked');
+      const test = await controller.testReadiness(
+        id,
+        broken.snapshot.workingRevision,
+        'script-and-data-flow',
+      );
+      expect(test.runnable).toBe(false);
+      expect(await readFile(file, 'utf8')).toBe(original);
+      expect(await roomBytes(root, roomA)).toBe(originalRoom);
+
+      const corrected = original + '\n-- validated but not yet saved\n';
+      const repairedRoom = await controller.applyRevisionedPatches(
+        id,
+        broken.snapshot.workingRevision,
+        [
+          {
+            op: 'replace',
+            path: `/rooms/${roomA}/data/background/asset`,
+            value: 'pilot-room-backdrop',
+          },
+        ],
+      );
+      expect(repairedRoom.accepted, repairedRoom.error).toBe(true);
+      const staged = await controller.stageText(
+        id,
+        repairedRoom.snapshot.workingRevision,
+        source,
+        sourceRevisions[source]!,
+        corrected,
+      );
+      expect(staged.accepted, staged.error).toBe(true);
+      controller.dispose();
+      sessions.closeActiveProject();
+      controller = nativeHarness(sessions);
+      const reopened = await admit(root, sessions, controller);
+      expect(controller.recoveredTextSources()[source]?.text).toBe(corrected);
+      expect(
+        (await controller.currentWorkingProject(reopened.id)).rooms[roomA]?.data.displayName,
+      ).toBe('Dirty during preview');
+      expect(await readFile(file, 'utf8')).toBe(original);
+      const saved = await controller.saveUnit(
+        reopened.id,
+        reopened.revision,
+        `record:rooms:${roomA}`,
+        { textPaths: [source], textContents: { [source]: corrected } },
+      );
+      expect(saved.accepted, saved.error).toBe(true);
+      expect(await readFile(file, 'utf8')).toBe(corrected);
+      expect(await roomBytes(root, roomA)).toContain('Dirty during preview');
+    } finally {
+      controller.dispose();
+      sessions.dispose();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it('recovers a failed native Save All by saving independent owners then resolving the last conflicting owner', async () => {
+    const root = await disposableProject();
+    const sessions = new ActiveProjectSessionService();
+    let controller = nativeHarness(sessions);
+    const scene = 'background-stories';
+    const sceneFile = path.join(root, `records/scenes/${scene}.yaml`);
+    try {
+      const { id, revision } = await admit(root, sessions, controller);
+      const originalA = await roomBytes(root, roomA);
+      const originalB = await roomBytes(root, roomB);
+      const originalScene = await readFile(sceneFile, 'utf8');
+      const first = await controller.applyRevisionedPatches(id, revision, [
+        { op: 'replace', path: `/rooms/${roomA}/data/displayName`, value: 'Pending conflict room' },
+      ]);
+      expect(first.accepted, first.error).toBe(true);
+      const second = await controller.applyRevisionedPatches(id, first.snapshot.workingRevision, [
+        { op: 'replace', path: `/rooms/${roomB}/data/displayName`, value: 'Independent room' },
+      ]);
+      expect(second.accepted, second.error).toBe(true);
+      const third = await controller.applyRevisionedPatches(id, second.snapshot.workingRevision, [
+        { op: 'replace', path: `/scenes/${scene}/data/displayName`, value: 'Independent scene' },
+      ]);
+      expect(third.accepted, third.error).toBe(true);
+      const external = originalA.replace(
+        'displayName: Active Text',
+        'displayName: External conflict room',
+      );
+      await writeFile(path.join(root, `records/rooms/${roomA}.yaml`), external);
+
+      const failed = await controller.saveUnit(
+        id,
+        third.snapshot.workingRevision,
+        [`record:rooms:${roomA}`, `record:rooms:${roomB}`, `record:scenes:${scene}`],
+        {},
+      );
+      expect(failed.accepted).toBe(false);
+      expect(await roomBytes(root, roomA)).toBe(external);
+      expect(await roomBytes(root, roomB)).toBe(originalB);
+      expect(await readFile(sceneFile, 'utf8')).toBe(originalScene);
+
+      const saveIndependent = await controller.saveUnit(
+        id,
+        controller.currentRevision(id),
+        [`record:rooms:${roomB}`, `record:scenes:${scene}`],
+        {},
+      );
+      expect(saveIndependent.accepted, saveIndependent.error).toBe(true);
+      expect(await roomBytes(root, roomA)).toBe(external);
+      expect(await roomBytes(root, roomB)).toContain('Independent room');
+      expect(await readFile(sceneFile, 'utf8')).toContain('Independent scene');
+      expect((await controller.currentWorkingProject(id)).rooms[roomA]?.data.displayName).toBe(
+        'Pending conflict room',
+      );
+      const reconciled = await controller.reconcile(
+        id,
+        controller.currentRevision(id),
+        `rooms/${roomA}`,
+      );
+      expect(reconciled.accepted, reconciled.error).toBe(true);
+      const conflictSave = await controller.saveUnit(
+        id,
+        controller.currentRevision(id),
+        `record:rooms:${roomA}`,
+        { keepMine: true },
+      );
+      expect(conflictSave.accepted, conflictSave.error).toBe(true);
+      expect(await roomBytes(root, roomA)).toContain('Pending conflict room');
+      controller.dispose();
+      sessions.closeActiveProject();
+      controller = nativeHarness(sessions);
+      const reopened = await admit(root, sessions, controller);
+      const complete = await controller.currentWorkingProject(reopened.id);
+      expect(complete.rooms[roomA]?.data.displayName).toBe('Pending conflict room');
+      expect(complete.rooms[roomB]?.data.displayName).toBe('Independent room');
+      expect(complete.scenes[scene]?.data.displayName).toBe('Independent scene');
+    } finally {
+      controller.dispose();
+      sessions.dispose();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it('persists Project Settings-owned starting Inventory Instance without committing a separate Room', async () => {
+    const root = await disposableProject();
+    const sessions = new ActiveProjectSessionService();
+    const controller = nativeHarness(sessions);
+    const item = 'integration-starting-supply-608';
+    try {
+      const { id, revision } = await admit(root, sessions, controller);
+      const originalProject = await readFile(path.join(root, 'project.yaml'), 'utf8');
+      const originalRoom = await roomBytes(root, roomB);
+      const dirtyRoom = await controller.applyRevisionedPatches(id, revision, [
+        {
+          op: 'replace',
+          path: `/rooms/${roomB}/data/displayName`,
+          value: 'Unrelated Room location',
+        },
+      ]);
+      expect(dirtyRoom.accepted, dirtyRoom.error).toBe(true);
+      const sourceItem = (await controller.currentWorkingProject(id)).interactableInstances[
+        'builder-inventory-parcel'
+      ]!;
+      const created = await controller.applyRevisionedPatches(
+        id,
+        dirtyRoom.snapshot.workingRevision,
+        [
+          {
+            op: 'add',
+            path: `/interactableInstances/${item}`,
+            value: {
+              ...structuredClone(sourceItem),
+              id: item,
+              definition: { $ref: { collection: 'interactables', id: 'lab-supply' } },
+              quantity: 2,
+            },
+          },
+        ],
+      );
+      expect(created.accepted, created.error).toBe(true);
+      expect(await readFile(path.join(root, 'project.yaml'), 'utf8')).toBe(originalProject);
+      const saved = await controller.saveUnit(
+        id,
+        created.snapshot.workingRevision,
+        'project:settings',
+        {},
+      );
+      expect(saved.accepted, saved.error).toBe(true);
+      expect(await readFile(path.join(root, 'project.yaml'), 'utf8')).not.toBe(originalProject);
+      expect(await readFile(path.join(root, 'project.yaml'), 'utf8')).toContain(item);
+      expect(await roomBytes(root, roomB)).toBe(originalRoom);
+    } finally {
+      controller.dispose();
+      sessions.dispose();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it('persists the latest Room intent after a Definition-origin exact Instance edit, not its superseded field value', async () => {
+    const root = await disposableProject();
+    const sessions = new ActiveProjectSessionService();
+    let controller = nativeHarness(sessions);
+    try {
+      const { id, revision } = await admit(root, sessions, controller);
+      const original = await readFile(path.join(root, 'project.yaml'), 'utf8');
+      const definition = await controller.applyRevisionedPatches(id, revision, [
+        {
+          op: 'add',
+          path: '/interactableInstances/rule-exact-target/editorLabel',
+          value: 'Definition earlier',
+        },
+      ]);
+      expect(definition.accepted, definition.error).toBe(true);
+      const room = await controller.applyRevisionedPatches(
+        id,
+        definition.snapshot.workingRevision,
+        [
+          {
+            op: 'replace',
+            path: '/interactableInstances/rule-exact-target/editorLabel',
+            value: 'Room latest',
+          },
+        ],
+      );
+      expect(room.accepted, room.error).toBe(true);
+      const saved = await controller.saveUnit(
+        id,
+        room.snapshot.workingRevision,
+        'record:rooms:interaction-rules',
+        {},
+      );
+      expect(saved.accepted, saved.error).toBe(true);
+      expect(await readFile(path.join(root, 'project.yaml'), 'utf8')).not.toBe(original);
+      expect(await readFile(path.join(root, 'project.yaml'), 'utf8')).toContain('Room latest');
+      expect(await readFile(path.join(root, 'project.yaml'), 'utf8')).not.toContain(
+        'Definition earlier',
+      );
+      controller.dispose();
+      sessions.closeActiveProject();
+      controller = nativeHarness(sessions);
+      const reopened = await admit(root, sessions, controller);
+      expect(
+        (await controller.currentWorkingProject(reopened.id)).interactableInstances[
+          'rule-exact-target'
+        ]?.editorLabel,
+      ).toBe('Room latest');
+    } finally {
+      controller.dispose();
+      sessions.dispose();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it('persists an exact Instance from the containing Room even when its world location names a different Room', async () => {
+    const root = await disposableProject();
+    const sessions = new ActiveProjectSessionService();
+    let controller = nativeHarness(sessions);
+    try {
+      const { id, revision } = await admit(root, sessions, controller);
+      const original = await readFile(path.join(root, 'project.yaml'), 'utf8');
+      // Feature Lab: scene-director places gate-lever-1, whose world location
+      // names rooms-interactions-workshop. The Room placement is the editor
+      // authority, not the current gameplay location.
+      const edited = await controller.applyRevisionedPatches(id, revision, [
+        {
+          op: 'add',
+          path: '/interactableInstances/gate-lever-1/editorLabel',
+          value: 'Saved from containing Room',
+        },
+      ]);
+      expect(edited.accepted, edited.error).toBe(true);
+      const saved = await controller.saveUnit(
+        id,
+        edited.snapshot.workingRevision,
+        'record:rooms:scene-director',
+        {},
+      );
+      expect(saved.accepted, saved.error).toBe(true);
+      expect(await readFile(path.join(root, 'project.yaml'), 'utf8')).not.toBe(original);
+      expect(await readFile(path.join(root, 'project.yaml'), 'utf8')).toContain(
+        'Saved from containing Room',
+      );
+      controller.dispose();
+      sessions.closeActiveProject();
+      controller = nativeHarness(sessions);
+      const reopened = await admit(root, sessions, controller);
+      expect(
+        (await controller.currentWorkingProject(reopened.id)).interactableInstances['gate-lever-1']
+          ?.editorLabel,
+      ).toBe('Saved from containing Room');
+    } finally {
+      controller.dispose();
+      sessions.dispose();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it('restores acknowledged dirty YAML after a real native worker termination without publishing unsaved bytes', async () => {
+    const root = await disposableProject();
+    const sessions = new ActiveProjectSessionService();
+    let worker: Worker | null = null;
+    const bridge = new NativeAuthoringSessionBridge(sessions, {
+      addonPath: addonPath!,
+      workerScript: path.resolve(
+        process.cwd(),
+        'dist-electron/authoring-worker/native-authoring-worker.cjs',
+      ),
+      pollIntervalMs: 100,
+      createWorker: (script: string, options: WorkerOptions) => {
+        worker = new Worker(script, options);
+        return worker;
+      },
+    });
+    let controller = new NativeEditorSessionController(
+      sessions,
+      bridge,
+      new NativeAuthoringWorkingProject(bridge),
+    );
+    try {
+      const { id, revision } = await admit(root, sessions, controller);
+      const original = await roomBytes(root, roomA);
+      const patch = await controller.applyRevisionedPatches(id, revision, [
+        {
+          op: 'replace',
+          path: `/rooms/${roomA}/data/displayName`,
+          value: 'Recovered after killed worker',
+        },
+      ]);
+      expect(patch.accepted, patch.error).toBe(true);
+      expect(await roomBytes(root, roomA)).toBe(original);
+      expect(worker).not.toBeNull();
+      await worker!.terminate();
+      await vi.waitFor(() => expect(controller.isAdmitted(id)).toBe(false));
+      controller.dispose();
+      sessions.closeActiveProject();
+      controller = nativeHarness(sessions);
+      const reopened = await admit(root, sessions, controller);
+      expect(
+        (await controller.currentWorkingProject(reopened.id)).rooms[roomA]?.data.displayName,
+      ).toBe('Recovered after killed worker');
+      expect(await roomBytes(root, roomA)).toBe(original);
+      const saved = await controller.saveUnit(
+        reopened.id,
+        reopened.revision,
+        `record:rooms:${roomA}`,
+        {},
+      );
+      expect(saved.accepted, saved.error).toBe(true);
+      expect(await roomBytes(root, roomA)).toContain('Recovered after killed worker');
     } finally {
       controller.dispose();
       sessions.dispose();
