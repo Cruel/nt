@@ -14,6 +14,7 @@ import { resolveProjectComments } from '@/project/project-comment-confirmation';
 import { useDraftDirtyStore } from '@/workbench/draft-dirty-store';
 import { usePendingInputStore } from '@/workbench/pending-input-store';
 import { NATIVE_FIELD_DRAFT_SCHEMA, nativeFieldDraftKey } from '@/commands/native-field-drafts';
+import { projectEdits } from '@/commands/project-editing';
 import {
   buildEditorProjectStateSnapshot,
   editorProjectStateFromProject,
@@ -36,7 +37,10 @@ import {
   buildProjectSourceTab,
 } from '@/workbench/editor-registry';
 import type { ProjectSourceFile } from '../../shared/project-source-files';
-import { admitNativeRendererCommandFixture } from '../test-support/native-acknowledged-command-fixture';
+import {
+  admitNativeRendererCommandFixture,
+  holdFirstNativeProjectPatch,
+} from '../test-support/native-acknowledged-command-fixture';
 
 const roomFileRevision = `xxh3-128:${'b'.repeat(32)}` as const;
 const sourceRevision = `xxh3-128:${'a'.repeat(32)}` as const;
@@ -135,6 +139,70 @@ beforeEach(() => {
 });
 
 describe('project save coordinator', () => {
+  it.each([500, 1000])(
+    'saves only the active Room after a %i ms delayed field acknowledgment, leaving an independent Room dirty',
+    async (delay) => {
+      const project = projectWithRooms();
+      const native = admitNativeRendererCommandFixture(project);
+      const held = holdFirstNativeProjectPatch();
+      projectEdits.field({
+        tabId: roomTab('foyer').id,
+        saveUnitId: 'record:rooms:foyer',
+        path: '/rooms/foyer/data/displayName',
+        label: 'Edit Foyer',
+        value: 'Foyer changed',
+      });
+      await vi.waitFor(() => expect(held.isHeld()).toBe(true));
+      projectEdits.field({
+        tabId: roomTab('kitchen').id,
+        saveUnitId: 'record:rooms:kitchen',
+        path: '/rooms/kitchen/data/displayName',
+        label: 'Edit Kitchen',
+        value: 'Kitchen changed',
+      });
+
+      // Match the workspace Save action: checkpoint the active owner before
+      // invoking the coordinator. A direct coordinator call deliberately
+      // refuses unresolved drafts instead of silently saving older values.
+      const activeSave = projectEdits.flush('record:rooms:foyer').then(async (flushed) => {
+        expect(flushed).toBe(true);
+        return saveActiveSaveUnit('record:rooms:foyer');
+      });
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      expect(native.save).not.toHaveBeenCalled();
+      expect(
+        (useProjectStore.getState().savedDocument as typeof project).rooms.foyer.data.displayName,
+      ).toBe('Foyer');
+      expect(
+        (useProjectStore.getState().savedDocument as typeof project).rooms.kitchen.data.displayName,
+      ).toBe('Kitchen');
+
+      await held.release();
+      const result = await activeSave;
+      expect(result).toMatchObject({
+        success: true,
+        savedSaveUnitIds: ['record:rooms:foyer'],
+        remainingDirtySaveUnitIds: ['record:rooms:kitchen'],
+      });
+      expect(native.save).toHaveBeenCalledTimes(1);
+      expect(native.save.mock.calls[0]?.[2]).toBe('record:rooms:foyer');
+      expect(
+        (useProjectStore.getState().savedDocument as typeof project).rooms.foyer.data.displayName,
+      ).toBe('Foyer changed');
+      expect(
+        (useProjectStore.getState().savedDocument as typeof project).rooms.kitchen.data.displayName,
+      ).toBe('Kitchen');
+      expect(await projectEdits.flush()).toBe(true);
+      expect(
+        (useProjectStore.getState().document as typeof project).rooms.kitchen.data.displayName,
+      ).toBe('Kitchen changed');
+      expect(
+        (useProjectStore.getState().savedDocument as typeof project).rooms.kitchen.data.displayName,
+      ).toBe('Kitchen');
+    },
+    15000,
+  );
+
   it('fails closed on unattributable restored field recovery even when no normal Save unit is dirty', async () => {
     const project = projectWithRooms();
     loadProject(project, structuredClone(project), emptyEditorProjectState());
