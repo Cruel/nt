@@ -1,6 +1,12 @@
 import { listComfyUiWorkflowLibrary } from '@/comfyui/comfyui-service';
 import { projectEdits } from '@/commands/project-editing';
-import { ProjectFieldInput, ProjectFieldSwitch } from '@/commands/use-project-field';
+import {
+  ProjectFieldError,
+  ProjectFieldInput,
+  ProjectFieldNumber,
+  ProjectFieldSwitch,
+  useProjectField,
+} from '@/commands/use-project-field';
 import {
   CategorizedEditorLayout,
   type CategorizedEditorCategory,
@@ -506,6 +512,22 @@ function PendingDecimalInput({ id, path, value, invalid, onCommit }: PendingDeci
         }
       }}
     />
+  );
+}
+
+function ProjectTransitionColorField({ tabId, value }: { tabId: string; value: string | null }) {
+  const draft = useProjectField({
+    tabId,
+    saveUnitId: PROJECT_SETTINGS_SAVE_UNIT_ID,
+    path: '/settings/presentation/roomNavigationTransition/color',
+    value,
+    label: 'Update room navigation fade color',
+  });
+  return (
+    <>
+      <ColorField ariaLabel="Fade color" value={draft.value} onValueChange={draft.change} />
+      <ProjectFieldError field={draft} />
+    </>
   );
 }
 
@@ -3088,16 +3110,18 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
             {settings.presentation.roomNavigationTransition.kind !== 'cut' ? (
               <div className="space-y-1">
                 <Label htmlFor="transition-duration">Duration (ms)</Label>
-                <PendingNumberInput
+                <ProjectFieldNumber
                   id="transition-duration"
+                  tabId={tab.id}
+                  saveUnitId={PROJECT_SETTINGS_SAVE_UNIT_ID}
                   path="/settings/presentation/roomNavigationTransition/durationMs"
+                  label="Update room navigation transition duration"
+                  mode="integer"
+                  min={0}
                   value={settings.presentation.roomNavigationTransition.durationMs}
-                  invalid={fieldInvalid(
+                  aria-invalid={fieldInvalid(
                     '/settings/presentation/roomNavigationTransition/durationMs',
                   )}
-                  onCommit={(durationMs) =>
-                    durationMs !== undefined && setRoomNavigationTransition({ durationMs })
-                  }
                 />
               </div>
             ) : null}
@@ -3111,17 +3135,19 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                 }
               >
                 <Label>Fade color</Label>
-                <ColorField
-                  ariaLabel="Fade color"
+                <ProjectTransitionColorField
+                  tabId={tab.id}
                   value={settings.presentation.roomNavigationTransition.color}
-                  onValueChange={(color) => setRoomNavigationTransition({ color })}
                 />
               </div>
             ) : null}
             <label className="flex items-center gap-2">
-              <Switch
-                checked={settings.presentation.roomNavigationTransition.skippable}
-                onCheckedChange={(checked) => setRoomNavigationTransition({ skippable: checked })}
+              <ProjectFieldSwitch
+                tabId={tab.id}
+                saveUnitId={PROJECT_SETTINGS_SAVE_UNIT_ID}
+                path="/settings/presentation/roomNavigationTransition/skippable"
+                label="Update room navigation transition skip policy"
+                value={settings.presentation.roomNavigationTransition.skippable}
               />
               Skippable
             </label>

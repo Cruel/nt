@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import {
   ProjectFieldInput,
@@ -6,6 +7,13 @@ import {
   ProjectFieldSwitch,
   ProjectFieldTextarea,
 } from '@/commands/use-project-field';
+import {
+  GameplayFieldCheckbox,
+  GameplayFieldNumber,
+  GameplayFieldSelect,
+  gameplayFieldOptions,
+} from '@/commands/gameplay-record-fields';
+import { SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { projectEdits } from '@/commands/project-editing';
 import {
   discardNativeField,
@@ -22,7 +30,10 @@ import { PROJECT_SETTINGS_SAVE_UNIT_ID } from '@/project/save-unit-registry';
 import { serializeDraftDirtyState, useDraftDirtyStore } from '@/workbench/draft-dirty-store';
 import { usePendingInputStore } from '@/workbench/pending-input-store';
 import { defaultRoomData, parseRoomData } from '../../shared/project-schema/authoring-rooms';
-import { defaultCharacterData } from '../../shared/project-schema/authoring-characters';
+import {
+  defaultCharacterData,
+  parseCharacterData,
+} from '../../shared/project-schema/authoring-characters';
 import { inlineTextContent } from '../../shared/project-schema/authoring-flow';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { isAuthoringProjectView } from '../../shared/project-schema/authoring-project-view';
@@ -1100,6 +1111,142 @@ describe('shared buffered native field intents', () => {
       { op: 'replace', path: '/project/name', value: 'Four' },
       { op: 'replace', path: '/project/author', value: 'Another author' },
     ]);
+  });
+  it('keeps gameplay camera numbers and Character toggles immediate during blocked native work', async () => {
+    const project = createAuthoringProject();
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    project.characters.iris = {
+      id: 'iris',
+      label: 'Iris',
+      data: defaultCharacterData('Iris'),
+    };
+    const native = admitNativeRendererCommandFixture(project);
+    const originalPatch = window.noveltea.nativeProjectPatch;
+    let release: (() => void) | undefined;
+    let first = true;
+    Object.defineProperty(window.noveltea, 'nativeProjectPatch', {
+      configurable: true,
+      value: vi.fn((...args: Parameters<typeof originalPatch>) => {
+        if (!first) return originalPatch(...args);
+        first = false;
+        return new Promise<Awaited<ReturnType<typeof originalPatch>>>((resolve, reject) => {
+          release = () => void Promise.resolve(originalPatch(...args)).then(resolve, reject);
+        });
+      }),
+    });
+    function Fields() {
+      const document = useProjectStore((state) => state.document);
+      const room = isAuthoringProjectView(document)
+        ? parseRoomData(document.rooms.foyer?.data)
+        : null;
+      const character = isAuthoringProjectView(document)
+        ? parseCharacterData(document.characters.iris?.data)
+        : null;
+      return (
+        <>
+          <GameplayFieldNumber
+            aria-label="Camera width"
+            tabId="room-view"
+            record={{ collection: 'rooms', id: 'foyer' }}
+            field="/presentationSpace/size/width"
+            value={room?.presentationSpace.size.width ?? 0}
+            label="Update camera width"
+            mode="decimal"
+            min={1}
+          />
+          <GameplayFieldNumber
+            aria-label="Camera height"
+            tabId="room-view"
+            record={{ collection: 'rooms', id: 'foyer' }}
+            field="/presentationSpace/size/height"
+            value={room?.presentationSpace.size.height ?? 0}
+            label="Update camera height"
+            mode="decimal"
+            min={1}
+          />
+          <GameplayFieldSelect
+            tabId="room-view"
+            record={{ collection: 'rooms', id: 'foyer' }}
+            field="/presentationSpace/edgePolicy"
+            value={room?.presentationSpace.edgePolicy ?? 'contain'}
+            label="Update camera edge policy"
+          >
+            <SelectTrigger aria-label="Camera edge policy">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="contain">Contain</SelectItem>
+              <SelectItem value="overscan">Overscan</SelectItem>
+            </SelectContent>
+          </GameplayFieldSelect>
+          <GameplayFieldCheckbox
+            aria-label="Character enabled"
+            tabId="character-view"
+            record={{ collection: 'characters', id: 'iris' }}
+            field="/initialWorldState/enabled"
+            value={character?.initialWorldState.enabled ?? false}
+            label="Set Character initial enabled"
+          />
+        </>
+      );
+    }
+    render(<Fields />);
+    const width = screen.getByRole('textbox', { name: 'Camera width' });
+    const height = screen.getByRole('textbox', { name: 'Camera height' });
+    const enabled = screen.getByRole('checkbox', { name: 'Character enabled' });
+    const edgePolicy = screen.getByRole('combobox', { name: 'Camera edge policy' });
+    fireEvent.change(width, { target: { value: '2300' } });
+    await waitFor(() => expect(release).toBeTypeOf('function'));
+    fireEvent.change(width, { target: { value: '2450' } });
+    fireEvent.change(height, { target: { value: '1550' } });
+    fireEvent.click(enabled);
+    const user = userEvent.setup();
+    await user.click(edgePolicy);
+    await user.click(screen.getByRole('option', { name: 'Overscan' }));
+    expect(width).toHaveValue('2450');
+    expect(height).toHaveValue('1550');
+    expect(enabled).not.toBeChecked();
+    expect(edgePolicy).toHaveTextContent('Overscan');
+    expect(native.patch).not.toHaveBeenCalled();
+    await act(async () => release!());
+    await waitFor(() => {
+      const latest = useProjectStore.getState().document;
+      expect(latest).toMatchObject({
+        rooms: {
+          foyer: {
+            data: {
+              presentationSpace: {
+                size: { width: 2450, height: 1550 },
+                edgePolicy: 'overscan',
+              },
+            },
+          },
+        },
+        characters: { iris: { data: { initialWorldState: { enabled: false } } } },
+      });
+    });
+    expect(native.patch.mock.calls.length).toBeLessThanOrEqual(5);
+    expect(useNativeFieldDraftStore.getState().entries).toEqual({});
+  });
+  it('derives canonical gameplay paths and rejects positional field identities', () => {
+    const options = gameplayFieldOptions({
+      record: { collection: 'rooms', id: 'foyer/upper~level' },
+      field: '/presentationSpace/defaultView/zoom',
+      tabId: 'view-a',
+      label: 'Set zoom',
+      value: 1,
+    });
+    expect(options.path).toBe('/rooms/foyer~1upper~0level/data/presentationSpace/defaultView/zoom');
+    expect(options.saveUnitId).toBe('record:rooms:foyer/upper~level');
+    expect(() =>
+      gameplayFieldOptions({
+        record: { collection: 'rooms', id: 'foyer' },
+        field: '/presentationSpace/views/0/view/zoom',
+        tabId: 'view-a',
+        label: 'Set zoom',
+        value: 1,
+      }),
+    ).toThrow();
   });
 
   it('shares one overlay between two live views of the same field', async () => {

@@ -81,13 +81,14 @@ import {
   type GameplayCommandKind,
 } from '@/components/gameplay-commands/GameplayCommandEditor';
 import { RoomEditSurface } from '@/editors/rooms/RoomEditSurface';
-import { toJsonValue } from '@/project/json-value';
 import { RoomCompositionPane } from '@/editors/rooms/RoomCompositionPane';
+import { ProjectFieldError } from '@/commands/use-project-field';
 import {
-  ProjectFieldError,
-  ProjectFieldInput,
-  useProjectField,
-} from '@/commands/use-project-field';
+  GameplayFieldInput,
+  GameplayFieldNumber,
+  GameplayFieldSelect,
+  useGameplayRecordField,
+} from '@/commands/gameplay-record-fields';
 import {
   interpolateRoomEditNavigation,
   fitRoomEditSurfaceFrame,
@@ -574,19 +575,12 @@ function RoomDescriptionField({
   tabId: string;
   value: TextContent;
 }) {
-  const draft = useProjectField({
+  const draft = useGameplayRecordField({
+    record: { collection: 'rooms', id: roomId },
+    field: '/description',
     tabId,
-    saveUnitId: recordSaveUnitId('rooms', roomId),
-    path: `/rooms/${roomId.replace(/~/gu, '~0').replace(/\//gu, '~1')}/data/description`,
     label: 'Update room description',
     value,
-    buildCommand: (next) =>
-      projectEdits.recordField({
-        record: { collection: 'rooms', id: roomId },
-        field: '/description',
-        value: toJsonValue(next),
-        label: 'Update room description',
-      }),
   });
   return (
     <>
@@ -3392,22 +3386,14 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               <div className="space-y-1.5">
                 <Label>Display name</Label>
                 {roomId && (
-                  <ProjectFieldInput
+                  <GameplayFieldInput
                     key={roomId}
                     aria-label="Room display name"
                     tabId={tab.id}
-                    path={`/rooms/${roomId.replace(/~/gu, '~0').replace(/\//gu, '~1')}/data/displayName`}
-                    saveUnitId={recordSaveUnitId('rooms', roomId)}
+                    record={{ collection: 'rooms', id: roomId }}
+                    field="/displayName"
                     value={data.displayName}
                     label="Update room name"
-                    buildCommand={(next) =>
-                      projectEdits.recordField({
-                        record: { collection: 'rooms', id: roomId },
-                        field: '/displayName',
-                        value: next,
-                        label: 'Update room name',
-                      })
-                    }
                   />
                 )}
               </div>
@@ -4008,92 +3994,47 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               <div className="grid gap-2.5 @3xl:grid-cols-3">
                 <div className="space-y-1">
                   <Label>Width</Label>
-                  <Input
-                    type="number"
+                  <GameplayFieldNumber
+                    aria-label="World presentation width"
+                    tabId={tab.id}
+                    record={{ collection: 'rooms', id: roomId }}
+                    field="/presentationSpace/size/width"
+                    label="Update presentation space width"
+                    mode="decimal"
                     min={1}
                     value={data.presentationSpace.size.width}
-                    onChange={(event) =>
-                      commit(
-                        {
-                          ...data,
-                          presentationSpace: {
-                            ...data.presentationSpace,
-                            size: {
-                              ...data.presentationSpace.size,
-                              width: Math.max(
-                                1,
-                                numberValue(
-                                  event.currentTarget.value,
-                                  data.presentationSpace.size.width,
-                                ),
-                              ),
-                            },
-                          },
-                        },
-                        'Update presentation space width',
-                      )
-                    }
                   />
                 </div>
                 <div className="space-y-1.5">
                   <Label>Height</Label>
-                  <Input
-                    type="number"
+                  <GameplayFieldNumber
+                    aria-label="World presentation height"
+                    tabId={tab.id}
+                    record={{ collection: 'rooms', id: roomId }}
+                    field="/presentationSpace/size/height"
+                    label="Update presentation space height"
+                    mode="decimal"
                     min={1}
                     value={data.presentationSpace.size.height}
-                    onChange={(event) =>
-                      commit(
-                        {
-                          ...data,
-                          presentationSpace: {
-                            ...data.presentationSpace,
-                            size: {
-                              ...data.presentationSpace.size,
-                              height: Math.max(
-                                1,
-                                numberValue(
-                                  event.currentTarget.value,
-                                  data.presentationSpace.size.height,
-                                ),
-                              ),
-                            },
-                          },
-                        },
-                        'Update presentation space height',
-                      )
-                    }
                   />
                 </div>
                 <div className="space-y-1.5">
                   <Label>Edge policy</Label>
-                  <Select
-                    items={[
-                      { value: 'contain', label: 'Contain' },
-                      { value: 'overscan', label: 'Overscan' },
-                    ]}
+                  <GameplayFieldSelect
+                    tabId={tab.id}
+                    record={{ collection: 'rooms', id: roomId }}
+                    field="/presentationSpace/edgePolicy"
+                    label="Update camera edge policy"
                     value={data.presentationSpace.edgePolicy}
-                    onValueChange={(edgePolicy) => {
-                      if (!edgePolicy) return;
-                      commit(
-                        {
-                          ...data,
-                          presentationSpace: {
-                            ...data.presentationSpace,
-                            edgePolicy: edgePolicy as 'contain' | 'overscan',
-                          },
-                        },
-                        'Update camera edge policy',
-                      );
-                    }}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger aria-label="Camera edge policy">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="contain">Contain</SelectItem>
                       <SelectItem value="overscan">Overscan</SelectItem>
                     </SelectContent>
-                  </Select>
+                  </GameplayFieldSelect>
                 </div>
               </div>
               <div className="flex items-center justify-between gap-3 pt-1">
@@ -4134,27 +4075,15 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                   {(['x', 'y', 'width', 'height'] as const).map((field) => (
                     <div key={field} className="space-y-1">
                       <Label>{field[0]!.toUpperCase() + field.slice(1)}</Label>
-                      <Input
-                        type="number"
+                      <GameplayFieldNumber
+                        aria-label={`Camera bounds ${field}`}
+                        tabId={tab.id}
+                        record={{ collection: 'rooms', id: roomId }}
+                        field={`/presentationSpace/bounds/${field}`}
+                        label="Update camera bounds"
+                        mode="decimal"
                         min={field === 'width' || field === 'height' ? 1 : undefined}
                         value={data.presentationSpace.bounds![field]}
-                        onChange={(event) => {
-                          const bounds = data.presentationSpace.bounds;
-                          if (!bounds) return;
-                          const raw = numberValue(event.currentTarget.value, bounds[field]);
-                          const value =
-                            field === 'width' || field === 'height' ? Math.max(1, raw) : raw;
-                          commit(
-                            {
-                              ...data,
-                              presentationSpace: {
-                                ...data.presentationSpace,
-                                bounds: { ...bounds, [field]: value },
-                              },
-                            },
-                            'Update camera bounds',
-                          );
-                        }}
                       />
                     </div>
                   ))}
@@ -4172,86 +4101,41 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                 {(['x', 'y'] as const).map((axis) => (
                   <div key={axis} className="space-y-1">
                     <Label>Center {axis.toUpperCase()}</Label>
-                    <Input
-                      type="number"
+                    <GameplayFieldNumber
+                      aria-label={`Default camera center ${axis}`}
+                      tabId={tab.id}
+                      record={{ collection: 'rooms', id: roomId }}
+                      field={`/presentationSpace/defaultView/center/${axis}`}
+                      label="Update default Camera View"
+                      mode="decimal"
                       value={data.presentationSpace.defaultView.center[axis]}
-                      onChange={(event) =>
-                        commit(
-                          {
-                            ...data,
-                            presentationSpace: {
-                              ...data.presentationSpace,
-                              defaultView: {
-                                ...data.presentationSpace.defaultView,
-                                center: {
-                                  ...data.presentationSpace.defaultView.center,
-                                  [axis]: numberValue(
-                                    event.currentTarget.value,
-                                    data.presentationSpace.defaultView.center[axis],
-                                  ),
-                                },
-                              },
-                            },
-                          },
-                          'Update default Camera View',
-                        )
-                      }
                     />
                   </div>
                 ))}
                 <div className="space-y-1.5">
                   <Label>Zoom</Label>
-                  <Input
-                    type="number"
+                  <GameplayFieldNumber
+                    aria-label="Default camera zoom"
+                    tabId={tab.id}
+                    record={{ collection: 'rooms', id: roomId }}
+                    field="/presentationSpace/defaultView/zoom"
+                    label="Update default Camera View zoom"
+                    mode="decimal"
                     min={0.001}
                     step={0.05}
                     value={data.presentationSpace.defaultView.zoom}
-                    onChange={(event) =>
-                      commit(
-                        {
-                          ...data,
-                          presentationSpace: {
-                            ...data.presentationSpace,
-                            defaultView: {
-                              ...data.presentationSpace.defaultView,
-                              zoom: Math.max(
-                                0.001,
-                                numberValue(
-                                  event.currentTarget.value,
-                                  data.presentationSpace.defaultView.zoom,
-                                ),
-                              ),
-                            },
-                          },
-                        },
-                        'Update default Camera View zoom',
-                      )
-                    }
                   />
                 </div>
                 <div className="space-y-1.5">
                   <Label>Rotation</Label>
-                  <Input
-                    type="number"
+                  <GameplayFieldNumber
+                    aria-label="Default camera rotation"
+                    tabId={tab.id}
+                    record={{ collection: 'rooms', id: roomId }}
+                    field="/presentationSpace/defaultView/rotationDegrees"
+                    label="Update default Camera View rotation"
+                    mode="decimal"
                     value={data.presentationSpace.defaultView.rotationDegrees}
-                    onChange={(event) =>
-                      commit(
-                        {
-                          ...data,
-                          presentationSpace: {
-                            ...data.presentationSpace,
-                            defaultView: {
-                              ...data.presentationSpace.defaultView,
-                              rotationDegrees: numberValue(
-                                event.currentTarget.value,
-                                data.presentationSpace.defaultView.rotationDegrees,
-                              ),
-                            },
-                          },
-                        },
-                        'Update default Camera View rotation',
-                      )
-                    }
                   />
                 </div>
               </div>

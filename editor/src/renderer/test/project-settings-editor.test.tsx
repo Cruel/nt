@@ -448,6 +448,57 @@ describe('ProjectSettingsEditor', () => {
     );
     expect(screen.getByRole('button', { name: 'Choose fade color' })).toHaveTextContent('#112233');
   });
+  it('keeps duration, skip and fade color responsive during a delayed native acknowledgment', async () => {
+    const source = project();
+    source.settings.presentation.roomNavigationTransition = {
+      kind: 'fade',
+      durationMs: 500,
+      color: '#112233',
+      skippable: true,
+    };
+    const native = admitNativeRendererCommandFixture(source);
+    const realPatch = window.noveltea.nativeProjectPatch;
+    let release: (() => void) | undefined;
+    let first = true;
+    Object.defineProperty(window.noveltea, 'nativeProjectPatch', {
+      configurable: true,
+      value: vi.fn((...args: Parameters<typeof realPatch>) => {
+        if (!first) return realPatch(...args);
+        first = false;
+        return new Promise<Awaited<ReturnType<typeof realPatch>>>((resolve, reject) => {
+          release = () => void Promise.resolve(realPatch(...args)).then(resolve, reject);
+        });
+      }),
+    });
+    render(<ProjectSettingsEditor tab={tab} />);
+    selectProjectSettingsCategory('Transitions');
+    const duration = screen.getByLabelText('Duration (ms)');
+    const skippable = screen.getByRole('switch', { name: 'Skippable' });
+    fireEvent.change(duration, { target: { value: '750' } });
+    await waitFor(() => expect(release).toBeTypeOf('function'));
+    fireEvent.click(skippable);
+    fireEvent.click(screen.getByRole('button', { name: 'Clear fade color' }));
+    expect(duration).toHaveValue('750');
+    expect(skippable).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByRole('button', { name: 'Choose fade color' })).toHaveTextContent(
+      'Project default',
+    );
+    expect(currentRoomNavigationTransition()).toMatchObject({
+      durationMs: 500,
+      skippable: true,
+      color: '#112233',
+    });
+    expect(native.patch).not.toHaveBeenCalled();
+    await act(async () => release!());
+    await waitFor(() =>
+      expect(currentRoomNavigationTransition()).toMatchObject({
+        durationMs: 750,
+        skippable: false,
+        color: null,
+      }),
+    );
+    expect(native.patch.mock.calls.length).toBeLessThanOrEqual(3);
+  });
 
   it('writes metadata, entrypoint, and startup script directly through focused commands', async () => {
     admitNativeRendererCommandFixture(project());

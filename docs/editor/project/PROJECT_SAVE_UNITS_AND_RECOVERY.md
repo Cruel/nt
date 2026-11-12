@@ -109,7 +109,7 @@ each typed value. Native acknowledgment still updates the authoritative Project
 snapshot and command store; input-to-paint-ready/flush-to-native-ack Performance
 measures described below remain available for packaged Feature Lab comparison.
 Automated tests cover Save-unit ownership, unmounted recovery, unrelated Save
-All owners, invalid numeric input during Save As, composite conflict rejection,
+All owners, recovery-preserving Save As with incomplete numeric input, composite conflict rejection,
 two-native-ack Undo/Redo, and stable-ID
 collection operations. Packaged Windows/Linux/macOS latency and recovery
 acceptance are separate #602 gates, not implied by those tests.
@@ -205,12 +205,29 @@ Character summary fields and some default selectors, Interactable display name, 
 stack limit, Project metadata, Title Screen, and many App Identity text fields. The former
 Room-display-name-specific component has been deleted, including its replacement wrapper.
 
+The subsequent #602 field rollout also uses `commands/gameplay-record-fields.tsx`:
+`gameplayFieldOptions` derives canonical ownership, paths and an archetype-aware
+native planner from a Room/Character/Interactable reference. Its Input, Number,
+Select and Checkbox adapters reuse `useProjectField` rather than introducing
+per-control schedulers. Only stable object paths are accepted; positional list
+items must instead use `recordList` or an explicit semantic transaction.
+Room World Presentation Space dimensions, edge policy, bounds and default Camera
+View values, Character initial enabled/visible flags, and Project navigation
+transition duration/skippable/fade color have moved onto the shared immediate
+field projection. Room Description's structured editor uses the same derived
+binding. The semantic kind-switch for Project transitions remains separate
+because it initializes related duration state. Tests cover blocked native
+acknowledgments and concurrent edits across independent owner records; no new
+renderer-owned authoritative Project snapshot is introduced.
+
 The default field operation chooses a narrow native add/replace patch against the **current**
 acknowledged Project. Fields with schema-specific initialization (such as Title Screen) supply
 their existing semantic command instead. Reusable gameplay-record planners handle archetyped
-Room, Character, and Interactable fields. Whole-data commands from legacy edit surfaces are
-rebased at the shared command boundary against the latest acknowledged record to avoid
-overwriting disjoint edits from another view.
+Room, Character, and Interactable fields. Legacy whole-data controls must use
+`recordData` with an explicit event-time before/after delta, rebased at native
+queue dispatch. Ready-made `*.replaceData` requests are not implicitly rewritten.
+Room placement rename and reciprocal-exit operations now use explicit delta or
+stable-ID collection planning rather than stale whole-Room snapshots.
 
 The shared controls and scheduler emit bounded, value-free browser Performance measures named
 `noveltea.project-edit.input-to-paint-ready` and

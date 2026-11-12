@@ -1,5 +1,6 @@
 import { projectEdits } from '@/commands/project-editing';
 import { ProjectFieldInput, ProjectFieldSelect } from '@/commands/use-project-field';
+import { GameplayFieldCheckbox } from '@/commands/gameplay-record-fields';
 import { GameplayArchetypeControls } from '@/components/GameplayArchetypeControls';
 import { InventoryDeclarationsEditor } from '@/components/inventories/InventoryControls';
 import { MaterialApplicationEditor } from '@/components/materials/MaterialApplicationEditor';
@@ -1298,40 +1299,22 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
               </Select>
             </div>
             <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={data.initialWorldState.enabled}
-                onChange={(event) =>
-                  commit(
-                    {
-                      ...data,
-                      initialWorldState: {
-                        ...data.initialWorldState,
-                        enabled: event.currentTarget.checked,
-                      },
-                    },
-                    'Update character initial enabled state',
-                  )
-                }
+              <GameplayFieldCheckbox
+                tabId={tab.id}
+                record={{ collection: 'characters', id: activeCharacterId }}
+                field="/initialWorldState/enabled"
+                label="Update character initial enabled state"
+                value={data.initialWorldState.enabled}
               />
               Enabled
             </label>
             <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={data.initialWorldState.visible}
-                onChange={(event) =>
-                  commit(
-                    {
-                      ...data,
-                      initialWorldState: {
-                        ...data.initialWorldState,
-                        visible: event.currentTarget.checked,
-                      },
-                    },
-                    'Update character initial visibility',
-                  )
-                }
+              <GameplayFieldCheckbox
+                tabId={tab.id}
+                record={{ collection: 'characters', id: activeCharacterId }}
+                field="/initialWorldState/visible"
+                label="Update character initial visibility"
+                value={data.initialWorldState.visible}
               />
               Visible
             </label>
