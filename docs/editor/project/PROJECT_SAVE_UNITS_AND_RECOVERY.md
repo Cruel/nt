@@ -441,6 +441,30 @@ zero-delay p95 exceeds the 16 ms target amid Xvfb idle-frame stalls.
 The eight human-driven Feature Lab cases, a physical <16 ms measurement,
 and Windows/macOS/Linux desktop-host qualification remain **unaccepted**.
 
+#### Remaining direct-input editor audit for #602
+
+The final source-level inventory found additional editable surfaces still
+bound to native-acknowledged record data. This prevents declaring the requested
+**project-wide** migration complete, independent of the human test blockers:
+
+| Editor family | Direct write path still present | Required treatment |
+| --- | --- | --- |
+| Scene | `SceneEditor.tsx`, `scene.replaceData`; e.g. the display-name input directly invokes `commit({...data, displayName})` | Field-scoped immediate text plus stable-ID event/step deltas; preserve coordinated owner moves |
+| Dialogue | `DialogueEditor.tsx`, `dialogue.replaceData`, including numerous block/cue controls | Immediate block/cue projections and late-bound semantic mutations; retain reference/graph transaction atomicity |
+| Authored Tests | `TestsEditor.tsx`, `test.replaceData` | Buffered editable metadata/steps, without changing execution/preview authority |
+| Layout and Map | `LayoutEditor.tsx` / `MapEditor.tsx`, `*.replaceData` | Separate ordinary scalar controls from geometry/drag and semantic structural commands |
+| Material | `MaterialEditor.tsx`, `material.replaceData` | Immediate scalar/selector presentation; preserve shader source-buffer and compilation contract |
+| Interaction and Verb | `InteractionEditor.tsx` / `VerbEditor.tsx`, `*.replaceData` | Scope nested rule/value controls independently of structural and reference-remapping commands |
+| Other custom editors | Animation, asset/attachment, localization, chapter, source, and specialized preview/export editors retain direct controls | Complete a per-control owner/path inventory; source buffers, stage gestures and generated/preview tools require documented distinct lifecycles |
+
+This inventory identifies **entrypoints**, not a claim that every occurrence
+is defective: many Character, Room, Project Settings and other controls already
+use optimistic collection adapters, while read-only inputs and locally staged
+dialog/source tools have separate contracts. Nonetheless the unconverted
+`*.replaceData` paths and directly bound text fields above are concrete
+examples that still require migration and delayed-native regression coverage.
+Do not close #602 on the strength of the existing native-addon/Xvfb tests.
+
 The Linux x64 packaged Electron distribution built from `71e3e703da0b`
 also passed packaged smoke and the existing Project-title typing benchmark.
 The benchmark typed 20 characters per run and verified exact renderer
