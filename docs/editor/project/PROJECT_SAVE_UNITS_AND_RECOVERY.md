@@ -491,6 +491,35 @@ there is no per-editor debounce. Ordinary typing does not submit stale
 `scene.replaceData` or `dialogue.replaceData`; those commands are retained only
 for native-atomic semantic transactions.
 
+Native patch locality is required for **physical** Save as well as fast input.
+In a real Feature Lab Project, replacing the entire normalized Dialogue
+`/data/blocks` array was accepted into the native working state but rejected
+by physical Save (`Save projection differs from the working Project at
+/data/blocks`). Sparse YAML can intentionally omit references/default values
+that an expanded normalized array would re-serialize. The Scene/Dialogue
+`useProjectField` command adapter therefore uses the shared
+`nativeFieldJsonPatches` planner at **native dispatch**, deriving leaf-level
+JSON patches from the latest acknowledged field and current draft. It never
+submits a normalized array snapshot just to update one Event or Block label.
+The same planner is shared with Authored Test/Interaction/Verb fields to avoid
+divergent patch semantics. Semantic IDs determine member identity, while
+numeric patch offsets are resolved only after queued native acknowledgments.
+The real-addon certification now invokes this exact planner against normalized
+Feature Lab Scene and Dialogue lists, verifies it emits only leaf patches,
+and validates independent owner Saves by decoding their resulting YAML.
+
+**Final #604 acceptance (November 12, 2026):** `pnpm -C editor run check`
+passed with TypeScript, formatting, schema/graph contract checks and zero lint
+warnings/errors. The full editor Vitest suite passed **2,312 tests** across
+306 passing files, with 94 tests/9 files skipped by their existing markers;
+the earlier concurrent Test-editor regression was no longer reproducible.
+The real native C++ addon `certify-native-scene-dialogue-save.mjs` passed
+again with the extracted dispatch-time native field patch planner, verifying
+owner isolation and exact physical YAML readback. The additional sibling
+format/lint repairs were left in their existing uncommitted workstream rather
+than bundled into #604. The parent #602 packaged/human-display acceptance
+remains a separate milestone.
+
 Focused component and semantic tests cover 500/1,000 ms withheld native patches,
 same-collection sibling edits, ID-based reordering, invalid raw input, native
 rejection and retry, duplicate views, exact acknowledged document contents,

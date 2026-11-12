@@ -12,6 +12,8 @@ assert.ok(addon, 'Pass NOVELTEA_AUTHORING_NODE_ADDON or the native Node addon pa
 const binding = createRequire(import.meta.url)(path.resolve(addon));
 const { decodeSparseRecordYaml } =
   await import('../src/shared/project-workspace/sparse-record-yaml-source.ts');
+const { nativeFieldJsonPatches } =
+  await import('../src/renderer/commands/native-field-json-patches.ts');
 const scratch = await mkdtemp(path.join(os.tmpdir(), 'noveltea-scene-dialogue-save-'));
 const project = path.join(scratch, 'feature-lab');
 const source = path.resolve('tests/projects/feature-lab');
@@ -44,37 +46,57 @@ try {
   assert.equal(original.valid, true, JSON.stringify(original.diagnostics));
   const originalScene = await readFile(sceneFile, 'utf8');
   const originalDialogue = await readFile(dialogueFile, 'utf8');
-  const sceneIndex = (await readRecord('scenes', sceneFile)).data.events.findIndex(
-    (event) => event.id === 'delay',
+  const prepared = accepted(
+    'Prepare normalized native records',
+    binding.prepareCompleteWorking(handle, original.workingRevision, ''),
   );
-  const dialogueIndex = (await readRecord('dialogues', dialogueFile)).data.blocks.findIndex(
-    (block) => block.id === 'notice',
+  const sceneData = prepared.completeProject.scenes[sceneId].data;
+  const dialogueData = prepared.completeProject.dialogues[dialogueId].data;
+  const sceneEvents = structuredClone(sceneData.events);
+  const dialogueBlocks = structuredClone(dialogueData.blocks);
+  const event = sceneEvents.find((item) => item.id === 'delay');
+  const block = dialogueBlocks.find((item) => item.id === 'notice');
+  assert.ok(event && block, 'Feature Lab semantic IDs changed.');
+  event.label = 'Delayed-native event';
+  block.label = 'Delayed-native block';
+
+  // Exercise exactly the editor's dispatch-time command planner, not an
+  // independently hand-written set of leaf patches. Normalized entire-array
+  // replacements are valid native working edits but can fail physical YAML Save.
+  const patches = [
+    ...nativeFieldJsonPatches(
+      sceneData.displayName,
+      sceneLabel,
+      `/scenes/${sceneId}/data/displayName`,
+    ),
+    ...nativeFieldJsonPatches(sceneData.events, sceneEvents, `/scenes/${sceneId}/data/events`),
+    ...nativeFieldJsonPatches(
+      dialogueData.displayName,
+      dialogueLabel,
+      `/dialogues/${dialogueId}/data/displayName`,
+    ),
+    ...nativeFieldJsonPatches(
+      dialogueData.blocks,
+      dialogueBlocks,
+      `/dialogues/${dialogueId}/data/blocks`,
+    ),
+  ];
+  assert.equal(patches.length, 4, 'Expected one native leaf edit per modified value.');
+  assert.ok(
+    patches.every(
+      (patch) =>
+        patch.path !== `/scenes/${sceneId}/data/events` &&
+        patch.path !== `/dialogues/${dialogueId}/data/blocks`,
+    ),
+    'Must not replace normalized Scene or Dialogue arrays at the native boundary.',
   );
-  assert.ok(sceneIndex >= 0 && dialogueIndex >= 0, 'Feature Lab semantic IDs changed.');
 
   const modified = accepted(
     'Scene and Dialogue native fields',
     binding.patch(
       handle,
       original.workingRevision,
-      JSON.stringify([
-        { operation: 'replace', path: `/scenes/${sceneId}/data/displayName`, value: sceneLabel },
-        {
-          operation: 'replace',
-          path: `/scenes/${sceneId}/data/events/${sceneIndex}/label`,
-          value: 'Delayed-native event',
-        },
-        {
-          operation: 'replace',
-          path: `/dialogues/${dialogueId}/data/displayName`,
-          value: dialogueLabel,
-        },
-        {
-          operation: 'replace',
-          path: `/dialogues/${dialogueId}/data/blocks/${dialogueIndex}/label`,
-          value: 'Delayed-native block',
-        },
-      ]),
+      JSON.stringify(patches.map(({ op, ...patch }) => ({ operation: op, ...patch }))),
     ),
   );
   assert.equal(await readFile(sceneFile, 'utf8'), originalScene);

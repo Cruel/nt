@@ -7,6 +7,7 @@ import {
 } from 'react';
 import { Input } from '@/components/ui/input';
 import { projectEdits } from '@/commands/project-editing';
+import { nativeFieldJsonPatches } from '@/commands/native-field-json-patches';
 import { parseProjectNumberText } from '@/commands/project-number-input';
 import { useNativeFieldDraftStore } from '@/commands/native-field-drafts';
 import { ProjectFieldError, useProjectField } from '@/commands/use-project-field';
@@ -213,12 +214,31 @@ function useRecordSlice<T>(
   field: string,
   value: T,
 ): RecordSlice<T> {
+  const path = buildJsonPointer([collection, recordId ?? '', 'data', field]);
+  const saveUnitId = recordSaveUnitId(collection, recordId ?? '');
   const controller = useProjectField({
     tabId,
-    saveUnitId: recordSaveUnitId(collection, recordId ?? ''),
-    path: buildJsonPointer([collection, recordId ?? '', 'data', field]),
+    saveUnitId,
+    path,
     value: value as JsonValue,
     label: `Edit ${collection === 'scenes' ? 'Scene' : 'Dialogue'} ${field}`,
+    buildCommand: (next: JsonValue) => {
+      const document = useProjectStore.getState().document;
+      if (!document) throw new Error('The Project was closed before the field edit.');
+      const latest = getJsonAtPointer(document, path);
+      // The acknowledged normalized Scene/Dialogue collection can contain
+      // expanded sparse-YAML defaults. Replacing the entire array would stage
+      // valid in-memory data yet fail native physical Save projection.
+      // Generate minimal positional patches only *at native dispatch*, after
+      // earlier acknowledgments, resolving stable members by semantic ID.
+      return {
+        type: 'project.applyPatch',
+        label: `Edit ${collection === 'scenes' ? 'Scene' : 'Dialogue'} ${field}`,
+        payload: nativeFieldJsonPatches(latest, next, path),
+        originSaveUnitId: saveUnitId,
+        persistencePolicy: 'manual-save' as const,
+      };
+    },
   });
   return { ...controller, value: controller.value as T };
 }

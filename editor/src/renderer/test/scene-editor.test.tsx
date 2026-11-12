@@ -245,6 +245,11 @@ describe('SceneEditor', () => {
           'Updated scene event',
         );
       });
+      const nativePaths = vi
+        .mocked(window.noveltea.nativeProjectPatch)
+        .mock.calls.flatMap((call) => call[2].map((patch) => patch.path));
+      expect(nativePaths).toContain('/scenes/opening/data/events/0/label');
+      expect(nativePaths).not.toContain('/scenes/opening/data/events');
       expect(name).toHaveValue('Opening paste');
       expect(label).toHaveValue('Updated scene event');
       expect((name as HTMLInputElement).selectionStart).toBe(3);

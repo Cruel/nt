@@ -189,6 +189,11 @@ describe('DialogueEditor', () => {
         expect(document.dialogues.intro.data.displayName).toBe('Intro pasted');
         expect(document.dialogues.intro.data.blocks[0]?.label).toBe('First conversation');
       });
+      const nativePaths = vi
+        .mocked(window.noveltea.nativeProjectPatch)
+        .mock.calls.flatMap((call) => call[2].map((patch) => patch.path));
+      expect(nativePaths).toContain('/dialogues/intro/data/blocks/0/label');
+      expect(nativePaths).not.toContain('/dialogues/intro/data/blocks');
       expect(vi.mocked(window.noveltea.nativeProjectPatch).mock.calls.length).toBeLessThanOrEqual(
         4,
       );
@@ -339,7 +344,7 @@ describe('DialogueEditor', () => {
         }),
       ]);
     });
-    expect(useCommandStore.getState().history.entries.at(-1)?.type).toBe('project.replaceAtPath');
+    expect(useCommandStore.getState().history.entries.at(-1)?.type).toBe('project.applyPatch');
   });
 
   it('captures and restores graph, selection, preview, and layout state in the editor boundary', async () => {
