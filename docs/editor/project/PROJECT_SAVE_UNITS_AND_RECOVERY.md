@@ -278,6 +278,26 @@ additional migrated surfaces, **not** proof that every nested collection,
 geometry gesture, custom property editor or cross-platform recovery workflow
 has passed #602's final acceptance gate.
 
+The next Room Camera collection migration uses
+`editors/rooms/RoomCameraCollections.tsx`. Named Camera Views and Anchors
+stage one owner-scoped, recoverable **collection field** each, never a JSON
+Pointer into an array index. Child edits, renames, insertions and removals
+look up entries by stable semantic ID and read the latest staged array at the
+input event boundary. Native field-baseline CAS rejects concurrent structural
+changes to that array; it does not silently overwrite a newer order or
+deletion. Selected entries are tracked by ID across Room category changes.
+Add View copies the current *optimistic* default framing, including unacknowledged
+numeric edits. Incomplete collection-item numeric text and in-progress ID
+renames use existing pending-input recovery keyed by semantic item ID and logical
+Save owner; invalid or duplicate IDs are never submitted to native. Pending
+raw inputs transfer on rename and are cleared when an item is deleted. The
+unit's pending-input Save barrier remains authoritative. This deliberately
+uses collection-level CAS: it does **not** claim independent item-level external
+merging, and an overlapping external edit requires explicit conflict resolution.
+Room component regressions exercise blocked native acknowledgment, independent
+item edits, exact incomplete numeric text, collision rejection, rename on blur
+and Add View against staged Default Camera framing.
+
 The default field operation chooses a narrow native add/replace patch against the **current**
 acknowledged Project. Fields with schema-specific initialization (such as Title Screen) supply
 their existing semantic command instead. Reusable gameplay-record planners handle archetyped

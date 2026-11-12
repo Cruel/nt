@@ -89,6 +89,7 @@ import {
   type GameplayCommandKind,
 } from '@/components/gameplay-commands/GameplayCommandEditor';
 import { RoomEditSurface } from '@/editors/rooms/RoomEditSurface';
+import { RoomAnchors, RoomNamedCameraViews } from '@/editors/rooms/RoomCameraCollections';
 import { toJsonValue } from '@/project/json-value';
 import { RoomCompositionPane } from '@/editors/rooms/RoomCompositionPane';
 import type { AuthoringEditorProject } from '@/editors/interactions/InteractionProgramEditor';
@@ -813,8 +814,8 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       savedState ? (parseRoomEditorTabState(savedState)?.expandedSelectionKeys ?? []) : [],
     );
   });
-  const [selectedCameraViewIndex, setSelectedCameraViewIndex] = useState(0);
-  const [selectedAnchorIndex, setSelectedAnchorIndex] = useState(0);
+  const [selectedCameraViewId, setSelectedCameraViewId] = useState<string | null>(null);
+  const [selectedAnchorId, setSelectedAnchorId] = useState<string | null>(null);
   const [selectedOverlayIndex, setSelectedOverlayIndex] = useState(0);
   const [selectedCastIndex, setSelectedCastIndex] = useState(0);
   const [selectedPropIndex, setSelectedPropIndex] = useState(0);
@@ -2111,197 +2112,6 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   const activeRoomCategory =
     categorizedRoomEditorCategories.find((category) => category.id === activeCategory) ??
     categorizedRoomEditorCategories[0]!;
-  const activeCameraViewIndex =
-    data.presentationSpace.views.length === 0
-      ? -1
-      : Math.min(selectedCameraViewIndex, data.presentationSpace.views.length - 1);
-  const activeCameraView =
-    activeCameraViewIndex >= 0 ? data.presentationSpace.views[activeCameraViewIndex] : null;
-  const activeAnchorIndex =
-    data.anchors.length === 0 ? -1 : Math.min(selectedAnchorIndex, data.anchors.length - 1);
-  const activeAnchor = activeAnchorIndex >= 0 ? data.anchors[activeAnchorIndex] : null;
-  const replaceCameraView = (cameraView: NonNullable<typeof activeCameraView>, label: string) => {
-    if (activeCameraViewIndex < 0) return;
-    const views = data.presentationSpace.views.map((candidate, index) =>
-      index === activeCameraViewIndex ? cameraView : candidate,
-    );
-    commit({ ...data, presentationSpace: { ...data.presentationSpace, views } }, label);
-  };
-  const replaceAnchor = (anchor: NonNullable<typeof activeAnchor>, label: string) => {
-    if (activeAnchorIndex < 0) return;
-    commit(
-      {
-        ...data,
-        anchors: data.anchors.map((candidate, index) =>
-          index === activeAnchorIndex ? anchor : candidate,
-        ),
-      },
-      label,
-    );
-  };
-  const renderCameraViewDetail = (cameraView: NonNullable<typeof activeCameraView>) => (
-    <div className="rounded-md border bg-background/50 p-2.5">
-      <div className="flex items-center justify-between gap-2 border-b pb-2">
-        <div className="min-w-0">
-          <div className="truncate text-xs font-medium">View details</div>
-          <div className="truncate text-[10px] text-muted-foreground">
-            Center {cameraView.view.center.x}, {cameraView.view.center.y} · {cameraView.view.zoom}×
-            · {cameraView.view.rotationDegrees}°
-          </div>
-        </div>
-      </div>
-      <div className="grid gap-2 pt-2 @3xl:grid-cols-5">
-        <div className="space-y-1 @3xl:col-span-2">
-          <Label>View ID</Label>
-          <Input
-            value={cameraView.id}
-            onChange={(event) =>
-              replaceCameraView(
-                { ...cameraView, id: event.currentTarget.value },
-                'Rename Camera View',
-              )
-            }
-          />
-        </div>
-        <div className="space-y-1">
-          <Label>Center X</Label>
-          <Input
-            type="number"
-            value={cameraView.view.center.x}
-            onChange={(event) =>
-              replaceCameraView(
-                {
-                  ...cameraView,
-                  view: {
-                    ...cameraView.view,
-                    center: {
-                      ...cameraView.view.center,
-                      x: numberValue(event.currentTarget.value, cameraView.view.center.x),
-                    },
-                  },
-                },
-                'Update Camera View',
-              )
-            }
-          />
-        </div>
-        <div className="space-y-1">
-          <Label>Center Y</Label>
-          <Input
-            type="number"
-            value={cameraView.view.center.y}
-            onChange={(event) =>
-              replaceCameraView(
-                {
-                  ...cameraView,
-                  view: {
-                    ...cameraView.view,
-                    center: {
-                      ...cameraView.view.center,
-                      y: numberValue(event.currentTarget.value, cameraView.view.center.y),
-                    },
-                  },
-                },
-                'Update Camera View',
-              )
-            }
-          />
-        </div>
-        <div className="space-y-1">
-          <Label>Zoom</Label>
-          <Input
-            type="number"
-            min={0.001}
-            step={0.05}
-            value={cameraView.view.zoom}
-            onChange={(event) =>
-              replaceCameraView(
-                {
-                  ...cameraView,
-                  view: {
-                    ...cameraView.view,
-                    zoom: Math.max(
-                      0.001,
-                      numberValue(event.currentTarget.value, cameraView.view.zoom),
-                    ),
-                  },
-                },
-                'Update Camera View zoom',
-              )
-            }
-          />
-        </div>
-        <div className="space-y-1 @3xl:col-start-5">
-          <Label>Rotation</Label>
-          <Input
-            type="number"
-            value={cameraView.view.rotationDegrees}
-            onChange={(event) =>
-              replaceCameraView(
-                {
-                  ...cameraView,
-                  view: {
-                    ...cameraView.view,
-                    rotationDegrees: numberValue(
-                      event.currentTarget.value,
-                      cameraView.view.rotationDegrees,
-                    ),
-                  },
-                },
-                'Update Camera View rotation',
-              )
-            }
-          />
-        </div>
-      </div>
-    </div>
-  );
-  const renderAnchorDetail = (anchor: NonNullable<typeof activeAnchor>) => (
-    <div className="rounded-md border bg-background/50 p-2.5">
-      <div className="flex items-center justify-between gap-2 border-b pb-2">
-        <div className="min-w-0">
-          <div className="truncate text-xs font-medium">Anchor details</div>
-          <div className="truncate text-[10px] text-muted-foreground">
-            {anchor.bounds.x}, {anchor.bounds.y} · {anchor.bounds.width} × {anchor.bounds.height}
-          </div>
-        </div>
-      </div>
-      <div className="grid gap-2 pt-2 @3xl:grid-cols-6">
-        <div className="space-y-1 @3xl:col-span-2">
-          <Label>Anchor ID</Label>
-          <Input
-            value={anchor.id}
-            onChange={(event) =>
-              replaceAnchor({ ...anchor, id: event.currentTarget.value }, 'Rename Room Anchor')
-            }
-          />
-        </div>
-        {(['x', 'y', 'width', 'height'] as const).map((field) => (
-          <div key={field} className="space-y-1">
-            <Label>{field}</Label>
-            <Input
-              type="number"
-              min={0}
-              max={1}
-              step={0.01}
-              value={anchor.bounds[field]}
-              onChange={(event) => {
-                const raw = numberValue(event.currentTarget.value, anchor.bounds[field]);
-                const value = Math.max(
-                  field === 'width' || field === 'height' ? 0.001 : 0,
-                  Math.min(1, raw),
-                );
-                replaceAnchor(
-                  { ...anchor, bounds: { ...anchor.bounds, [field]: value } },
-                  'Update Room Anchor bounds',
-                );
-              }}
-            />
-          </div>
-        ))}
-      </div>
-    </div>
-  );
   const contentEntitySelectorItems =
     contentEntitySelector?.kind === 'overlay-layout' ||
     contentEntitySelector?.kind === 'placement-layout' ||
@@ -4295,113 +4105,20 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               </div>
             </section>
 
-            <CollectionMasterDetail
-              title="Named Camera Views"
-              description="Reusable logical framing targets for presentation operations."
-              items={data.presentationSpace.views}
-              getKey={(_, index) => String(index)}
-              selectedKey={activeCameraViewIndex >= 0 ? String(activeCameraViewIndex) : null}
-              onSelectedKeyChange={(_, __, index) => setSelectedCameraViewIndex(index)}
-              listAriaLabel="Named Camera Views"
-              emptyState="No named Camera Views."
-              listAction={{
-                label: 'Add View',
-                icon: <Plus className="size-3.5" aria-hidden="true" />,
-                onClick: () => {
-                  setSelectedCameraViewIndex(data.presentationSpace.views.length);
-                  commit(
-                    {
-                      ...data,
-                      presentationSpace: {
-                        ...data.presentationSpace,
-                        views: [
-                          ...data.presentationSpace.views,
-                          {
-                            id: nextId(
-                              data.presentationSpace.views.map((view) => view.id),
-                              'view',
-                            ),
-                            view: {
-                              center: { ...data.presentationSpace.defaultView.center },
-                              zoom: data.presentationSpace.defaultView.zoom,
-                              rotationDegrees: data.presentationSpace.defaultView.rotationDegrees,
-                            },
-                          },
-                        ],
-                      },
-                    },
-                    'Add Camera View',
-                  );
-                },
-              }}
-              getDeleteLabel={(entry) => `Delete Camera View ${entry.id}`}
-              onDeleteItem={(_, index) => {
-                const nextViews = data.presentationSpace.views.filter(
-                  (_, viewIndex) => viewIndex !== index,
-                );
-                setSelectedCameraViewIndex(Math.max(0, Math.min(index, nextViews.length - 1)));
-                commit(
-                  {
-                    ...data,
-                    presentationSpace: {
-                      ...data.presentationSpace,
-                      views: nextViews,
-                    },
-                  },
-                  'Delete Camera View',
-                );
-              }}
-              getItemPresentation={(entry) => ({
-                label: entry.id,
-                trailing: `${entry.view.zoom}×`,
-              })}
-              renderDetail={renderCameraViewDetail}
+            <RoomNamedCameraViews
+              roomId={roomId}
+              tabId={tab.id}
+              views={data.presentationSpace.views}
+              defaultView={data.presentationSpace.defaultView}
+              selectedId={selectedCameraViewId}
+              onSelectedIdChange={setSelectedCameraViewId}
             />
-
-            <CollectionMasterDetail
-              anchor="room.anchors"
-              title="Anchors"
-              description="Stable authored regions that Focus captures without live tracking."
-              items={data.anchors}
-              getKey={(_, index) => String(index)}
-              selectedKey={activeAnchorIndex >= 0 ? String(activeAnchorIndex) : null}
-              onSelectedKeyChange={(_, __, index) => setSelectedAnchorIndex(index)}
-              listAriaLabel="Anchors"
-              emptyState="No anchors."
-              listAction={{
-                label: 'Add Anchor',
-                icon: <Plus className="size-3.5" aria-hidden="true" />,
-                onClick: () => {
-                  setSelectedAnchorIndex(data.anchors.length);
-                  commit(
-                    {
-                      ...data,
-                      anchors: [
-                        ...data.anchors,
-                        {
-                          id: nextId(
-                            data.anchors.map((anchor) => anchor.id),
-                            'anchor',
-                          ),
-                          bounds: { x: 0.4, y: 0.4, width: 0.2, height: 0.2 },
-                        },
-                      ],
-                    },
-                    'Add Room Anchor',
-                  );
-                },
-              }}
-              getDeleteLabel={(anchor) => `Delete Room Anchor ${anchor.id}`}
-              onDeleteItem={(_, index) => {
-                const nextAnchors = data.anchors.filter((_, anchorIndex) => anchorIndex !== index);
-                setSelectedAnchorIndex(Math.max(0, Math.min(index, nextAnchors.length - 1)));
-                commit({ ...data, anchors: nextAnchors }, 'Delete Room Anchor');
-              }}
-              getItemPresentation={(anchor) => ({
-                label: anchor.id,
-                trailing: `${anchor.bounds.width}×${anchor.bounds.height}`,
-              })}
-              renderDetail={renderAnchorDetail}
+            <RoomAnchors
+              roomId={roomId}
+              tabId={tab.id}
+              anchors={data.anchors}
+              selectedId={selectedAnchorId}
+              onSelectedIdChange={setSelectedAnchorId}
             />
           </div>
         ) : null}

@@ -36,6 +36,7 @@ import {
 } from '@/workbench/workbench-tab-state';
 import { useHotspotFocusStore } from '@/components/hotspots/hotspot-focus-store';
 import { useDraftDirtyStore } from '@/workbench/draft-dirty-store';
+import { usePendingInputStore, selectPendingSaveUnitIds } from '@/workbench/pending-input-store';
 
 const tab: WorkbenchTab = {
   id: 'tab:room-detail:rooms:foyer',
@@ -108,6 +109,7 @@ beforeEach(() => {
   useWorkbenchStore.getState().resetWorkbench();
   useHotspotFocusStore.setState({ sessionsByTabId: {}, rememberedViewsByTarget: {} });
   useDraftDirtyStore.getState().resetDraftDirty();
+  usePendingInputStore.getState().resetPendingInputs();
   clearWorkbenchTabStates();
   vi.mocked(window.noveltea.requestImageThumbnail).mockClear();
   vi.mocked(window.noveltea.resolveProjectOriginalAssetUrl).mockReset();
@@ -240,10 +242,150 @@ describe('RoomEditor', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Add View' }));
     expect(await screen.findByDisplayValue('view')).toBeInTheDocument();
-    const updated = useProjectStore.getState().document;
-    expect(isAuthoringProject(updated)).toBe(true);
-    if (!isAuthoringProject(updated)) return;
-    expect(parseRoomData(updated.rooms.foyer?.data)?.presentationSpace.views).toHaveLength(3);
+    await waitFor(() => {
+      const updated = useProjectStore.getState().document;
+      expect(isAuthoringProject(updated)).toBe(true);
+      if (!isAuthoringProject(updated)) return;
+      expect(parseRoomData(updated.rooms.foyer?.data)?.presentationSpace.views).toHaveLength(3);
+    });
+  });
+
+  it('shows independent Camera View and Anchor edits while the native worker is blocked', async () => {
+    const project = createAuthoringProject();
+    const room = defaultRoomData('Foyer');
+    room.presentationSpace.views = [
+      { id: 'wide', view: { center: { x: 10, y: 20 }, zoom: 1, rotationDegrees: 0 } },
+      { id: 'close', view: { center: { x: 30, y: 40 }, zoom: 2, rotationDegrees: 15 } },
+    ];
+    room.anchors = [
+      { id: 'door', bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 } },
+      { id: 'desk', bounds: { x: 0.5, y: 0.6, width: 0.2, height: 0.1 } },
+    ];
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    const native = admitNativeRendererCommandFixture(project);
+    const held = holdFirstNativeProjectPatch();
+    renderEditor();
+    selectRoomCategory('Camera');
+
+    const zoom = screen.getByRole('textbox', { name: 'Camera View zoom' });
+    fireEvent.change(zoom, { target: { value: '1.5' } });
+    expect(zoom).toHaveValue('1.5');
+    await waitFor(() => expect(held.isHeld()).toBe(true));
+    fireEvent.change(zoom, { target: { value: '1.75' } });
+    fireEvent.click(screen.getByRole('button', { name: /^close2×$/i }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Camera View center x' }), {
+      target: { value: '42' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /^desk0.2×0.1$/i }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Room Anchor width' }), {
+      target: { value: '0.35' },
+    });
+    expect(screen.getByRole('textbox', { name: 'Camera View center x' })).toHaveValue('42');
+    expect(screen.getByRole('textbox', { name: 'Room Anchor width' })).toHaveValue('0.35');
+    fireEvent.click(screen.getByRole('button', { name: /^wide1.75×$/i }));
+    expect(screen.getByRole('textbox', { name: 'Camera View zoom' })).toHaveValue('1.75');
+    expect(native.patch).not.toHaveBeenCalled();
+
+    await act(async () => held.release());
+    await waitFor(() => {
+      const doc = useProjectStore.getState().document;
+      expect(isAuthoringProject(doc)).toBe(true);
+      if (!isAuthoringProject(doc)) return;
+      const acknowledged = parseRoomData(doc.rooms.foyer?.data);
+      expect(acknowledged?.presentationSpace.views).toMatchObject([
+        { id: 'wide', view: { zoom: 1.75 } },
+        { id: 'close', view: { center: { x: 42 } } },
+      ]);
+      expect(acknowledged?.anchors).toMatchObject([
+        { id: 'door' },
+        { id: 'desk', bounds: { width: 0.35 } },
+      ]);
+    });
+    expect(native.patch.mock.calls.length).toBeLessThanOrEqual(3);
+  });
+
+  it('retains incomplete Camera View numbers and defers semantic ID renames until blur', async () => {
+    const project = createAuthoringProject();
+    const room = defaultRoomData('Foyer');
+    room.presentationSpace.views = [
+      { id: 'wide', view: { center: { x: 10, y: 20 }, zoom: 1, rotationDegrees: 0 } },
+      { id: 'close', view: { center: { x: 30, y: 40 }, zoom: 2, rotationDegrees: 15 } },
+    ];
+    room.anchors = [{ id: 'door', bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 } }];
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    const native = admitNativeRendererCommandFixture(project);
+    renderEditor();
+    selectRoomCategory('Camera');
+
+    const zoom = screen.getByRole('textbox', { name: 'Camera View zoom' });
+    fireEvent.change(zoom, { target: { value: '2.' } });
+    expect(zoom).toHaveValue('2.');
+    fireEvent.blur(zoom);
+    expect(screen.getByRole('textbox', { name: 'Camera View zoom' })).toHaveValue('2.');
+    expect(selectPendingSaveUnitIds(usePendingInputStore.getState())).toContain(
+      'record:rooms:foyer',
+    );
+    expect(native.patch).not.toHaveBeenCalled();
+
+    fireEvent.change(zoom, { target: { value: '2.25' } });
+    expect(zoom).toHaveValue('2.25');
+    expect(selectPendingSaveUnitIds(usePendingInputStore.getState())).not.toContain(
+      'record:rooms:foyer',
+    );
+
+    const idInput = screen.getByRole('textbox', { name: 'Camera View ID' });
+    fireEvent.change(idInput, { target: { value: 'close' } });
+    fireEvent.blur(idInput);
+    expect(idInput).toHaveValue('close');
+    expect(idInput).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByRole('button', { name: /^wide2.25×$/i })).toBeInTheDocument();
+    expect(selectPendingSaveUnitIds(usePendingInputStore.getState())).toContain(
+      'record:rooms:foyer',
+    );
+
+    fireEvent.change(idInput, { target: { value: 'wide-framed' } });
+    fireEvent.blur(idInput);
+    expect(screen.getByRole('textbox', { name: 'Camera View ID' })).toHaveValue('wide-framed');
+    expect(selectPendingSaveUnitIds(usePendingInputStore.getState())).not.toContain(
+      'record:rooms:foyer',
+    );
+    await waitFor(() => {
+      const doc = useProjectStore.getState().document;
+      expect(isAuthoringProject(doc)).toBe(true);
+      if (!isAuthoringProject(doc)) return;
+      expect(parseRoomData(doc.rooms.foyer?.data)?.presentationSpace.views).toMatchObject([
+        { id: 'wide-framed', view: { zoom: 2.25 } },
+        { id: 'close' },
+      ]);
+    });
+  });
+
+  it('creates a Camera View from the latest visible default framing while native is blocked', async () => {
+    const project = createAuthoringProject();
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    const native = admitNativeRendererCommandFixture(project);
+    const held = holdFirstNativeProjectPatch();
+    renderEditor();
+    selectRoomCategory('Camera');
+    const centerX = screen.getByRole('textbox', { name: 'Default camera center x' });
+    fireEvent.change(centerX, { target: { value: '1234' } });
+    await waitFor(() => expect(held.isHeld()).toBe(true));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add View' }));
+    expect(screen.getByRole('textbox', { name: 'Camera View center x' })).toHaveValue('1234');
+    expect(native.patch).not.toHaveBeenCalled();
+    await act(async () => held.release());
+    await waitFor(() => {
+      const doc = useProjectStore.getState().document;
+      expect(isAuthoringProject(doc)).toBe(true);
+      if (!isAuthoringProject(doc)) return;
+      const data = parseRoomData(doc.rooms.foyer?.data);
+      expect(data?.presentationSpace.defaultView.center.x).toBe(1234);
+      expect(data?.presentationSpace.views).toMatchObject([
+        { id: 'view', view: { center: { x: 1234 } } },
+      ]);
+    });
+    expect(native.patch).toHaveBeenCalledTimes(2);
   });
 
   it('uses the Room Contents hierarchy to select Placements semantically', () => {

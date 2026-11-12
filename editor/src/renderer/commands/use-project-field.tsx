@@ -24,6 +24,7 @@ import {
   useNativeFieldDraftStore,
 } from './native-field-drafts';
 import { projectEdits } from './project-editing';
+import { parseProjectNumberText } from './project-number-input';
 import { measureProjectEdit } from './project-edit-timings';
 import type { ProjectFieldIdentity } from './project-field-identity';
 
@@ -392,22 +393,16 @@ export function ProjectFieldNumber({
       });
       return;
     }
-    const complete =
-      mode === 'integer' ? /^[+-]?\d+$/.test(text) : /^[+-]?(?:\d+|\d+\.\d+|\.\d+)$/.test(text);
-    const parsed = Number(text);
-    const inRange =
-      (props.min === undefined || parsed >= Number(props.min)) &&
-      (props.max === undefined || parsed <= Number(props.max));
+    const parsed = parseProjectNumberText(text, {
+      mode,
+      min: props.min === undefined ? undefined : Number(props.min),
+      max: props.max === undefined ? undefined : Number(props.max),
+    });
     if (optional && text === '') {
       usePendingInputStore.getState().clearPendingInput(saveUnitId, path);
       draft.change(null);
       parsedValue = null;
-    } else if (
-      complete &&
-      (mode !== 'integer' || Number.isSafeInteger(parsed)) &&
-      Number.isFinite(parsed) &&
-      inRange
-    ) {
+    } else if (parsed !== undefined) {
       usePendingInputStore.getState().clearPendingInput(saveUnitId, path);
       draft.change(parsed);
       parsedValue = parsed;
