@@ -65,10 +65,11 @@ remaining recovery entry is an unmounted serialized draft; Save All skips the
 blocked owner's atomic group while still committing independently valid owners.
 Invalid/unattributed field recovery entries fail closed rather than silently
 disappearing from the Save result.
-Incomplete numeric/raw inputs also block Save As and dependent commands in
+Incomplete numeric/raw inputs block content Save and dependent commands in
 their logical owner; Undo/Redo cannot advance native history while any such
-unrepresented input remains. Completing or discarding that input clears the
-barrier without disturbing unrelated Save units.
+unrepresented input remains. **Save As is different:** it copies these inputs
+as editor recovery without committing their content. Completing or discarding
+an input clears the content-Save barrier without disturbing unrelated Save units.
 For legacy semantic numeric editors, a completed number authorizes only the
 specific pending-input path and exact raw value it is attempting to commit.
 That one synchronous invocation captures its admission token before entering
@@ -271,8 +272,9 @@ to `1`.
 Native failures
 leave the draft visible with an actionable error and do not advance Project authority. Active Save
 flushes its logical save unit, Save All flushes current buffered fields, and ordinary dependent
-commands, transactions, Undo and Redo flush before planning. Save As also flushes pending field
-intents before cloning the Project. Save All may save independent valid units while excluding
+commands, transactions, Undo and Redo flush before planning. Save As snapshots serializable
+pending field intents and incomplete input **without** requiring native acknowledgment; invalid
+field attribution and unrecordable drafts still block the copy. Save All may save independent valid units while excluding
 units whose buffered field failed native acknowledgment, respecting atomic transaction groups.
 A recovered draft whose editor is not
 mounted has no live apply callback, so Save is blocked rather than silently pretending it saved that
@@ -319,7 +321,9 @@ The #522 manual acceptance cases remain separate and open.
   treats that returned recovery state as authoritative and never replaces it with the older pre-save
   recovery copy.
 - Save As and `Ctrl+Shift+S` create a copy from the saved content baseline plus complete editor
-  metadata, recovery overlays, and dirty-only project asset files. The active project identity and
+  metadata, recovery overlays (including unmounted native field drafts and incomplete numeric input),
+  and dirty-only project asset files. An already acknowledged native edit that is not yet content-saved
+  stays in recovery, rather than being copied as committed YAML. The active project identity and
   dirty state do not change. Unrelated files may already exist at the chosen destination, but Save As
   rejects pre-existing NovelTea canonical source/state namespaces and exact Asset-path collisions so
   the copy cannot silently merge stale records, Layout/Script sources, recovery state, or unrelated

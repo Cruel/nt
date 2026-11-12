@@ -1828,12 +1828,9 @@ export function WorkspacePage() {
     if (!project) return false;
     setProjectSaving(true);
     try {
-      if (!(await projectEdits.flush())) {
-        const message = t('projectField.saveAsPending');
-        setProjectSaveError(message);
-        setStatusMessage(message);
-        return false;
-      }
+      // Save As is a recovery-preserving copy, not a content Save. Keep
+      // unresolved field intents and raw numeric input in its serialized
+      // editor snapshot instead of forcing a native acknowledgment.
       await flushStructuralCommandPersistence();
       await settleProjectEditorMetadataWrites();
       const result = await saveProjectAsCopy();

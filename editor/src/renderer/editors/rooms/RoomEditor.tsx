@@ -1829,25 +1829,25 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   const renameRoomPlacement = async (placementId: string, requestedId: string) => {
     const nextId = requestedId.trim();
     if (!nextId || nextId === placementId) return;
+    const placement = data.placements.find((candidate) => candidate.id === placementId);
+    if (!placement) return;
     const placementKeys = (['placement', 'placement-layout'] as const).map((kind) =>
       roomEditSelectionKey({ kind, id: placementId }),
     );
     for (const key of placementKeys) pendingSelectionRenames.current.set(key, nextId);
-    const result = await projectEdits.execute({
-      type: 'room.replaceData',
-      label: t('roomEditor.compositionPane.editor.renamePlacement'),
-      payload: {
-        roomId,
-        data: {
-          ...data,
-          placements: data.placements.map((placement) =>
-            placement.id === placementId ? { ...placement, id: nextId } : placement,
-          ),
-        },
+    const planned = projectEdits.recordData({
+      record: { collection: 'rooms', id: roomId },
+      before: data,
+      after: {
+        ...data,
+        placements: data.placements.map((candidate) =>
+          candidate.id === placementId ? { ...candidate, id: nextId } : candidate,
+        ),
       },
-      originSaveUnitId: recordSaveUnitId('rooms', roomId),
-      persistencePolicy: 'manual-save',
+      label: t('roomEditor.compositionPane.editor.renamePlacement'),
     });
+    if (!planned) return;
+    const result = await projectEdits.execute(planned);
     if (!result.ok) {
       for (const key of placementKeys) pendingSelectionRenames.current.delete(key);
       return;
@@ -3823,45 +3823,40 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                               className="border-amber-500/30 bg-background/80"
                               onClick={() => {
                                 const targetRoomId = exit.target.$ref.id;
-                                const nextTargetData = mismatchedReturnExit
-                                  ? {
-                                      ...targetData,
-                                      exits: targetData.exits.map((candidate) =>
-                                        candidate.id === mismatchedReturnExit.id
-                                          ? { ...candidate, direction: returnDirection }
-                                          : candidate,
-                                      ),
-                                    }
-                                  : {
-                                      ...targetData,
-                                      exits: [
-                                        ...targetData.exits,
-                                        {
-                                          id: nextId(
-                                            targetData.exits.map((candidate) => candidate.id),
-                                            'return-exit',
-                                          ),
-                                          label: `To ${record.label || data.displayName || roomId}`,
-                                          direction: returnDirection,
-                                          target: roomRoomRef(roomId),
-                                          condition: { kind: 'always' as const },
-                                          onRejected: [],
-                                          transition: null,
+                                void projectEdits.execute(
+                                  projectEdits.recordList({
+                                    record: { collection: 'rooms', id: targetRoomId },
+                                    field: '/exits',
+                                    action: mismatchedReturnExit
+                                      ? {
+                                          kind: 'replace',
+                                          id: mismatchedReturnExit.id,
+                                          before: mismatchedReturnExit,
+                                          after: {
+                                            ...mismatchedReturnExit,
+                                            direction: returnDirection,
+                                          },
+                                        }
+                                      : {
+                                          kind: 'insert',
+                                          item: {
+                                            id: nextId(
+                                              targetData.exits.map((candidate) => candidate.id),
+                                              'return-exit',
+                                            ),
+                                            label: `To ${record.label || data.displayName || roomId}`,
+                                            direction: returnDirection,
+                                            target: roomRoomRef(roomId),
+                                            condition: { kind: 'always' as const },
+                                            onRejected: [],
+                                            transition: null,
+                                          },
                                         },
-                                      ],
-                                    };
-                                void projectEdits.execute({
-                                  type: 'room.replaceData',
-                                  label: mismatchedReturnExit
-                                    ? 'Correct reciprocal room exit direction'
-                                    : 'Add reciprocal room exit',
-                                  payload: {
-                                    roomId: targetRoomId,
-                                    data: nextTargetData,
-                                  },
-                                  originSaveUnitId: recordSaveUnitId('rooms', targetRoomId),
-                                  persistencePolicy: 'manual-save',
-                                });
+                                    label: mismatchedReturnExit
+                                      ? 'Correct reciprocal room exit direction'
+                                      : 'Add reciprocal room exit',
+                                  }),
+                                );
                               }}
                             >
                               {mismatchedReturnExit

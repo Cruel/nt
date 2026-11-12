@@ -12,9 +12,12 @@ import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { useCommandStore } from '@/commands/command-store';
 import { resolveProjectComments } from '@/project/project-comment-confirmation';
 import { useDraftDirtyStore } from '@/workbench/draft-dirty-store';
+import { usePendingInputStore } from '@/workbench/pending-input-store';
 import { NATIVE_FIELD_DRAFT_SCHEMA, nativeFieldDraftKey } from '@/commands/native-field-drafts';
 import {
   buildEditorProjectStateSnapshot,
+  editorProjectStateFromProject,
+  restoreEditorProjectState,
   setLoadedEditorProjectState,
   mergeEditorProjectState,
 } from '@/workbench/project-editor-state';
@@ -1757,7 +1760,7 @@ describe('project save coordinator', () => {
     });
   });
 
-  it('Save As rejects unresolved numeric input instead of writing a misleading clean copy', async () => {
+  it('Save As preserves unresolved numeric input as recovery without committing content', async () => {
     const project = projectWithRooms();
     loadProject(
       project,
@@ -1775,8 +1778,68 @@ describe('project save coordinator', () => {
       }),
     );
     const result = await saveProjectAsCopy();
+    expect(result).toMatchObject({ success: true, status: 'saved' });
+    const copy = vi.mocked(window.noveltea.saveProjectCopyAs).mock.calls[0]![1];
+    expect(copy).toMatchObject({
+      rooms: { foyer: { label: 'Foyer' } },
+      editor: {
+        recovery: {
+          saveUnitsById: {
+            'record:rooms:foyer': {
+              pendingRawInputByPath: { '/rooms/foyer/data/width': { value: '-' } },
+            },
+          },
+        },
+      },
+    });
+    usePendingInputStore.getState().resetPendingInputs();
+    restoreEditorProjectState(toJsonValue(copy), '/mock/copied/project.yaml');
+    expect(usePendingInputStore.getState().entriesBySaveUnitId).toMatchObject({
+      'record:rooms:foyer': { '/rooms/foyer/data/width': { value: '-' } },
+    });
+  });
+
+  it('Save As preserves an unmounted native field draft that has not been acknowledged', async () => {
+    const project = projectWithRooms();
+    loadProject(project, structuredClone(project), emptyEditorProjectState());
+    const key = nativeFieldDraftKey('record:rooms:foyer', '/rooms/foyer/data/displayName');
+    const payload = { value: 'Unsent title', base: { revision: 0, exists: true, value: 'Foyer' } };
+    useDraftDirtyStore.getState().restoreSerializedDrafts({
+      [key]: { tabId: 'unmounted-view', schema: NATIVE_FIELD_DRAFT_SCHEMA, payload },
+    });
+    expect((await saveProjectAsCopy()).success).toBe(true);
+    const copy = vi.mocked(window.noveltea.saveProjectCopyAs).mock.calls[0]![1];
+    expect(editorProjectStateFromProject(copy).draftsByKey?.[key]).toMatchObject({ payload });
+    useDraftDirtyStore.getState().resetDraftDirty();
+    restoreEditorProjectState(toJsonValue(copy), '/mock/copied/project.yaml');
+    expect(useDraftDirtyStore.getState().entriesByKey[key]?.payload).toEqual(payload);
+    expect(useProjectStore.getState().savedDocument).toMatchObject({
+      rooms: { foyer: { data: { displayName: 'Foyer' } } },
+    });
+  });
+
+  it('Save As fails closed when a draft has invalid attribution or cannot be serialized', async () => {
+    const project = projectWithRooms();
+    loadProject(project, structuredClone(project), emptyEditorProjectState());
+    useDraftDirtyStore.getState().restoreSerializedDrafts({
+      'native-field:malformed': {
+        tabId: 'unmounted-view',
+        schema: NATIVE_FIELD_DRAFT_SCHEMA,
+        payload: { value: 'Unsent' },
+      },
+    });
+    expect(await saveProjectAsCopy()).toMatchObject({ success: false, status: 'blocked' });
+    expect(window.noveltea.saveProjectCopyAs).not.toHaveBeenCalled();
+    useDraftDirtyStore.getState().resetDraftDirty();
+    useDraftDirtyStore.getState().setDraftDirty('nonserializable', {
+      tabId: 'unmounted-view',
+      dirty: true,
+    });
+    const result = await saveProjectAsCopy();
     expect(result).toMatchObject({ success: false, status: 'blocked' });
-    expect(result.remainingDirtySaveUnitIds).toContain('record:rooms:foyer');
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({ code: 'editor.copy.unrecordable-draft' }),
+    ]);
     expect(window.noveltea.saveProjectCopyAs).not.toHaveBeenCalled();
   });
 });

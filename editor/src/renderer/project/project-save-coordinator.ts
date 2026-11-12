@@ -1,6 +1,11 @@
 import { useCommandStore } from '@/commands/command-store';
-import { unresolvedNativeFieldOwners } from '@/commands/native-field-drafts';
+import {
+  NATIVE_FIELD_DRAFT_SCHEMA,
+  parseNativeFieldRecovery,
+  unresolvedNativeFieldOwners,
+} from '@/commands/native-field-drafts';
 import { usePendingInputStore } from '@/workbench/pending-input-store';
+import { useDraftDirtyStore } from '@/workbench/draft-dirty-store';
 import {
   buildEditorProjectStateSnapshot,
   editorProjectStateFromProject,
@@ -753,46 +758,52 @@ export async function saveProjectAsCopy(): Promise<ProjectSaveCoordinatorResult>
     };
   }
   const unresolved = unresolvedNativeFieldOwners();
-  if (unresolved.unattributed || unresolved.saveUnitIds.size > 0) {
+  // Save As copies the saved content baseline *and* the complete dirty editor
+  // recovery. An unmounted field or incomplete number is recoverable state,
+  // not a reason to force a content commit before making a copy.
+  if (unresolved.unattributed) {
     const pendingOwners = [...unresolved.saveUnitIds].sort();
     return {
       success: false,
       status: 'blocked',
       diagnostics: [
         {
-          code: 'editor.copy.pending-field-rejected',
+          code: 'editor.copy.invalid-field-owner',
           severity: 'error',
           category: 'Project save',
           path: '/',
-          message:
-            'Save As requires resolving recovered or unacknowledged field edits before copying the Project.',
+          message: 'Save As cannot copy a field draft with invalid Save-unit ownership.',
         },
       ],
       savedSaveUnitIds: [],
       remainingDirtySaveUnitIds: pendingOwners,
     };
   }
-  const snapshot = buildEditorProjectStateSnapshot();
-  const pendingRawOwners = Object.entries(snapshot.recovery.saveUnitsById)
-    .filter(([, entry]) => Object.keys(entry.pendingRawInputByPath).length > 0)
-    .map(([id]) => id);
-  if (pendingRawOwners.length > 0) {
+  const unrecordableDraft = Object.values(useDraftDirtyStore.getState().entriesByKey).find(
+    (entry) =>
+      entry.dirty &&
+      (!entry.schema ||
+        entry.payload === undefined ||
+        (entry.schema === NATIVE_FIELD_DRAFT_SCHEMA && !parseNativeFieldRecovery(entry.payload))),
+  );
+  if (unrecordableDraft) {
     return {
       success: false,
       status: 'blocked',
       diagnostics: [
         {
-          code: 'editor.copy.pending-input-rejected',
+          code: 'editor.copy.unrecordable-draft',
           severity: 'error',
           category: 'Project save',
           path: '/',
-          message: 'Resolve incomplete or invalid field input before Save As.',
+          message: `Save As cannot preserve unrecordable draft '${unrecordableDraft.label ?? unrecordableDraft.key}'.`,
         },
       ],
       savedSaveUnitIds: [],
-      remainingDirtySaveUnitIds: pendingRawOwners.sort(),
+      remainingDirtySaveUnitIds: [...unresolved.saveUnitIds].sort(),
     };
   }
+  const snapshot = buildEditorProjectStateSnapshot();
   const baseline = projectState.savedDocument ?? projectState.document;
   const copyContent = stripLocalEditorProjectState(baseline) as JsonValue;
   const copyDocument = mergeEditorProjectState(

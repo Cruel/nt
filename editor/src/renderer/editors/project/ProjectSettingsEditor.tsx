@@ -409,6 +409,27 @@ interface PendingNumberInputProps {
   onCommit: (value: number | undefined) => boolean | Promise<boolean>;
 }
 
+/** A numeric input may commit the exact raw value it just staged. Keep all
+ * other incomplete input protected while the native command is queued. */
+async function commitPendingNumericInput(
+  path: string,
+  raw: string,
+  onCommit: () => boolean | Promise<boolean>,
+): Promise<boolean> {
+  const committed = await withPendingInputCommit(
+    PROJECT_SETTINGS_SAVE_UNIT_ID,
+    path,
+    raw,
+    onCommit,
+  );
+  if (committed) {
+    const store = usePendingInputStore.getState();
+    if (store.entriesBySaveUnitId[PROJECT_SETTINGS_SAVE_UNIT_ID]?.[path]?.value === raw)
+      store.clearPendingInput(PROJECT_SETTINGS_SAVE_UNIT_ID, path);
+  }
+  return committed;
+}
+
 function PendingNumberInput({
   id,
   path,
@@ -421,7 +442,6 @@ function PendingNumberInput({
     (state) => state.entriesBySaveUnitId[PROJECT_SETTINGS_SAVE_UNIT_ID]?.[path],
   );
   const setPendingInput = usePendingInputStore((state) => state.setPendingInput);
-  const clearPendingInput = usePendingInputStore((state) => state.clearPendingInput);
   const rawValue = pending?.value ?? (value === undefined ? '' : String(value));
 
   return (
@@ -438,25 +458,13 @@ function PendingNumberInput({
           diagnosticCode: 'editor.pending-input.number.invalid',
         });
         if (optional && raw === '') {
-          if (await onCommit(undefined)) {
-            const latest =
-              usePendingInputStore.getState().entriesBySaveUnitId[PROJECT_SETTINGS_SAVE_UNIT_ID]?.[
-                path
-              ];
-            if (latest?.value === raw) clearPendingInput(PROJECT_SETTINGS_SAVE_UNIT_ID, path);
-          }
+          await commitPendingNumericInput(path, raw, () => onCommit(undefined));
           return;
         }
         if (/^[+-]?\d+$/.test(raw)) {
           const parsed = Number(raw);
-          if (Number.isSafeInteger(parsed) && (await onCommit(parsed))) {
-            const latest =
-              usePendingInputStore.getState().entriesBySaveUnitId[PROJECT_SETTINGS_SAVE_UNIT_ID]?.[
-                path
-              ];
-            if (latest?.value === raw) clearPendingInput(PROJECT_SETTINGS_SAVE_UNIT_ID, path);
-            return;
-          }
+          if (Number.isSafeInteger(parsed))
+            await commitPendingNumericInput(path, raw, () => onCommit(parsed));
         }
       }}
     />
@@ -476,7 +484,6 @@ function PendingDecimalInput({ id, path, value, invalid, onCommit }: PendingDeci
     (state) => state.entriesBySaveUnitId[PROJECT_SETTINGS_SAVE_UNIT_ID]?.[path],
   );
   const setPendingInput = usePendingInputStore((state) => state.setPendingInput);
-  const clearPendingInput = usePendingInputStore((state) => state.clearPendingInput);
   const rawValue = pending?.value ?? String(value);
 
   return (
@@ -494,19 +501,8 @@ function PendingDecimalInput({ id, path, value, invalid, onCommit }: PendingDeci
         });
         if (/^[+-]?(?:\d+|\d+\.\d+|\.\d+)$/.test(raw)) {
           const parsed = Number(raw);
-          if (
-            Number.isFinite(parsed) &&
-            (await withPendingInputCommit(PROJECT_SETTINGS_SAVE_UNIT_ID, path, raw, () =>
-              onCommit(parsed),
-            ))
-          ) {
-            const latest =
-              usePendingInputStore.getState().entriesBySaveUnitId[PROJECT_SETTINGS_SAVE_UNIT_ID]?.[
-                path
-              ];
-            if (latest?.value === raw) clearPendingInput(PROJECT_SETTINGS_SAVE_UNIT_ID, path);
-            return;
-          }
+          if (Number.isFinite(parsed))
+            await commitPendingNumericInput(path, raw, () => onCommit(parsed));
         }
       }}
     />

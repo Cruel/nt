@@ -17,6 +17,7 @@ import {
 } from '@/commands/native-field-drafts';
 import { useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
+import { saveProjectAsCopy } from '@/project/project-save-coordinator';
 import { PROJECT_SETTINGS_SAVE_UNIT_ID } from '@/project/save-unit-registry';
 import { serializeDraftDirtyState, useDraftDirtyStore } from '@/workbench/draft-dirty-store';
 import { usePendingInputStore } from '@/workbench/pending-input-store';
@@ -928,6 +929,110 @@ describe('shared buffered native field intents', () => {
       });
     }
   });
+  it('preserves a pending Room field when a placement is renamed from an older render', async () => {
+    const project = createAuthoringProject();
+    const initial = defaultRoomData('Foyer');
+    const placement = {
+      id: 'desk',
+      bounds: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 },
+      presentation: { label: null, layout: null },
+    };
+    initial.placements = [placement];
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: initial };
+    admitNativeRendererCommandFixture(project);
+    projectEdits.field({
+      tabId: 'room:foyer',
+      path: '/rooms/foyer/data/displayName',
+      saveUnitId: 'record:rooms:foyer',
+      value: 'Latest display name',
+      label: 'Rename Room',
+    });
+    const plan = projectEdits.recordData({
+      record: { collection: 'rooms', id: 'foyer' },
+      before: initial,
+      after: { ...initial, placements: [{ ...placement, id: 'writing-desk' }] },
+      label: 'Rename Room placement',
+    });
+    const result = await projectEdits.execute(plan!);
+    expect(result.ok, JSON.stringify(result.diagnostics)).toBe(true);
+    const acknowledged = useProjectStore.getState().document;
+    expect(isAuthoringProjectView(acknowledged)).toBe(true);
+    if (isAuthoringProjectView(acknowledged))
+      expect(parseRoomData(acknowledged.rooms.foyer?.data)).toMatchObject({
+        displayName: 'Latest display name',
+        placements: [expect.objectContaining({ id: 'writing-desk' })],
+      });
+  });
+  it('preserves pending destination Room fields when inserting and correcting a reciprocal exit', async () => {
+    const project = createAuthoringProject();
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    project.rooms.kitchen = { id: 'kitchen', label: 'Kitchen', data: defaultRoomData('Kitchen') };
+    admitNativeRendererCommandFixture(project);
+    const record = { collection: 'rooms' as const, id: 'kitchen' };
+    const exit = {
+      id: 'return-exit',
+      label: 'To foyer',
+      direction: 'north' as const,
+      target: { $ref: { collection: 'rooms' as const, id: 'foyer' } },
+      condition: { kind: 'always' as const },
+      onRejected: [],
+      transition: null,
+    };
+    projectEdits.field({
+      tabId: 'room:kitchen',
+      path: '/rooms/kitchen/data/displayName',
+      saveUnitId: 'record:rooms:kitchen',
+      value: 'Latest kitchen name',
+      label: 'Rename Kitchen',
+    });
+    expect(
+      (
+        await projectEdits.execute(
+          projectEdits.recordList({
+            record,
+            field: '/exits',
+            action: { kind: 'insert', item: exit },
+            label: 'Add reciprocal exit',
+          }),
+        )
+      ).ok,
+    ).toBe(true);
+    const latest = useProjectStore.getState().document;
+    expect(isAuthoringProjectView(latest)).toBe(true);
+    if (!isAuthoringProjectView(latest)) return;
+    const before = parseRoomData(latest.rooms.kitchen?.data)?.exits[0];
+    expect(before).toBeDefined();
+    projectEdits.field({
+      tabId: 'room:kitchen',
+      path: '/rooms/kitchen/data/displayName',
+      saveUnitId: 'record:rooms:kitchen',
+      value: 'Newest kitchen name',
+      label: 'Rename Kitchen again',
+    });
+    expect(
+      (
+        await projectEdits.execute(
+          projectEdits.recordList({
+            record,
+            field: '/exits',
+            action: {
+              kind: 'replace',
+              id: 'return-exit',
+              before: before!,
+              after: { ...before!, direction: 'south' },
+            },
+            label: 'Correct reciprocal exit',
+          }),
+        )
+      ).ok,
+    ).toBe(true);
+    const acknowledged = useProjectStore.getState().document;
+    if (isAuthoringProjectView(acknowledged))
+      expect(parseRoomData(acknowledged.rooms.kitchen?.data)).toMatchObject({
+        displayName: 'Newest kitchen name',
+        exits: [expect.objectContaining({ id: 'return-exit', direction: 'south' })],
+      });
+  });
   it('rejects an overlapping event-time record delta instead of silently replacing a newer field', async () => {
     const project = createAuthoringProject();
     const initial = defaultRoomData('Foyer');
@@ -1019,6 +1124,32 @@ describe('shared buffered native field intents', () => {
       project: { name: 'Final shared value' },
     });
     expect(Object.keys(useNativeFieldDraftStore.getState().entries)).toHaveLength(0);
+  });
+  it('Save As copies a live unacknowledged field as recovery without native synchronization', async () => {
+    const native = admitProject();
+    const key = nativeFieldDraftKey(PROJECT_SETTINGS_SAVE_UNIT_ID, '/project/name');
+    expect(
+      projectEdits.field({
+        tabId: 'project:1',
+        path: '/project/name',
+        saveUnitId: PROJECT_SETTINGS_SAVE_UNIT_ID,
+        value: 'Unacknowledged title',
+        label: 'Update Project title',
+      }),
+    ).toBe(true);
+    expect(Object.keys(useNativeFieldDraftStore.getState().entries)).toHaveLength(1);
+    expect((await saveProjectAsCopy()).success).toBe(true);
+    expect(native.patch).not.toHaveBeenCalled();
+    const copy = vi.mocked(window.noveltea.saveProjectCopyAs).mock.calls.at(-1)?.[1];
+    expect(copy).toMatchObject({
+      project: { name: 'Original' },
+      editor: {
+        draftsByKey: {
+          [key]: { payload: { value: 'Unacknowledged title' } },
+        },
+      },
+    });
+    expect(useProjectStore.getState().document).toMatchObject({ project: { name: 'Original' } });
   });
 
   it('preserves an actionable draft on native failure instead of pretending Save succeeded', async () => {

@@ -618,6 +618,31 @@ describe('ProjectSettingsEditor', () => {
     expect(usePendingInputStore.getState().entriesBySaveUnitId['project:settings']).toBeUndefined();
     expect(screen.getByLabelText('UI scale minimum')).toHaveAttribute('aria-invalid', 'true');
   });
+  it('commits valid and cleared integer settings without rejecting their own pending input', async () => {
+    const native = admitNativeRendererCommandFixture(project());
+    render(<ProjectSettingsEditor tab={tab} />);
+    selectProjectSettingsCategory('App Identity');
+    const build = screen.getByLabelText('Build number');
+    fireEvent.change(build, { target: { value: '-' } });
+    expect(build).toHaveValue('-');
+    expect(usePendingInputStore.getState().entriesBySaveUnitId['project:settings']).toHaveProperty(
+      '/settings/app/buildNumber',
+    );
+    fireEvent.change(build, { target: { value: '23' } });
+    await waitFor(() =>
+      expect(useProjectStore.getState().document).toMatchObject({
+        settings: { app: { buildNumber: 23 } },
+      }),
+    );
+    expect(native.patch).toHaveBeenCalled();
+    expect(usePendingInputStore.getState().entriesBySaveUnitId['project:settings']).toBeUndefined();
+    fireEvent.change(build, { target: { value: '' } });
+    await waitFor(() => {
+      const current = useProjectStore.getState().document as ReturnType<typeof project>;
+      expect(current.settings.app?.buildNumber).toBeUndefined();
+    });
+    expect(usePendingInputStore.getState().entriesBySaveUnitId['project:settings']).toBeUndefined();
+  });
 
   it('changes reference resolution only after explicit valid confirmation', async () => {
     admitNativeRendererCommandFixture(project());
