@@ -408,6 +408,37 @@ not a physical scanout measurement of the newly migrated Room/Character/
 Interactable controls. The 0 ms p95 exceeds 16 ms amid Xvfb idle-frame
 stalls; the human interactive and cross-platform acceptance gates remain open.
 
+#### #602 owner-scoped Property/Instance regression and package evidence (2026-11-12)
+
+The Property/Instance increment was committed as `bd73c748dcdf` and tested
+with the real Linux native authoring addon. `pnpm -C editor run check` passed
+(format, lint with no warnings, TypeScript, schema policy and generated
+metadata). The full `vp test run --testTimeout=30000 --reporter=dot` with
+`NOVELTEA_AUTHORING_NODE_ADDON` passed **303 test files, 2,271 tests**, with
+94 skipped and zero failures. Delayed-native component regressions include
+two independent Property fields, Room/Character separate Save owners,
+exact-Instance optional label/quantity and Project Inventory authoring.
+
+The fresh Linux x64 Electron package `1.0.0-dev.bd73c748dcdf` passed
+`package`, `package:smoke` and `benchmark:packaged-fields`. The Project-title
+bench again verified exact 20-character presentation and native saved YAML
+readback with 2–3 patch calls across all simulated delays:
+
+| Native acknowledgment delay | Input median | Input p95 | Input max | Native patch calls | Idle-frame p95 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 0 ms | 14.65 ms | 100.72 ms | 136.27 ms | 3 | 83.34 ms |
+| 500 ms | 9.63 ms | 16.08 ms | 62.61 ms | 2 | 16.67 ms |
+| 1,000 ms | 10.10 ms | 16.28 ms | 65.70 ms | 2 | 16.67 ms |
+
+Environment: AMD Ryzen 7 5700G, Linux x64 Xvfb software display,
+Node 24.18.0, Electron 43.1.1, Chromium 150.0.7871.114. The idle-frame
+stalls and above-16-ms p95 values **do not certify** the target physical
+input-to-visible-paint latency, even though synchronization remained correct
+with 1,000 ms native delays. This harness covers Project-title typing rather
+than the new Property/Instance controls. Repeat the full eight-case Feature
+Lab matrix, including Save/recovery/conflict and physical display timing, on
+the exact packaged binary before closing #602/#522.
+
 The default field operation chooses a narrow native add/replace patch against the **current**
 acknowledged Project. Fields with schema-specific initialization (such as Title Screen) supply
 their existing semantic command instead. Reusable gameplay-record planners handle archetyped
