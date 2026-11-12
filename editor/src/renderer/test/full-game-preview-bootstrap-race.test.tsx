@@ -116,6 +116,7 @@ beforeEach(() => {
     configurable: true,
     value: vi.fn().mockResolvedValue({
       status: 'prepared',
+      previewAssets: [],
       artifact: {
         compiledProject: { rooms: {} },
         shaderMaterialMetadata: null,

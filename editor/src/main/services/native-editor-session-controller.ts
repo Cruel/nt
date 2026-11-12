@@ -823,17 +823,24 @@ export class NativeEditorSessionController {
    * different Save unit remains dirty. */
   async currentWorkingProject(projectSessionId: string): Promise<AuthoringProject> {
     const generation = this.generation;
-    const revision = this.currentRevision(projectSessionId);
-    const prepared = await this.working.prepareCompleteWorking('', true);
-    if (!prepared.accepted || !prepared.completeProject)
-      throw new Error(prepared.error || 'Native working Project is unavailable.');
-    if (
-      generation !== this.generation ||
-      !this.isAdmitted(projectSessionId) ||
-      revision !== this.currentRevision(projectSessionId)
-    )
-      throw new Error('Native working Project changed during Asset discovery.');
-    return projectFromNativeCompletePreparation(prepared);
+    // Field commands can advance the working revision while a read-only
+    // capability refresh awaits the native worker. Retry the latest same-session
+    // snapshot rather than surfacing a transient error to Asset consumers.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const revision = this.currentRevision(projectSessionId);
+      const prepared = await this.working.prepareCompleteWorking('', true);
+      if (generation !== this.generation || !this.isAdmitted(projectSessionId))
+        throw new Error('Native working Project changed during Asset discovery.');
+      if (
+        revision !== this.currentRevision(projectSessionId) ||
+        prepared.workingRevision !== revision
+      )
+        continue;
+      if (!prepared.accepted || !prepared.completeProject)
+        throw new Error(prepared.error || 'Native working Project is unavailable.');
+      return projectFromNativeCompletePreparation(prepared);
+    }
+    throw new Error('Native working Project changed repeatedly during Asset discovery.');
   }
 
   /** Export uses admitted, *saved* native source, never a renderer document or

@@ -219,6 +219,37 @@ async function admitNativeSession(
 }
 
 describe('native admission at the editor main Project lifecycle', () => {
+  it('retries a working Asset discovery read when another edit advances the same native session', async () => {
+    const test = fixture();
+    await test.controller.admitFromNative('one');
+    let revision = 0;
+    test.snapshot.mockImplementation(() => ({ workingRevision: revision }));
+    test.prepareCompleteWorking
+      .mockImplementationOnce(async () => {
+        revision = 1;
+        return { ...test.preparation, workingRevision: 0 };
+      })
+      .mockImplementationOnce(async () => ({ ...test.preparation, workingRevision: 1 }));
+
+    expect(await test.controller.currentWorkingProject('one')).toEqual(test.saved);
+    expect(test.prepareCompleteWorking).toHaveBeenCalledTimes(3); // admission + two reads
+    test.controller.dispose();
+  });
+
+  it('never retries Asset discovery into a different active Project session', async () => {
+    const test = fixture();
+    await test.controller.admitFromNative('one');
+    test.prepareCompleteWorking.mockImplementationOnce(async () => {
+      test.setActive('two');
+      return test.preparation;
+    });
+    await expect(test.controller.currentWorkingProject('one')).rejects.toThrow(
+      'Native working Project changed during Asset discovery.',
+    );
+    expect(test.prepareCompleteWorking).toHaveBeenCalledTimes(2);
+    test.controller.dispose();
+  });
+
   it('opens without a TypeScript saved Workspace and reads recovery using native identity', async () => {
     const root = '/trusted/native-only';
     const test = fixture(root);

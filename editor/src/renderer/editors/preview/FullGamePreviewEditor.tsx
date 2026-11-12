@@ -110,7 +110,6 @@ import {
   recordedTestDraftToTestData,
   type RecordedRuntimeInputKind,
 } from '../../../shared/project-schema/recorded-test-draft';
-import { type PreparedRuntimeArtifact } from '../../../shared/runtime-artifact-preparation';
 import type { ShaderVariant } from '../../../shared/shader-variants';
 import { DebugReportExportButton } from './DebugReportExportButton';
 import { RmlUiDebuggerControls } from './RmlUiDebuggerControls';
@@ -463,46 +462,6 @@ function nextRecordedTestId(project: AuthoringProject | null) {
   return `${base}-${index}`;
 }
 
-function previewAssetsForArtifact(artifact: PreparedRuntimeArtifact) {
-  const assets = artifact.fileEntries.map((entry) => ({
-    sourcePath: entry.source,
-    runtimePath: entry.packagePath,
-  }));
-  assets.push(
-    ...previewNoticeAssetMappings(
-      artifact.packageOptions.textEntries.find(
-        (entry) => entry.packagePath === 'licenses/index.json',
-      )?.text,
-    ),
-  );
-  if (artifact.requiredShaderBinaryPaths.length === 0) return assets;
-  const shaderAssetRoot = artifact.packageOptions.shaderAssetRoot;
-  if (!shaderAssetRoot) return assets;
-  const normalizedRoot = shaderAssetRoot.replace(/\\/g, '/').replace(/\/+$/u, '');
-  const markerIndex = normalizedRoot.lastIndexOf('/.noveltea/build');
-  const sourcePrefix = markerIndex >= 0 ? normalizedRoot.slice(markerIndex + 1) : '.noveltea/build';
-  for (const runtimePath of artifact.requiredShaderBinaryPaths) {
-    assets.push({
-      sourcePath: `${sourcePrefix}/${runtimePath}`.replace(/^\/+/, ''),
-      runtimePath,
-    });
-  }
-  return assets;
-}
-
-function previewNoticeAssetMappings(indexText: string | undefined) {
-  if (!indexText) return [];
-  // This is the engine-validated Project distribution index prepared for the runtime package.
-  // The corresponding physical files are served through the existing Project asset endpoint.
-  const index = JSON.parse(indexText) as {
-    notices: Array<{ source: string; path: string }>;
-  };
-  return index.notices.map((notice) => ({
-    sourcePath: notice.source,
-    runtimePath: notice.path,
-  }));
-}
-
 async function compiledProjectDiagnosticEntries(
   project: AuthoringProject | null,
   recoveryFingerprint: unknown,
@@ -574,7 +533,7 @@ async function compiledProjectDiagnosticEntries(
         ok: true,
         compiledProject: shared.artifact.compiledProject,
         shaderMaterialMetadata: shared.artifact.shaderMaterialMetadata ?? null,
-        previewAssets: previewAssetsForArtifact(shared.artifact),
+        previewAssets: shared.previewAssets,
         noticeIndexText: shared.artifact.packageOptions.textEntries.find(
           (entry) => entry.packagePath === 'licenses/index.json',
         )?.text,

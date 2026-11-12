@@ -73,6 +73,17 @@ path as packaged playback;
 `runtime::RunningGame::create` receives only the validated typed package and constructs one
 `runtime::RuntimeSession`.
 
+Native runtime preparation retains physical source filenames for export, including absolute
+Project paths and disposable dirty text/shader overlays. Play does not pass these physical
+filenames as preview asset fetch paths. Electron main registers the prepared package file entries
+and compiled shader binaries with the loopback `EnginePreviewServer`, which returns opaque,
+Project-relative `__runtime-prepared/<token>/<index>` fetch identities. The renderer forwards this
+mapping unchanged in `runtime-load-compiled-project`; the widget validates both relative paths
+and stages the verified bytes into their compiled runtime destinations. The server serves only
+explicitly registered sources, retains a bounded number of generations for simultaneous preview
+tabs, and revokes its registrations on Project switch and shutdown. A file that disappears from a
+retired native preparation is not silently replaced by a same-named Project file.
+
 The transport message name is an external protocol operation, not a schema name. Its `project`
 payload must be `noveltea.compiled.project` format version 1.
 

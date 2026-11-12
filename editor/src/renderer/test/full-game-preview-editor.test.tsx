@@ -140,6 +140,12 @@ beforeEach(() => {
       }
       return {
         status: 'prepared' as const,
+        previewAssets: [
+          {
+            sourcePath: '__runtime-prepared/0123456789abcdef0123456789abcdef/0',
+            runtimePath: 'images/demo.png',
+          },
+        ],
         artifact: {
           compiledProject: {
             schema: 'noveltea.compiled.project',
@@ -698,13 +704,19 @@ describe('FullGamePreviewEditor', () => {
       expect(latestRequest(editorPort, 'runtime-load-compiled-project')).toBeDefined(),
     );
     const request = latestRequest(editorPort, 'runtime-load-compiled-project') as
-      | { compiledProject?: unknown }
+      | { compiledProject?: unknown; assets?: unknown }
       | undefined;
     expect(request?.compiledProject).toMatchObject({
       schema: 'noveltea.compiled.project',
       definitions: { rooms: [expect.objectContaining({ id: 'foyer' })] },
       entrypoint: { kind: 'room', room: { kind: 'room', id: 'foyer' } },
     });
+    expect(request?.assets).toEqual([
+      {
+        sourcePath: '__runtime-prepared/0123456789abcdef0123456789abcdef/0',
+        runtimePath: 'images/demo.png',
+      },
+    ]);
     await resolveLatest(editorPort, previewPort, 'runtime-load-compiled-project');
     await waitFor(() =>
       expect(latestRequest(editorPort, 'runtime-request-debug-snapshot')).toBeDefined(),

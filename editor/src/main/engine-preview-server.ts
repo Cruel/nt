@@ -1,6 +1,7 @@
 import { createServer, type Server, type ServerResponse } from 'node:http';
 import { randomBytes } from 'node:crypto';
 import { createReadStream, existsSync, realpathSync, statSync } from 'node:fs';
+import { realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { app } from 'electron';
 import type { EnginePreviewSession } from '../shared/preview-protocol';
@@ -40,9 +41,63 @@ export class EnginePreviewServer {
   private previewRoot: string | null = null;
   private editorAssetsRoot: string | null = null;
   private projectRoot: string | null = null;
+  private projectGeneration = 0;
+  private readonly runtimeAssets = new Map<string, readonly string[]>();
 
   setProjectFilePath(projectFilePath: string | null | undefined): void {
-    this.projectRoot = projectFilePath ? path.dirname(path.resolve(projectFilePath)) : null;
+    const nextRoot = projectFilePath ? path.dirname(path.resolve(projectFilePath)) : null;
+    if (nextRoot !== this.projectRoot) {
+      this.projectGeneration++;
+      this.runtimeAssets.clear();
+    }
+    this.projectRoot = nextRoot;
+  }
+
+  /** Only main-owned prepared artifacts can register physical sources. The widget
+   * receives opaque relative fetch identities, never host/temporary file paths. */
+  async registerRuntimeAssets(options: {
+    fileEntries: readonly { source: string; packagePath: string }[];
+    requiredShaderBinaryPaths: readonly string[];
+    shaderAssetRoot?: string;
+  }): Promise<Array<{ sourcePath: string; runtimePath: string }>> {
+    const generation = this.projectGeneration;
+    if (!this.projectRoot) throw new Error('Runtime preview Project is not active.');
+    const entries = options.fileEntries.map((entry) => ({
+      source: entry.source,
+      runtimePath: entry.packagePath,
+    }));
+    if (options.requiredShaderBinaryPaths.length && !options.shaderAssetRoot)
+      throw new Error('Runtime preview shader asset root is unavailable.');
+    for (const runtimePath of options.requiredShaderBinaryPaths) {
+      if (!safeRuntimeAssetPath(runtimePath)) throw new Error('Invalid runtime asset path.');
+      entries.push({
+        source: path.resolve(options.shaderAssetRoot!, runtimePath),
+        runtimePath,
+      });
+    }
+    const sources = await Promise.all(
+      entries.map(async ({ source, runtimePath }) => {
+        if (!safeRuntimeAssetPath(runtimePath)) throw new Error('Invalid runtime asset path.');
+        if (!path.isAbsolute(source))
+          throw new Error('Runtime preview requires absolute source paths.');
+        const canonical = await realpath(source);
+        if (!(await stat(canonical)).isFile())
+          throw new Error('Runtime preview asset is not a file.');
+        return canonical;
+      }),
+    );
+    if (generation !== this.projectGeneration)
+      throw new Error('Runtime preview Project changed during asset registration.');
+    const token = randomBytes(16).toString('hex');
+    this.runtimeAssets.set(token, sources);
+    // Old Play sessions stage the bytes into their own filesystem. Retain a
+    // small bounded window for concurrent preview tabs and pending transfers.
+    while (this.runtimeAssets.size > 8)
+      this.runtimeAssets.delete(this.runtimeAssets.keys().next().value!);
+    return entries.map((entry, index) => ({
+      sourcePath: `__runtime-prepared/${token}/${index}`,
+      runtimePath: entry.runtimePath,
+    }));
   }
 
   async getSession(): Promise<EnginePreviewSession> {
@@ -114,6 +169,28 @@ export class EnginePreviewServer {
 
       const projectAssetPrefix = '/project-assets/';
       if (pathname.startsWith(projectAssetPrefix)) {
+        const preparedPrefix = `${projectAssetPrefix}__runtime-prepared/`;
+        if (pathname.startsWith(preparedPrefix)) {
+          const match = /^([a-f0-9]{32})\/(0|[1-9]\d*)$/u.exec(
+            pathname.slice(preparedPrefix.length),
+          );
+          const source = match ? this.runtimeAssets.get(match[1]!)?.[Number(match[2])] : undefined;
+          if (!source) {
+            response.writeHead(404).end('Prepared runtime asset not found');
+          } else {
+            // A native preparation can be evicted while an older Play tab is
+            // still open. A removed temporary root is a 404, not an uncaught
+            // filesystem exception in Electron main.
+            try {
+              serveFileFromRoot(path.dirname(source), path.basename(source), response);
+            } catch {
+              if (!response.headersSent)
+                response.writeHead(404).end('Prepared runtime asset expired');
+              else response.destroy();
+            }
+          }
+          return;
+        }
         if (!this.projectRoot) {
           response
             .writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' })
@@ -143,9 +220,21 @@ export class EnginePreviewServer {
     this.session = null;
     this.startPromise = null;
     this.editorAssetsRoot = null;
+    this.runtimeAssets.clear();
     if (!server) return;
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
+}
+
+function safeRuntimeAssetPath(value: string): boolean {
+  return (
+    typeof value === 'string' &&
+    value.length > 0 &&
+    !value.startsWith('/') &&
+    !value.includes('\\') &&
+    !value.includes(':') &&
+    value.split('/').every((part) => part.length > 0 && part !== '.' && part !== '..')
+  );
 }
 
 function createSession(server: Server): EnginePreviewSession {

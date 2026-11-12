@@ -34,3 +34,11 @@ export type EditorRuntimePreparationResult =
       buildContext: EditorRuntimeBuildContext;
       reason: 'project-content-dirty' | 'pending-compilation-input';
     };
+
+/** Main's preview-server registration projects physical package sources into
+ * opaque, project-relative fetch identities before returning them to Play. */
+export type EditorPreviewRuntimePreparationResult =
+  | (Extract<EditorRuntimePreparationResult, { status: 'prepared' }> & {
+      previewAssets: Array<{ sourcePath: string; runtimePath: string }>;
+    })
+  | Exclude<EditorRuntimePreparationResult, { status: 'prepared' }>;

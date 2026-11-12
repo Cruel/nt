@@ -1397,15 +1397,26 @@ void app.whenReady().then(async () => {
   guardedIpc.handle(
     IPC_CHANNELS.NATIVE_PROJECT_PREPARE_RUNTIME,
     (arguments_) => nativeProjectPrepareRuntimeArgumentsSchema.parse(arguments_),
-    (projectSessionId, expectedRevision, shaderVariant, previewLocale) => {
+    async (projectSessionId, expectedRevision, shaderVariant, previewLocale) => {
       if (!nativeEditorAdmission)
         throw new Error('Native runtime preparation is not enabled for this editor.');
-      return nativeEditorAdmission.prepareRuntime(
+      const result = await nativeEditorAdmission.prepareRuntime(
         projectSessionId,
         expectedRevision,
         shaderVariant,
         previewLocale,
       );
+      if (result.status !== 'prepared') return result;
+      const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+      enginePreviewServer.setProjectFilePath(path.join(projectRoot, 'project.yaml'));
+      return {
+        ...result,
+        previewAssets: await enginePreviewServer.registerRuntimeAssets({
+          fileEntries: result.artifact.packageOptions.fileEntries,
+          requiredShaderBinaryPaths: result.artifact.requiredShaderBinaryPaths,
+          shaderAssetRoot: result.artifact.packageOptions.shaderAssetRoot,
+        }),
+      };
     },
   );
 
