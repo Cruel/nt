@@ -28,6 +28,7 @@ import { PROJECT_SETTINGS_SAVE_UNIT_ID } from '@/project/save-unit-registry';
 import { usePreferencesStore } from '@/stores/preferences-store';
 import { buildComfyUiWorkflowsTab, type WorkbenchEditorProps } from '@/workbench/editor-registry';
 import {
+  withPendingInputCommit,
   collectPendingInputDiagnostics,
   usePendingInputStore,
 } from '@/workbench/pending-input-store';
@@ -493,7 +494,12 @@ function PendingDecimalInput({ id, path, value, invalid, onCommit }: PendingDeci
         });
         if (/^[+-]?(?:\d+|\d+\.\d+|\.\d+)$/.test(raw)) {
           const parsed = Number(raw);
-          if (Number.isFinite(parsed) && (await onCommit(parsed))) {
+          if (
+            Number.isFinite(parsed) &&
+            (await withPendingInputCommit(PROJECT_SETTINGS_SAVE_UNIT_ID, path, raw, () =>
+              onCommit(parsed),
+            ))
+          ) {
             const latest =
               usePendingInputStore.getState().entriesBySaveUnitId[PROJECT_SETTINGS_SAVE_UNIT_ID]?.[
                 path

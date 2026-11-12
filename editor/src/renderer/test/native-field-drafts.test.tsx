@@ -9,6 +9,7 @@ import {
 import { projectEdits } from '@/commands/project-editing';
 import {
   discardNativeField,
+  flushNativeField,
   flushNativeFields,
   nativeFieldDraftKey,
   nativeFieldKey,
@@ -19,11 +20,8 @@ import { useProjectStore } from '@/project/project-store';
 import { PROJECT_SETTINGS_SAVE_UNIT_ID } from '@/project/save-unit-registry';
 import { serializeDraftDirtyState, useDraftDirtyStore } from '@/workbench/draft-dirty-store';
 import { usePendingInputStore } from '@/workbench/pending-input-store';
-import {
-  bufferedRoomFieldCommand,
-  rebasedRoomDataCommand,
-} from '@/editors/rooms/room-buffered-fields';
 import { defaultRoomData, parseRoomData } from '../../shared/project-schema/authoring-rooms';
+import { defaultCharacterData } from '../../shared/project-schema/authoring-characters';
 import { inlineTextContent } from '../../shared/project-schema/authoring-flow';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { isAuthoringProjectView } from '../../shared/project-schema/authoring-project-view';
@@ -87,6 +85,213 @@ beforeEach(() => {
 });
 
 describe('shared buffered native field intents', () => {
+  it('does not let dependent commands or Undo pass an unresolved raw numeric input', async () => {
+    const native = admitProject();
+    usePendingInputStore
+      .getState()
+      .setPendingInput(PROJECT_SETTINGS_SAVE_UNIT_ID, '/settings/app/buildNumber', { value: '-' });
+    const result = await projectEdits.execute({
+      type: 'project.replaceAtPath',
+      label: 'Change title while numeric input is invalid',
+      payload: { path: '/project/name', value: 'Unsafe' },
+      originSaveUnitId: PROJECT_SETTINGS_SAVE_UNIT_ID,
+      persistencePolicy: 'manual-save',
+    });
+    expect(result.ok).toBe(false);
+    expect((await projectEdits.undo()).ok).toBe(false);
+    expect(native.patch).not.toHaveBeenCalled();
+    expect(useProjectStore.getState().document).toMatchObject({ project: { name: 'Original' } });
+  });
+  it('plans a late-bound atomic transaction after the previous native acknowledgment', async () => {
+    const native = admitProject();
+    const originalPatch = window.noveltea.nativeProjectPatch;
+    let release: (() => void) | undefined;
+    vi.spyOn(window.noveltea, 'nativeProjectPatch').mockImplementationOnce(
+      (...args) =>
+        new Promise((resolve, reject) => {
+          release = () => void Promise.resolve(originalPatch(...args)).then(resolve, reject);
+        }),
+    );
+    const first = projectEdits.execute({
+      type: 'project.replaceAtPath',
+      label: 'Update title',
+      payload: { path: '/project/name', value: 'First' },
+      originSaveUnitId: PROJECT_SETTINGS_SAVE_UNIT_ID,
+      persistencePolicy: 'manual-save',
+    });
+    await waitFor(() => expect(release).toBeTypeOf('function'));
+    let planned = 0;
+    const batch = projectEdits.batch(
+      {
+        label: 'Update two settings',
+        originSaveUnitId: PROJECT_SETTINGS_SAVE_UNIT_ID,
+        persistencePolicy: 'manual-save',
+      },
+      () => {
+        planned++;
+        const project = useProjectStore.getState().document;
+        if (!isAuthoringProjectView(project) || project.project.name !== 'First')
+          throw new Error('Planner observed stale Project.');
+        return [
+          {
+            type: 'project.replaceAtPath',
+            label: 'Change author',
+            payload: { path: '/project/author', value: 'New Author' },
+            originSaveUnitId: PROJECT_SETTINGS_SAVE_UNIT_ID,
+            persistencePolicy: 'manual-save',
+          },
+          {
+            type: 'project.replaceAtPath',
+            label: 'Change version',
+            payload: { path: '/project/version', value: '2.1' },
+            originSaveUnitId: PROJECT_SETTINGS_SAVE_UNIT_ID,
+            persistencePolicy: 'manual-save',
+          },
+        ];
+      },
+    );
+    expect(planned).toBe(0);
+    await act(async () => release!());
+    await act(async () => expect((await first).ok).toBe(true));
+    await act(async () => expect((await batch).ok).toBe(true));
+    expect(planned).toBe(1);
+    // The first delayed mock delegates through the same spy, so there are
+    // two wrapper calls for the first mutation and one atomic batch call.
+    expect(native.patch).toHaveBeenCalledTimes(3);
+    expect(native.patch.mock.calls.at(-1)?.[2]).toHaveLength(2);
+    expect(useCommandStore.getState().history.entries).toHaveLength(2);
+    expect(useProjectStore.getState().document).toMatchObject({
+      project: { name: 'First', author: 'New Author', version: '2.1' },
+    });
+  });
+
+  it('rejects a late-bound transaction as a whole when a later step is invalid', async () => {
+    const native = admitProject();
+    const result = await projectEdits.batch(
+      {
+        label: 'Invalid atomic update',
+        originSaveUnitId: PROJECT_SETTINGS_SAVE_UNIT_ID,
+        persistencePolicy: 'manual-save',
+      },
+      () => [
+        {
+          type: 'project.replaceAtPath',
+          label: 'Valid intermediate change',
+          payload: { path: '/project/name', value: 'Should not be published' },
+          originSaveUnitId: PROJECT_SETTINGS_SAVE_UNIT_ID,
+          persistencePolicy: 'manual-save',
+        },
+        {
+          type: 'project.replaceAtPath',
+          label: 'Invalid second step',
+          payload: { path: '/project/does-not-exist', value: 'Rejected' },
+          originSaveUnitId: PROJECT_SETTINGS_SAVE_UNIT_ID,
+          persistencePolicy: 'manual-save',
+        },
+      ],
+    );
+    expect(result.ok).toBe(false);
+    expect(native.patch).not.toHaveBeenCalled();
+    expect(useCommandStore.getState().history.entries).toHaveLength(0);
+    expect(useProjectStore.getState().document).toMatchObject({ project: { name: 'Original' } });
+  });
+
+  it('resolves an ID-based Character expression edit after a queued list insertion and reorder', async () => {
+    const project = createAuthoringProject();
+    const data = defaultCharacterData('Iris');
+    project.characters.iris = { id: 'iris', label: 'Iris', data };
+    admitNativeRendererCommandFixture(project);
+    const record = { collection: 'characters' as const, id: 'iris' };
+    const expression = data.expressions[0]!;
+    const pending = projectEdits.recordList({
+      record,
+      field: '/expressions',
+      action: {
+        kind: 'replace',
+        id: expression.id,
+        before: expression,
+        after: { ...expression, label: 'Updated after reorder' },
+      },
+      label: 'Rename expression',
+    });
+    const inserted = await projectEdits.execute(
+      projectEdits.recordList({
+        record,
+        field: '/expressions',
+        action: {
+          kind: 'insert',
+          item: { id: 'second', label: 'Second', profiles: [] },
+          beforeId: expression.id,
+        },
+        label: 'Add expression',
+      }),
+    );
+    expect(inserted.ok).toBe(true);
+    const reordered = await projectEdits.execute(
+      projectEdits.recordList({
+        record,
+        field: '/expressions',
+        action: { kind: 'move', id: expression.id, beforeId: 'second' },
+        label: 'Reorder expressions',
+      }),
+    );
+    expect(reordered.ok).toBe(true);
+    expect((await projectEdits.execute(pending)).ok).toBe(true);
+    expect(useProjectStore.getState().document).toMatchObject({
+      characters: {
+        iris: {
+          data: {
+            expressions: [
+              expect.objectContaining({ id: expression.id, label: 'Updated after reorder' }),
+              expect.objectContaining({ id: 'second' }),
+            ],
+          },
+        },
+      },
+    });
+  });
+
+  it('groups two native acknowledgments from one focused typing session into one Undo step', async () => {
+    const native = admitProject();
+    render(<NameField />);
+    const input = screen.getByRole('textbox', { name: 'Project title project:1' });
+    const project = useProjectStore.getState();
+    const fieldKey = nativeFieldKey(
+      project.projectSessionId!,
+      project.projectInstanceId!,
+      '/project/name',
+    );
+    fireEvent.change(input, { target: { value: 'First' } });
+    await act(async () => expect(await flushNativeField(fieldKey)).toBe(true));
+    fireEvent.change(input, { target: { value: 'Second' } });
+    await act(async () => expect(await flushNativeField(fieldKey)).toBe(true));
+    expect(native.patch).toHaveBeenCalledTimes(2);
+    expect(useCommandStore.getState().history.entries).toHaveLength(1);
+    await act(async () => expect((await projectEdits.undo()).ok).toBe(true));
+    expect(useProjectStore.getState().document).toMatchObject({ project: { name: 'Original' } });
+    await act(async () => expect((await projectEdits.redo()).ok).toBe(true));
+    expect(useProjectStore.getState().document).toMatchObject({ project: { name: 'Second' } });
+    fireEvent.blur(input);
+    fireEvent.change(input, { target: { value: 'Third' } });
+    await act(async () => expect(await flushNativeField(fieldKey)).toBe(true));
+    expect(useCommandStore.getState().history.entries).toHaveLength(2);
+  });
+
+  it('rejects an incorrect Save owner before exposing a field overlay or recoverable draft', () => {
+    admitProject();
+    expect(() =>
+      projectEdits.field({
+        tabId: 'second-view',
+        saveUnitId: 'record:rooms:foyer',
+        path: '/project/name',
+        label: 'Wrong owner',
+        value: 'Must not stage',
+      }),
+    ).toThrow(/does not belong/u);
+    expect(Object.keys(useNativeFieldDraftStore.getState().entries)).toHaveLength(0);
+    expect(Object.keys(useDraftDirtyStore.getState().entriesByKey)).toHaveLength(0);
+  });
+
   it('uses distinct generations for numeric edits separated by a native acknowledgment', async () => {
     admitProject();
     render(
@@ -688,7 +893,7 @@ describe('shared buffered native field intents', () => {
     });
   });
 
-  it('rebases a legacy whole-Room command after an earlier buffered field edit', async () => {
+  it('rebases an explicit event-time whole-Room delta after an earlier buffered field edit', async () => {
     const project = createAuthoringProject();
     const initial = defaultRoomData('Foyer');
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: initial };
@@ -704,16 +909,13 @@ describe('shared buffered native field intents', () => {
       }),
     ).toBe(true);
 
-    const result = await projectEdits.execute({
-      type: 'room.replaceData',
+    const plan = projectEdits.recordData({
+      record: { collection: 'rooms', id: 'foyer' },
+      before: initial,
+      after: { ...initial, description: inlineTextContent('An updated room') },
       label: 'Update Room description',
-      payload: {
-        roomId: 'foyer',
-        data: { ...initial, description: inlineTextContent('An updated room') },
-      },
-      originSaveUnitId: 'record:rooms:foyer',
-      persistencePolicy: 'manual-save',
     });
+    const result = await projectEdits.execute(plan!);
 
     expect(result.ok).toBe(true);
     const acknowledged = useProjectStore.getState().document;
@@ -725,6 +927,29 @@ describe('shared buffered native field intents', () => {
         description: { source: { kind: 'inline', text: 'An updated room' } },
       });
     }
+  });
+  it('rejects an overlapping event-time record delta instead of silently replacing a newer field', async () => {
+    const project = createAuthoringProject();
+    const initial = defaultRoomData('Foyer');
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: initial };
+    admitNativeRendererCommandFixture(project);
+    projectEdits.field({
+      tabId: 'room:foyer',
+      path: '/rooms/foyer/data/displayName',
+      saveUnitId: 'record:rooms:foyer',
+      value: 'Newly acknowledged',
+      label: 'Rename Room',
+    });
+    const plan = projectEdits.recordData({
+      record: { collection: 'rooms', id: 'foyer' },
+      before: initial,
+      after: { ...initial, displayName: 'Stale rename' },
+      label: 'Stale composite edit',
+    });
+    expect((await projectEdits.execute(plan!)).ok).toBe(false);
+    expect(useProjectStore.getState().document).toMatchObject({
+      rooms: { foyer: { data: { displayName: 'Newly acknowledged' } } },
+    });
   });
   it('keeps independent fields and newest typing visible across a blocked native acknowledgment', async () => {
     const native = admitProject();
@@ -861,11 +1086,16 @@ describe('shared buffered native field intents', () => {
         aria-label="Room display name"
         tabId="room:foyer"
         path="/rooms/foyer/data/displayName"
-        saveUnitId="rooms/foyer"
+        saveUnitId="record:rooms:foyer"
         label="Update room name"
         value={baseline.displayName}
         buildCommand={(next) =>
-          bufferedRoomFieldCommand('foyer', 'displayName', next, 'Update room name')
+          projectEdits.recordField({
+            record: { collection: 'rooms', id: 'foyer' },
+            field: '/displayName',
+            value: next,
+            label: 'Update room name',
+          })
         }
       />,
     );
@@ -873,18 +1103,18 @@ describe('shared buffered native field intents', () => {
       target: { value: 'New buffered name' },
     });
     await waitFor(() => expect(release).toBeTypeOf('function'));
-    const update = rebasedRoomDataCommand(
-      'foyer',
-      baseline,
-      {
+    const update = projectEdits.recordData({
+      record: { collection: 'rooms', id: 'foyer' },
+      before: baseline,
+      after: {
         ...baseline,
         description: {
           ...baseline.description,
           source: { kind: 'inline', text: 'New description' },
         },
       },
-      'Update room description via whole-Room control',
-    );
+      label: 'Update room description via whole-Room control',
+    });
     expect(update).not.toBeNull();
     const pending = useCommandStore.getState().executeCommandAsync(update!);
     await act(async () => release!());

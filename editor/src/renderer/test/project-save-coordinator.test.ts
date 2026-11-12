@@ -12,6 +12,7 @@ import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { useCommandStore } from '@/commands/command-store';
 import { resolveProjectComments } from '@/project/project-comment-confirmation';
 import { useDraftDirtyStore } from '@/workbench/draft-dirty-store';
+import { NATIVE_FIELD_DRAFT_SCHEMA, nativeFieldDraftKey } from '@/commands/native-field-drafts';
 import {
   buildEditorProjectStateSnapshot,
   setLoadedEditorProjectState,
@@ -131,6 +132,61 @@ beforeEach(() => {
 });
 
 describe('project save coordinator', () => {
+  it('fails closed on unattributable restored field recovery even when no normal Save unit is dirty', async () => {
+    const project = projectWithRooms();
+    loadProject(project, structuredClone(project), emptyEditorProjectState());
+    const nativeSave = admitNativeSaveWithoutExternalChanges();
+    useDraftDirtyStore.getState().restoreSerializedDrafts({
+      'native-field:malformed': {
+        schema: NATIVE_FIELD_DRAFT_SCHEMA,
+        tabId: 'stale-tab',
+        payload: { value: 'Unsent' },
+      },
+    });
+    const result = await saveAllSaveUnits();
+    expect(result).toMatchObject({ success: false, status: 'blocked' });
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({ code: 'editor.native-save-all.unattributed-field' }),
+    ]);
+    expect(nativeSave).not.toHaveBeenCalled();
+  });
+
+  it('blocks an unmounted recovered Room draft even when a sibling view is active, without blocking unrelated Save All units', async () => {
+    const saved = projectWithRooms();
+    const working = structuredClone(saved);
+    working.rooms.kitchen!.label = 'Kitchen edited';
+    loadProject(
+      saved,
+      working,
+      recoveryState({
+        'record:rooms:kitchen': {
+          sequence: 1,
+          patches: [{ op: 'replace', path: '/rooms/kitchen/label', value: 'Kitchen edited' }],
+          affectedPaths: ['/rooms/kitchen/label'],
+          pendingRawInputByPath: {},
+          atomicTransactionGroupIds: [],
+        },
+      }),
+    );
+    const nativeSave = admitNativeSaveWithoutExternalChanges();
+    useDraftDirtyStore.getState().restoreSerializedDrafts({
+      [nativeFieldDraftKey('record:rooms:foyer', '/rooms/foyer/data/displayName')]: {
+        tabId: 'closed-first-view',
+        schema: NATIVE_FIELD_DRAFT_SCHEMA,
+        label: 'Uncommitted name',
+        payload: { value: 'Unsent', base: { revision: 0, exists: true, value: 'Foyer' } },
+      },
+    });
+    const active = await saveActiveSaveUnit('record:rooms:foyer');
+    expect(active.status).toBe('blocked');
+    expect(nativeSave).not.toHaveBeenCalled();
+    const all = await saveAllSaveUnits();
+    expect(all.status).toBe('partially-saved');
+    expect(all.savedSaveUnitIds).toContain('record:rooms:kitchen');
+    expect(all.remainingDirtySaveUnitIds).toContain('record:rooms:foyer');
+    expect(nativeSave).toHaveBeenCalledTimes(1);
+  });
+
   it('reviews native comment impacts and retries with the user-approved removal decision', async () => {
     const saved = projectWithRooms();
     const working = projectWithRooms();
@@ -1699,5 +1755,28 @@ describe('project save coordinator', () => {
     expect(useProjectStore.getState().document).toMatchObject({
       rooms: { foyer: { label: 'Dirty Foyer' } },
     });
+  });
+
+  it('Save As rejects unresolved numeric input instead of writing a misleading clean copy', async () => {
+    const project = projectWithRooms();
+    loadProject(
+      project,
+      structuredClone(project),
+      recoveryState({
+        'record:rooms:foyer': {
+          sequence: 1,
+          patches: [],
+          affectedPaths: ['/rooms/foyer/data/width'],
+          pendingRawInputByPath: {
+            '/rooms/foyer/data/width': { value: '-' },
+          },
+          atomicTransactionGroupIds: [],
+        },
+      }),
+    );
+    const result = await saveProjectAsCopy();
+    expect(result).toMatchObject({ success: false, status: 'blocked' });
+    expect(result.remainingDirtySaveUnitIds).toContain('record:rooms:foyer');
+    expect(window.noveltea.saveProjectCopyAs).not.toHaveBeenCalled();
   });
 });

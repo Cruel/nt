@@ -23,8 +23,7 @@ import { flushStructuralCommandPersistence, useCommandStore } from '@/commands/c
 import {
   flushNativeFields,
   NATIVE_FIELD_DRAFT_SCHEMA,
-  nativeFieldDraftKey,
-  useNativeFieldDraftStore,
+  unresolvedNativeFieldOwners,
 } from '@/commands/native-field-drafts';
 import { PanelResizeSeparator } from '@/components/resize-separator';
 import { Button } from '@/components/ui/button';
@@ -124,10 +123,7 @@ import type {
 } from '../../shared/project-asset-audit';
 import type { DesktopProjectImportRequest } from '../../shared/project-import-handoff';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
-import {
-  canonicalProjectPersistenceContentJson,
-  type EditorProjectState,
-} from '../../shared/project-schema/editor-project-state';
+import type { EditorProjectState } from '../../shared/project-schema/editor-project-state';
 import {
   authoringValidationSucceeded,
   createProjectValidationDiagnostic,
@@ -288,22 +284,28 @@ export function WorkspacePage() {
   const statusMessage = useWorkspaceStore((state) => state.statusMessage);
   const project = useProjectStore((state) => state.document);
   const previewLocale = project ? editorProjectStateFromProject(project).previewLocale : null;
-  const projectContentSnapshot = project ? canonicalProjectPersistenceContentJson(project) : null;
   const projectPath = useProjectStore((state) => state.projectPath);
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
   const projectSessionId = useProjectStore((state) => state.projectSessionId);
+  const projectRevision = useProjectStore((state) => state.projectRevision);
   const projectDirty = useProjectStore(selectProjectDirty);
   const sourceBuffersById = useProjectSourceStore((state) => state.buffersById);
   const hasSourceDirty = Object.values(sourceBuffersById).some((buffer) => buffer.dirty);
   const hasPersistedSourceRecovery = project
     ? Object.keys(editorProjectStateFromProject(project).sourceRecoveryById).length > 0
     : false;
-  const draftEntries = useDraftDirtyStore((state) => state.entriesByKey);
-  const hasDraftDirty = Object.values(draftEntries).some((entry) => entry.dirty);
-  const pendingInputEntries = usePendingInputStore((state) => state.entriesBySaveUnitId);
-  const hasPendingInput = Object.values(pendingInputEntries).some(
-    (byPath) => Object.keys(byPath).length > 0,
+  const hasDraftDirty = useDraftDirtyStore((state) =>
+    Object.values(state.entriesByKey).some((entry) => entry.dirty),
   );
+  // Only the set of invalid input *paths* affects workspace diagnostics. Raw
+  // numeric keystrokes should update their local control, not every panel.
+  const pendingInputSignature = usePendingInputStore((state) =>
+    Object.entries(state.entriesBySaveUnitId)
+      .flatMap(([unit, byPath]) => Object.keys(byPath).map((path) => JSON.stringify([unit, path])))
+      .sort()
+      .join('|'),
+  );
+  const hasPendingInput = pendingInputSignature.length > 0;
   const saveDirty = projectDirty || hasSourceDirty || hasDraftDirty || hasPendingInput;
   const isSaving = useProjectStore((state) => state.isSaving);
   const loadProjectDocument = useProjectStore((state) => state.loadProjectDocument);
@@ -355,6 +357,61 @@ export function WorkspacePage() {
   if (!imageThumbnailPrewarmRef.current) {
     imageThumbnailPrewarmRef.current = new ImageThumbnailPrewarmCoordinator();
   }
+
+  // Draft payload changes should extend the recovery debounce without causing
+  // the whole workspace to rerender for every printable character.
+  useEffect(
+    () =>
+      useDraftDirtyStore.subscribe((state, previous) => {
+        if (
+          state.entriesByKey === previous.entriesByKey ||
+          !useProjectStore.getState().projectFilePath
+        )
+          return;
+        if (metadataFlushTimerRef.current !== null)
+          window.clearTimeout(metadataFlushTimerRef.current);
+        const timer = window.setTimeout(() => {
+          if (metadataFlushTimerRef.current === timer) metadataFlushTimerRef.current = null;
+          void flushProjectEditorMetadataRef.current('debounce');
+        }, 500);
+        metadataFlushTimerRef.current = timer;
+      }),
+    [],
+  );
+
+  // Invalid numeric text changes without changing its pending path. Refresh
+  // crash recovery after the latest keystroke without publishing a workspace
+  // render or mutating the authoritative Project document.
+  useEffect(
+    () =>
+      usePendingInputStore.subscribe((state, previous) => {
+        if (
+          state.entriesBySaveUnitId === previous.entriesBySaveUnitId ||
+          !useProjectStore.getState().projectFilePath
+        )
+          return;
+        if (metadataFlushTimerRef.current !== null)
+          window.clearTimeout(metadataFlushTimerRef.current);
+        const timer = window.setTimeout(() => {
+          if (metadataFlushTimerRef.current === timer) metadataFlushTimerRef.current = null;
+          void flushProjectEditorMetadataRef.current('debounce');
+        }, 500);
+        metadataFlushTimerRef.current = timer;
+      }),
+    [],
+  );
+
+  // Store subscriptions schedule timers outside React effect ownership. A
+  // previously opened workspace must not keep an orphaned timer after unmount.
+  useEffect(
+    () => () => {
+      if (metadataFlushTimerRef.current !== null) {
+        window.clearTimeout(metadataFlushTimerRef.current);
+        metadataFlushTimerRef.current = null;
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     imageThumbnailPrewarmRef.current?.publish(authoringProjectForEditor(project), projectSessionId);
@@ -1423,7 +1480,7 @@ export function WorkspacePage() {
     else if (previous.locale !== previewLocale)
       previewLocaleMetadataRef.current = { ...previous, locale: previewLocale, pending: true };
     if (
-      !projectContentSnapshot ||
+      !projectSessionId ||
       !projectFilePath ||
       (!projectDirty &&
         !hasSourceDirty &&
@@ -1444,13 +1501,12 @@ export function WorkspacePage() {
     };
   }, [
     commandHistory.cursor,
-    draftEntries,
     hasDraftDirty,
     hasPendingInput,
     hasPersistedSourceRecovery,
     hasSourceDirty,
-    pendingInputEntries,
-    projectContentSnapshot,
+    pendingInputSignature,
+    projectRevision,
     sourceBuffersById,
     projectDirty,
     projectFilePath,
@@ -1709,28 +1765,21 @@ export function WorkspacePage() {
     setProjectSaving(true);
     try {
       const flushed = await projectEdits.flush();
-      const unresolvedFieldIntents = Object.values(useNativeFieldDraftStore.getState().entries);
-      if (!flushed && unresolvedFieldIntents.length === 0) {
+      const unresolved = unresolvedNativeFieldOwners();
+      if (!flushed && (unresolved.unattributed || unresolved.saveUnitIds.size === 0)) {
         const message = t('projectField.saveAllPending');
         setProjectSaveError(message);
         setStatusMessage(message);
         return false;
       }
-      const blockedFieldSaveUnits = [
-        ...new Set(unresolvedFieldIntents.map((field) => field.saveUnitId)),
-      ];
+      const blockedFieldSaveUnits = [...unresolved.saveUnitIds];
       const dirtyDrafts = Object.values(useDraftDirtyStore.getState().entriesByKey).filter(
         (entry) => entry.dirty,
       );
       const unappliedNonSerializableDrafts = dirtyDrafts.filter(
         (entry) =>
           !entry.apply &&
-          !(
-            entry.schema === NATIVE_FIELD_DRAFT_SCHEMA &&
-            unresolvedFieldIntents.some(
-              (field) => entry.key === nativeFieldDraftKey(field.saveUnitId, field.path),
-            )
-          ) &&
+          entry.schema !== NATIVE_FIELD_DRAFT_SCHEMA &&
           (!entry.schema ||
             entry.payload === undefined ||
             entry.schema === NATIVE_FIELD_DRAFT_SCHEMA),
@@ -1952,7 +2001,7 @@ export function WorkspacePage() {
     setDiagnostics(
       collectWorkspaceProjectDiagnostics(project, persistentRecoveryDiagnosticsRef.current),
     );
-  }, [pendingInputEntries, project, setProject, setDiagnostics, nativeProjectDiagnostics]);
+  }, [pendingInputSignature, project, setProject, setDiagnostics, nativeProjectDiagnostics]);
 
   useEffect(() => {
     if (!comfyUiConfig.enabled) return;
@@ -2196,7 +2245,7 @@ export function WorkspacePage() {
             projectSessionId,
             latestProject,
             tests[0]!.id,
-            pendingInputEntries,
+            usePendingInputStore.getState().entriesBySaveUnitId,
           ));
       setLastPlaybackReport(result.report ?? result);
       setStatusMessage(

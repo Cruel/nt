@@ -2,11 +2,13 @@ import { useCommandStore } from './command-store';
 import type {
   CommandExecutionResult,
   CommandRequest,
+  CommandBatchRequests,
   CommandTransactionRequest,
 } from './command-types';
 import {
   flushNativeField,
   flushNativeFields,
+  endNativeFieldEditSession,
   discardNativeField,
   keepMineNativeField,
   nativeFieldDraftKey,
@@ -18,33 +20,27 @@ import {
   type NativeFieldBase,
 } from './native-field-drafts';
 import type { JsonValue } from '@/project/json-value';
-import { toJsonValue } from '@/project/json-value';
+import { jsonValuesEqual, toJsonValue } from '@/project/json-value';
 import { applyJsonPatch } from '@/project/json-patch';
-import { hasJsonAtPointer } from '@/project/json-pointer';
-import { buildJsonPointer } from '@/project/json-pointer';
+import {
+  getJsonAtPointer,
+  hasJsonAtPointer,
+  parseJsonPointer,
+  buildJsonPointer,
+} from '@/project/json-pointer';
 import { diffJsonDocuments } from '@/project/project-external-reconciliation';
 import { recordSaveUnitId } from '@/project/save-unit-registry';
 import { isAuthoringProjectView } from '../../shared/project-schema/authoring-project-view';
-import {
-  resolveGameplayInstanceRecord,
-  type GameplayInstanceKind,
-} from '../../shared/project-schema/authoring-archetypes';
-import type {
-  AuthoringProject,
-  AuthoringRecordBase,
-} from '../../shared/project-schema/authoring-project';
-import { defaultRoomData, parseRoomData } from '../../shared/project-schema/authoring-rooms';
-import {
-  defaultCharacterData,
-  parseCharacterData,
-} from '../../shared/project-schema/authoring-characters';
-import {
-  defaultInteractableData,
-  parseInteractableData,
-} from '../../shared/project-schema/authoring-interactables';
+import { resolveGameplayInstanceRecord } from '../../shared/project-schema/authoring-archetypes';
+import { gameplayRecordDescriptors, type GameplayRecordRef } from './gameplay-record-descriptors';
 import { useProjectStore } from '@/project/project-store';
 import { useDraftDirtyStore } from '@/workbench/draft-dirty-store';
 import { NATIVE_FIELD_DRAFT_SCHEMA } from './native-field-drafts';
+import { resolveProjectFieldIdentity } from './project-field-identity';
+import {
+  applySemanticCollectionOperation,
+  type SemanticCollectionOperation,
+} from './semantic-collection-planner';
 
 /**
  * The single renderer entry point for Project mutations.
@@ -68,28 +64,80 @@ export interface ProjectFieldIntent<T extends JsonValue> {
   restoredBase?: NativeFieldBase;
 }
 
+const recoveryActions = new Map<
+  string,
+  {
+    apply: () => Promise<boolean>;
+    discard: () => Promise<boolean>;
+  }
+>();
+
+function recoveryActionsForField(fieldKey: string) {
+  let actions = recoveryActions.get(fieldKey);
+  if (!actions) {
+    actions = {
+      apply: () => flushNativeField(fieldKey),
+      discard: () => discardNativeField(fieldKey),
+    };
+    recoveryActions.set(fieldKey, actions);
+  }
+  return actions;
+}
+
+useProjectStore.subscribe((state, previous) => {
+  if (
+    state.projectInstanceId !== previous.projectInstanceId ||
+    state.projectSessionId !== previous.projectSessionId
+  )
+    recoveryActions.clear();
+});
+
 export const projectEdits = {
   execute: (request: CommandRequest | (() => CommandRequest)): Promise<CommandExecutionResult> => {
-    let planned: CommandRequest | (() => CommandRequest);
-    try {
-      // Capture the intentional delta now, before earlier queued commands
-      // change the acknowledged Project. Only its application is deferred.
-      planned = typeof request === 'function' ? request : rebaseGameplayCommand(request);
-    } catch (error) {
-      // Let the command store convert a stale/deleted target into an ordinary
-      // rejected command result instead of throwing from a UI event handler.
-      planned = () => {
-        throw error;
-      };
-    }
-    return useCommandStore.getState().executeCommandAsync(planned);
+    // Never infer an edit's baseline from a ready-made replaceData proposal.
+    // Composite editors must explicitly capture before/after at the event.
+    return useCommandStore.getState().executeCommandAsync(request);
   },
 
   batch(
     transaction: CommandTransactionRequest,
-    requests: readonly CommandRequest[],
+    requests: CommandBatchRequests,
   ): Promise<CommandExecutionResult> {
     return useCommandStore.getState().executeCommandBatchAsync(transaction, requests);
+  },
+
+  recordField(options: {
+    record: GameplayRecordRef;
+    field: string;
+    value: JsonValue;
+    label: string;
+  }): CommandRequest {
+    return gameplayRecordFieldCommand(options);
+  },
+
+  recordData(options: {
+    record: GameplayRecordRef;
+    before: unknown;
+    after: unknown;
+    label: string;
+  }): (() => CommandRequest) | null {
+    return rebasedGameplayDataCommand(options);
+  },
+
+  /** A stable-ID list action, evaluated in the native command queue. */
+  recordList(options: {
+    record: GameplayRecordRef;
+    field: string;
+    action: SemanticCollectionOperation;
+    label: string;
+  }): () => CommandRequest {
+    const { record, field, action, label } = options;
+    return () => {
+      const latest = latestGameplayRecord(record);
+      const items = getJsonAtPointer(latest, field);
+      const next = applySemanticCollectionOperation(items, action);
+      return gameplayRecordFieldCommand({ record, field, value: next, label });
+    };
   },
 
   undo(): Promise<CommandExecutionResult> {
@@ -103,6 +151,15 @@ export const projectEdits = {
   field<T extends JsonValue>(intent: ProjectFieldIntent<T>): boolean {
     const { projectSessionId, projectInstanceId } = useProjectStore.getState();
     if (!projectSessionId || !projectInstanceId) return false;
+    // Reject a contradictory caller before it can create an overlay or a
+    // recoverable draft under a different owner from the native attribution.
+    resolveProjectFieldIdentity({
+      projectSessionId,
+      projectInstanceId,
+      saveUnitId: intent.saveUnitId,
+      path: intent.path,
+    });
+    const fieldKey = nativeFieldKey(projectSessionId, projectInstanceId, intent.path);
     stageNativeField(
       {
         projectSessionId,
@@ -116,9 +173,17 @@ export const projectEdits = {
         useCommandStore.getState().executeCommandAsync(
           () => {
             const value = readAtDispatch();
-            return intent.buildCommand
+            const command = intent.buildCommand
               ? intent.buildCommand(value as T)
               : defaultProjectFieldCommand(intent, value);
+            if (
+              command.originSaveUnitId !== intent.saveUnitId ||
+              command.persistencePolicy !== 'manual-save'
+            )
+              throw new Error('Project field command has contradictory Save-owner attribution.');
+            const editSessionId =
+              useNativeFieldDraftStore.getState().entries[fieldKey]?.editSessionId;
+            return editSessionId ? { ...command, editSessionId } : command;
           },
           { bufferedField: true },
         ),
@@ -128,17 +193,16 @@ export const projectEdits = {
     const drafts = useDraftDirtyStore.getState();
     const draftKey = nativeFieldDraftKey(intent.saveUnitId, intent.path);
     const existing = drafts.entriesByKey[draftKey];
-    const fieldKey = nativeFieldKey(projectSessionId, projectInstanceId, intent.path);
     const entry = useNativeFieldDraftStore.getState().entries[fieldKey];
     if (!entry) return false;
+    const actions = recoveryActionsForField(fieldKey);
     drafts.setDraftDirty(draftKey, {
       tabId: existing?.tabId ?? intent.tabId,
       dirty: true,
       label: intent.label,
       schema: NATIVE_FIELD_DRAFT_SCHEMA,
       payload: nativeFieldRecoveryPayload(entry),
-      apply: () => flushNativeField(fieldKey),
-      discard: () => discardNativeField(fieldKey),
+      ...actions,
     });
     return true;
   },
@@ -153,6 +217,12 @@ export const projectEdits = {
     return flushNativeField(nativeFieldKey(projectSessionId, projectInstanceId, path));
   },
 
+  endFieldSession(path: string): void {
+    const { projectSessionId, projectInstanceId } = useProjectStore.getState();
+    if (projectSessionId && projectInstanceId)
+      endNativeFieldEditSession(nativeFieldKey(projectSessionId, projectInstanceId, path));
+  },
+
   useCurrentField(path: string): Promise<boolean> {
     const { projectSessionId, projectInstanceId } = useProjectStore.getState();
     if (!projectSessionId || !projectInstanceId) return Promise.resolve(false);
@@ -165,34 +235,6 @@ export const projectEdits = {
     return keepMineNativeField(nativeFieldKey(projectSessionId, projectInstanceId, path));
   },
 };
-
-function rebaseGameplayCommand(request: CommandRequest): CommandRequest | (() => CommandRequest) {
-  const kind = request.type.replace(/\.replaceData$/u, '');
-  if (kind !== 'room' && kind !== 'character' && kind !== 'interactable') return request;
-  const payload = request.payload;
-  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return request;
-  const values = payload as Record<string, unknown>;
-  const id = values[`${kind}Id`];
-  if (typeof id !== 'string' || !values.data || typeof values.data !== 'object') return request;
-  const readData: RecordDataReader<JsonValue> = (_project, record) =>
-    toJsonValue(
-      kind === 'room'
-        ? (parseRoomData(record.data) ?? defaultRoomData(record.label ?? id))
-        : kind === 'character'
-          ? (parseCharacterData(record.data) ?? defaultCharacterData(record.label ?? id))
-          : (parseInteractableData(record.data) ?? defaultInteractableData(record.label ?? id)),
-    );
-  const previous = latestGameplayRecord(kind, id, readData);
-  const changes = diffJsonDocuments(previous, toJsonValue(values.data));
-  if (!changes.length) return request;
-  return () => ({
-    ...request,
-    payload: {
-      ...values,
-      data: applyJsonPatch(latestGameplayRecord(kind, id, readData), changes).document,
-    },
-  });
-}
 
 /** Re-evaluate path existence only when this intent reaches the acknowledged
  * Project, so optional settings created by earlier queued edits are not lost. */
@@ -211,21 +253,17 @@ export function defaultProjectFieldCommand(
   };
 }
 
-type RecordDataReader<T> = (project: AuthoringProject, record: AuthoringRecordBase) => T;
-
-function latestGameplayRecord<T>(
-  kind: GameplayInstanceKind,
-  id: string,
-  readData: RecordDataReader<T>,
-): T {
+function latestGameplayRecord({ collection, id }: GameplayRecordRef): JsonValue {
   const project = useProjectStore.getState().document;
   if (!isAuthoringProjectView(project)) throw new Error('The Project is no longer open.');
-  const collection = `${kind}s` as 'rooms' | 'characters' | 'interactables';
+  const descriptor = gameplayRecordDescriptors[collection];
   const record = project[collection][id];
-  if (!record) throw new Error(`The ${kind} ${id} was deleted before the edit completed.`);
-  const effective = resolveGameplayInstanceRecord(project, kind, record);
-  if (!effective) throw new Error(`The ${kind} ${id} no longer has valid archetype data.`);
-  return readData(project, effective);
+  if (!record)
+    throw new Error(`The ${descriptor.kind} ${id} was deleted before the edit completed.`);
+  const effective = resolveGameplayInstanceRecord(project, descriptor.kind, record);
+  if (!effective)
+    throw new Error(`The ${descriptor.kind} ${id} no longer has valid archetype data.`);
+  return descriptor.readData(effective, id);
 }
 
 /**
@@ -233,34 +271,44 @@ function latestGameplayRecord<T>(
  * semantic override planner for archetyped records. The command is built
  * after all earlier native acknowledgments, never from a render-time object.
  */
-export function gameplayRecordFieldCommand<T>(
-  kind: GameplayInstanceKind,
-  id: string,
-  relativePath: string,
-  value: JsonValue,
-  label: string,
-  readData: RecordDataReader<T>,
-): CommandRequest {
+function gameplayRecordFieldCommand({
+  record: { collection, id },
+  field,
+  value,
+  label,
+}: {
+  record: GameplayRecordRef;
+  field: string;
+  value: JsonValue;
+  label: string;
+}): CommandRequest {
   const project = useProjectStore.getState().document;
   if (!isAuthoringProjectView(project)) throw new Error('The Project is no longer open.');
-  const collection = `${kind}s` as 'rooms' | 'characters' | 'interactables';
+  const descriptor = gameplayRecordDescriptors[collection];
   const record = project[collection][id];
-  if (!record) throw new Error(`The ${kind} ${id} was deleted before the edit completed.`);
+  if (!record)
+    throw new Error(`The ${descriptor.kind} ${id} was deleted before the edit completed.`);
+  if (
+    !field.startsWith('/') ||
+    field === '/' ||
+    buildJsonPointer(parseJsonPointer(field)) !== field
+  )
+    throw new Error(`Invalid relative record field path: ${field}`);
   const saveUnitId = recordSaveUnitId(collection, id);
-  const path = buildJsonPointer([collection, id, 'data']) + relativePath;
+  const path = buildJsonPointer([collection, id, 'data', ...parseJsonPointer(field)]);
   if (!record.archetype) return defaultProjectFieldCommand({ path, saveUnitId, label }, value);
-  const before = toJsonValue(latestGameplayRecord(kind, id, readData));
+  const before = latestGameplayRecord({ collection, id });
   const patches = [
     {
-      op: hasJsonAtPointer(before, relativePath) ? 'replace' : 'add',
-      path: relativePath,
+      op: hasJsonAtPointer(before, field) ? 'replace' : 'add',
+      path: field,
       value,
     } as const,
   ];
   const after = applyJsonPatch(before, patches).document;
   return {
-    type: `${kind}.replaceData`,
-    payload: { [`${kind}Id`]: id, data: after },
+    type: `${descriptor.kind}.replaceData`,
+    payload: { [`${descriptor.kind}Id`]: id, data: after },
     label,
     originSaveUnitId: saveUnitId,
     persistencePolicy: 'manual-save',
@@ -273,29 +321,46 @@ export function gameplayRecordFieldCommand<T>(
  * acknowledgment when its queue slot executes. Disjoint edits cannot be
  * overwritten by a proposal assembled from an older render.
  */
-export function rebasedGameplayDataCommand<T>(
-  kind: GameplayInstanceKind,
-  id: string,
-  before: T,
-  after: T,
-  label: string,
-  readData: RecordDataReader<T>,
-): (() => CommandRequest) | null {
-  const changes = diffJsonDocuments(toJsonValue(before), toJsonValue(after));
+function rebasedGameplayDataCommand({
+  record,
+  before,
+  after,
+  label,
+}: {
+  record: GameplayRecordRef;
+  before: unknown;
+  after: unknown;
+  label: string;
+}): (() => CommandRequest) | null {
+  const previous = toJsonValue(before);
+  const changes = diffJsonDocuments(previous, toJsonValue(after));
   if (!changes.length) return null;
   return () => {
-    const latest = latestGameplayRecord(kind, id, readData);
+    const latest = latestGameplayRecord(record);
+    // The event-time delta may rebase across disjoint acknowledgments, but
+    // must not silently overwrite a different edit at the same semantic path.
+    for (const change of changes) {
+      const beforeExists = hasJsonAtPointer(previous, change.path);
+      const latestExists = hasJsonAtPointer(latest, change.path);
+      if (
+        beforeExists !== latestExists ||
+        (beforeExists &&
+          !jsonValuesEqual(
+            getJsonAtPointer(previous, change.path),
+            getJsonAtPointer(latest, change.path),
+          ))
+      )
+        throw new Error(`Record field '${change.path}' changed before this edit was applied.`);
+    }
+    const { kind } = gameplayRecordDescriptors[record.collection];
     return {
       type: `${kind}.replaceData`,
       payload: {
-        [`${kind}Id`]: id,
-        data: applyJsonPatch(toJsonValue(latest), changes).document,
+        [`${kind}Id`]: record.id,
+        data: applyJsonPatch(latest, changes).document,
       },
       label,
-      originSaveUnitId: recordSaveUnitId(
-        `${kind}s` as 'rooms' | 'characters' | 'interactables',
-        id,
-      ),
+      originSaveUnitId: recordSaveUnitId(record.collection, record.id),
       persistencePolicy: 'manual-save',
     };
   };

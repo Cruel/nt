@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { ProjectFieldInput } from '@/commands/use-project-field';
-import { bufferedRoomFieldCommand } from '@/editors/rooms/room-buffered-fields';
+import { projectEdits } from '@/commands/project-editing';
 import { useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
 import {
@@ -26,11 +26,16 @@ function TestInput() {
       aria-label="Room display name"
       tabId={tabId}
       path="/rooms/foyer/data/displayName"
-      saveUnitId="rooms/foyer"
+      saveUnitId="record:rooms:foyer"
       label="Update room name"
       value={value}
       buildCommand={(next) =>
-        bufferedRoomFieldCommand('foyer', 'displayName', next, 'Update room name')
+        projectEdits.recordField({
+          record: { collection: 'rooms', id: 'foyer' },
+          field: '/displayName',
+          value: next,
+          label: 'Update room name',
+        })
       }
     />
   );

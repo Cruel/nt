@@ -52,6 +52,79 @@ field-level pending input in recovery metadata.
 
 ## Unified Project editing API (#602, incremental rollout)
 
+### Shared foundation hardening (#603)
+
+`commands/project-field-identity.ts` validates the active Project session/instance,
+canonical JSON Pointer and logical Save owner **before** a native field draft is
+published. Paths under Record or Project Settings ownership cannot be staged
+under another Save unit. Positional array paths are not field identities: list
+editing must use a semantic command rather than buffer an unstable numeric
+index. Save-unit identity is independent of the view currently rendering the
+field. Active Save rejects unacknowledged field intents even when their only
+remaining recovery entry is an unmounted serialized draft; Save All skips the
+blocked owner's atomic group while still committing independently valid owners.
+Invalid/unattributed field recovery entries fail closed rather than silently
+disappearing from the Save result.
+Incomplete numeric/raw inputs also block Save As and dependent commands in
+their logical owner; Undo/Redo cannot advance native history while any such
+unrepresented input remains. Completing or discarding that input clears the
+barrier without disturbing unrelated Save units.
+For legacy semantic numeric editors, a completed number authorizes only the
+specific pending-input path and exact raw value it is attempting to commit.
+That one synchronous invocation captures its admission token before entering
+the asynchronous native queue; the raw representation stays recoverable until
+native acceptance. Other commands, changed raw values and unrelated pending
+paths do not inherit this authorization.
+
+The shared `gameplay-record-descriptors.ts` registry owns native command kind,
+parser and defaults for Rooms, Characters and Interactables. The facade accepts
+`recordField({record, field, value, label})` or
+`recordData({record, before, after, label})` with an event-time delta. Composite
+planners rebase against the latest acknowledged record only when their changed
+paths have not been modified; overlapping edits fail explicitly. There is no
+Room-only buffered-field adapter. `recordList({record, field, action, label})`
+resolves list operations by stable item ID after the native command queue,
+supporting insertion, removal, reorder and item replacement. It rejects missing
+IDs, duplicate IDs, missing anchors and modified item baselines; Character
+Expression editing is the initial production consumer. Other legacy list
+editors are not migrated as part of this foundation ticket.
+For dependent multi-step edits, `projectEdits.batch(transaction, () => requests)`
+evaluates the synchronous request planner **inside** the native command queue,
+after earlier acknowledgments. The resulting transaction is still submitted
+atomically, and any planning or step failure rejects it before native mutation.
+
+Native field transport remains trailing-150-ms/max-500-ms, but acknowledged
+history from the same focused edit session is merged into one Undo step *after*
+each native acknowledgment, preserving exact forward and inverse patches.
+Blur, a dependent command, Save/Save All, Undo/Redo, discard, conflict adoption,
+and Project replacement close the active session. This grouping is a renderer
+history operation, not a speculative Project mutation or a native transport
+batch, and never merges structural auto-commit or atomic transaction entries.
+
+The workspace no longer serializes canonical Project content on every React
+render to schedule recovery persistence. A bounded metadata debounce listens
+to draft-payload store changes without subscribing the entire workspace to
+each typed value. Native acknowledgment still updates the authoritative Project
+snapshot and command store; input-to-paint-ready/flush-to-native-ack Performance
+measures described below remain available for packaged Feature Lab comparison.
+Automated tests cover Save-unit ownership, unmounted recovery, unrelated Save
+All owners, invalid numeric input during Save As, composite conflict rejection,
+two-native-ack Undo/Redo, and stable-ID
+collection operations. Packaged Windows/Linux/macOS latency and recovery
+acceptance are separate #602 gates, not implied by those tests.
+
+On November 11, 2026, the real native authoring Node addon was exercised on
+a disposable Feature Lab copy using `certify-native-editor-performance.mjs`
+(Linux dev host, Node 24.16.0). Observed durations were 779 ms for cold Project
+open, 358 ms for a one-owner YAML patch and scoped Save, 90 ms for one Lua
+source stage/Save, 1,348 ms for saved Project semantic preparation, and
+7,620 ms for end-to-end Runtime Package publication. The script's historical
+native #520 references are from a different host and are not valid paired
+before/after figures. This is real native-addon evidence, **not** a browser
+input-to-paint benchmark. A paired packaged-editor baseline/after profile,
+including unrelated component renders and 500/1,000 ms worker delays,
+remains necessary before claiming the ≤16 ms input acceptance target.
+
 All migrated renderer content mutations enter through `commands/project-editing.ts`:
 `projectEdits.execute(request)` for semantic/structural commands, `projectEdits.batch(...)`
 for transactions, and `projectEdits.field(intent)` for high-frequency field edits. This
@@ -152,10 +225,10 @@ mounted has no live apply callback, so Save is blocked rather than silently pret
 field; opening its editor reattaches the apply callback.
 
 The 150 ms trailing/500 ms maximum wait remains a **native synchronization** policy, not an
-authoring Undo-session boundary. Native-acknowledged commands still create history entries per
-actual dispatch. Meaningful typing-session Undo coalescing, definitive external Use Disk/Keep Mine
-resolution for pending overlays, and multi-platform packaged certification are still open #602
-work; transport batching alone does not prove those semantics.
+authoring Undo-session boundary. Field commands still dispatch and receive native acknowledgments
+individually; focused edit-session history grouping, rather than transport batching, provides
+the Undo boundary. Definitive external Use Disk/Keep Mine resolution for pending overlays and
+multi-platform packaged certification are still open #602 work.
 
 This is **not** yet project-wide certification: the remaining non-migrated entity controls, numeric
 and nested controls, source-stage interoperability, more discrete selectors and geometry/drag

@@ -275,6 +275,7 @@ export function executeCommand(
     originSaveUnitId: request.originSaveUnitId,
     persistencePolicy: effectivePersistencePolicy,
     atomicTransactionGroupId,
+    ...(request.editSessionId ? { editSessionId: request.editSessionId } : {}),
     ...(autoCommitPlan ? { autoCommitPlan } : {}),
   };
   const entries = [...state.history.entries.slice(0, state.history.cursor + 1), historyEntry];

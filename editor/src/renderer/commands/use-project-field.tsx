@@ -25,6 +25,7 @@ import {
 } from './native-field-drafts';
 import { projectEdits } from './project-editing';
 import { measureProjectEdit } from './project-edit-timings';
+import type { ProjectFieldIdentity } from './project-field-identity';
 
 interface NativeFieldOptions<T extends JsonValue> {
   tabId: string;
@@ -35,6 +36,24 @@ interface NativeFieldOptions<T extends JsonValue> {
   buildCommand?: (next: T) => CommandRequest;
 }
 
+/** Stable control-facing contract. Native command acknowledgments, not the
+ * optimistic presentation overlay, determine when a value is committed. */
+export interface ProjectFieldController<T extends JsonValue> {
+  readonly identity: ProjectFieldIdentity;
+  readonly value: T;
+  readonly status: 'acknowledged' | 'pending' | 'conflict' | 'error';
+  readonly conflict: boolean;
+  readonly error: string | null;
+  readonly sequence: number | undefined;
+  readonly latestSequence: number | undefined;
+  readonly fieldKey: string;
+  readonly change: (next: T) => void;
+  readonly flush: () => Promise<boolean>;
+  readonly endSession: () => void;
+  readonly useCurrent: () => Promise<boolean>;
+  readonly keepMine: () => Promise<boolean>;
+}
+
 /** Local representation, shared across views of the same Project field. */
 export function useProjectField<T extends JsonValue>({
   tabId,
@@ -43,7 +62,7 @@ export function useProjectField<T extends JsonValue>({
   value,
   label,
   buildCommand,
-}: NativeFieldOptions<T>) {
+}: NativeFieldOptions<T>): ProjectFieldController<T> {
   const projectSessionId = useProjectStore((state) => state.projectSessionId);
   const projectInstanceId = useProjectStore((state) => state.projectInstanceId);
   const key = nativeFieldKey(projectSessionId ?? '', projectInstanceId ?? '', path);
@@ -56,12 +75,16 @@ export function useProjectField<T extends JsonValue>({
       ? parseNativeFieldRecovery(savedDraft.payload)
       : null;
   const hydratedKey = useRef<string | null>(null);
+  // Inline buildCommand closures and labels can change on every parent render;
+  // keep the input handler stable while always submitting the latest options.
+  const intentRef = useRef({ tabId, saveUnitId, path, label, buildCommand });
+  intentRef.current = { tabId, saveUnitId, path, label, buildCommand };
   const change = useCallback(
     (next: T) => {
       if (!projectSessionId || !projectInstanceId) return;
-      projectEdits.field({ tabId, saveUnitId, path, value: next, label, buildCommand });
+      projectEdits.field({ ...intentRef.current, value: next });
     },
-    [projectSessionId, projectInstanceId, tabId, saveUnitId, path, label, buildCommand],
+    [projectSessionId, projectInstanceId],
   );
 
   useEffect(() => {
@@ -114,9 +137,23 @@ export function useProjectField<T extends JsonValue>({
   }, [inputSequence, inputStartedAt, path]);
 
   return {
+    identity: {
+      projectSessionId: projectSessionId ?? '',
+      projectInstanceId: projectInstanceId ?? '',
+      saveUnitId,
+      path,
+    },
     value: (entry ? entry.value : restored ? restored.value : value) as T,
+    status: entry?.conflict
+      ? 'conflict'
+      : entry?.error
+        ? 'error'
+        : entry || restored
+          ? 'pending'
+          : 'acknowledged',
     change,
     flush: () => projectEdits.flushField(path),
+    endSession: () => projectEdits.endFieldSession(path),
     useCurrent: () => projectEdits.useCurrentField(path),
     keepMine: () => projectEdits.keepMineField(path),
     conflict: entry?.conflict ?? false,
@@ -182,6 +219,7 @@ export function ProjectFieldInput({
         onChange={(event) => draft.change(event.currentTarget.value)}
         onBlur={(event) => {
           onBlur?.(event);
+          draft.endSession();
           void draft.flush();
         }}
       />
@@ -212,8 +250,14 @@ export function ProjectFieldSwitch({
       <Switch
         {...switchProps}
         checked={draft.value}
-        onCheckedChange={(checked) => draft.change(Boolean(checked))}
-        onBlur={() => void draft.flush()}
+        onCheckedChange={(checked) => {
+          draft.change(Boolean(checked));
+          draft.endSession();
+        }}
+        onBlur={() => {
+          draft.endSession();
+          void draft.flush();
+        }}
       />
       <ProjectFieldError field={draft} />
     </>
@@ -244,6 +288,7 @@ export function ProjectFieldTextarea({
         onChange={(event) => draft.change(event.currentTarget.value)}
         onBlur={(event) => {
           onBlur?.(event);
+          draft.endSession();
           void draft.flush();
         }}
       />
@@ -273,7 +318,10 @@ export function ProjectFieldSelect<T extends JsonValue>({
       <Select
         value={draft.value}
         disabled={disabled}
-        onValueChange={(next) => draft.change(next as T)}
+        onValueChange={(next) => {
+          draft.change(next as T);
+          draft.endSession();
+        }}
       >
         {children}
       </Select>
@@ -399,6 +447,7 @@ export function ProjectFieldNumber({
         onBlur={(event) => {
           onBlur?.(event);
           setEditingText(null);
+          draft.endSession();
           void draft.flush();
         }}
       />

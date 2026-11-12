@@ -14,6 +14,9 @@ import { resolveSaveUnitForTab } from '@/project/save-unit-registry';
 import { usePendingInputStore } from '@/workbench/pending-input-store';
 import type { CommandExecutionResult } from './command-types';
 import { measureProjectEdit } from './project-edit-timings';
+import { resolveProjectFieldIdentity } from './project-field-identity';
+import { NATIVE_FIELD_DRAFT_SCHEMA } from './native-field-recovery-schema';
+export { NATIVE_FIELD_DRAFT_SCHEMA } from './native-field-recovery-schema';
 
 // Only presentation and pending intent live here. Native ProjectSession and its
 // acknowledged command history remain the sole source of saved/dirty truth.
@@ -24,6 +27,7 @@ export interface NativeFieldDraft {
   path: string;
   value: JsonValue;
   sequence: number;
+  editSessionId: string;
   error: string | null;
   inputStartedAt: number;
   conflict: boolean;
@@ -54,7 +58,6 @@ export const useNativeFieldDraftStore = create<NativeFieldDraftState>()(() => ({
 }));
 // v2 stores the original path baseline. v1's bare values cannot safely resume
 // after an external Project change and must not be silently rebased.
-export const NATIVE_FIELD_DRAFT_SCHEMA = 'noveltea.editor.draft.native-field.v2';
 
 export function nativeFieldRecoveryPayload(entry: NativeFieldDraft): JsonValue {
   return {
@@ -104,6 +107,8 @@ interface ScheduledField {
 }
 
 const scheduled = new Map<string, ScheduledField>();
+const activeEditSessions = new Map<string, string>();
+let nextEditSessionId = 0;
 // Never recycle a presentation/acknowledgment generation when an overlay is
 // removed. A sibling view may still hold the preceding edit's exact raw text.
 // Keep this monotonic across Project sessions as well as field flushes.
@@ -118,6 +123,69 @@ export function nativeFieldKey(projectSessionId: string, projectInstanceId: stri
 /** A field belongs to its Save unit, not to an individual open tab. */
 export function nativeFieldDraftKey(saveUnitId: string, path: string) {
   return `native-field:${JSON.stringify([saveUnitId, path])}`;
+}
+
+export function endNativeFieldEditSession(key?: string) {
+  if (key) activeEditSessions.delete(key);
+  else activeEditSessions.clear();
+}
+
+/** The Save boundary must see serialized drafts even when no control has
+ * mounted since recovery. A live overlay alone is not a complete barrier. */
+export function unresolvedNativeFieldOwners(): {
+  saveUnitIds: Set<string>;
+  unattributed: boolean;
+} {
+  const project = useProjectStore.getState();
+  const saveUnitIds = new Set<string>();
+  let unattributed = false;
+  for (const entry of Object.values(useNativeFieldDraftStore.getState().entries)) {
+    if (sameProject(entry)) saveUnitIds.add(entry.saveUnitId);
+  }
+  for (const entry of Object.values(useDraftDirtyStore.getState().entriesByKey)) {
+    if (!entry.dirty || entry.schema !== NATIVE_FIELD_DRAFT_SCHEMA) continue;
+    try {
+      if (!entry.key.startsWith('native-field:')) throw new Error('Invalid native field key.');
+      const decoded: unknown = JSON.parse(entry.key.slice('native-field:'.length));
+      if (
+        !Array.isArray(decoded) ||
+        decoded.length !== 2 ||
+        typeof decoded[0] !== 'string' ||
+        typeof decoded[1] !== 'string' ||
+        !project.projectSessionId ||
+        !project.projectInstanceId
+      )
+        throw new Error('Invalid native field identity.');
+      resolveProjectFieldIdentity({
+        projectSessionId: project.projectSessionId,
+        projectInstanceId: project.projectInstanceId,
+        saveUnitId: decoded[0],
+        path: decoded[1],
+      });
+      saveUnitIds.add(decoded[0]);
+    } catch {
+      unattributed = true;
+    }
+  }
+  return { saveUnitIds, unattributed };
+}
+
+/** Discard only the selected owner's serialized, unattached field intents.
+ * Dispatched native mutations must settle first; this cannot cancel them. */
+export function discardRecoveredNativeFieldsForOwner(saveUnitId: string): boolean {
+  if (
+    Object.values(useNativeFieldDraftStore.getState().entries).some(
+      (entry) => sameProject(entry) && entry.saveUnitId === saveUnitId,
+    )
+  )
+    return false;
+  const drafts = useDraftDirtyStore.getState();
+  const prefix = `native-field:[${JSON.stringify(saveUnitId)},`;
+  for (const [key, entry] of Object.entries(drafts.entriesByKey)) {
+    if (entry.schema === NATIVE_FIELD_DRAFT_SCHEMA && key.startsWith(prefix))
+      drafts.clearDraftDirty(key);
+  }
+  return true;
 }
 
 function sameProject(
@@ -187,7 +255,10 @@ function schedule(key: string, field: ScheduledField) {
 
 /** Synchronous, field-granular overlay publication. No Project clone or IPC. */
 export function stageNativeField(
-  input: Omit<NativeFieldDraft, 'sequence' | 'error' | 'inputStartedAt' | 'base' | 'conflict'> & {
+  input: Omit<
+    NativeFieldDraft,
+    'sequence' | 'editSessionId' | 'error' | 'inputStartedAt' | 'base' | 'conflict'
+  > & {
     restoredBase?: NativeFieldBase;
   },
   submit: SubmitField,
@@ -197,7 +268,19 @@ export function stageNativeField(
   const existing = useNativeFieldDraftStore.getState().entries[key];
   if (existing && jsonValuesEqual(existing.value, input.value) && !existing.error) return;
   const base = existing?.base ?? input.restoredBase ?? fieldBase(input.path);
-  const conflict = Boolean(existing?.conflict || !fieldBaseMatches(base, fieldBase(input.path)));
+  // The acknowledged Project is immutable within a revision. In the normal
+  // typing hot path the current field cannot have changed since its captured
+  // baseline, so avoid cloning/comparing a large description on every key.
+  const conflict = Boolean(
+    existing?.conflict ||
+    (base.revision !== useProjectStore.getState().projectRevision &&
+      !fieldBaseMatches(base, fieldBase(input.path))),
+  );
+  let editSessionId = activeEditSessions.get(key);
+  if (!editSessionId) {
+    editSessionId = `native-field-edit:${++nextEditSessionId}`;
+    activeEditSessions.set(key, editSessionId);
+  }
   const { restoredBase: _restoredBase, ...rest } = input;
   const sequence = ++nextFieldSequence;
   useNativeFieldDraftStore.setState((state) => ({
@@ -209,6 +292,7 @@ export function stageNativeField(
         base,
         conflict,
         sequence,
+        editSessionId,
         error: conflict ? conflictMessage() : null,
         inputStartedAt: performance.now(),
       },
@@ -259,7 +343,9 @@ export async function keepMineNativeField(key: string): Promise<boolean> {
     base: fieldBase(entry.path),
     conflict: false,
     error: null,
+    editSessionId: `native-field-edit:${++nextEditSessionId}`,
   };
+  activeEditSessions.set(key, next.editSessionId);
   useNativeFieldDraftStore.setState((state) => ({
     entries: { ...state.entries, [key]: next },
   }));
@@ -270,6 +356,7 @@ export async function keepMineNativeField(key: string): Promise<boolean> {
 /** Never claim that an already dispatched native edit has been discarded.
  * Its owner must await acknowledgment and perform an authoritative discard. */
 export async function discardNativeField(key: string): Promise<boolean> {
+  endNativeFieldEditSession(key);
   const field = scheduled.get(key);
   if (field?.timer) clearTimeout(field.timer);
   if (!field) {
@@ -398,13 +485,22 @@ export function flushNativeField(key: string): Promise<boolean> {
 
 /** Save/Undo/dependent-command barrier, filtered by logical Save unit when supplied. */
 export async function flushNativeFields(saveUnitId?: string): Promise<boolean> {
+  // Dependent commands, Save, and Undo create an explicit session boundary;
+  // the intents already in flight retain their authored session IDs.
+  endNativeFieldEditSession();
   // A new field can be edited while the first native acknowledgment is in
   // flight. Repeat until the selected logical units have no staged intents.
   for (;;) {
     const entries = Object.entries(useNativeFieldDraftStore.getState().entries).filter(
       ([, entry]) => (!saveUnitId || entry.saveUnitId === saveUnitId) && sameProject(entry),
     );
-    if (entries.length === 0) return true;
+    if (entries.length === 0) {
+      const unresolved = unresolvedNativeFieldOwners();
+      return (
+        !unresolved.unattributed &&
+        (saveUnitId ? !unresolved.saveUnitIds.has(saveUnitId) : unresolved.saveUnitIds.size === 0)
+      );
+    }
     const results = await Promise.all(entries.map(([key]) => flushNativeField(key)));
     if (!results.every(Boolean)) return false;
   }
@@ -421,6 +517,7 @@ useProjectStore.subscribe((state, previous) => {
     scheduled.delete(key);
   }
   useNativeFieldDraftStore.setState({ entries: {}, latestSequenceByKey: {} });
+  endNativeFieldEditSession();
 });
 
 // Tab lifetime is not field lifetime. When any view closes (including through

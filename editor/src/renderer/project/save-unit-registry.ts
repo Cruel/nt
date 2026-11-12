@@ -104,6 +104,15 @@ const RECORD_EDITOR_COLLECTIONS = {
   'script-module-detail': 'scripts',
 } as const satisfies Record<string, string | readonly string[] | null>;
 
+/** Canonical record owner collections, shared by the field identity resolver.
+ * Keep Save-unit ownership in this registry rather than duplicating it in
+ * presentation code. */
+export const RECORD_SAVE_UNIT_COLLECTIONS: ReadonlySet<string> = new Set(
+  Object.values(RECORD_EDITOR_COLLECTIONS).flatMap((value) =>
+    value === null ? [] : typeof value === 'string' ? [value] : [...value],
+  ),
+);
+
 const NON_CONTENT_EDITOR_TYPES = new Set([
   'engine-preview',
   'full-game-preview',

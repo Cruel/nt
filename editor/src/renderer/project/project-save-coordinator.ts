@@ -1,4 +1,5 @@
 import { useCommandStore } from '@/commands/command-store';
+import { unresolvedNativeFieldOwners } from '@/commands/native-field-drafts';
 import { usePendingInputStore } from '@/workbench/pending-input-store';
 import {
   buildEditorProjectStateSnapshot,
@@ -395,6 +396,27 @@ export async function saveActiveSaveUnit(
       : undefined;
   const saveUnitId =
     explicitSaveUnitId ?? (resolution?.status === 'savable' ? resolution.descriptor.id : null);
+  const unresolvedFields = unresolvedNativeFieldOwners();
+  if (
+    saveUnitId &&
+    (unresolvedFields.unattributed || unresolvedFields.saveUnitIds.has(saveUnitId))
+  ) {
+    return {
+      success: false,
+      status: 'blocked',
+      diagnostics: [
+        {
+          code: 'editor.native-save.pending-field-rejected',
+          severity: 'error',
+          category: 'Project save',
+          path: '/',
+          message: `Save unit '${saveUnitId}' has an unresolved field draft. Reopen its editor or resolve the field before saving.`,
+        },
+      ],
+      savedSaveUnitIds: [],
+      remainingDirtySaveUnitIds: [saveUnitId],
+    };
+  }
   const sourceId = saveUnitId ? sourceIdFromSaveUnitId(saveUnitId) : null;
   if (sourceId) {
     const sourceStore = useProjectSourceStore.getState();
@@ -538,6 +560,8 @@ export async function saveActiveSaveUnit(
 export async function saveAllSaveUnits(
   blockedFieldSaveUnitIds: readonly SaveUnitId[] = [],
 ): Promise<ProjectSaveCoordinatorResult> {
+  const unresolvedFields = unresolvedNativeFieldOwners();
+  const blockedOwners = uniqueSorted([...blockedFieldSaveUnitIds, ...unresolvedFields.saveUnitIds]);
   const projectState = useProjectStore.getState();
   if (!projectState.document || !projectState.savedDocument || !projectState.projectFilePath) {
     return {
@@ -556,7 +580,24 @@ export async function saveAllSaveUnits(
     .map(([id]) => id);
   const dirtySources = sourceIds.map((id) => sourceSaveUnitId(id));
   const dirtyRecords = Object.keys(buildEditorProjectStateSnapshot().recovery.saveUnitsById);
-  const all = uniqueSorted([...dirtySources, ...dirtyRecords, ...blockedFieldSaveUnitIds]);
+  const all = uniqueSorted([...dirtySources, ...dirtyRecords, ...blockedOwners]);
+  if (unresolvedFields.unattributed) {
+    return {
+      success: false,
+      status: 'blocked',
+      diagnostics: [
+        {
+          code: 'editor.native-save-all.unattributed-field',
+          severity: 'error',
+          category: 'Project save',
+          path: '/',
+          message: 'An unresolved field recovery entry has invalid ownership.',
+        },
+      ],
+      savedSaveUnitIds: [],
+      remainingDirtySaveUnitIds: all,
+    };
+  }
   if (all.length === 0)
     return {
       success: true,
@@ -593,7 +634,7 @@ export async function saveAllSaveUnits(
         ...(entry.externalConflict ? [externalConflictSaveDiagnostic(id, entry)] : []),
         ...Object.keys(entry.pendingRawInputByPath).map((path) => pendingInputDiagnostic(id, path)),
       ]),
-      ...blockedFieldSaveUnitIds.map(
+      ...blockedOwners.map(
         (id): ToolDiagnostic => ({
           code: 'editor.native-save-all.pending-field-rejected',
           severity: 'error',
@@ -607,7 +648,7 @@ export async function saveAllSaveUnits(
       if (entry.externalConflict || Object.keys(entry.pendingRawInputByPath).length)
         for (const linked of atomicClosure(snapshot.recovery, id)) ids.delete(linked);
     }
-    for (const id of blockedFieldSaveUnitIds)
+    for (const id of blockedOwners)
       for (const linked of atomicClosure(snapshot.recovery, id)) ids.delete(linked);
     if (!ids.size && !sourceIds.length)
       return {
@@ -630,7 +671,7 @@ export async function saveAllSaveUnits(
       const result = await commitSelectedNativeSaveUnits(ids, snapshot, candidate, sourceIds);
       const remainingDirtySaveUnitIds = uniqueSorted([
         ...result.remainingDirtySaveUnitIds,
-        ...blockedFieldSaveUnitIds,
+        ...blockedOwners,
       ]);
       return {
         ...result,
@@ -711,7 +752,47 @@ export async function saveProjectAsCopy(): Promise<ProjectSaveCoordinatorResult>
       remainingDirtySaveUnitIds: [],
     };
   }
+  const unresolved = unresolvedNativeFieldOwners();
+  if (unresolved.unattributed || unresolved.saveUnitIds.size > 0) {
+    const pendingOwners = [...unresolved.saveUnitIds].sort();
+    return {
+      success: false,
+      status: 'blocked',
+      diagnostics: [
+        {
+          code: 'editor.copy.pending-field-rejected',
+          severity: 'error',
+          category: 'Project save',
+          path: '/',
+          message:
+            'Save As requires resolving recovered or unacknowledged field edits before copying the Project.',
+        },
+      ],
+      savedSaveUnitIds: [],
+      remainingDirtySaveUnitIds: pendingOwners,
+    };
+  }
   const snapshot = buildEditorProjectStateSnapshot();
+  const pendingRawOwners = Object.entries(snapshot.recovery.saveUnitsById)
+    .filter(([, entry]) => Object.keys(entry.pendingRawInputByPath).length > 0)
+    .map(([id]) => id);
+  if (pendingRawOwners.length > 0) {
+    return {
+      success: false,
+      status: 'blocked',
+      diagnostics: [
+        {
+          code: 'editor.copy.pending-input-rejected',
+          severity: 'error',
+          category: 'Project save',
+          path: '/',
+          message: 'Resolve incomplete or invalid field input before Save As.',
+        },
+      ],
+      savedSaveUnitIds: [],
+      remainingDirtySaveUnitIds: pendingRawOwners.sort(),
+    };
+  }
   const baseline = projectState.savedDocument ?? projectState.document;
   const copyContent = stripLocalEditorProjectState(baseline) as JsonValue;
   const copyDocument = mergeEditorProjectState(

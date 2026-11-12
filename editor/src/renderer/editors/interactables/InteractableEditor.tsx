@@ -35,11 +35,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  gameplayRecordFieldCommand,
-  projectEdits,
-  rebasedGameplayDataCommand,
-} from '@/commands/project-editing';
+import { projectEdits } from '@/commands/project-editing';
 import {
   ProjectFieldInput,
   ProjectFieldNumber,
@@ -266,16 +262,12 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
   if (!project || !record || !interactableId)
     return <div className="p-4 text-sm text-muted-foreground">Interactable record not found.</div>;
   const commit = (next: InteractableData, label: string) => {
-    const request = rebasedGameplayDataCommand(
-      'interactable',
-      interactableId,
-      data,
-      next,
+    const request = projectEdits.recordData({
+      record: { collection: 'interactables', id: interactableId },
+      before: data,
+      after: next,
       label,
-      (_project, current) =>
-        parseInteractableData(current.data) ??
-        defaultInteractableData(current.label ?? interactableId),
-    );
+    });
     if (request) void projectEdits.execute(request);
   };
   const interactableField = (
@@ -283,16 +275,12 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
     value: string | number | boolean | null,
     label: string,
   ) =>
-    gameplayRecordFieldCommand(
-      'interactable',
-      interactableId,
-      relativePath,
+    projectEdits.recordField({
+      record: { collection: 'interactables', id: interactableId },
+      field: relativePath,
       value,
       label,
-      (_project, current) =>
-        parseInteractableData(current.data) ??
-        defaultInteractableData(current.label ?? interactableId),
-    );
+    });
   const executeHotspot = (type: string, label: string, payload: Record<string, unknown>) =>
     void projectEdits.execute({
       type,

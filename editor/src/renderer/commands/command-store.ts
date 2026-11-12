@@ -4,6 +4,7 @@ import {
 } from '@/project/authoring-dependency-graph-runtime';
 import { applyJsonPatch, type JsonPatchOperation } from '@/project/json-patch';
 import { flushNativeFields } from './native-field-drafts';
+import { capturePendingInputCommit, usePendingInputStore } from '@/workbench/pending-input-store';
 import {
   buildJsonPointer,
   getJsonAtPointer,
@@ -28,6 +29,7 @@ import {
   redoCommand as redoCommandCore,
   undoCommand as undoCommandCore,
   type CommandBusState,
+  type CommandBusResult,
 } from './command-bus';
 import type {
   CommandDiagnostic,
@@ -35,6 +37,7 @@ import type {
   CommandHistoryEntry,
   CommandHistoryState,
   CommandRequest,
+  CommandBatchRequests,
   CommandTransactionRequest,
 } from './command-types';
 import {
@@ -100,7 +103,7 @@ interface CommandStoreState {
   ) => Promise<CommandExecutionResult>;
   executeCommandBatchAsync: (
     transaction: CommandTransactionRequest,
-    requests: readonly CommandRequest[],
+    requests: CommandBatchRequests,
   ) => Promise<CommandExecutionResult>;
   undoAsync: () => Promise<CommandExecutionResult>;
   redoAsync: () => Promise<CommandExecutionResult>;
@@ -121,6 +124,24 @@ function nativeOnlyResult(message: string): CommandExecutionResult {
     projectChanged: false,
     diagnostics: [{ severity: 'error', message }],
   };
+}
+
+function hasUnresolvedRawInput(
+  saveUnitId?: string,
+  resolving?: ReturnType<typeof capturePendingInputCommit>,
+): boolean {
+  const entries = usePendingInputStore.getState().entriesBySaveUnitId;
+  return Object.entries(entries).some(
+    ([owner, byPath]) =>
+      (!saveUnitId || owner === saveUnitId) &&
+      Object.entries(byPath).some(
+        ([path, pending]) =>
+          !resolving ||
+          owner !== resolving.saveUnitId ||
+          path !== resolving.path ||
+          pending.value !== resolving.raw,
+      ),
+  );
 }
 
 const nativeRecordFamilies = new Set([
@@ -267,6 +288,54 @@ export function nativeLocalizationFragmentPatches(
     }
   }
   return result;
+}
+
+/** Group one author interaction after native CAS acceptance, never before.
+ * The worker receives only the latest transport batch; Undo/Redo receives the
+ * combined acknowledged patch/inverse sequence. */
+function groupAcknowledgedEditSession(result: CommandBusResult): CommandBusResult {
+  const entry = result.historyEntry;
+  const history = result.state.history;
+  if (
+    !entry?.editSessionId ||
+    entry.autoCommitPlan ||
+    history.cursor < 1 ||
+    history.cursor !== history.entries.length - 1
+  )
+    return result;
+  const previous = history.entries[history.cursor - 1];
+  if (
+    !previous ||
+    previous.editSessionId !== entry.editSessionId ||
+    previous.originSaveUnitId !== entry.originSaveUnitId ||
+    previous.persistencePolicy !== 'manual-save' ||
+    entry.persistencePolicy !== 'manual-save' ||
+    previous.autoCommitPlan ||
+    previous.transactionId ||
+    entry.transactionId ||
+    previous.atomicTransactionGroupId ||
+    entry.atomicTransactionGroupId
+  )
+    return result;
+  const combined: CommandHistoryEntry = {
+    ...previous,
+    timestamp: entry.timestamp,
+    patches: [...previous.patches, ...entry.patches],
+    inversePatches: [...entry.inversePatches, ...previous.inversePatches],
+    affectedPaths: [...new Set([...previous.affectedPaths, ...entry.affectedPaths])].sort(),
+    diagnostics: [...previous.diagnostics, ...entry.diagnostics],
+  };
+  const cursor = history.cursor - 1;
+  return {
+    ...result,
+    commandId: combined.id,
+    historyEntry: combined,
+    cursor,
+    state: {
+      ...result.state,
+      history: { ...history, entries: [...history.entries.slice(0, -2), combined], cursor },
+    },
+  };
 }
 
 /** This is the asynchronous production command boundary, not speculative
@@ -583,7 +652,9 @@ async function submitNativeCommand(
       throw new Error(
         'Native Project changed while an editor command was awaiting acknowledgment.',
       );
-    if (confirmed.result.projectChanged && !applyBusResult(confirmed.result, kind))
+    const accepted =
+      kind === 'command' ? groupAcknowledgedEditSession(confirmed.result) : confirmed.result;
+    if (accepted.projectChanged && !applyBusResult(accepted, kind))
       throw new Error('Native Project accepted a change that the editor cannot publish.');
     if (savedBaseline) {
       const remaps =
@@ -613,13 +684,13 @@ async function submitNativeCommand(
       }
     }
     useCommandStore.setState({
-      history: confirmed.result.state.history,
+      history: accepted.state.history,
       nativeWorkingRevision: workingRevision,
       nativeProjectionRevision: useProjectStore.getState().projectRevision,
       nativeMutationPending: false,
       lastDiagnostics: confirmed.result.diagnostics,
     });
-    return confirmed.result;
+    return accepted;
   } catch (error) {
     // A lost/invalid acknowledgment may follow an accepted native mutation.
     // Never resume from a stale TS document or fall back to the old writer.
@@ -900,6 +971,7 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
     if (get().nativeWorkingRevision === null)
       return nativeOnlyResult('Native Project session is required.');
     const { projectSessionId, projectInstanceId } = useProjectStore.getState();
+    const resolvingInput = capturePendingInputCommit();
     if (!options?.bufferedField && !(await flushNativeFields()))
       return nativeOnlyResult('A pending field edit must be resolved before this command.');
     if (
@@ -926,6 +998,10 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
           ),
         );
       }
+      if (hasUnresolvedRawInput(resolvedRequest.originSaveUnitId, resolvingInput))
+        return Promise.resolve(
+          nativeOnlyResult('Resolve incomplete field input before changing its Save unit.'),
+        );
       const proposal = executeCommandCore(busStateFromStores(get().history), resolvedRequest);
       return submitNativeCommand(
         proposal,
@@ -1178,11 +1254,25 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
         return Promise.resolve(nativeOnlyResult(get().nativeMutationFailure!));
       if (get().history.activeTransaction)
         return Promise.resolve(nativeOnlyResult('Another Project transaction is active.'));
+      let plannedRequests: readonly CommandRequest[];
+      try {
+        plannedRequests = typeof requests === 'function' ? requests() : requests;
+      } catch (error) {
+        return Promise.resolve(
+          nativeOnlyResult(
+            error instanceof Error ? error.message : 'Native transaction planning failed.',
+          ),
+        );
+      }
+      if (hasUnresolvedRawInput(transaction.originSaveUnitId))
+        return Promise.resolve(
+          nativeOnlyResult('Resolve incomplete field input before this transaction.'),
+        );
       const initial = busStateFromStores(get().history);
       let working = beginTransactionCore(initial, transaction);
       if (!working.history.activeTransaction)
         return Promise.resolve(nativeOnlyResult('Cannot start native command transaction.'));
-      for (const request of requests) {
+      for (const request of plannedRequests) {
         const step = executeCommandCore(working, request);
         if (!step.ok)
           return Promise.resolve({ ...step, document: undefined, projectChanged: false });
@@ -1193,7 +1283,7 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
         proposal,
         proposal.historyEntry?.patches ?? [],
         'command',
-        Object.assign({}, ...requests.map(layoutSourceFromRequest)),
+        Object.assign({}, ...plannedRequests.map(layoutSourceFromRequest)),
       );
     });
   },
@@ -1203,6 +1293,8 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
     const { projectSessionId, projectInstanceId } = useProjectStore.getState();
     if (!(await flushNativeFields()))
       return nativeOnlyResult('A pending field edit must be resolved before Undo.');
+    if (hasUnresolvedRawInput())
+      return nativeOnlyResult('Resolve incomplete field input before Undo.');
     if (
       useProjectStore.getState().projectSessionId !== projectSessionId ||
       useProjectStore.getState().projectInstanceId !== projectInstanceId
@@ -1221,6 +1313,8 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
     const { projectSessionId, projectInstanceId } = useProjectStore.getState();
     if (!(await flushNativeFields()))
       return nativeOnlyResult('A pending field edit must be resolved before Redo.');
+    if (hasUnresolvedRawInput())
+      return nativeOnlyResult('Resolve incomplete field input before Redo.');
     if (
       useProjectStore.getState().projectSessionId !== projectSessionId ||
       useProjectStore.getState().projectInstanceId !== projectInstanceId

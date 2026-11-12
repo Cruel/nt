@@ -22,7 +22,13 @@ export interface CommandRequest<TPayload = unknown> {
   originSaveUnitId: SaveUnitId;
   persistencePolicy: SaveUnitPersistencePolicy;
   atomicTransactionGroupId?: string;
+  /** Explicit author interaction, independent of native synchronization batches. */
+  editSessionId?: string;
 }
+
+/** A transaction's dependent requests may be constructed inside the native
+ * serialization queue, after earlier acknowledged commands have published. */
+export type CommandBatchRequests = readonly CommandRequest[] | (() => readonly CommandRequest[]);
 
 export interface CommandHandlerResult {
   patches: JsonPatchOperation[];
@@ -61,6 +67,7 @@ export interface CommandHistoryEntry {
   persistencePolicy: SaveUnitPersistencePolicy;
   atomicTransactionGroupId?: string;
   transactionId?: string;
+  editSessionId?: string;
   autoCommitPlan?: AutoCommitPlan;
 }
 

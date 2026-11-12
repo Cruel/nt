@@ -105,6 +105,7 @@ export function getTabDirtyState(
   draftDirtyByTabId: Record<string, boolean>,
   pendingSaveUnitIds: ReadonlySet<SaveUnitId> = new Set(),
   recoveryDirtySaveUnitIds: ReadonlySet<SaveUnitId> = new Set(),
+  unresolvedFieldSaveUnitIds: ReadonlySet<SaveUnitId> = new Set(),
 ): TabDirtyState {
   const resolution = resolveSaveUnitForTab(tab, currentDocument);
   const resource =
@@ -123,7 +124,9 @@ export function getTabDirtyState(
           currentExists: false,
           savedExists: false,
         };
-  const draftDirty = Boolean(draftDirtyByTabId[tab.id]);
+  const draftDirty =
+    Boolean(draftDirtyByTabId[tab.id]) ||
+    Boolean(resource.saveUnitId && unresolvedFieldSaveUnitIds.has(resource.saveUnitId));
   const recoveryDirty = Boolean(
     resource.saveUnitId && recoveryDirtySaveUnitIds.has(resource.saveUnitId),
   );

@@ -13,6 +13,37 @@ import {
 
 export type PendingInputEntries = Record<SaveUnitId, Record<JsonPointer, EditorPendingRawInput>>;
 
+interface PendingInputCommitIntent {
+  saveUnitId: SaveUnitId;
+  path: JsonPointer;
+  raw: string;
+}
+
+// The semantic command directly initiated by a completed numeric value may
+// resolve that specific raw input. Capture the intent synchronously before
+// the native command queue awaits earlier acknowledgments; no other command
+// inherits this permission. The raw input remains durable until acceptance.
+let currentPendingInputCommit: PendingInputCommitIntent | null = null;
+
+export function withPendingInputCommit<T>(
+  saveUnitId: SaveUnitId,
+  path: JsonPointer,
+  raw: string,
+  issueCommand: () => T,
+): T {
+  const previous = currentPendingInputCommit;
+  currentPendingInputCommit = { saveUnitId, path, raw };
+  try {
+    return issueCommand();
+  } finally {
+    currentPendingInputCommit = previous;
+  }
+}
+
+export function capturePendingInputCommit(): PendingInputCommitIntent | null {
+  return currentPendingInputCommit ? { ...currentPendingInputCommit } : null;
+}
+
 interface PendingInputStoreState {
   entriesBySaveUnitId: PendingInputEntries;
   setPendingInput: (

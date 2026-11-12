@@ -81,11 +81,8 @@ import {
   type GameplayCommandKind,
 } from '@/components/gameplay-commands/GameplayCommandEditor';
 import { RoomEditSurface } from '@/editors/rooms/RoomEditSurface';
+import { toJsonValue } from '@/project/json-value';
 import { RoomCompositionPane } from '@/editors/rooms/RoomCompositionPane';
-import {
-  bufferedRoomFieldCommand,
-  rebasedRoomDataCommand,
-} from '@/editors/rooms/room-buffered-fields';
 import {
   ProjectFieldError,
   ProjectFieldInput,
@@ -584,7 +581,12 @@ function RoomDescriptionField({
     label: 'Update room description',
     value,
     buildCommand: (next) =>
-      bufferedRoomFieldCommand(roomId, 'description', next, 'Update room description'),
+      projectEdits.recordField({
+        record: { collection: 'rooms', id: roomId },
+        field: '/description',
+        value: toJsonValue(next),
+        label: 'Update room description',
+      }),
   });
   return (
     <>
@@ -1307,7 +1309,12 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     // Room controls often construct whole-data proposals from the render-time
     // snapshot. Preserve only this edit's intended delta, then rebase it on the
     // acknowledged Room after the command queue flushes pending field drafts.
-    const command = rebasedRoomDataCommand(roomId, data, next, label);
+    const command = projectEdits.recordData({
+      record: { collection: 'rooms', id: roomId },
+      before: data,
+      after: next,
+      label,
+    });
     if (command) void projectEdits.execute(command);
   };
   const executeRoomEditCommand = (
@@ -3394,7 +3401,12 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                     value={data.displayName}
                     label="Update room name"
                     buildCommand={(next) =>
-                      bufferedRoomFieldCommand(roomId, 'displayName', next, 'Update room name')
+                      projectEdits.recordField({
+                        record: { collection: 'rooms', id: roomId },
+                        field: '/displayName',
+                        value: next,
+                        label: 'Update room name',
+                      })
                     }
                   />
                 )}

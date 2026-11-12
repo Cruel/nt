@@ -3,6 +3,8 @@ import {
   discardNativeField,
   flushNativeField,
   useNativeFieldDraftStore,
+  unresolvedNativeFieldOwners,
+  discardRecoveredNativeFieldsForOwner,
 } from '@/commands/native-field-drafts';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -59,6 +61,7 @@ export function DirtyCloseDialog() {
   );
   const recovery = buildCurrentEditorRecoveryState();
   const recoveryDirtySaveUnitIds = new Set(Object.keys(recovery.saveUnitsById));
+  const unresolvedFieldSaveUnitIds = unresolvedNativeFieldOwners().saveUnitIds;
   const clearDraftDirtyForTab = useDraftDirtyStore((state) => state.clearDraftDirtyForTab);
   const pendingTabs = useMemo(
     () =>
@@ -78,6 +81,7 @@ export function DirtyCloseDialog() {
       selectDraftDirtyByTabId({ entriesByKey: draftEntries }),
       pendingSaveUnitIds,
       recoveryDirtySaveUnitIds,
+      unresolvedFieldSaveUnitIds,
     ),
   }));
   const requestedTabIds = useMemo(
@@ -309,6 +313,12 @@ export function DirtyCloseDialog() {
             );
             return;
           }
+        }
+      }
+      for (const owner of ownerIds) {
+        if (!discardRecoveredNativeFieldsForOwner(owner)) {
+          setStatusMessage(t('projectField.discardPending'));
+          return;
         }
       }
       for (const { tab: dirtyTab, dirty: dirtyState } of dirtyTabStates) {

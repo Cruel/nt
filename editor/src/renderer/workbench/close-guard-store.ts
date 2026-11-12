@@ -4,7 +4,10 @@ import {
   selectDraftDirtyByTabId,
   selectDraftEntriesForTab,
 } from './draft-dirty-store';
-import { NATIVE_FIELD_DRAFT_SCHEMA } from '@/commands/native-field-drafts';
+import {
+  NATIVE_FIELD_DRAFT_SCHEMA,
+  unresolvedNativeFieldOwners,
+} from '@/commands/native-field-drafts';
 import { getTabDirtyState } from './dirty-state';
 import { useProjectStore } from '@/project/project-store';
 import { useWorkbenchStore } from './workbench-store';
@@ -77,6 +80,7 @@ export function tabCloseRequiresDirtyPrompt(
     draftDirtyByTabId,
     pendingSaveUnitIds,
     recoveryDirtySaveUnitIds,
+    unresolvedNativeFieldOwners().saveUnitIds,
   );
   if (!dirty.dirty) return false;
   return !dirty.saveUnitId || !hasRemainingViewForSaveUnit(dirty.saveUnitId, requestedTabIds);

@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { create } from 'zustand';
 import type { JsonValue } from '@/project/json-value';
 import type { SerializedEditorDraftState } from '../../shared/project-schema/editor-project-state';
+import { NATIVE_FIELD_DRAFT_SCHEMA } from '@/commands/native-field-recovery-schema';
 
 export type DraftDirtyAction = () => boolean | Promise<boolean> | void | Promise<void>;
 
@@ -48,7 +49,12 @@ export const useDraftDirtyStore = create<DraftDirtyStoreState>()((set) => ({
         existing.dirty === true &&
         existing.label === entry.label &&
         existing.schema === entry.schema &&
-        jsonPayloadEqual(existing.payload, entry.payload) &&
+        // Native field payloads are new immutable snapshots per input event.
+        // Their reference identity is enough here; serializing the entire
+        // input text in this hot path would add O(input length) work per key.
+        (entry.schema === NATIVE_FIELD_DRAFT_SCHEMA
+          ? existing.payload === entry.payload
+          : jsonPayloadEqual(existing.payload, entry.payload)) &&
         existing.apply === entry.apply &&
         existing.discard === entry.discard
       ) {

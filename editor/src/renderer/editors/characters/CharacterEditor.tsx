@@ -1,8 +1,4 @@
-import {
-  gameplayRecordFieldCommand,
-  projectEdits,
-  rebasedGameplayDataCommand,
-} from '@/commands/project-editing';
+import { projectEdits } from '@/commands/project-editing';
 import { ProjectFieldInput, ProjectFieldSelect } from '@/commands/use-project-field';
 import { GameplayArchetypeControls } from '@/components/GameplayArchetypeControls';
 import { InventoryDeclarationsEditor } from '@/components/inventories/InventoryControls';
@@ -288,28 +284,22 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
   const previewLayers = resolveCharacterPresentationLayers(data);
 
   function commit(next: CharacterData, label = 'Update character') {
-    const request = rebasedGameplayDataCommand(
-      'character',
-      activeCharacterId,
-      data,
-      next,
+    const request = projectEdits.recordData({
+      record: { collection: 'characters', id: activeCharacterId },
+      before: data,
+      after: next,
       label,
-      (_project, record) =>
-        parseCharacterData(record.data) ?? defaultCharacterData(record.label ?? activeCharacterId),
-    );
+    });
     if (request) void projectEdits.execute(request);
   }
 
   const characterField = (relativePath: string, next: string | null, label: string) =>
-    gameplayRecordFieldCommand(
-      'character',
-      activeCharacterId,
-      relativePath,
-      next,
+    projectEdits.recordField({
+      record: { collection: 'characters', id: activeCharacterId },
+      field: relativePath,
+      value: next,
       label,
-      (_project, record) =>
-        parseCharacterData(record.data) ?? defaultCharacterData(record.label ?? activeCharacterId),
-    );
+    });
 
   function commitLocalProperties(
     localProperties: OwnerLocalProperty[],
@@ -404,14 +394,20 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
   }
 
   function replaceExpression(expressionId: string, patch: Partial<CharacterExpressionData>) {
-    commit(
-      {
-        ...data,
-        expressions: data.expressions.map((expression) =>
-          expression.id === expressionId ? { ...expression, ...patch } : expression,
-        ),
-      },
-      'Update character expression',
+    const previous = data.expressions.find((expression) => expression.id === expressionId);
+    if (!previous) return;
+    void projectEdits.execute(
+      projectEdits.recordList({
+        record: { collection: 'characters', id: activeCharacterId },
+        field: '/expressions',
+        action: {
+          kind: 'replace',
+          id: expressionId,
+          before: previous,
+          after: { ...previous, ...patch },
+        },
+        label: 'Update character expression',
+      }),
     );
   }
 
