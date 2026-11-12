@@ -3,7 +3,7 @@ import {
   animationDataSchema,
   visualImageAssetId,
 } from '../../../shared/project-schema/authoring-animations';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ComponentProps } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   defaultHotspotViewState,
@@ -37,10 +37,13 @@ import {
 } from '@/components/ui/select';
 import { projectEdits } from '@/commands/project-editing';
 import {
+  ProjectFieldError,
   ProjectFieldInput,
   ProjectFieldNumber,
   ProjectFieldSwitch,
 } from '@/commands/use-project-field';
+import { useGameplayRecordField } from '@/commands/gameplay-record-fields';
+import { toJsonValue } from '@/project/json-value';
 import { buildJsonPointer } from '@/project/json-pointer';
 import { useCurrentAuthoringDependencyGraphSnapshot } from '@/project/authoring-dependency-graph-runtime';
 import { renameInteractableInstancePatches } from '@/project/interactable-instance-operations';
@@ -66,6 +69,7 @@ import {
 import { entityIdSchema } from '../../../shared/project-schema/authoring-common';
 import { systemCursorNames } from '../../../shared/project-schema/authoring-cursor-vocabulary';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
+import type { AnimationMotion } from '../../../shared/animation-timeline';
 import {
   captureScrollViewState,
   restoreScrollViewState,
@@ -83,6 +87,200 @@ import {
 } from '@/workspace/command-palette-search';
 
 const INTERACTABLE_EDITOR_TAB_STATE_SCHEMA = 'noveltea.editor.tab-state.interactable';
+
+function InteractableAnimationControls({
+  interactableId,
+  tabId,
+  visual,
+  motions,
+  defaultMotionId,
+  motionLabel,
+  defaultLabel,
+}: {
+  interactableId: string;
+  tabId: string;
+  visual: Extract<NonNullable<InteractableData['presentation']['visual']>, { kind: 'animation' }>;
+  motions: readonly AnimationMotion[];
+  defaultMotionId: string;
+  motionLabel: string;
+  defaultLabel: string;
+}) {
+  const record = { collection: 'interactables' as const, id: interactableId };
+  const motionDraft = useGameplayRecordField({
+    record,
+    tabId,
+    field: '/presentation/visual/motionId',
+    value: visual.motionId,
+    label: 'Update Interactable Visual motion',
+  });
+  const playbackDraft = useGameplayRecordField({
+    record,
+    tabId,
+    field: '/presentation/visual/playback',
+    value: toJsonValue(visual.playback),
+    label: 'Update Interactable motion playback',
+  });
+  const selectedMotion = motions.find(
+    (motion) => motion.id === (motionDraft.value ?? defaultMotionId),
+  );
+  return (
+    <>
+      <div>
+        <Label>{motionLabel}</Label>
+        <Select
+          items={[
+            { value: '__default__', label: defaultLabel },
+            ...motions.map((motion) => ({ value: motion.id, label: motion.id })),
+          ]}
+          value={motionDraft.value ?? '__default__'}
+          onValueChange={(value) => {
+            if (!value) return;
+            motionDraft.change(value === '__default__' ? null : value);
+            motionDraft.endSession();
+          }}
+        >
+          <SelectTrigger aria-label={motionLabel}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__default__">{defaultLabel}</SelectItem>
+            {motions.map((motion) => (
+              <SelectItem key={motion.id} value={motion.id}>
+                {motion.id}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <ProjectFieldError field={motionDraft} />
+      </div>
+      {selectedMotion ? (
+        <>
+          <MotionPlaybackEditor
+            motion={selectedMotion}
+            value={playbackDraft.value as typeof visual.playback}
+            onChange={(playback) => playbackDraft.change(toJsonValue(playback))}
+          />
+          <ProjectFieldError field={playbackDraft} />
+        </>
+      ) : null}
+    </>
+  );
+}
+
+function InteractableMaterialField({
+  interactableId,
+  tabId,
+  value,
+  project,
+  properties,
+  ariaLabel,
+}: {
+  interactableId: string;
+  tabId: string;
+  value: InteractableData['presentation']['materialApplication'];
+  project: ComponentProps<typeof MaterialApplicationEditor>['project'];
+  properties: ComponentProps<typeof MaterialApplicationEditor>['properties'];
+  ariaLabel: string;
+}) {
+  const draft = useGameplayRecordField({
+    record: { collection: 'interactables', id: interactableId },
+    tabId,
+    field: '/presentation/materialApplication',
+    value: toJsonValue(value),
+    label: 'Update interactable Material Application',
+  });
+  return (
+    <>
+      <MaterialApplicationEditor
+        project={project}
+        value={draft.value as InteractableData['presentation']['materialApplication']}
+        expectedRole="engine-2d"
+        properties={properties}
+        ariaLabel={ariaLabel}
+        onChange={(next) => draft.change(toJsonValue(next))}
+      />
+      <ProjectFieldError field={draft} />
+    </>
+  );
+}
+
+function InteractableCursorField({
+  interactableId,
+  tabId,
+  value,
+  namedCursors,
+}: {
+  interactableId: string;
+  tabId: string;
+  value: InteractableData['presentation']['cursor'];
+  namedCursors: readonly { id: string }[];
+}) {
+  const { t } = useTranslation('workspace');
+  const draft = useGameplayRecordField({
+    record: { collection: 'interactables', id: interactableId },
+    tabId,
+    field: '/presentation/cursor',
+    value: toJsonValue(value),
+    label: 'Update interactable cursor',
+  });
+  const cursor = draft.value as InteractableData['presentation']['cursor'];
+  const current =
+    cursor?.kind === 'system'
+      ? `system:${cursor.cursor}`
+      : cursor?.kind === 'named'
+        ? `named:${cursor.id}`
+        : cursor?.kind === 'none'
+          ? 'none'
+          : 'fallback';
+  const missingNamed =
+    cursor?.kind === 'named' && !namedCursors.some((item) => item.id === cursor.id)
+      ? cursor.id
+      : null;
+  return (
+    <>
+      <Select
+        value={current}
+        onValueChange={(selected) => {
+          if (!selected) return;
+          const next =
+            selected === 'fallback'
+              ? null
+              : selected === 'none'
+                ? { kind: 'none' as const }
+                : selected.startsWith('system:')
+                  ? {
+                      kind: 'system' as const,
+                      cursor: selected.slice(
+                        'system:'.length,
+                      ) as (typeof systemCursorNames)[number],
+                    }
+                  : { kind: 'named' as const, id: selected.slice('named:'.length) };
+          draft.change(toJsonValue(next));
+          draft.endSession();
+        }}
+      >
+        <SelectItem value="fallback">{t('hotspots.cursor.projectDefault')}</SelectItem>
+        <SelectItem value="none">{t('hotspots.cursor.none')}</SelectItem>
+        {systemCursorNames.map((name) => (
+          <SelectItem key={name} value={`system:${name}`}>
+            {name}
+          </SelectItem>
+        ))}
+        {namedCursors.map((name) => (
+          <SelectItem key={name.id} value={`named:${name.id}`}>
+            {name.id}
+          </SelectItem>
+        ))}
+        {missingNamed ? (
+          <SelectItem value={`named:${missingNamed}`}>
+            {t('hotspots.cursor.missingNamed', { id: missingNamed })}
+          </SelectItem>
+        ) : null}
+      </Select>
+      <ProjectFieldError field={draft} />
+    </>
+  );
+}
 
 function escapePointerSegment(value: string) {
   return value.replaceAll('~', '~0').replaceAll('/', '~1');
@@ -297,8 +495,6 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
       originSaveUnitId: recordSaveUnitId('interactables', interactableId),
       persistencePolicy: 'manual-save',
     });
-  const presentationNamedCursorId =
-    data.presentation.cursor?.kind === 'named' ? data.presentation.cursor.id : null;
   const chooseSprite = (item: SelectorItem) => {
     if (!item.entityId) return;
     commit(
@@ -493,146 +689,35 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
           </div>
         </div>
         {data.presentation.visual?.kind === 'animation' && selectedAnimation?.success ? (
-          <div>
-            <Label>{t('interactable.visual.motion')}</Label>
-            <Select
-              items={[
-                { value: '__default__', label: t('interactable.visual.defaultMotion') },
-                ...selectedAnimation.data.motions.map((motion) => ({
-                  value: motion.id,
-                  label: motion.id,
-                })),
-              ]}
-              value={data.presentation.visual.motionId ?? '__default__'}
-              onValueChange={(value) => {
-                if (data.presentation.visual?.kind !== 'animation' || !value) return;
-                commit(
-                  {
-                    ...data,
-                    presentation: {
-                      ...data.presentation,
-                      visual: {
-                        ...data.presentation.visual,
-                        motionId: value === '__default__' ? null : value,
-                      },
-                    },
-                  },
-                  'Update Interactable Visual motion',
-                );
-              }}
-            >
-              <SelectTrigger aria-label={t('interactable.visual.motion')}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__default__">
-                  {t('interactable.visual.defaultMotion')}
-                </SelectItem>
-                {selectedAnimation.data.motions.map((motion) => (
-                  <SelectItem key={motion.id} value={motion.id}>
-                    {motion.id}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          <InteractableAnimationControls
+            interactableId={interactableId}
+            tabId={tab.id}
+            visual={data.presentation.visual}
+            motions={selectedAnimation.data.motions}
+            defaultMotionId={selectedAnimation.data.defaultMotionId}
+            motionLabel={t('interactable.visual.motion')}
+            defaultLabel={t('interactable.visual.defaultMotion')}
+          />
         ) : null}
-        {data.presentation.visual?.kind === 'animation' && selectedAnimation?.success
-          ? (() => {
-              const visual = data.presentation.visual;
-              const motion = selectedAnimation.data.motions.find(
-                (entry) => entry.id === (visual.motionId ?? selectedAnimation.data.defaultMotionId),
-              );
-              return motion ? (
-                <MotionPlaybackEditor
-                  motion={motion}
-                  value={visual.playback}
-                  onChange={(playback) =>
-                    commit(
-                      {
-                        ...data,
-                        presentation: { ...data.presentation, visual: { ...visual, playback } },
-                      },
-                      'Update Interactable motion playback',
-                    )
-                  }
-                />
-              ) : null;
-            })()
-          : null}
         <div data-workbench-anchor="interactable.material">
           <Label>Material</Label>
-          <MaterialApplicationEditor
+          <InteractableMaterialField
+            interactableId={interactableId}
+            tabId={tab.id}
             project={project}
             value={data.presentation.materialApplication}
-            expectedRole="engine-2d"
             properties={materialProperties}
             ariaLabel={t('materialSelector.interactableChoose')}
-            onChange={(materialApplication) =>
-              commit(
-                {
-                  ...data,
-                  presentation: { ...data.presentation, materialApplication },
-                },
-                'Update interactable Material Application',
-              )
-            }
           />
         </div>
         <div data-workbench-anchor="interactable.cursor">
           <Label>{t('hotspots.fields.cursor')}</Label>
-          <Select
-            value={
-              data.presentation.cursor?.kind === 'system'
-                ? `system:${data.presentation.cursor.cursor}`
-                : data.presentation.cursor?.kind === 'named'
-                  ? `named:${data.presentation.cursor.id}`
-                  : data.presentation.cursor?.kind === 'none'
-                    ? 'none'
-                    : 'fallback'
-            }
-            onValueChange={(value) => {
-              if (!value) return;
-              const cursor =
-                value === 'fallback'
-                  ? null
-                  : value === 'none'
-                    ? { kind: 'none' as const }
-                    : value.startsWith('system:')
-                      ? {
-                          kind: 'system' as const,
-                          cursor: value.slice(
-                            'system:'.length,
-                          ) as (typeof systemCursorNames)[number],
-                        }
-                      : { kind: 'named' as const, id: value.slice('named:'.length) };
-              commit(
-                { ...data, presentation: { ...data.presentation, cursor } },
-                'Update interactable cursor',
-              );
-            }}
-          >
-            <SelectItem value="fallback">{t('hotspots.cursor.projectDefault')}</SelectItem>
-            <SelectItem value="none">{t('hotspots.cursor.none')}</SelectItem>
-            {systemCursorNames.map((cursor) => (
-              <SelectItem key={cursor} value={`system:${cursor}`}>
-                {cursor}
-              </SelectItem>
-            ))}
-            {project.settings.cursors.named.map((cursor) => (
-              <SelectItem key={cursor.id} value={`named:${cursor.id}`}>
-                {cursor.id}
-              </SelectItem>
-            ))}
-            {presentationNamedCursorId &&
-            !project.settings.cursors.named.some(
-              (cursor) => cursor.id === presentationNamedCursorId,
-            ) ? (
-              <SelectItem value={`named:${presentationNamedCursorId}`}>
-                {t('hotspots.cursor.missingNamed', { id: presentationNamedCursorId })}
-              </SelectItem>
-            ) : null}
-          </Select>
+          <InteractableCursorField
+            interactableId={interactableId}
+            tabId={tab.id}
+            value={data.presentation.cursor}
+            namedCursors={project.settings.cursors.named}
+          />
         </div>
       </div>
       <div

@@ -242,6 +242,22 @@ because it initializes related duration state. Tests cover blocked native
 acknowledgments and concurrent edits across independent owner records; no new
 renderer-owned authoritative Project snapshot is introduced.
 
+In the following #602 nested-editor migration, the Room background Material,
+fallback color and image fit controls and all eight Room lifecycle hook editors
+also derive owner-scoped optimistic values from `useGameplayRecordField`.
+Each lifecycle condition or command-list hook is an independent field; its
+shared list editor operates on the optimistic whole-hook value, never a stale
+array-index pointer. The Character initial-location selector now paints its
+selected Room before native acknowledgment. Interactable Animation motion
+selection, playback policy, Material Application and cursor controls use the
+same field lifecycle and keep dependent playback options visible while queued.
+Representative actual Room, Character and Interactable editor component tests
+hold the first native patch acknowledgment, assert immediate independent
+presentations and verify final native working data after release. These are
+additional migrated surfaces, **not** proof that every nested collection,
+geometry gesture, custom property editor or cross-platform recovery workflow
+has passed #602's final acceptance gate.
+
 The default field operation chooses a narrow native add/replace patch against the **current**
 acknowledged Project. Fields with schema-specific initialization (such as Title Screen) supply
 their existing semantic command instead. Reusable gameplay-record planners handle archetyped

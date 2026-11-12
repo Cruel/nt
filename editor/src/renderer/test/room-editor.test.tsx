@@ -1,4 +1,7 @@
-import { admitNativeRendererCommandFixture } from '../test-support/native-acknowledged-command-fixture';
+import {
+  admitNativeRendererCommandFixture,
+  holdFirstNativeProjectPatch,
+} from '../test-support/native-acknowledged-command-fixture';
 import { describe, expect, it, beforeEach, vi } from 'vite-plus/test';
 import { StrictMode } from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
@@ -312,6 +315,61 @@ describe('RoomEditor', () => {
         source: 'return true',
       },
     ]);
+  });
+  it('renders independent lifecycle edits immediately while native acknowledgment is blocked', async () => {
+    const project = createAuthoringProject();
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    const native = admitNativeRendererCommandFixture(project);
+    const held = holdFirstNativeProjectPatch();
+    renderEditor();
+    selectRoomCategory('Behavior');
+    const afterEnter = screen.getByText('After enter').parentElement!;
+    const afterLeave = screen.getByText('After leave').parentElement!;
+    fireEvent.click(within(afterEnter).getByRole('button', { name: '+ Run Lua' }));
+    await waitFor(() => expect(held.isHeld()).toBe(true));
+    fireEvent.click(within(afterLeave).getByRole('button', { name: '+ Run Lua' }));
+    expect(within(afterEnter).getByDisplayValue('return true')).toBeInTheDocument();
+    expect(within(afterLeave).getByDisplayValue('return true')).toBeInTheDocument();
+    expect(native.patch).not.toHaveBeenCalled();
+    await act(async () => held.release());
+    await waitFor(() => {
+      const doc = useProjectStore.getState().document;
+      expect(isAuthoringProject(doc)).toBe(true);
+      if (!isAuthoringProject(doc)) return;
+      const lifecycle = parseRoomData(doc.rooms.foyer?.data)?.lifecycle;
+      expect(lifecycle?.afterEnter).toHaveLength(1);
+      expect(lifecycle?.afterLeave).toHaveLength(1);
+    });
+    expect(native.patch).toHaveBeenCalledTimes(2);
+  });
+  it('keeps background fit and color visible through a delayed native field acknowledgment', async () => {
+    const project = createAuthoringProject();
+    const room = defaultRoomData('Foyer');
+    room.background.color = '#445566';
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    const native = admitNativeRendererCommandFixture(project);
+    const held = holdFirstNativeProjectPatch();
+    renderEditor();
+    selectRoomCategory('General');
+    fireEvent.click(screen.getByRole('button', { name: 'Contain' }));
+    await waitFor(() => expect(held.isHeld()).toBe(true));
+    fireEvent.click(screen.getByRole('button', { name: 'Clear fallback color' }));
+    expect(screen.getByRole('button', { name: 'Contain' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Choose fallback color' })).toHaveTextContent(
+      'Project default',
+    );
+    expect(native.patch).not.toHaveBeenCalled();
+    await act(async () => held.release());
+    await waitFor(() => {
+      const doc = useProjectStore.getState().document;
+      expect(isAuthoringProject(doc)).toBe(true);
+      if (!isAuthoringProject(doc)) return;
+      expect(parseRoomData(doc.rooms.foyer?.data)?.background).toMatchObject({
+        fit: 'contain',
+        color: null,
+      });
+    });
+    expect(native.patch).toHaveBeenCalledTimes(2);
   });
   it('exposes canonical Hook Registry resolution from the Behavior surface', () => {
     const project = createAuthoringProject();

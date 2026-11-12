@@ -28,6 +28,34 @@ const recordFamilies = new Set([
   'verbs',
 ]);
 
+/** Hold the first native acknowledgment at the IPC boundary while allowing
+ * later requests through after it settles. Delayed-input UI tests share this
+ * fixture instead of each installing a subtly different interception. */
+export function holdFirstNativeProjectPatch() {
+  const actualPatch = window.noveltea.nativeProjectPatch;
+  let first = true;
+  let releaseFirst: (() => Promise<void>) | null = null;
+  Object.defineProperty(window.noveltea, 'nativeProjectPatch', {
+    configurable: true,
+    value: vi.fn((...args: Parameters<typeof actualPatch>) => {
+      if (!first) return actualPatch(...args);
+      first = false;
+      return new Promise<Awaited<ReturnType<typeof actualPatch>>>((resolve, reject) => {
+        releaseFirst = async () => {
+          await Promise.resolve(actualPatch(...args)).then(resolve, reject);
+        };
+      });
+    }),
+  });
+  return {
+    isHeld: () => releaseFirst !== null,
+    release: async () => {
+      if (!releaseFirst) throw new Error('No native patch is awaiting acknowledgment.');
+      await releaseFirst();
+    },
+  };
+}
+
 /** This is a controlled fake *native acknowledgment*, not a TS Workspace
  * writer. Tests of view-level asynchronous commands can exercise the actual
  * proposal/acknowledgment boundary, while real worker/CLI certification

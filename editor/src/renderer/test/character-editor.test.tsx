@@ -1,6 +1,9 @@
-import { admitNativeRendererCommandFixture } from '../test-support/native-acknowledged-command-fixture';
+import {
+  admitNativeRendererCommandFixture,
+  holdFirstNativeProjectPatch,
+} from '../test-support/native-acknowledged-command-fixture';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { CharacterEditor } from '@/editors/characters/CharacterEditor';
 import { useCommandStore } from '@/commands/command-store';
@@ -11,8 +14,15 @@ import {
   useWorkbenchTabStateStore,
 } from '@/workbench/workbench-tab-state';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
-import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
-import { defaultCharacterData } from '../../shared/project-schema/authoring-characters';
+import {
+  createAuthoringProject,
+  isAuthoringProject,
+} from '../../shared/project-schema/authoring-project';
+import {
+  defaultCharacterData,
+  parseCharacterData,
+} from '../../shared/project-schema/authoring-characters';
+import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 
 vi.mock('@/preview/DerivedPreviewPane', () => ({
   DerivedPreviewPane: () => <div data-testid="character-derived-preview" />,
@@ -37,6 +47,36 @@ beforeEach(() => {
 });
 
 describe('CharacterEditor', () => {
+  it('shows a new initial Room selection before native acknowledgment and preserves independent toggles', async () => {
+    const project = createAuthoringProject();
+    project.characters.iris = { id: 'iris', label: 'Iris', data: defaultCharacterData('Iris') };
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    const native = admitNativeRendererCommandFixture(project);
+    const held = holdFirstNativeProjectPatch();
+    render(<CharacterEditor tab={tab} />);
+    const location = within(screen.getByText('Location').parentElement!).getByRole('combobox');
+    const user = userEvent.setup();
+    await user.click(location);
+    await user.click(screen.getByRole('option', { name: /Foyer \(foyer\)/u }));
+    await waitFor(() => expect(held.isHeld()).toBe(true));
+    const enabled = screen.getByRole('checkbox', { name: 'Enabled' });
+    fireEvent.click(enabled);
+    expect(location).toHaveTextContent('Foyer');
+    expect(enabled).not.toBeChecked();
+    expect(native.patch).not.toHaveBeenCalled();
+    await act(async () => held.release());
+    await waitFor(() => {
+      const doc = useProjectStore.getState().document;
+      expect(isAuthoringProject(doc)).toBe(true);
+      if (!isAuthoringProject(doc)) return;
+      const character = parseCharacterData(doc.characters.iris?.data);
+      expect(character?.initialWorldState).toMatchObject({
+        location: { kind: 'room', room: { $ref: { collection: 'rooms', id: 'foyer' } } },
+        enabled: false,
+      });
+    });
+    expect(native.patch).toHaveBeenCalledTimes(2);
+  });
   it('renders typed character defaults', () => {
     const project = createAuthoringProject();
     project.characters.iris = { id: 'iris', label: 'Iris', data: defaultCharacterData('Iris') };

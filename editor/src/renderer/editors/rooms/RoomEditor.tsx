@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentProps,
+  type ReactNode,
+} from 'react';
 import { useTranslation } from 'react-i18next';
 import { GameplayArchetypeControls } from '@/components/GameplayArchetypeControls';
 import { CollectionMasterDetail } from '@/components/collection-master-detail';
@@ -81,7 +89,9 @@ import {
   type GameplayCommandKind,
 } from '@/components/gameplay-commands/GameplayCommandEditor';
 import { RoomEditSurface } from '@/editors/rooms/RoomEditSurface';
+import { toJsonValue } from '@/project/json-value';
 import { RoomCompositionPane } from '@/editors/rooms/RoomCompositionPane';
+import type { AuthoringEditorProject } from '@/editors/interactions/InteractionProgramEditor';
 import { ProjectFieldError } from '@/commands/use-project-field';
 import {
   GameplayFieldInput,
@@ -585,6 +595,198 @@ function RoomDescriptionField({
   return (
     <>
       <TextContentEditor value={draft.value} onChange={draft.change} />
+      <ProjectFieldError field={draft} />
+    </>
+  );
+}
+
+/** A Room lifecycle condition is a stable, owner-scoped object field. Its
+ * editor observes the transient intent rather than the last native revision. */
+function RoomLifecycleConditionField({
+  roomId,
+  tabId,
+  hook,
+  value,
+  project,
+}: {
+  roomId: string;
+  tabId: string;
+  hook: 'canEnter' | 'canLeave';
+  value: RoomData['lifecycle']['canEnter'];
+  project: AuthoringEditorProject;
+}) {
+  const draft = useGameplayRecordField({
+    record: { collection: 'rooms', id: roomId },
+    field: `/lifecycle/${hook}`,
+    tabId,
+    value: toJsonValue(value),
+    label: `Update room ${hook}`,
+  });
+  return (
+    <>
+      <RecursiveConditionEditor
+        value={draft.value as RoomData['lifecycle']['canEnter']}
+        project={project}
+        scope={{ currentRoom: true }}
+        onChange={(next) => draft.change(toJsonValue(next))}
+      />
+      <ProjectFieldError field={draft} />
+    </>
+  );
+}
+
+/** Entire hook lists are independent semantic fields. Individual commands
+ * have stable IDs managed by the command editor; no array-index overlay is
+ * staged for them. */
+function RoomLifecycleCommandsField({
+  roomId,
+  tabId,
+  hook,
+  value,
+  project,
+}: {
+  roomId: string;
+  tabId: string;
+  hook:
+    | 'beforeEnter'
+    | 'afterEnter'
+    | 'beforeLeave'
+    | 'afterLeave'
+    | 'onEnterRejected'
+    | 'onLeaveRejected';
+  value: RoomData['lifecycle']['beforeEnter'];
+  project: AuthoringEditorProject;
+}) {
+  const draft = useGameplayRecordField({
+    record: { collection: 'rooms', id: roomId },
+    field: `/lifecycle/${hook}`,
+    tabId,
+    value: toJsonValue(value),
+    label: `Update room ${hook}`,
+  });
+  return (
+    <>
+      <GameplayCommandListEditor
+        value={draft.value as RoomData['lifecycle']['beforeEnter']}
+        project={project}
+        policy={{
+          currentRoom: true,
+          playerInventory: true,
+          admittedKinds:
+            hook === 'beforeEnter' || hook === 'beforeLeave'
+              ? roomPrecommitGameplayCommandKinds
+              : undefined,
+        }}
+        onChange={(next) => draft.change(toJsonValue(next))}
+      />
+      <ProjectFieldError field={draft} />
+    </>
+  );
+}
+
+function RoomBackgroundMaterialField({
+  roomId,
+  tabId,
+  value,
+  project,
+  properties,
+}: {
+  roomId: string;
+  tabId: string;
+  value: RoomData['background']['materialApplication'];
+  project: AuthoringEditorProject;
+  properties: ComponentProps<typeof MaterialApplicationEditor>['properties'];
+}) {
+  const draft = useGameplayRecordField({
+    record: { collection: 'rooms', id: roomId },
+    field: '/background/materialApplication',
+    tabId,
+    value: toJsonValue(value),
+    label: 'Update room background Material',
+  });
+  return (
+    <>
+      <MaterialApplicationEditor
+        project={project}
+        value={draft.value as RoomData['background']['materialApplication']}
+        expectedRole="engine-2d"
+        properties={properties}
+        ariaLabel="Room background Material"
+        overrideLabel="Room override"
+        onChange={(next) => draft.change(toJsonValue(next))}
+      />
+      <ProjectFieldError field={draft} />
+    </>
+  );
+}
+
+function RoomBackgroundColorField({
+  roomId,
+  tabId,
+  value,
+}: {
+  roomId: string;
+  tabId: string;
+  value: RoomData['background']['color'];
+}) {
+  const draft = useGameplayRecordField({
+    record: { collection: 'rooms', id: roomId },
+    field: '/background/color',
+    tabId,
+    value: toJsonValue(value),
+    label: 'Update room background color',
+  });
+  return (
+    <>
+      <ColorField
+        value={draft.value as RoomData['background']['color']}
+        ariaLabel="Fallback color"
+        onValueChange={(next) => draft.change(next)}
+      />
+      <ProjectFieldError field={draft} />
+    </>
+  );
+}
+
+function RoomBackgroundFitField({
+  roomId,
+  tabId,
+  value,
+}: {
+  roomId: string;
+  tabId: string;
+  value: RoomData['background']['fit'];
+}) {
+  const draft = useGameplayRecordField({
+    record: { collection: 'rooms', id: roomId },
+    field: '/background/fit',
+    tabId,
+    value,
+    label: 'Update room background fit',
+  });
+  return (
+    <>
+      <div
+        className="grid grid-cols-4 overflow-hidden rounded-md border bg-input/20"
+        role="group"
+        aria-label="Image fit"
+      >
+        {roomBackgroundFitValues.map((fit) => (
+          <button
+            key={fit}
+            type="button"
+            aria-label={backgroundFitLabels[fit]}
+            aria-pressed={draft.value === fit}
+            className="flex min-h-20 items-center justify-center border-r px-1.5 py-2 text-muted-foreground transition-colors last:border-r-0 hover:bg-muted/50 hover:text-foreground focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 aria-pressed:bg-accent aria-pressed:text-accent-foreground"
+            onClick={() => {
+              draft.change(fit);
+              draft.endSession();
+            }}
+          >
+            <BackgroundFitOption fit={fit} />
+          </button>
+        ))}
+      </div>
       <ProjectFieldError field={draft} />
     </>
   );
@@ -3471,79 +3673,31 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                   <div className="grid gap-3 @3xl:grid-cols-2">
                     <div className="space-y-1.5">
                       <Label>Material</Label>
-                      <MaterialApplicationEditor
+                      <RoomBackgroundMaterialField
+                        roomId={roomId}
+                        tabId={tab.id}
                         project={project}
                         value={data.background.materialApplication}
-                        expectedRole="engine-2d"
                         properties={roomMaterialProperties}
-                        ariaLabel="Room background Material"
-                        overrideLabel="Room override"
-                        onChange={(materialApplication) =>
-                          commit(
-                            {
-                              ...data,
-                              background: { ...data.background, materialApplication },
-                            },
-                            'Update room background Material',
-                          )
-                        }
                       />
                     </div>
                     <div className="space-y-1.5">
                       <Label>Fallback color</Label>
-                      <ColorField
+                      <RoomBackgroundColorField
+                        roomId={roomId}
+                        tabId={tab.id}
                         value={data.background.color}
-                        ariaLabel="Fallback color"
-                        onValueChange={(color) =>
-                          commit(
-                            {
-                              ...data,
-                              background: {
-                                ...data.background,
-                                color,
-                              },
-                            },
-                            'Update room background color',
-                          )
-                        }
                       />
                     </div>
                   </div>
                 </div>
                 <div className="space-y-1.5">
                   <Label>Image fit</Label>
-                  <div
-                    className="grid grid-cols-4 overflow-hidden rounded-md border bg-input/20"
-                    role="group"
-                    aria-label="Image fit"
-                  >
-                    {roomBackgroundFitValues.map((fit) => {
-                      const selected = data.background.fit === fit;
-                      return (
-                        <button
-                          key={fit}
-                          type="button"
-                          aria-label={backgroundFitLabels[fit]}
-                          aria-pressed={selected}
-                          className="flex min-h-20 items-center justify-center border-r px-1.5 py-2 text-muted-foreground transition-colors last:border-r-0 hover:bg-muted/50 hover:text-foreground focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 aria-pressed:bg-accent aria-pressed:text-accent-foreground"
-                          onClick={() =>
-                            commit(
-                              {
-                                ...data,
-                                background: {
-                                  ...data.background,
-                                  fit,
-                                },
-                              },
-                              'Update room background fit',
-                            )
-                          }
-                        >
-                          <BackgroundFitOption fit={fit} />
-                        </button>
-                      );
-                    })}
-                  </div>
+                  <RoomBackgroundFitField
+                    roomId={roomId}
+                    tabId={tab.id}
+                    value={data.background.fit}
+                  />
                 </div>
               </div>
             </div>
@@ -4261,16 +4415,12 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
             {(['canEnter', 'canLeave'] as const).map((hook) => (
               <div key={hook} className="space-y-1.5">
                 <Label>{hook === 'canEnter' ? 'Can enter' : 'Can leave'}</Label>
-                <RecursiveConditionEditor
+                <RoomLifecycleConditionField
+                  roomId={roomId}
+                  tabId={tab.id}
+                  hook={hook}
                   value={data.lifecycle[hook]}
                   project={project}
-                  scope={{ currentRoom: true }}
-                  onChange={(next) =>
-                    commit(
-                      { ...data, lifecycle: { ...data.lifecycle, [hook]: next } },
-                      `Update room ${hook}`,
-                    )
-                  }
                 />
               </div>
             ))}
@@ -4286,23 +4436,12 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
             ).map(([hook, label]) => (
               <div key={hook} className="space-y-1.5">
                 <Label>{label}</Label>
-                <GameplayCommandListEditor
+                <RoomLifecycleCommandsField
+                  roomId={roomId}
+                  tabId={tab.id}
+                  hook={hook}
                   value={data.lifecycle[hook]}
                   project={project}
-                  policy={{
-                    currentRoom: true,
-                    playerInventory: true,
-                    admittedKinds:
-                      hook === 'beforeEnter' || hook === 'beforeLeave'
-                        ? roomPrecommitGameplayCommandKinds
-                        : undefined,
-                  }}
-                  onChange={(next) =>
-                    commit(
-                      { ...data, lifecycle: { ...data.lifecycle, [hook]: next } },
-                      `Update room ${hook}`,
-                    )
-                  }
                 />
               </div>
             ))}

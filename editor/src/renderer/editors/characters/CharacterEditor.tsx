@@ -1,6 +1,10 @@
 import { projectEdits } from '@/commands/project-editing';
-import { ProjectFieldInput, ProjectFieldSelect } from '@/commands/use-project-field';
-import { GameplayFieldCheckbox } from '@/commands/gameplay-record-fields';
+import {
+  ProjectFieldError,
+  ProjectFieldInput,
+  ProjectFieldSelect,
+} from '@/commands/use-project-field';
+import { GameplayFieldCheckbox, useGameplayRecordField } from '@/commands/gameplay-record-fields';
 import { GameplayArchetypeControls } from '@/components/GameplayArchetypeControls';
 import { InventoryDeclarationsEditor } from '@/components/inventories/InventoryControls';
 import { MaterialApplicationEditor } from '@/components/materials/MaterialApplicationEditor';
@@ -30,6 +34,7 @@ import {
 } from '@/project/owner-local-property-references';
 import { useProjectStore } from '@/project/project-store';
 import { buildJsonPointer } from '@/project/json-pointer';
+import { toJsonValue } from '@/project/json-value';
 import { recordSaveUnitId } from '@/project/save-unit-registry';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
@@ -106,6 +111,52 @@ function parseCharacterEditorTabState(
   return {
     scroll: isScrollViewState(payload.scroll) ? payload.scroll : undefined,
   };
+}
+
+function CharacterInitialLocationField({
+  characterId,
+  tabId,
+  value,
+  rooms,
+}: {
+  characterId: string;
+  tabId: string;
+  value: CharacterData['initialWorldState']['location'];
+  rooms: readonly { roomId: string; roomLabel: string }[];
+}) {
+  const draft = useGameplayRecordField({
+    record: { collection: 'characters', id: characterId },
+    tabId,
+    field: '/initialWorldState/location',
+    value: toJsonValue(value),
+    label: 'Update character initial location',
+  });
+  const location = draft.value as CharacterData['initialWorldState']['location'];
+  return (
+    <>
+      <Select
+        value={location.kind === 'unplaced' ? '__unplaced__' : location.room.$ref.id}
+        onValueChange={(selected) => {
+          draft.change(
+            toJsonValue(
+              selected === '__unplaced__'
+                ? { kind: 'unplaced' }
+                : { kind: 'room', room: { $ref: { collection: 'rooms', id: String(selected) } } },
+            ),
+          );
+          draft.endSession();
+        }}
+      >
+        <SelectItem value="__unplaced__">Unplaced</SelectItem>
+        {rooms.map((room) => (
+          <SelectItem key={room.roomId} value={room.roomId}>
+            {room.roomLabel} ({room.roomId})
+          </SelectItem>
+        ))}
+      </Select>
+      <ProjectFieldError field={draft} />
+    </>
+  );
 }
 
 function nextUniqueId(existing: Iterable<string>, base: string) {
@@ -1265,38 +1316,12 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
             <h3 className="text-sm font-medium @3xl:col-span-2">Initial world state</h3>
             <div className="space-y-1 @3xl:col-span-2">
               <Label>Location</Label>
-              <Select
-                value={
-                  data.initialWorldState.location.kind === 'unplaced'
-                    ? '__unplaced__'
-                    : data.initialWorldState.location.room.$ref.id
-                }
-                onValueChange={(value) =>
-                  commit(
-                    {
-                      ...data,
-                      initialWorldState: {
-                        ...data.initialWorldState,
-                        location:
-                          value === '__unplaced__'
-                            ? { kind: 'unplaced' }
-                            : {
-                                kind: 'room',
-                                room: { $ref: { collection: 'rooms', id: String(value) } },
-                              },
-                      },
-                    },
-                    'Update character initial location',
-                  )
-                }
-              >
-                <SelectItem value="__unplaced__">Unplaced</SelectItem>
-                {rooms.map((item) => (
-                  <SelectItem key={item.roomId} value={item.roomId}>
-                    {item.roomLabel} ({item.roomId})
-                  </SelectItem>
-                ))}
-              </Select>
+              <CharacterInitialLocationField
+                characterId={activeCharacterId}
+                tabId={tab.id}
+                value={data.initialWorldState.location}
+                rooms={rooms}
+              />
             </div>
             <label className="flex items-center gap-2">
               <GameplayFieldCheckbox

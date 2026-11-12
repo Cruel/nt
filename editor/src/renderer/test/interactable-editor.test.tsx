@@ -1,5 +1,8 @@
-import { admitNativeRendererCommandFixture } from '../test-support/native-acknowledged-command-fixture';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import {
+  admitNativeRendererCommandFixture,
+  holdFirstNativeProjectPatch,
+} from '../test-support/native-acknowledged-command-fixture';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { InteractableEditor } from '@/editors/interactables/InteractableEditor';
@@ -70,6 +73,82 @@ beforeEach(() => {
 });
 
 describe('InteractableEditor', () => {
+  it('updates Animation motion and playback immediately across delayed native acknowledgments', async () => {
+    const project = createAuthoringProject();
+    project.assets.frame = {
+      id: 'frame',
+      label: 'Frame',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/frame.png' },
+        aliases: [],
+        sampling: 'linear',
+        byteSize: 10,
+        contentHash: `sha256:${'a'.repeat(64)}`,
+        imageMetadata: { width: 32, height: 32, hasAlpha: true, orientation: 1 },
+      },
+    };
+    project.animations.loop = {
+      id: 'loop',
+      label: 'Loop',
+      data: {
+        kind: 'animation',
+        canvas: { width: 32, height: 32 },
+        defaultMotionId: 'idle',
+        motions: ['idle', 'rest'].map((id) => ({
+          id,
+          kind: 'sprite-sequence' as const,
+          markers: [],
+          frames: [
+            { image: { $ref: { collection: 'assets' as const, id: 'frame' } }, durationMs: 100 },
+          ],
+        })),
+      },
+    };
+    const data = defaultInteractableData('Door');
+    data.presentation.visual = {
+      kind: 'animation',
+      animation: { $ref: { collection: 'animations', id: 'loop' } },
+      motionId: null,
+      playback: null,
+    };
+    project.interactables.door = { id: 'door', label: 'Door', traits: [], data };
+    const native = admitNativeRendererCommandFixture(project);
+    const held = holdFirstNativeProjectPatch();
+    renderEditor();
+    const user = userEvent.setup();
+    const selector = screen.getByRole('combobox', { name: 'Animation motion' });
+    await user.click(selector);
+    await user.click(screen.getByRole('option', { name: 'rest' }));
+    await waitFor(() => expect(held.isHeld()).toBe(true));
+    const rate = screen.getByRole('spinbutton', { name: /rate/iu });
+    fireEvent.change(rate, { target: { value: '1.5' } });
+    const cursor = within(screen.getByText('Cursor').parentElement!).getByRole('combobox');
+    await user.click(cursor);
+    await user.click(screen.getByRole('option', { name: 'pointer' }));
+    expect(selector).toHaveTextContent('rest');
+    expect(rate).toHaveValue(1.5);
+    expect(cursor).toHaveTextContent('pointer');
+    expect(native.patch).not.toHaveBeenCalled();
+    await act(async () => held.release());
+    await waitFor(() => {
+      const doc = useProjectStore.getState().document;
+      expect(isAuthoringProject(doc)).toBe(true);
+      if (!isAuthoringProject(doc)) return;
+      expect(
+        parseInteractableData(doc.interactables.door?.data)?.presentation.visual,
+      ).toMatchObject({
+        kind: 'animation',
+        motionId: 'rest',
+        playback: { rate: 1.5 },
+      });
+      expect(parseInteractableData(doc.interactables.door?.data)?.presentation.cursor).toEqual({
+        kind: 'system',
+        cursor: 'pointer',
+      });
+    });
+    expect(native.patch).toHaveBeenCalledTimes(3);
+  });
   it('authors custom Hotspot motion keys against the shared Animation timeline', async () => {
     const project = createAuthoringProject();
     for (const id of ['frame-a', 'frame-b'] as const) {
