@@ -8,6 +8,7 @@ import {
   PROJECT_SETTINGS_OWNED_PATHS,
   PROJECT_SETTINGS_SAVE_UNIT_ID,
   RECORD_SAVE_UNIT_COLLECTIONS,
+  SAVE_UNIT_IDS,
   recordSaveUnitId,
 } from '@/project/save-unit-registry';
 
@@ -30,6 +31,22 @@ export function fieldSaveUnitForPath(path: string): string | null {
   if (!segments.length || segments.some((segment) => /^(0|[1-9]\d*)$/u.test(segment))) return null;
   if (PROJECT_SETTINGS_OWNED_PATHS.some((root) => under(path, root)))
     return PROJECT_SETTINGS_SAVE_UNIT_ID;
+  if (
+    segments[0] === 'editor' &&
+    segments[1] === 'tags' &&
+    segments[2] === 'records' &&
+    segments.length === 5 &&
+    segments[4] === 'color'
+  )
+    return SAVE_UNIT_IDS.projectTags;
+  if (
+    segments[0] === 'editor' &&
+    segments[1] === 'chapters' &&
+    segments[2] === 'records' &&
+    segments.length === 5 &&
+    ['label', 'color'].includes(segments[4]!)
+  )
+    return SAVE_UNIT_IDS.projectChapters;
   if (
     segments[0] === 'editor' &&
     segments[1] === 'recordMetadata' &&

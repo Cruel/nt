@@ -58,6 +58,13 @@ export function AssetAttachments({ assetId, project, projectSessionId }: Props) 
   const [movePath, setMovePath] = useState<string | null>(null);
   const [moveValue, setMoveValue] = useState('');
   const [nameEdits, setNameEdits] = useState<Record<string, string>>({});
+  // Attachment purpose is a validated semantic/file transaction, not a scalar
+  // pointer: stage its selection immediately while inspection and native apply
+  // run. Keep a rejected selection available to correct instead of snapping
+  // back to the last acknowledged value.
+  const [purposeEdits, setPurposeEdits] = useState<
+    Record<string, { value: AssetAttachmentPurpose; pending: boolean }>
+  >({});
   const [inspections, setInspections] = useState<Record<string, ProjectAttachmentInspection>>({});
   const assetSourcePath = assetData?.source.path;
   const trackedPaths = [
@@ -652,8 +659,21 @@ export function AssetAttachments({ assetId, project, projectSessionId }: Props) 
                       </Button>
                     ) : null}
                     <Select
-                      value={item.purpose}
+                      value={
+                        purposeEdits[`${projectSessionId}:${assetId}:${item.path}`]?.value ??
+                        item.purpose
+                      }
+                      disabled={
+                        purposeEdits[`${projectSessionId}:${assetId}:${item.path}`]?.pending ??
+                        false
+                      }
                       onValueChange={async (value) => {
+                        const key = `${projectSessionId}:${assetId}:${item.path}`;
+                        const next = value as AssetAttachmentPurpose;
+                        setPurposeEdits((current) => ({
+                          ...current,
+                          [key]: { value: next, pending: true },
+                        }));
                         if (value === 'distribution-notice' && projectSessionId) {
                           const checked = await window.noveltea.inspectProjectAttachmentFile(
                             projectSessionId,
@@ -663,16 +683,20 @@ export function AssetAttachments({ assetId, project, projectSessionId }: Props) 
                             setStatus(
                               checked.noticeError ?? checked.error ?? t('assetAttachments.missing'),
                             );
+                            setPurposeEdits((current) => ({
+                              ...current,
+                              [key]: { value: next, pending: false },
+                            }));
                             return;
                           }
                         }
-                        void apply(
+                        const committed = await apply(
                           [assetId],
                           {
                             kind: 'replace',
                             attachment: {
                               ...item,
-                              purpose: value as AssetAttachmentPurpose,
+                              purpose: next,
                               ...(value !== 'authoring-source'
                                 ? { sourceBaselineHash: undefined, assetBaselineHash: undefined }
                                 : {
@@ -683,6 +707,15 @@ export function AssetAttachments({ assetId, project, projectSessionId }: Props) 
                           },
                           t('assetAttachments.history.changePurpose'),
                         );
+                        setPurposeEdits((current) => {
+                          if (current[key]?.value !== next) return current;
+                          if (!committed) {
+                            return { ...current, [key]: { value: next, pending: false } };
+                          }
+                          const updated = { ...current };
+                          delete updated[key];
+                          return updated;
+                        });
                       }}
                     >
                       {categories.map((option) => (

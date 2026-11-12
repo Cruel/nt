@@ -4,6 +4,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useCommandStore } from '@/commands/command-store';
 import { projectEdits } from '@/commands/project-editing';
+import { ProjectFieldInput } from '@/commands/use-project-field';
+import { buildJsonPointer } from '@/project/json-pointer';
 import type { CommandRequest } from '@/commands/command-types';
 import { SAVE_UNIT_IDS } from '@/project/save-unit-registry';
 import { useProjectStore } from '@/project/project-store';
@@ -27,6 +29,57 @@ function commandSucceeded(
 }
 
 const CHAPTERS_TAB_STATE_SCHEMA = 'noveltea.editor.chapters-tab-state';
+
+function ChapterFields({
+  id,
+  label,
+  color,
+  tabId,
+}: {
+  id: string;
+  label: string;
+  color: string | null;
+  tabId: string;
+}) {
+  const saveUnitId = SAVE_UNIT_IDS.projectChapters;
+  return (
+    <>
+      <div className="min-w-0">
+        <ProjectFieldInput
+          aria-label={`Chapter ${id} label`}
+          tabId={tabId}
+          saveUnitId={saveUnitId}
+          path={buildJsonPointer(['editor', 'chapters', 'records', id, 'label'])}
+          value={label}
+          label={`Rename chapter ${id}`}
+          buildCommand={(nextLabel) => ({
+            type: 'project.renameChapter',
+            label: `Rename chapter ${id}`,
+            payload: { chapterId: id, label: nextLabel },
+            originSaveUnitId: saveUnitId,
+            persistencePolicy: 'manual-save',
+          })}
+        />
+        <div className="mt-1 font-mono text-[10px] text-muted-foreground">{id}</div>
+      </div>
+      <ProjectFieldInput
+        aria-label={`Chapter ${id} color`}
+        tabId={tabId}
+        saveUnitId={saveUnitId}
+        path={buildJsonPointer(['editor', 'chapters', 'records', id, 'color'])}
+        value={color ?? ''}
+        label={`Set chapter color ${id}`}
+        buildCommand={(nextColor) => ({
+          type: 'project.setChapterColor',
+          label: `Set chapter color ${id}`,
+          payload: { chapterId: id, color: nextColor.trim() || null },
+          originSaveUnitId: saveUnitId,
+          persistencePolicy: 'manual-save',
+        })}
+      />
+    </>
+  );
+}
 
 export function ChaptersEditor({ tab }: WorkbenchEditorProps) {
   const document = useProjectStore((state) => state.document);
@@ -120,23 +173,6 @@ export function ChaptersEditor({ tab }: WorkbenchEditorProps) {
       setLabel('');
       setColor('');
     }
-  }
-
-  function renameChapter(id: string, nextLabel: string) {
-    if (nextLabel.trim())
-      void run({
-        type: 'project.renameChapter',
-        label: `Rename chapter ${id}`,
-        payload: { chapterId: id, label: nextLabel },
-      });
-  }
-
-  function setChapterColor(id: string, nextColor: string) {
-    void run({
-      type: 'project.setChapterColor',
-      label: `Set chapter color ${id}`,
-      payload: { chapterId: id, color: nextColor.trim() || null },
-    });
   }
 
   function deleteChapter(id: string) {
@@ -248,16 +284,11 @@ export function ChaptersEditor({ tab }: WorkbenchEditorProps) {
                 key={id}
                 className="grid items-center gap-2 rounded border p-2 @3xl:grid-cols-[1fr_8rem_auto]"
               >
-                <div className="min-w-0">
-                  <Input
-                    defaultValue={chapter.label}
-                    onBlur={(event) => renameChapter(id, event.currentTarget.value)}
-                  />
-                  <div className="mt-1 font-mono text-[10px] text-muted-foreground">{id}</div>
-                </div>
-                <Input
-                  defaultValue={chapter.color ?? ''}
-                  onBlur={(event) => setChapterColor(id, event.currentTarget.value)}
+                <ChapterFields
+                  id={id}
+                  label={chapter.label}
+                  color={chapter.color ?? null}
+                  tabId={tab.id}
                 />
                 <Button size="sm" variant="destructive" onClick={() => deleteChapter(id)}>
                   <Trash2 className="h-3.5 w-3.5" /> Delete

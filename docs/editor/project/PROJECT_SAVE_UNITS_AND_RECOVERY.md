@@ -455,7 +455,7 @@ bound to native-acknowledged record data. This prevents declaring the requested
 | Layout and Map | `LayoutEditor.tsx` / `MapEditor.tsx`, `*.replaceData` | Separate ordinary scalar controls from geometry/drag and semantic structural commands |
 | Material | `MaterialEditor.tsx`, `material.replaceData` | Immediate scalar/selector presentation; preserve shader source-buffer and compilation contract |
 | Interaction and Verb | `InteractionEditor.tsx` / `VerbEditor.tsx`, `*.replaceData` | Scope nested rule/value controls independently of structural and reference-remapping commands |
-| Other custom editors | Animation, asset/attachment, localization, chapter, source, and specialized preview/export editors retain direct controls | Complete a per-control owner/path inventory; source buffers, stage gestures and generated/preview tools require documented distinct lifecycles |
+| Other custom editors | Animation, asset/attachment, localization, chapter, source, and specialized preview/export controls | #607's audited owner/path inventory and enforcement gate are documented in [EDITOR_CONTROL_COVERAGE_607.md](EDITOR_CONTROL_COVERAGE_607.md); source buffers, staging gestures and generated/preview tools retain their distinct lifecycles |
 
 ##### Scene and Dialogue control inventory (#604)
 

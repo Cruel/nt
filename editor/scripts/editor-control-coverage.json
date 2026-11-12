@@ -1,0 +1,519 @@
+{
+  "schema": 1,
+  "routes": {
+    "animation-detail": "AnimationEditor",
+    "archetype-detail": "ArchetypeEditor",
+    "asset-detail": "AssetEditor",
+    "asset-library": "AssetLibraryEditor",
+    "character-detail": "CharacterEditor",
+    "comfyui-workflows": "ComfyUiWorkflowsEditor",
+    "components": "ComponentsTabEditor",
+    "dialogue-detail": "DialogueEditor",
+    "engine-preview": "EnginePreviewEditor",
+    "engine-shader-source": "EngineShaderSourceEditor",
+    "full-game-preview": "FullGamePreviewEditor",
+    "image-generation": "ImageGenerationEditor",
+    "interactable-detail": "InteractableEditor",
+    "interaction-detail": "InteractionEditor",
+    "layout-detail": "LayoutEditor",
+    "localization": "LocalizationEditor",
+    "map-detail": "MapEditor",
+    "material-detail": "MaterialEditor",
+    "material-library": "MaterialsLibraryEditor",
+    "placeholder-entity": "PlaceholderEntityEditor",
+    "platform-export": "PlatformExportEditor",
+    "project-chapters": "ChaptersEditor",
+    "project-settings": "ProjectSettingsEditor",
+    "project-tags": "TagsEditor",
+    "room-detail": "RoomEditor",
+    "scene-detail": "SceneEditor",
+    "script-module-detail": "ScriptModuleEditor",
+    "settings": "SettingsTabEditor",
+    "source-file": "SourceFileEditor",
+    "test-detail": "TestsEditor",
+    "test-suite": "TestSuiteEditor",
+    "traits": "TraitsEditor",
+    "variables": "VariablesEditor",
+    "verb-detail": "VerbEditor"
+  },
+  "categories": {
+    "animations": {
+      "disposition": "native field and semantic timeline edits",
+      "evidence": "src/renderer/test/animation-editor.test.tsx"
+    },
+    "archetypes": {
+      "disposition": "native kind/base fields; explicit configuration Apply",
+      "evidence": "src/renderer/test/archetype-editor.test.tsx"
+    },
+    "assets": {
+      "disposition": "native sampling/tags; explicit file and alias operations; local filters",
+      "evidence": "src/renderer/test/asset-editor.test.tsx"
+    },
+    "characters": {
+      "disposition": "native record fields; semantic inventories and state",
+      "evidence": "src/renderer/test/character-editor.test.tsx"
+    },
+    "comfyui": {
+      "disposition": "local workflow/generation forms; explicit import/publish",
+      "evidence": "src/renderer/test/comfyui-workflows-editor.test.tsx"
+    },
+    "dialogues": {
+      "disposition": "native fields; semantic dialogue graph edits",
+      "evidence": "src/renderer/test/dialogue-editor.test.tsx"
+    },
+    "interactables": {
+      "disposition": "native fields and semantic exact-instance/property edits",
+      "evidence": "src/renderer/test/interactable-editor.test.tsx"
+    },
+    "interactions": {
+      "disposition": "native fields and semantic interaction-program edits",
+      "evidence": "src/renderer/test/interaction-operations.test.ts"
+    },
+    "layouts": {
+      "disposition": "native fields and semantic layout-node edits",
+      "evidence": "src/renderer/test/layout-editor.test.tsx"
+    },
+    "localization": {
+      "disposition": "local source/translation blur drafts; semantic reconciliation",
+      "evidence": "src/renderer/test/localization-editor.test.tsx"
+    },
+    "maps": {
+      "disposition": "native fields and semantic map-item edits",
+      "evidence": "src/renderer/test/map-editor-buffering.test.tsx"
+    },
+    "materials": {
+      "disposition": "native shader fields and semantic material edits",
+      "evidence": "src/renderer/test/material-editor.test.tsx"
+    },
+    "placeholder": {
+      "disposition": "non-content placeholder",
+      "evidence": "src/renderer/test/editor-registry.test.tsx"
+    },
+    "preview": {
+      "disposition": "runtime-only controls; explicit test recording publication",
+      "evidence": "src/renderer/test/full-game-preview-editor.test.tsx"
+    },
+    "project": {
+      "disposition": "native project settings/chapters/tags; explicit import/export forms",
+      "evidence": "src/renderer/test/project-settings-editor.test.tsx"
+    },
+    "raw-json": {
+      "disposition": "local JSON document buffer; explicit Apply",
+      "evidence": "src/renderer/test/raw-json-editor.test.tsx"
+    },
+    "rooms": {
+      "disposition": "native fields and semantic room composition/placement operations",
+      "evidence": "src/renderer/test/room-editor.test.tsx"
+    },
+    "shared": {
+      "disposition": "shared native Scene/Dialogue field controls",
+      "evidence": "src/renderer/test/scene-editor.test.tsx"
+    },
+    "scenes": {
+      "disposition": "native fields and semantic timeline/event operations",
+      "evidence": "src/renderer/test/scene-editor.test.tsx"
+    },
+    "scripts": {
+      "disposition": "source-backed script buffer; explicit Apply",
+      "evidence": "src/renderer/test/authoring-script-modules.test.ts"
+    },
+    "source": {
+      "disposition": "local file editor drafts; explicit source commit",
+      "evidence": "src/renderer/test/engine-shader-source-editor.test.tsx"
+    },
+    "tests": {
+      "disposition": "native test fields and semantic step edits",
+      "evidence": "src/renderer/test/tests-editor.test.tsx"
+    },
+    "traits": {
+      "disposition": "local modal/Property Manager drafts; explicit Apply",
+      "evidence": "src/renderer/test/traits-editor.test.tsx"
+    },
+    "utility": {
+      "disposition": "non-content utility inspectors",
+      "evidence": "src/renderer/test/editor-registry.test.tsx"
+    },
+    "variables": {
+      "disposition": "local typed property form; semantic Create/Apply",
+      "evidence": "src/renderer/test/variables-editor.test.tsx"
+    },
+    "verbs": {
+      "disposition": "native verb fields; semantic slot operations",
+      "evidence": "src/renderer/test/authoring-verbs.test.ts"
+    }
+  },
+  "files": {
+    "animations/AnimationEditor.tsx": {
+      "onBlur": 4,
+      "onChange": 2,
+      "onClick": 12,
+      "onCommit": 1,
+      "onLoadedMetadata": 1,
+      "onOpenChange": 1,
+      "onValueChange": 1
+    },
+    "animations/MotionPlaybackEditor.tsx": {
+      "onChange": 1,
+      "onClick": 1,
+      "onValueChange": 1
+    },
+    "archetypes/ArchetypeEditor.tsx": {
+      "onChange": 2,
+      "onClick": 1,
+      "onValueChange": 2
+    },
+    "assets/AssetAttachments.tsx": {
+      "onChange": 7,
+      "onClick": 18,
+      "onValueChange": 2
+    },
+    "assets/AssetEditor.tsx": {
+      "onChange": 4,
+      "onClick": 9,
+      "onKeyDownCapture": 1,
+      "onMetadataLayoutReady": 1,
+      "onOpenChange": 1,
+      "onPointerDownCapture": 1,
+      "onTouchMoveCapture": 1,
+      "onValueChange": 1,
+      "onWheelCapture": 1
+    },
+    "assets/AssetEmbeddedMetadata.tsx": {
+      "onChange": 1,
+      "onClick": 6
+    },
+    "assets/AssetLibraryEditor.tsx": {
+      "onChange": 3,
+      "onClick": 9,
+      "onClose": 1,
+      "onContextMenu": 1,
+      "onKeyDown": 1,
+      "onPointerDown": 1,
+      "onValueChange": 1
+    },
+    "assets/AssetPreview.tsx": {
+      "onClick": 1,
+      "onLayoutReady": 1
+    },
+    "characters/CharacterEditor.tsx": {
+      "onChange": 30,
+      "onClick": 24,
+      "onShowUsages": 1,
+      "onTraitStateChange": 1,
+      "onValueChange": 17
+    },
+    "comfyui/ComfyUiWorkflowsEditor.tsx": {
+      "onChange": 2,
+      "onClick": 9,
+      "onImported": 2,
+      "onKeyDown": 1,
+      "onOpenChange": 2
+    },
+    "comfyui/ImageGenerationEditor.tsx": {
+      "onChange": 14,
+      "onClick": 9
+    },
+    "dialogues/DialogueEditor.tsx": {
+      "onChange": 49,
+      "onCheckedChange": 19,
+      "onClick": 29,
+      "onCommit": 4,
+      "onConnectBlocks": 1,
+      "onMoveBlock": 1,
+      "onSelectBlock": 1,
+      "onValueChange": 36,
+      "onViewportChange": 1
+    },
+    "dialogues/DialogueGraph.tsx": {
+      "onConnect": 1,
+      "onNodeClick": 1,
+      "onNodeDragStop": 1,
+      "onViewportChange": 1
+    },
+    "interactables/InteractableEditor.tsx": {
+      "onAtomicRename": 1,
+      "onBlur": 1,
+      "onChange": 7,
+      "onClick": 5,
+      "onDelete": 1,
+      "onEditGeometry": 1,
+      "onOpenChange": 1,
+      "onRename": 1,
+      "onSelect": 1,
+      "onUpdate": 1,
+      "onValueChange": 2,
+      "onViewChange": 1
+    },
+    "interactions/InteractionEditor.tsx": {
+      "onChange": 11,
+      "onClick": 7,
+      "onCommit": 1,
+      "onDelete": 2,
+      "onMove": 1,
+      "onValueChange": 2
+    },
+    "interactions/InteractionProgramEditor.tsx": {
+      "onChange": 1,
+      "onValueChange": 2
+    },
+    "interactions/SubjectSelectorEditor.tsx": {
+      "onChange": 3,
+      "onClick": 1,
+      "onValueChange": 12
+    },
+    "layouts/LayoutEditor.tsx": {
+      "onChange": 10,
+      "onCheckedChange": 1,
+      "onClick": 3,
+      "onPreviewCollapsedChange": 1,
+      "onToggle": 5,
+      "onValueChange": 10
+    },
+    "localization/LocalizationEditor.tsx": {
+      "onBlur": 11,
+      "onChange": 9,
+      "onCheckedChange": 1,
+      "onClick": 27,
+      "onValueChange": 12
+    },
+    "maps/MapEditor.tsx": {
+      "onChange": 22,
+      "onClick": 12,
+      "onCommit": 2,
+      "onValueChange": 8
+    },
+    "materials/MaterialEditor.tsx": {
+      "onChange": 3,
+      "onClick": 10,
+      "onReset": 1,
+      "onSetPath": 1,
+      "onValueChange": 7
+    },
+    "materials/MaterialsLibraryEditor.tsx": {
+      "onChange": 1,
+      "onCheckedChange": 1,
+      "onClick": 2,
+      "onOpenChange": 1
+    },
+    "placeholder/PlaceholderEntityEditor.tsx": {},
+    "preview/DebugReportExportButton.tsx": {
+      "onClick": 1
+    },
+    "preview/EnginePreviewEditor.tsx": {},
+    "preview/FullGamePreviewEditor.tsx": {
+      "onApplyExisting": 1,
+      "onAssetMemoryChange": 1,
+      "onAssetMemoryTargetChange": 1,
+      "onBlur": 2,
+      "onChange": 7,
+      "onCheckedChange": 1,
+      "onClear": 1,
+      "onClick": 34,
+      "onCommand": 6,
+      "onControlsContextChange": 1,
+      "onKeyDown": 2,
+      "onModeChange": 1,
+      "onOpenChange": 1,
+      "onOpenSavedTest": 2,
+      "onPreviewMessage": 1,
+      "onRecorderApplyExisting": 1,
+      "onRecorderClear": 1,
+      "onRecorderReplay": 1,
+      "onRecorderSaveNew": 1,
+      "onRecorderStart": 1,
+      "onRecorderStop": 1,
+      "onRecorderUndoLast": 1,
+      "onReloadLatest": 1,
+      "onReloadLatestProject": 1,
+      "onReplay": 1,
+      "onRuntimeCommand": 1,
+      "onSaveNew": 1,
+      "onSelect": 1,
+      "onStart": 1,
+      "onStop": 1,
+      "onTargetTestIdChange": 2,
+      "onUndoLast": 1,
+      "onValueChange": 1
+    },
+    "preview/RmlUiDebuggerControls.tsx": {
+      "onCheckedChange": 1,
+      "onValueChange": 1
+    },
+    "project/ChaptersEditor.tsx": {
+      "onChange": 4,
+      "onClick": 3
+    },
+    "project/ComfyUiWorkflowImportDialog.tsx": {
+      "onChange": 8,
+      "onClick": 4,
+      "onOpenChange": 1,
+      "onValueChange": 2
+    },
+    "project/PlatformExportEditor.tsx": {
+      "onOpenChange": 1
+    },
+    "project/ProjectSettingsEditor.tsx": {
+      "onBlur": 2,
+      "onCategoryChange": 1,
+      "onChange": 25,
+      "onCheckedChange": 4,
+      "onClick": 25,
+      "onCommit": 8,
+      "onKeyDown": 1,
+      "onOpenChange": 5,
+      "onSelect": 3,
+      "onValueChange": 1
+    },
+    "project/TagsEditor.tsx": {
+      "onClick": 1,
+      "onValueChange": 1
+    },
+    "raw-json/RawJsonEditor.tsx": {},
+    "rooms/RoomCameraCollections.tsx": {
+      "onChange": 4,
+      "onCommit": 2,
+      "onDeleteItem": 2,
+      "onSelectedKeyChange": 2
+    },
+    "rooms/RoomCollectionCondition.tsx": {
+      "onChange": 1
+    },
+    "rooms/RoomCollectionMaterial.tsx": {
+      "onChange": 1
+    },
+    "rooms/RoomCollectionVisibility.tsx": {
+      "onBlur": 1,
+      "onChange": 1
+    },
+    "rooms/RoomCompositionPane.tsx": {
+      "onClick": 13,
+      "onToggle": 1
+    },
+    "rooms/RoomEditSurface.tsx": {
+      "onClick": 4,
+      "onContextMenu": 1,
+      "onDoubleClick": 1,
+      "onFocus": 1,
+      "onMouseDown": 3,
+      "onMouseEnter": 2,
+      "onMouseLeave": 1,
+      "onMouseMove": 1,
+      "onOpenChange": 1
+    },
+    "rooms/RoomEditor.tsx": {
+      "onAddAtPoint": 1,
+      "onAddToPlacement": 1,
+      "onAtomicRename": 1,
+      "onBeginAdd": 1,
+      "onBlur": 2,
+      "onBulkStackingAction": 1,
+      "onCategoryChange": 1,
+      "onChange": 34,
+      "onClick": 33,
+      "onCommit": 1,
+      "onDelete": 2,
+      "onDeleteItem": 4,
+      "onDeleteSelection": 1,
+      "onDone": 1,
+      "onEditGeometry": 2,
+      "onEditHotspots": 1,
+      "onExpandedSelectionKeysChange": 1,
+      "onFocusedDocumentApplied": 1,
+      "onImagePresentationChange": 1,
+      "onImageUrlChange": 1,
+      "onKeyDown": 1,
+      "onNavigationChange": 1,
+      "onOpenChange": 5,
+      "onPendingAddActionCancel": 1,
+      "onPreviewCollapsedChange": 1,
+      "onRename": 2,
+      "onRequestClose": 1,
+      "onResizeSelection": 1,
+      "onSelect": 4,
+      "onSelectedIdChange": 2,
+      "onSelectedKeyChange": 4,
+      "onSelectionChange": 2,
+      "onShowUsages": 1,
+      "onSurfaceElementChange": 1,
+      "onTraitStateChange": 1,
+      "onTranslateSelection": 1,
+      "onUpdate": 2,
+      "onValueChange": 18,
+      "onViewChange": 2
+    },
+    "rooms/RoomExitDirectionSelector.tsx": {
+      "onClick": 1
+    },
+    "rooms/RoomExitsField.tsx": {},
+    "rooms/RoomSemanticInputs.tsx": {
+      "onBlur": 2,
+      "onChange": 2,
+      "onKeyDown": 1
+    },
+    "scene-dialogue-fields.tsx": {
+      "onBlur": 2,
+      "onChange": 2,
+      "onCompositionEnd": 1,
+      "onCompositionStart": 1,
+      "onKeyDown": 1
+    },
+    "scenes/SceneEditor.tsx": {
+      "onBlur": 1,
+      "onChange": 64,
+      "onCheckedChange": 15,
+      "onClick": 22,
+      "onCommit": 5,
+      "onValueChange": 68
+    },
+    "scripts/ScriptModuleEditor.tsx": {
+      "onChange": 2,
+      "onValueChange": 1
+    },
+    "source/EngineShaderSourceEditor.tsx": {
+      "onClick": 1
+    },
+    "source/SourceFileEditor.tsx": {
+      "onChange": 1,
+      "onClick": 8
+    },
+    "tests/TestSuiteEditor.tsx": {
+      "onClick": 4
+    },
+    "tests/TestsEditor.tsx": {
+      "onChange": 30,
+      "onCheckedChange": 1,
+      "onClick": 12,
+      "onCommit": 1,
+      "onDelete": 2,
+      "onValueChange": 21
+    },
+    "traits/TraitsEditor.tsx": {
+      "onChange": 6,
+      "onCheckedChange": 1,
+      "onClick": 7,
+      "onCreate": 1,
+      "onDelete": 1,
+      "onEdit": 1,
+      "onMove": 1,
+      "onOpenChange": 2
+    },
+    "utility/ComponentsTabEditor.tsx": {},
+    "utility/SettingsTabEditor.tsx": {
+      "onActiveCategoryChange": 1
+    },
+    "variables/VariablesEditor.tsx": {
+      "onCreate": 1,
+      "onDelete": 1,
+      "onEdit": 1,
+      "onShowUsages": 1,
+      "onStateChange": 1
+    },
+    "verbs/VerbEditor.tsx": {
+      "onChange": 15,
+      "onClick": 8,
+      "onCommit": 2,
+      "onDelete": 2,
+      "onValueChange": 3
+    }
+  }
+}

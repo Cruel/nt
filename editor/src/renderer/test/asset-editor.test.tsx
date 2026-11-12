@@ -1,6 +1,10 @@
-import { admitNativeRendererCommandFixture } from '../test-support/native-acknowledged-command-fixture';
+import {
+  admitNativeRendererCommandFixture,
+  holdFirstNativeProjectPatch,
+} from '../test-support/native-acknowledged-command-fixture';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { AssetEditor } from '@/editors/assets/AssetEditor';
 import { useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
@@ -290,6 +294,156 @@ describe('AssetEditor', () => {
       }),
     );
   });
+
+  it('retains a rejected Asset tag change in two views and retries without losing the authored intent', async () => {
+    const document = project();
+    admitNativeRendererCommandFixture(document);
+    const actualPatch = window.noveltea.nativeProjectPatch;
+    const rejected = vi
+      .spyOn(window.noveltea, 'nativeProjectPatch')
+      .mockImplementationOnce(async () => ({
+        accepted: false,
+        error: 'Native rejected Asset tag update',
+        snapshot: {
+          workingRevision: 0,
+          diskSourceRevision: `sha256:${'0'.repeat(64)}`,
+          source: document,
+          normalized: document,
+          dirtyPatches: [],
+          dirty: false,
+          valid: true,
+          diagnostics: [],
+          inventory: [],
+          recordSnapshots: {},
+        },
+        affectedRecords: [],
+        diagnosticsAdded: [],
+        diagnosticsRemoved: [],
+      }));
+    render(<AssetEditor tab={tab} />);
+    render(<AssetEditor tab={{ ...tab, id: 'tab:asset-detail:second' }} />);
+    fireEvent.change(screen.getAllByLabelText('Asset tags')[0]!, {
+      target: { value: 'Hero,' },
+    });
+    expect(screen.getAllByText('Hero')).toHaveLength(2);
+    await waitFor(() =>
+      expect(screen.getAllByText(/Native rejected Asset tag update/u)).toHaveLength(2),
+    );
+    expect((useProjectStore.getState().document as typeof document).editor.recordMetadata).toEqual(
+      {},
+    );
+    expect(rejected).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getAllByRole('button', { name: /retry/i })[0]!);
+    await waitFor(() =>
+      expect(
+        (useProjectStore.getState().document as typeof document).editor.recordMetadata,
+      ).toMatchObject({ assets: { logo: { tags: ['Hero'] } } }),
+    );
+    expect(actualPatch).toBeTypeOf('function');
+    expect(rejected).toHaveBeenCalledTimes(2);
+    expect(screen.getAllByText('Hero')).toHaveLength(2);
+  });
+
+  it.each([500, 1000])(
+    'keeps Asset tags immediate and combines edits during a %i ms native acknowledgment',
+    async (delay) => {
+      const document = project();
+      const native = admitNativeRendererCommandFixture(document);
+      const held = holdFirstNativeProjectPatch();
+      render(<AssetEditor tab={tab} />);
+      const tags = screen.getByLabelText('Asset tags');
+      fireEvent.change(tags, { target: { value: 'Hero,' } });
+      expect(screen.getByText('Hero')).toBeInTheDocument();
+      await waitFor(() => expect(held.isHeld()).toBe(true));
+      fireEvent.change(tags, { target: { value: 'Pixel,' } });
+      expect(screen.getByText('Pixel')).toBeInTheDocument();
+      expect(
+        (useProjectStore.getState().document as typeof document).editor.recordMetadata,
+      ).toEqual({});
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      expect(screen.getByText('Hero')).toBeInTheDocument();
+      expect(screen.getByText('Pixel')).toBeInTheDocument();
+      expect(native.patch).not.toHaveBeenCalled();
+
+      await act(async () => held.release());
+      await waitFor(() =>
+        expect(
+          (useProjectStore.getState().document as typeof document).editor.recordMetadata,
+        ).toMatchObject({ assets: { logo: { tags: ['Hero', 'Pixel'] } } }),
+      );
+      expect(native.patch.mock.calls.length).toBeLessThanOrEqual(2);
+    },
+    15000,
+  );
+
+  it.each([500, 1000])(
+    'keeps image sampling visible through a %i ms native acknowledgment',
+    async (delay) => {
+      const document = project();
+      const native = admitNativeRendererCommandFixture(document);
+      const held = holdFirstNativeProjectPatch();
+      render(<AssetEditor tab={tab} />);
+      const user = userEvent.setup();
+      const samplingSection = screen.getByText('Image sampling').closest('section')!;
+      const sampling = within(samplingSection).getByRole('combobox');
+      expect(sampling).toHaveTextContent('Linear');
+      await user.click(sampling);
+      await user.click(await screen.findByRole('option', { name: 'Nearest' }));
+      expect(sampling).toHaveTextContent('Nearest');
+      await waitFor(() => expect(held.isHeld()).toBe(true));
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      expect(sampling).toHaveTextContent('Nearest');
+      expect(
+        (useProjectStore.getState().document as typeof document).assets.logo.data.sampling,
+      ).toBeUndefined();
+      expect(native.patch).not.toHaveBeenCalled();
+
+      await act(async () => held.release());
+      await waitFor(() =>
+        expect(
+          (useProjectStore.getState().document as typeof document).assets.logo.data.sampling,
+        ).toBe('nearest'),
+      );
+      expect(sampling).toHaveTextContent('Nearest');
+    },
+    15000,
+  );
+
+  it.each([500, 1000])(
+    'shows a semantic Asset attachment purpose selection during a %i ms native acknowledgment',
+    async (delay) => {
+      const document = project();
+      document.assets.logo.data.attachments = [
+        { path: 'support/reference.md', purpose: 'reference' },
+      ];
+      const native = admitNativeRendererCommandFixture(document);
+      const held = holdFirstNativeProjectPatch();
+      render(<AssetEditor tab={tab} />);
+      const user = userEvent.setup();
+      const row = screen.getByText('support/reference.md').closest('[data-workbench-anchor]')!;
+      const purpose = within(row as HTMLElement).getByRole('combobox');
+      await user.click(purpose);
+      await user.click(await screen.findByRole('option', { name: 'Other' }));
+      expect(purpose).toHaveTextContent('Other');
+      await waitFor(() => expect(held.isHeld()).toBe(true));
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      expect(purpose).toHaveTextContent('Other');
+      expect(
+        (useProjectStore.getState().document as typeof document).assets.logo.data.attachments?.[0]
+          ?.purpose,
+      ).toBe('reference');
+      expect(native.patch).not.toHaveBeenCalled();
+
+      await act(async () => held.release());
+      await waitFor(() =>
+        expect(
+          (useProjectStore.getState().document as typeof document).assets.logo.data.attachments?.[0]
+            ?.purpose,
+        ).toBe('other'),
+      );
+    },
+    15000,
+  );
 
   it('loads and renders grouped embedded metadata beneath the Asset preview', async () => {
     let resolveInspection!: (

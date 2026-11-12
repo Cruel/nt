@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
 import { useCommandStore } from '@/commands/command-store';
 import { projectEdits } from '@/commands/project-editing';
+import { ProjectFieldError, useProjectField } from '@/commands/use-project-field';
 import type { CommandRequest } from '@/commands/command-types';
 import { recordSaveUnitId, structuralSaveUnitId } from '@/project/save-unit-registry';
 import {
@@ -124,10 +125,32 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
         : [],
     [assetId, project],
   );
+  const saveUnitId = recordSaveUnitId('assets', assetId ?? '');
+  const samplingField = useProjectField({
+    tabId: tab.id,
+    saveUnitId,
+    path: `/assets/${assetId ?? ''}/data/sampling`,
+    value: data?.kind === 'image' ? (data.sampling ?? 'linear') : 'linear',
+    label: `Set ${assetId ?? ''} image sampling`,
+  });
+  const tagsField = useProjectField({
+    tabId: tab.id,
+    saveUnitId,
+    path: `/editor/recordMetadata/assets/${assetId ?? ''}/tags`,
+    value: recordTags,
+    label: `Update ${assetId ?? ''} tags`,
+    buildCommand: (tags) => ({
+      type: 'entity.updateMetadata',
+      label: `Update ${assetId ?? ''} tags`,
+      payload: { collection: 'assets', entityId: assetId, tags },
+      originSaveUnitId: saveUnitId,
+      persistencePolicy: 'manual-save',
+    }),
+  });
   const tagSuggestions = useMemo(() => {
     if (!isAuthoringProjectView(project)) return [];
-    return collectProjectTags(project, recordTags);
-  }, [project, recordTags]);
+    return collectProjectTags(project, tagsField.value);
+  }, [project, tagsField.value]);
 
   if (!assetId || !record) {
     return <div className="p-4 text-sm text-muted-foreground">Asset record not found.</div>;
@@ -157,31 +180,6 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
     const failure = result.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
     setMessage(failure?.message ?? command.label ?? command.type);
     return result.ok && !failure;
-  }
-
-  function updateTags(tags: string[]) {
-    void run({
-      type: 'entity.updateMetadata',
-      label: `Update ${assetId} tags`,
-      payload: { collection: 'assets', entityId: assetId, tags },
-    });
-  }
-
-  function updateSampling(sampling: 'linear' | 'nearest') {
-    const rawData = record?.data;
-    const hasAuthoredSampling =
-      typeof rawData === 'object' && rawData !== null && Object.hasOwn(rawData, 'sampling');
-    void run({
-      type: 'project.applyPatch',
-      label: `Set ${assetId} image sampling`,
-      payload: [
-        {
-          op: hasAuthoredSampling ? 'replace' : 'add',
-          path: `/assets/${assetId}/data/sampling`,
-          value: sampling,
-        },
-      ],
-    });
   }
 
   async function reimport() {
@@ -359,12 +357,16 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
               <div className="mt-3 max-w-xs">
                 <Label>Filter</Label>
                 <Select
-                  value={data.sampling ?? 'linear'}
-                  onValueChange={(value) => updateSampling(value as 'linear' | 'nearest')}
+                  value={samplingField.value}
+                  onValueChange={(value) => {
+                    samplingField.change(value as 'linear' | 'nearest');
+                    samplingField.endSession();
+                  }}
                 >
                   <SelectItem value="linear">Linear</SelectItem>
                   <SelectItem value="nearest">Nearest</SelectItem>
                 </Select>
+                <ProjectFieldError field={samplingField} />
               </div>
             </section>
           ) : null}
@@ -379,11 +381,12 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
               <TagInput
                 id="asset-tags"
                 className="mt-1"
-                value={recordTags}
-                onChange={updateTags}
+                value={tagsField.value}
+                onChange={tagsField.change}
                 suggestions={tagSuggestions}
                 placeholder="Add tag"
               />
+              <ProjectFieldError field={tagsField} />
             </div>
           </section>
 

@@ -9,6 +9,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { projectEdits } from '@/commands/project-editing';
+import { ProjectFieldError, useProjectField } from '@/commands/use-project-field';
+import { buildJsonPointer } from '@/project/json-pointer';
 import { SAVE_UNIT_IDS } from '@/project/save-unit-registry';
 import { useProjectStore } from '@/project/project-store';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
@@ -37,7 +39,51 @@ function collectionSummary(tag: ProjectTagSummary) {
     .join(' · ');
 }
 
-export function TagsEditor(_props: WorkbenchEditorProps) {
+function TagColorField({ tag, tabId }: { tag: ProjectTagSummary; tabId: string }) {
+  const draft = useProjectField({
+    tabId,
+    saveUnitId: SAVE_UNIT_IDS.projectTags,
+    path: buildJsonPointer(['editor', 'tags', 'records', tag.key, 'color']),
+    value: tag.color,
+    label: `Set tag color ${tag.name}`,
+    buildCommand: (color) => ({
+      type: 'project.setTagColor',
+      label: `Set tag color ${tag.name}`,
+      payload: { tag: tag.name, color },
+      originSaveUnitId: SAVE_UNIT_IDS.projectTags,
+      persistencePolicy: 'manual-save',
+    }),
+  });
+  return (
+    <>
+      <Select
+        items={TAG_COLOR_POOL.map((color) => ({
+          value: color,
+          label: color.replace('tag-', ''),
+        }))}
+        value={draft.value}
+        onValueChange={(color) => {
+          draft.change(color as TagColor);
+          draft.endSession();
+        }}
+      >
+        <SelectTrigger className="w-32">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {TAG_COLOR_POOL.map((color) => (
+            <SelectItem key={color} value={color}>
+              {color.replace('tag-', '')}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <ProjectFieldError field={draft} />
+    </>
+  );
+}
+
+export function TagsEditor({ tab }: WorkbenchEditorProps) {
   const document = useProjectStore((state) => state.document);
   const executeCommand = projectEdits.execute;
   const project = isAuthoringProjectView(document) ? document : null;
@@ -52,16 +98,6 @@ export function TagsEditor(_props: WorkbenchEditorProps) {
         Open an authoring project to manage tags.
       </div>
     );
-
-  function setColor(tag: ProjectTagSummary, color: TagColor) {
-    void executeCommand({
-      type: 'project.setTagColor',
-      label: `Set tag color ${tag.name}`,
-      payload: { tag: tag.name, color },
-      originSaveUnitId: SAVE_UNIT_IDS.projectTags,
-      persistencePolicy: 'manual-save',
-    });
-  }
 
   function deleteUnusedTag(tag: ProjectTagSummary) {
     if (tag.count > 0 || !registryKeys.has(tag.key)) return;
@@ -111,25 +147,7 @@ export function TagsEditor(_props: WorkbenchEditorProps) {
                   >
                     {collectionSummary(tag) || 'Unused registry tag'}
                   </div>
-                  <Select
-                    items={TAG_COLOR_POOL.map((color) => ({
-                      value: color,
-                      label: color.replace('tag-', ''),
-                    }))}
-                    value={tag.color}
-                    onValueChange={(value) => setColor(tag, value as TagColor)}
-                  >
-                    <SelectTrigger className="w-32">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {TAG_COLOR_POOL.map((color) => (
-                        <SelectItem key={color} value={color}>
-                          {color.replace('tag-', '')}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <TagColorField tag={tag} tabId={tab.id} />
                   <Button
                     size="sm"
                     variant="destructive"

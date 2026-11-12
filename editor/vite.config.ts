@@ -239,9 +239,22 @@ export default defineConfig({
         ],
         output: [],
       },
+      'check:editor-control-coverage': {
+        command:
+          'node scripts/check-editor-control-coverage.mjs && node --test scripts/check-editor-control-coverage.test.mjs',
+        cache: true,
+        input: [
+          'src/renderer/editors/**/*.tsx',
+          'src/renderer/workbench/default-editors.tsx',
+          'scripts/check-editor-control-coverage.mjs',
+          'scripts/check-editor-control-coverage.test.mjs',
+          'scripts/editor-control-coverage.json',
+        ],
+        output: [],
+      },
       'check:types': {
         command: 'tsc --noEmit',
-        dependsOn: ['check:tooling', 'check:select-contract'],
+        dependsOn: ['check:tooling', 'check:select-contract', 'check:editor-control-coverage'],
         cache: true,
         input: editorCheckInputs,
         output: [],

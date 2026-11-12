@@ -4,6 +4,8 @@ import { OwnerDefaultPropertiesEditor } from '@/components/properties/OwnerDefau
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
 import { projectEdits } from '@/commands/project-editing';
+import { ProjectFieldError, useProjectField } from '@/commands/use-project-field';
+import { toJsonValue } from '@/project/json-value';
 import { useProjectStore } from '@/project/project-store';
 import { recordSaveUnitId } from '@/project/save-unit-registry';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
@@ -42,6 +44,48 @@ export function ArchetypeEditor({ tab }: WorkbenchEditorProps) {
   const archetypeId = tab.resource?.entityId ?? null;
   const record = project && archetypeId ? project.archetypes[archetypeId] : null;
   const data = parseArchetypeData(record?.data);
+  const saveUnitId = recordSaveUnitId('archetypes', archetypeId ?? '');
+  const kindField = useProjectField({
+    tabId: tab.id,
+    saveUnitId,
+    path: `/archetypes/${archetypeId ?? ''}/data/instanceKind`,
+    value: data?.instanceKind ?? 'room',
+    label: 'Set Archetype kind',
+    buildCommand: (instanceKind) => ({
+      type: 'archetype.setKind',
+      label: 'Set Archetype kind',
+      payload: { archetypeId, instanceKind },
+      originSaveUnitId: saveUnitId,
+      persistencePolicy: 'manual-save',
+    }),
+  });
+  const baseField = useProjectField({
+    tabId: tab.id,
+    saveUnitId,
+    path: `/archetypes/${archetypeId ?? ''}/data/base`,
+    value: toJsonValue(data?.base ?? null),
+    label: 'Set base Archetype',
+    buildCommand: (base) => ({
+      type: 'archetype.setBase',
+      label: 'Set base Archetype',
+      payload: {
+        archetypeId,
+        baseArchetypeId:
+          base &&
+          typeof base === 'object' &&
+          !Array.isArray(base) &&
+          base.$ref &&
+          typeof base.$ref === 'object' &&
+          !Array.isArray(base.$ref) &&
+          typeof base.$ref.id === 'string'
+            ? base.$ref.id
+            : null,
+      },
+      originSaveUnitId: saveUnitId,
+      persistencePolicy: 'manual-save',
+    }),
+  });
+  const projectedBase = baseField.value as { $ref: { id: string } } | null;
   const effective =
     project && archetypeId && data ? resolveArchetypeConfiguration(project, archetypeId) : null;
   const baseConfiguration =
@@ -73,7 +117,7 @@ export function ArchetypeEditor({ tab }: WorkbenchEditorProps) {
   const sameKindBases = Object.entries(project.archetypes)
     .filter(([id, candidate]) => {
       if (id === archetypeId) return false;
-      return parseArchetypeData(candidate.data)?.instanceKind === data.instanceKind;
+      return parseArchetypeData(candidate.data)?.instanceKind === kindField.value;
     })
     .sort(([, left], [, right]) => left.label.localeCompare(right.label));
 
@@ -120,13 +164,11 @@ export function ArchetypeEditor({ tab }: WorkbenchEditorProps) {
           <div className="space-y-1">
             <Label>Gameplay Instance kind</Label>
             <Select
-              value={data.instanceKind}
-              onValueChange={(value) =>
-                void execute('archetype.setKind', 'Set Archetype kind', {
-                  archetypeId,
-                  instanceKind: value,
-                })
-              }
+              value={kindField.value}
+              onValueChange={(value) => {
+                kindField.change(value as typeof kindField.value);
+                kindField.endSession();
+              }}
             >
               {gameplayInstanceKindValues.map((kind) => (
                 <SelectItem key={kind} value={kind}>
@@ -134,17 +176,26 @@ export function ArchetypeEditor({ tab }: WorkbenchEditorProps) {
                 </SelectItem>
               ))}
             </Select>
+            <ProjectFieldError field={kindField} />
           </div>
           <div className="space-y-1">
             <Label>Base Archetype</Label>
             <Select
-              value={data.base?.$ref.id ?? '__none__'}
-              onValueChange={(value) =>
-                void execute('archetype.setBase', 'Set base Archetype', {
-                  archetypeId,
-                  baseArchetypeId: value === '__none__' ? null : value,
-                })
+              value={
+                kindField.value === data.instanceKind
+                  ? (projectedBase?.$ref.id ?? '__none__')
+                  : '__none__'
               }
+              onValueChange={(value) => {
+                baseField.change(
+                  value === '__none__'
+                    ? null
+                    : {
+                        $ref: { collection: 'archetypes', id: value },
+                      },
+                );
+                baseField.endSession();
+              }}
             >
               <SelectItem value="__none__">None</SelectItem>
               {sameKindBases.map(([id, candidate]) => (
@@ -153,6 +204,7 @@ export function ArchetypeEditor({ tab }: WorkbenchEditorProps) {
                 </SelectItem>
               ))}
             </Select>
+            <ProjectFieldError field={baseField} />
           </div>
         </div>
 
