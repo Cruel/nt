@@ -20,7 +20,10 @@ interface SampleSummary {
 }
 
 interface RunResult {
+  surface: string;
+  field: string;
   delayMs: number;
+  baseline: boolean;
   idleFrame: SampleSummary;
   input: SampleSummary;
   acknowledgment: SampleSummary;
@@ -30,6 +33,7 @@ interface RunResult {
 
 export interface FieldBenchmarkResult {
   success: boolean;
+  diagnosticOnly: boolean;
   fixture: 'feature-lab-copy';
   host: string;
   environment: {
@@ -37,8 +41,9 @@ export interface FieldBenchmarkResult {
     electron: string;
     chromium: string;
     cpu: string;
-    display: 'xvfb-software' | 'desktop';
+    display: 'xvfb-software' | 'ci-headless' | 'desktop';
   };
+  measurement: 'next-frame-after-React-commit-proxy';
   cases: RunResult[];
   savedReadback: boolean;
   error?: string;
@@ -87,6 +92,7 @@ export async function runPackagedFieldBenchmark(
 ): Promise<FieldBenchmarkResult> {
   const result: FieldBenchmarkResult = {
     success: false,
+    diagnosticOnly: process.env.NOVELTEA_FIELD_BENCHMARK_DIAGNOSTIC === 'records',
     fixture: 'feature-lab-copy',
     host: `${process.platform}-${process.arch}`,
     environment: {
@@ -94,8 +100,10 @@ export async function runPackagedFieldBenchmark(
       electron: process.versions.electron ?? '',
       chromium: process.versions.chrome ?? '',
       cpu: os.cpus()[0]?.model ?? 'unknown',
-      display: process.platform === 'linux' ? 'xvfb-software' : 'desktop',
+      display:
+        process.platform === 'linux' ? 'xvfb-software' : process.env.CI ? 'ci-headless' : 'desktop',
     },
+    measurement: 'next-frame-after-React-commit-proxy',
     cases: [],
     savedReadback: false,
   };
@@ -119,6 +127,12 @@ export async function runPackagedFieldBenchmark(
       "document.body.textContent?.includes('Project loaded') === true",
       'Project admission',
     );
+    // Opt into an isolated, ordinary React controlled input in the same
+    // packaged renderer. It intentionally has no Project/native work.
+    await evaluate(
+      window,
+      "sessionStorage.setItem('noveltea-field-benchmark-baseline', 'enabled'); true",
+    );
     await evaluate(
       window,
       "window.dispatchEvent(new CustomEvent('noveltea-workspace-toolbar-command', { detail: 'project-settings' })); true",
@@ -129,16 +143,22 @@ export async function runPackagedFieldBenchmark(
       'Project Settings input',
     );
 
-    const prefix = await evaluate<string>(
-      window,
-      "(document.querySelector('#project-title'))?.value",
-    );
-    if (typeof prefix !== 'string' || prefix.length === 0) {
-      throw new Error('Project Settings title is not an editable input.');
-    }
-    let expected = prefix;
-
-    for (const delayMs of [0, 500, 1000]) {
+    const expectedByField = new Map<string, string>();
+    async function sampleInput({
+      surface,
+      field,
+      selector,
+      path: fieldPath,
+      delayMs,
+      baseline = false,
+    }: {
+      surface: string;
+      field: string;
+      selector: string;
+      path?: string;
+      delayMs: number;
+      baseline?: boolean;
+    }) {
       controls.setAcknowledgmentDelay(delayMs);
       const beforeCalls = controls.patchCalls();
       // Separate the host's idle compositor/virtual-display cadence from the
@@ -148,7 +168,7 @@ export async function runPackagedFieldBenchmark(
         `(async () => {
           const frames = [];
           let previous = null;
-          for (let i = 0; i < 33; i++) {
+          for (let i = 0; i < 25; i++) {
             const frame = await new Promise(requestAnimationFrame);
             if (previous !== null) frames.push(frame - previous);
             previous = frame;
@@ -156,12 +176,18 @@ export async function runPackagedFieldBenchmark(
           return frames;
         })()`,
       );
+      const beforeValue = await evaluate<string>(
+        window,
+        `document.querySelector(${JSON.stringify(selector)})?.value`,
+      );
+      if (typeof beforeValue !== 'string') throw new Error(`Missing editable ${surface} ${field}`);
       await evaluate(
         window,
         `(() => {
           performance.clearMeasures('noveltea.project-edit.input-to-paint-ready');
+          performance.clearMeasures('noveltea.project-edit.baseline-input-to-paint-ready');
           performance.clearMeasures('noveltea.project-edit.flush-to-native-ack');
-          const input = document.querySelector('#project-title');
+          const input = document.querySelector(${JSON.stringify(selector)});
           input.focus();
           input.setSelectionRange(input.value.length, input.value.length);
         })(); true`,
@@ -173,8 +199,8 @@ export async function runPackagedFieldBenchmark(
         await window.webContents.insertText(character);
         await sleep(30);
       }
-      expected += characters;
-      await sleep(Math.max(2600, delayMs * 3 + 500));
+      const expected = beforeValue + characters;
+      await sleep(baseline ? 150 : Math.max(2600, delayMs * 3 + 500));
       const metrics = await evaluate<{
         input: number[];
         acknowledgment: number[];
@@ -184,51 +210,320 @@ export async function runPackagedFieldBenchmark(
         `(async () => {
           await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
           return {
-            input: performance.getEntriesByName('noveltea.project-edit.input-to-paint-ready', 'measure')
+            input: performance.getEntriesByName(${JSON.stringify(
+              baseline
+                ? 'noveltea.project-edit.baseline-input-to-paint-ready'
+                : 'noveltea.project-edit.input-to-paint-ready',
+            )}, 'measure')
+              .filter((entry) => ${baseline ? 'true' : `entry.detail?.path === ${JSON.stringify(fieldPath)}`})
               .map((entry) => entry.duration),
             acknowledgment: performance.getEntriesByName('noveltea.project-edit.flush-to-native-ack', 'measure')
+              .filter((entry) => entry.detail?.path === ${JSON.stringify(fieldPath)})
               .map((entry) => entry.duration),
-            exactPresentation: document.querySelector('#project-title')?.value === ${JSON.stringify(expected)}
+            exactPresentation: document.querySelector(${JSON.stringify(selector)})?.value === ${JSON.stringify(expected)}
           };
         })()`,
       );
-      result.cases.push({
+      const entry: RunResult = {
+        surface,
+        field,
         delayMs,
+        baseline,
         idleFrame: summarize(idleFrame),
         input: summarize(metrics.input),
         acknowledgment: summarize(metrics.acknowledgment),
         patchCalls: controls.patchCalls() - beforeCalls,
         exactPresentation: metrics.exactPresentation,
-      });
+      };
+      result.cases.push(entry);
       if (
         !metrics.exactPresentation ||
         metrics.input.length !== characters.length ||
-        metrics.acknowledgment.length === 0 ||
-        result.cases.at(-1)!.patchCalls < 1 ||
-        result.cases.at(-1)!.patchCalls > 8
+        (!baseline && metrics.acknowledgment.length === 0) ||
+        (baseline ? entry.patchCalls !== 0 : entry.patchCalls < 1 || entry.patchCalls > 8)
       ) {
         throw new Error(
-          `Presentation, measured events, or bounded native requests failed at ${delayMs} ms acknowledgment delay.`,
+          `${surface}/${field}: presentation, measured events, or bounded native requests failed at ${delayMs} ms delay: ${JSON.stringify(entry)}`,
         );
+      }
+      if (!baseline) expectedByField.set(field, expected);
+    }
+
+    if (!result.diagnosticOnly) {
+      await waitUntil(
+        window,
+        "document.querySelector('#field-benchmark-react-baseline') !== null",
+        'controlled React baseline',
+      );
+      await sampleInput({
+        surface: 'baseline',
+        field: 'controlled-react-input',
+        selector: '#field-benchmark-react-baseline',
+        delayMs: 0,
+        baseline: true,
+      });
+      for (const [field, selector, fieldPath] of [
+        ['title', '#project-title', '/project/name'],
+        ['version', '#project-version', '/project/version'],
+        ['author', '#project-author', '/project/author'],
+        ['description', '#project-description', '/project/description'],
+      ]) {
+        for (const delayMs of [0, 500, 1000]) {
+          await sampleInput({
+            surface: 'project-settings',
+            field,
+            selector,
+            path: fieldPath,
+            delayMs,
+          });
+        }
+      }
+      controls.setAcknowledgmentDelay(0);
+      await evaluate(
+        window,
+        "window.dispatchEvent(new CustomEvent('noveltea-workspace-toolbar-command', { detail: 'save' })); true",
+      );
+    }
+    async function verifySaved(relativePath: string, expected: string) {
+      const deadline = Date.now() + 20_000;
+      while (Date.now() < deadline) {
+        if ((await readFile(path.join(fixture!, relativePath), 'utf8')).includes(expected)) return;
+        await sleep(250);
+      }
+      throw new Error(`Native Save readback mismatch in ${relativePath}`);
+    }
+    if (!result.diagnosticOnly) {
+      for (const field of ['title', 'version', 'author', 'description']) {
+        await verifySaved('project.yaml', expectedByField.get(field)!);
       }
     }
 
-    controls.setAcknowledgmentDelay(0);
-    await evaluate(
-      window,
-      "window.dispatchEvent(new CustomEvent('noveltea-workspace-toolbar-command', { detail: 'save' })); true",
-    );
-    const projectYaml = path.join(fixture, 'project.yaml');
-    const deadline = Date.now() + 20_000;
-    while (Date.now() < deadline) {
-      if ((await readFile(projectYaml, 'utf8')).includes(expected)) {
-        result.savedReadback = true;
-        break;
+    // Drive the actual Explorer and record editor rather than bypassing
+    // native ProjectSession via a scripted patch.
+    async function openRecord(
+      collection: 'rooms' | 'characters' | 'interactables',
+      entityId: string,
+    ) {
+      const selector = `button[data-explorer-node-id^="record:${collection}:${entityId}"]`;
+      if (
+        !(await evaluate<boolean>(
+          window,
+          `Boolean(document.querySelector(${JSON.stringify(selector)}))`,
+        ))
+      ) {
+        await evaluate(
+          window,
+          `(() => {
+            const category = document.querySelector('button[data-explorer-node-id="collection:${collection}"]');
+            if (!document.querySelector('button[data-explorer-node-id^="chapter:${collection}:"]')) category?.click();
+          })(); true`,
+        );
+        await sleep(350);
       }
-      await sleep(250);
+      if (
+        !(await evaluate<boolean>(
+          window,
+          `Boolean(document.querySelector(${JSON.stringify(selector)}))`,
+        ))
+      ) {
+        await evaluate(
+          window,
+          `(() => {
+            for (const chapter of document.querySelectorAll('button[data-explorer-node-id^="chapter:${collection}:"]')) chapter.click();
+          })(); true`,
+        );
+        await sleep(350);
+      }
+      const available = await evaluate<{ found: boolean; nodes: string[] }>(
+        window,
+        `(() => ({
+          found: Boolean(document.querySelector(${JSON.stringify(selector)})),
+          nodes: [...document.querySelectorAll('[data-explorer-node-id]')]
+            .map((element) => element.getAttribute('data-explorer-node-id')).filter(Boolean).slice(0, 35),
+        }))()`,
+      );
+      if (!available.found) {
+        throw new Error(
+          `Missing Explorer record ${collection}/${entityId}; visible node IDs: ${JSON.stringify(available.nodes)}`,
+        );
+      }
+      await evaluate(window, `document.querySelector(${JSON.stringify(selector)}).click(); true`);
     }
-    result.success = result.savedReadback && result.cases.every((entry) => entry.exactPresentation);
-    if (!result.success) result.error = 'Native saved readback did not match typed presentation.';
+    for (const record of [
+      {
+        collection: 'rooms' as const,
+        entityId: 'feature-lab-home',
+        fields: [
+          {
+            selector: 'input[aria-label="Room display name"]',
+            field: 'room-display-name',
+            path: '/rooms/feature-lab-home/data/displayName',
+            saveFile: 'records/rooms/feature-lab-home.yaml',
+          },
+        ],
+      },
+      {
+        collection: 'characters' as const,
+        entityId: 'pilot-guide',
+        fields: [
+          {
+            selector: '[data-workbench-anchor="character.summary"] input',
+            field: 'character-display-name',
+            path: '/characters/pilot-guide/data/displayName',
+            saveFile: 'records/characters/pilot-guide.yaml',
+          },
+          {
+            selector: '[data-workbench-anchor="character.summary"] > div:nth-child(2) input',
+            field: 'character-dialogue-name',
+            path: '/characters/pilot-guide/data/dialogue/name',
+            saveFile: 'records/characters/pilot-guide.yaml',
+          },
+        ],
+      },
+      {
+        collection: 'interactables' as const,
+        entityId: 'gate-lever',
+        fields: [
+          {
+            selector: '[data-workbench-anchor="interactable.summary"] input',
+            field: 'interactable-display-name',
+            path: '/interactables/gate-lever/data/displayName',
+            saveFile: 'records/interactables/gate-lever.yaml',
+          },
+          {
+            selector: '#interactable-editor-label-gate-lever-1',
+            field: 'exact-instance-editor-label',
+            path: '/interactableInstances/gate-lever-1/editorLabel',
+            saveFile: 'project.yaml',
+          },
+        ],
+      },
+    ]) {
+      await openRecord(record.collection, record.entityId);
+      if (record.collection === 'rooms') {
+        // Room opens on its Composition category; the name lives under General.
+        await waitUntil(
+          window,
+          `document.querySelector('nav[aria-label="Room editor categories"] button[aria-label="General"]') !== null`,
+          'Room category navigation',
+        );
+        await evaluate(
+          window,
+          `document.querySelector('nav[aria-label="Room editor categories"] button[aria-label="General"]').click(); true`,
+        );
+      }
+      for (const field of record.fields) {
+        await waitUntil(
+          window,
+          `document.querySelector(${JSON.stringify(field.selector)}) !== null`,
+          `${record.collection}/${field.field} editor`,
+        );
+        for (const delayMs of result.diagnosticOnly ? [0] : [0, 500, 1000]) {
+          await sampleInput({
+            surface: record.collection,
+            field: field.field,
+            selector: field.selector,
+            path: field.path,
+            delayMs,
+          });
+        }
+      }
+      if (record.collection === 'rooms' && !result.diagnosticOnly) {
+        // The numeric control has a different parser and buffered-input
+        // contract. Replace its selected contents with one valid numeric
+        // insertion instead of sending nonsensical alphabetic characters.
+        const numericSelector = 'input[aria-label="World presentation width"]';
+        await evaluate(
+          window,
+          `document.querySelector('nav[aria-label="Room editor categories"] button[aria-label="Camera"]').click(); true`,
+        );
+        await waitUntil(
+          window,
+          `document.querySelector(${JSON.stringify(numericSelector)}) !== null`,
+          'Room Camera numeric input',
+        );
+        for (const delayMs of [0, 1000]) {
+          controls.setAcknowledgmentDelay(delayMs);
+          const patchCallsBefore = controls.patchCalls();
+          await evaluate(
+            window,
+            `(() => {
+              performance.clearMeasures('noveltea.project-edit.input-to-paint-ready');
+              performance.clearMeasures('noveltea.project-edit.flush-to-native-ack');
+              const input = document.querySelector(${JSON.stringify(numericSelector)});
+              input.focus();
+            })(); true`,
+          );
+          // Number inputs do not support setSelectionRange/select(). Exercise
+          // the actual Chromium keyboard selection path instead.
+          const selectionModifier = process.platform === 'darwin' ? 'meta' : 'control';
+          window.webContents.sendInputEvent({
+            type: 'keyDown',
+            keyCode: 'A',
+            modifiers: [selectionModifier],
+          });
+          window.webContents.sendInputEvent({
+            type: 'keyUp',
+            keyCode: 'A',
+            modifiers: [selectionModifier],
+          });
+          const next = delayMs === 0 ? '1877' : '1888';
+          await window.webContents.insertText(next);
+          await sleep(Math.max(2600, delayMs * 3 + 500));
+          const numericPath = '/rooms/feature-lab-home/data/presentationSpace/size/width';
+          const measurements = await evaluate<{
+            input: number[];
+            acknowledgment: number[];
+            exactPresentation: boolean;
+          }>(
+            window,
+            `(() => ({
+              input: performance.getEntriesByName('noveltea.project-edit.input-to-paint-ready', 'measure')
+                .filter((entry) => entry.detail?.path === ${JSON.stringify(numericPath)})
+                .map((entry) => entry.duration),
+              acknowledgment: performance.getEntriesByName('noveltea.project-edit.flush-to-native-ack', 'measure')
+                .filter((entry) => entry.detail?.path === ${JSON.stringify(numericPath)})
+                .map((entry) => entry.duration),
+              exactPresentation: document.querySelector(${JSON.stringify(numericSelector)})?.value === ${JSON.stringify(next)}
+            }))()`,
+          );
+          const entry: RunResult = {
+            surface: 'rooms',
+            field: 'camera-width-selection-replacement',
+            delayMs,
+            baseline: false,
+            idleFrame: summarize([]),
+            input: summarize(measurements.input),
+            acknowledgment: summarize(measurements.acknowledgment),
+            patchCalls: controls.patchCalls() - patchCallsBefore,
+            exactPresentation: measurements.exactPresentation,
+          };
+          result.cases.push(entry);
+          if (
+            !entry.exactPresentation ||
+            entry.input.count !== 1 ||
+            entry.acknowledgment.count === 0 ||
+            entry.patchCalls < 1 ||
+            entry.patchCalls > 3
+          ) {
+            throw new Error(`Room numeric selection replacement failed: ${JSON.stringify(entry)}`);
+          }
+        }
+      }
+      controls.setAcknowledgmentDelay(0);
+      await evaluate(
+        window,
+        "window.dispatchEvent(new CustomEvent('noveltea-workspace-toolbar-command', { detail: 'save' })); true",
+      );
+      for (const field of record.fields) {
+        await verifySaved(field.saveFile, expectedByField.get(field.field)!);
+      }
+      if (record.collection === 'rooms' && !result.diagnosticOnly) {
+        await verifySaved('records/rooms/feature-lab-home.yaml', 'width: 1888');
+      }
+    }
+    result.savedReadback = true;
+    result.success = result.cases.every((entry) => entry.exactPresentation);
   } catch (error) {
     result.error = error instanceof Error ? error.message : String(error);
   } finally {

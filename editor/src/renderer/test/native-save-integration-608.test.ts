@@ -909,8 +909,10 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
       controller.dispose();
       newController?.dispose();
       sessions.dispose();
-      await rm(oldRoot, { recursive: true, force: true });
-      await rm(newRoot, { recursive: true, force: true });
+      // The retired worker can finish writing a cache entry concurrently
+      // with fixture cleanup; retry ENOTEMPTY without weakening assertions.
+      await rm(oldRoot, { recursive: true, force: true, maxRetries: 8, retryDelay: 200 });
+      await rm(newRoot, { recursive: true, force: true, maxRetries: 8, retryDelay: 200 });
     }
   }, 120_000);
 

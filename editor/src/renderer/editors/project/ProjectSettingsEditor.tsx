@@ -1,4 +1,5 @@
 import { listComfyUiWorkflowLibrary } from '@/comfyui/comfyui-service';
+import { PackagedReactInputBaseline } from '@/benchmarks/PackagedReactInputBaseline';
 import { projectEdits } from '@/commands/project-editing';
 import {
   ProjectFieldError,
@@ -1805,6 +1806,9 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                   value={project.project.name}
                 />
               </div>
+              {window.sessionStorage.getItem('noveltea-field-benchmark-baseline') === 'enabled' ? (
+                <PackagedReactInputBaseline />
+              ) : null}
               <div className="grid grid-cols-[6rem_minmax(0,1fr)] items-center gap-2">
                 <Label className="whitespace-nowrap" htmlFor="project-version">
                   Version

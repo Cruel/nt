@@ -82,7 +82,7 @@ try {
   const timeout = setTimeout(() => {
     timedOut = true;
     void killTree(child);
-  }, 120_000);
+  }, 240_000);
   let status;
   try {
     status = await new Promise((resolve, reject) => {

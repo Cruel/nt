@@ -176,3 +176,117 @@ Most importantly, the renderer still must provide project-wide immediate input
 and coalesced native synchronization instead of waiting for worker acknowledgment.
 Do not mark #522 human or end-to-end UI-performance acceptance as passing until
 those are implemented and qualified on an interactive installed editor.
+
+## #609 packaged editing performance gate (2026-11-12; NOT CERTIFIED)
+
+**Automated Linux/Xvfb evidence only. None of the eight human Feature Lab
+cases above is newly certified, and #602/#609/#522 remain open.** This run
+used a disposable copy of `tests/projects/feature-lab` and the packaged
+Electron renderer, preload, native worker and C++ ProjectSession, not
+jsdom/mock native operations. Source HEAD before packaging was
+`c53a65d9` with the #609 benchmark changes **uncommitted**. The
+development package identity was `1.0.0-dev.c53a65d9d7f4`; it is not
+an immutable clean-commit release certification. The packaged build and
+package smoke passed, including native tool, preview, asset and protocol
+checks.
+
+Host: Linux x64, AMD Ryzen 7 5700G, ASPEED/Vega GPUs, Node 24.18.0,
+Electron 43.1.1, Chromium 150.0.7871.114; authoring Node addon SHA-256
+`1860d1f8d80121c4f126f4ecab285ca67551c164c3dd4d439af162190f3e5350`.
+This host has `XDG_SESSION_TYPE=tty` and no physical desktop DISPLAY;
+the runner used Xvfb/software rendering. `input` below is the
+input-handler-to-next-animation-frame-after-React-commit **proxy**, not
+physical compositor presentation or photons.
+
+The expanded `pnpm -C editor run benchmark:packaged-fields` suite
+completed **19 cases × 20 real Chromium inserted characters**, with an
+isolated ordinary controlled React input in the *same packaged renderer*.
+Values exactly matched on-screen input under 0, 500 and 1,000 ms synthetic
+native acknowledgment delays. Every Project Settings, Room and Character
+case bounded the 20-character edit to **2–4 native patch calls**, received
+native acknowledgments and passed native Save/YAML readback in the
+disposable Project. The diagnostic-only Room/Character fast path separately
+passed at zero added acknowledgment delay, including saved readback.
+
+| Packaged surface | 0 ms input median / p95 | 500 ms input median / p95 | 1,000 ms input median / p95 |
+| --- | --- | --- | --- |
+| Ordinary React controlled input baseline | 9.22 / 15.98 ms | — | — |
+| Project title | 14.27 / 30.71 ms | 9.91 / 16.24 ms | 10.71 / 44.57 ms |
+| Room display name | 32.60 / 40.90 ms | 34.77 / 41.19 ms | 38.26 / 61.81 ms |
+| Character display name | 8.79 / 19.40 ms | 7.86 / 16.63 ms | 10.77 / 16.64 ms |
+
+The harness also measures Project version, author and description in all
+three delayed-acknowledgment conditions, and emits count, median, p95,
+maximum, idle-frame distribution, native acknowledgment times and patch
+counts for each. The Room's **33.33-ms idle-frame median** in the
+500/1,000-ms cases signals Xvfb frame-pacing overhead, but is not
+sufficient to dismiss every editor-specific latency excursion. The separate
+zero-delay diagnostic run measured Character input p95 **109.14 ms** with
+idle p95 **16.67 ms**, whereas the subsequent full run measured Character
+p95 19.40 ms. Retain both observations as scheduling variability; neither
+certifies a 16-ms physical input latency target.
+
+The initial 19-case harness did **not** cover cold first input, paste,
+selection replacement, draft switching, duplicate tabs, nested Property
+Manager, exact Interactable Instance, Scene/Dialogue, Tests,
+Interaction/Verb, Layout/Map/Material, typed-number/collection edits, or
+separate user-handler/React-commit/compositor/native-dispatch/validation/
+scoped-Save phase timing. Its subsequent expansion is recorded below.
+
+### #609 expanded final candidate, same host (still NOT CERTIFIED)
+
+After adding Character dialogue-name, Interactable definition display-name,
+the exact `gate-lever-1` Interactable Instance editor label and Room Camera
+numeric width selection-replacement, the **freshly rebuilt Linux package**
+passed `package:smoke` and `benchmark:packaged-fields` with **30/30 cases**:
+28 × 20 real Chromium character insertions (including one isolated React
+baseline) and two single-event numeric selection replacements. Every case
+displayed the exact expected value; every native field received at least
+one acknowledgment with bounded patch counts (1–4 in this full run). Native
+scoped Save wrote and the harness read back the intended Project Settings,
+Room, Character, Interactable definition and exact Instance YAML on disk.
+The same native addon and `c53a65d9` base were used; #609 changes remained
+uncommitted while packaging, so the package is **not** an immutable clean
+commit artifact. The full editor suite passed **311 files / 2,377 tests**
+(9 files / 94 tests skipped).
+
+One intermediate full-suite run passed 2,376 tests but encountered an
+`ENOTEMPTY` cleanup race in the existing #608 two-Project native-worker
+integration test. Fixture cleanup now retries transient filesystem removal
+collisions without weakening the native assertions. Its targeted native-addon
+suite subsequently passed **20/20 tests**, and the final full editor suite
+passed **2,377/2,377 active tests**.
+
+| Field | 0 ms median / p95 | 500 ms median / p95 | 1,000 ms median / p95 |
+| --- | --- | --- | --- |
+| Same-renderer React baseline | 10.27 / 15.90 ms | — | — |
+| Project title | 15.49 / 64.78 ms | 9.22 / 16.28 ms | 9.79 / 15.43 ms |
+| Room display name | 35.06 / 37.40 ms | 34.38 / 37.98 ms | 36.81 / 44.63 ms |
+| Room Camera numeric selection-replacement | 23.46 / 23.46 ms | — | 19.50 / 19.50 ms |
+| Character display name | 11.76 / 77.29 ms | 8.75 / 16.42 ms | 7.27 / 16.11 ms |
+| Character dialogue name | 7.87 / 15.28 ms | 9.23 / 41.17 ms | 10.09 / 15.74 ms |
+| Interactable definition display name | 11.81 / 81.55 ms | 8.63 / 81.20 ms | 10.41 / 16.36 ms |
+| Exact Instance editor label | 11.24 / 65.42 ms | 11.91 / 102.72 ms | 10.56 / 66.22 ms |
+
+All figures are **input handler to the next animation frame after a React
+commit**, not verified compositor presentation or physical key-to-paint.
+The numeric test has only one sample per delay: its median equals its p95
+and has no valid statistical latency claim. The full JSON emitted by the
+harness includes sample count, maximum, idle-frame distribution, native
+acknowledgment timings and patch count for each case. Even with a 16.67-ms
+idle-frame p95, Interactable input p95 reached 102.72 ms; the separate
+zero-delay targeted run also observed 184.71 ms for the definition field.
+These are **unresolved performance observations**, not waived by native
+Save correctness. Room idle frames were often 33–50 ms on Xvfb; the
+isolated baseline itself occasionally had anomalous idle frames.
+
+Still untested in this packaged matrix: cold first input, actual OS
+clipboard paste, caret/selection editing for ordinary text, draft switching,
+duplicate tabs, nested Property Manager, Scene/Dialogue, Tests,
+Interaction/Verb, Layout/Map/Material, collection edits, and independent
+compositor, native dispatch/validation and scoped-Save phase timing. Existing
+owner-scoped recovery/Save regression tests do not replace those end-to-end
+measurements. None of the **eight human cases** was performed on a physical
+desktop; no Windows 11/macOS/physical-Linux qualification is available.
+Do not close #609 or its parents until the remaining measurements and
+physical acceptance pass, or the issue owner formally resolves the gate.
