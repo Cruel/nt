@@ -100,6 +100,10 @@ export function parseNativeFieldRecovery(
 // The queue evaluates this getter only when the command is actually planned,
 // not when its place in the queue is reserved.
 type SubmitField = (latestAtDispatch: () => JsonValue) => Promise<CommandExecutionResult>;
+/** A queued field command was superseded before native dispatch by an edit
+ * from another legitimate owner of the same registry field. Replan with the
+ * newest owner rather than submitting the newer value under the old owner. */
+export const NATIVE_FIELD_OWNER_CHANGED = 'native-field.owner-changed-before-dispatch';
 interface ScheduledField {
   submit: SubmitField;
   timer: ReturnType<typeof setTimeout> | null;
@@ -272,9 +276,11 @@ export function stageNativeField(
   const key = nativeFieldKey(input.projectSessionId, input.projectInstanceId, input.path);
   if (!sameProject(input)) return;
   const existing = useNativeFieldDraftStore.getState().entries[key];
-  if (existing && existing.saveUnitId !== input.saveUnitId)
-    throw new Error('An exact field already has a pending edit owned by another Save unit.');
-  if (existing && jsonValuesEqual(existing.value, input.value) && !existing.error) return;
+  const ownerChanged = Boolean(existing && existing.saveUnitId !== input.saveUnitId);
+  if (ownerChanged && !input.path.startsWith('/interactableInstances/'))
+    throw new Error('A Project field cannot transfer its Save owner.');
+  if (existing && !ownerChanged && jsonValuesEqual(existing.value, input.value) && !existing.error)
+    return;
   const base = existing?.base ?? input.restoredBase ?? fieldBase(input.path);
   // The acknowledged Project is immutable within a revision. In the normal
   // typing hot path the current field cannot have changed since its captured
@@ -284,6 +290,15 @@ export function stageNativeField(
     (base.revision !== useProjectStore.getState().projectRevision &&
       !fieldBaseMatches(base, fieldBase(input.path))),
   );
+  if (ownerChanged) {
+    // Only a single serialized intent may own the exact path. Any command
+    // already dispatched under the previous owner remains in native history;
+    // only its *unacknowledged* form representation moves to the new owner.
+    useDraftDirtyStore
+      .getState()
+      .clearDraftDirty(nativeFieldDraftKey(existing!.saveUnitId, input.path));
+    activeEditSessions.delete(key);
+  }
   let editSessionId = activeEditSessions.get(key);
   if (!editSessionId) {
     editSessionId = `native-field-edit:${++nextEditSessionId}`;
@@ -444,6 +459,18 @@ export function flushNativeField(key: string): Promise<boolean> {
       }
       if (!sameProject(entry)) return false;
       if (field.discardRequested && dispatchedSequence === undefined) return false;
+      if (
+        !result.ok &&
+        dispatchedSequence === undefined &&
+        result.diagnostics.some(
+          (diagnostic) => diagnostic.message === NATIVE_FIELD_OWNER_CHANGED,
+        ) &&
+        useNativeFieldDraftStore.getState().entries[key]?.saveUnitId !== entry.saveUnitId
+      ) {
+        // The old owner was still waiting behind the native command queue.
+        // Nothing was sent, so retry through the newly installed submitter.
+        continue;
+      }
       measureProjectEdit('flush-to-native-ack', nativeStartedAt, {
         path: entry.path,
         sequence: entry.sequence,

@@ -795,26 +795,43 @@ function formatAssetMemoryMiB(bytes: number) {
   return `${Math.round((bytes / ASSET_MEMORY_MIB) * 10) / 10} MiB`;
 }
 
-function uniqueAssetMemoryPolicyId(project: AuthoringProject, base = 'memory-policy') {
-  const ids = new Set(project.export.assetMemoryPolicies.map((policy) => policy.id));
+function uniqueAssetMemoryPolicyId(
+  policies: readonly AssetMemoryPolicyDefinition[],
+  base = 'memory-policy',
+) {
+  const ids = new Set(policies.map((policy) => policy.id));
   if (!ids.has(base)) return base;
   let index = 2;
   while (ids.has(`${base}-${index}`)) index += 1;
   return `${base}-${index}`;
 }
 
-function uniqueAssetMemoryPolicyLabel(project: AuthoringProject, base: string) {
-  const labels = new Set(
-    project.export.assetMemoryPolicies.map((policy) => policy.label.trim().toLowerCase()),
-  );
+function uniqueAssetMemoryPolicyLabel(
+  policies: readonly AssetMemoryPolicyDefinition[],
+  base: string,
+) {
+  const labels = new Set(policies.map((policy) => policy.label.trim().toLowerCase()));
   if (!labels.has(base.toLowerCase())) return base;
   let index = 2;
   while (labels.has(`${base} (${index})`.toLowerCase())) index += 1;
   return `${base} (${index})`;
 }
 
-function AssetMemoryPoliciesEditor({ project }: { project: AuthoringProject }) {
-  const policies = project.export.assetMemoryPolicies;
+function AssetMemoryPoliciesEditor({
+  project,
+  tabId,
+}: {
+  project: AuthoringProject;
+  tabId: string;
+}) {
+  const draft = useProjectField({
+    tabId,
+    saveUnitId: PROJECT_SETTINGS_SAVE_UNIT_ID,
+    path: '/export/assetMemoryPolicies',
+    value: toJsonValue(project.export.assetMemoryPolicies),
+    label: 'Update asset memory policies',
+  });
+  const policies = draft.value as AssetMemoryPolicyDefinition[];
   const [selectedPolicyId, setSelectedPolicyId] = useState(policies[0]?.id ?? '');
   const selectedPolicy = policies.find((policy) => policy.id === selectedPolicyId) ?? policies[0];
 
@@ -823,12 +840,8 @@ function AssetMemoryPoliciesEditor({ project }: { project: AuthoringProject }) {
     if (policies.length === 0 && selectedPolicyId) setSelectedPolicyId('');
   }, [policies, selectedPolicy, selectedPolicyId]);
 
-  function replacePolicies(next: AssetMemoryPolicyDefinition[], label: string) {
-    void runProjectCommand(
-      'project.replaceAtPath',
-      { path: '/export/assetMemoryPolicies', value: next },
-      label,
-    );
+  function replacePolicies(next: AssetMemoryPolicyDefinition[], _label: string) {
+    draft.change(toJsonValue(next));
   }
 
   function updatePolicy(
@@ -844,8 +857,8 @@ function AssetMemoryPoliciesEditor({ project }: { project: AuthoringProject }) {
 
   function addPolicy() {
     const policy: AssetMemoryPolicyDefinition = {
-      id: uniqueAssetMemoryPolicyId(project),
-      label: uniqueAssetMemoryPolicyLabel(project, 'New Policy'),
+      id: uniqueAssetMemoryPolicyId(policies),
+      label: uniqueAssetMemoryPolicyLabel(policies, 'New Policy'),
       basePreset: 'balanced',
       overrides: {},
     };
@@ -857,8 +870,8 @@ function AssetMemoryPoliciesEditor({ project }: { project: AuthoringProject }) {
     if (!selectedPolicy) return;
     const policy: AssetMemoryPolicyDefinition = {
       ...structuredClone(selectedPolicy),
-      id: uniqueAssetMemoryPolicyId(project, selectedPolicy.id),
-      label: uniqueAssetMemoryPolicyLabel(project, selectedPolicy.label),
+      id: uniqueAssetMemoryPolicyId(policies, selectedPolicy.id),
+      label: uniqueAssetMemoryPolicyLabel(policies, selectedPolicy.label),
     };
     replacePolicies([...policies, policy], `Duplicate ${selectedPolicy.label}`);
     setSelectedPolicyId(policy.id);
@@ -934,6 +947,7 @@ function AssetMemoryPoliciesEditor({ project }: { project: AuthoringProject }) {
 
   return (
     <Card data-workbench-anchor="projectSettings.assetMemoryPolicies">
+      <ProjectFieldError field={draft} />
       <CardHeader>
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -1179,7 +1193,93 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
     () => projectForEditor(projectDocument, nativeSession),
     [projectDocument, nativeSession],
   );
-  const settings = useMemo(() => (project ? projectSettingsForEditing(project) : null), [project]);
+  const nativeSettings = useMemo(
+    () => (project ? projectSettingsForEditing(project) : null),
+    [project],
+  );
+  const settingField =
+    (type: string, label: string, payload: (value: unknown) => unknown) => (value: unknown) => ({
+      type,
+      label,
+      payload: payload(value),
+      originSaveUnitId: PROJECT_SETTINGS_SAVE_UNIT_ID,
+      persistencePolicy: 'manual-save' as const,
+    });
+  const displayDraft = useProjectField({
+    tabId: tab.id,
+    saveUnitId: PROJECT_SETTINGS_SAVE_UNIT_ID,
+    path: '/settings/display',
+    label: 'Update display settings',
+    value: toJsonValue(nativeSettings?.display ?? null),
+    buildCommand: settingField('project.setDisplay', 'Update display settings', (value) => value),
+  });
+  const uiScaleDraft = useProjectField({
+    tabId: tab.id,
+    saveUnitId: PROJECT_SETTINGS_SAVE_UNIT_ID,
+    path: '/settings/accessibility/uiScale',
+    label: 'Update UI accessibility scale',
+    value: toJsonValue(nativeSettings?.accessibility.uiScale ?? null),
+    buildCommand: settingField(
+      'project.setAccessibilityScale',
+      'Update UI accessibility scale',
+      (policy) => ({ scale: 'uiScale', policy }),
+    ),
+  });
+  const textScaleDraft = useProjectField({
+    tabId: tab.id,
+    saveUnitId: PROJECT_SETTINGS_SAVE_UNIT_ID,
+    path: '/settings/accessibility/textScale',
+    label: 'Update text accessibility scale',
+    value: toJsonValue(nativeSettings?.accessibility.textScale ?? null),
+    buildCommand: settingField(
+      'project.setAccessibilityScale',
+      'Update text accessibility scale',
+      (policy) => ({ scale: 'textScale', policy }),
+    ),
+  });
+  const audioDraft = useProjectField({
+    tabId: tab.id,
+    saveUnitId: PROJECT_SETTINGS_SAVE_UNIT_ID,
+    path: '/settings/audio',
+    label: 'Update project audio settings',
+    value: toJsonValue(nativeSettings?.audio ?? null),
+    buildCommand: settingField('project.setAudio', 'Update project audio settings', (audio) => ({
+      audio,
+    })),
+  });
+  const cursorDraft = useProjectField({
+    tabId: tab.id,
+    saveUnitId: PROJECT_SETTINGS_SAVE_UNIT_ID,
+    path: '/settings/cursors',
+    label: 'Update Project cursors',
+    value: toJsonValue(nativeSettings?.cursors ?? null),
+  });
+  const distributionNoticesDraft = useProjectField({
+    tabId: tab.id,
+    saveUnitId: PROJECT_SETTINGS_SAVE_UNIT_ID,
+    path: '/settings/distributionNotices',
+    label: 'Update distribution notices',
+    value: toJsonValue(nativeSettings?.distributionNotices ?? null),
+    buildCommand: settingField(
+      'project.setDistributionNotices',
+      'Update distribution notices',
+      (notices) => ({ notices }),
+    ),
+  });
+  const settings = nativeSettings
+    ? {
+        ...nativeSettings,
+        display: displayDraft.value as ProjectDisplaySettings,
+        accessibility: {
+          uiScale: uiScaleDraft.value as ProjectAccessibilityScalePolicy,
+          textScale: textScaleDraft.value as ProjectAccessibilityScalePolicy,
+        },
+        audio: audioDraft.value as ProjectAudioSettings,
+        cursors: cursorDraft.value as ProjectCursorSettings,
+        distributionNotices:
+          distributionNoticesDraft.value as typeof nativeSettings.distributionNotices,
+      }
+    : null;
   const pendingInputEntries = usePendingInputStore(
     (state) => state.entriesBySaveUnitId[PROJECT_SETTINGS_SAVE_UNIT_ID],
   );
@@ -1440,23 +1540,22 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
   function setAppIdentity(patch: Partial<ProjectAppSettings>) {
     if (!settings) return false;
     const app = JSON.parse(JSON.stringify({ ...settings.app, ...patch })) as ProjectAppSettings;
+    // App identity already exposes independently buffered scalar controls.
+    // Preserve the semantic whole-App command for the remaining optional
+    // number/asset fields; a parent /settings/app draft would overlap them.
     return commandSucceeded(runProjectCommand('project.setApp', { app }, 'Update app identity'));
   }
 
   function setDistributionNotices(notices: { path: string; displayName?: string }[]) {
-    return commandSucceeded(
-      runProjectCommand(
-        'project.setDistributionNotices',
-        { notices },
-        'Update distribution notices',
-      ),
-    );
+    distributionNoticesDraft.change(toJsonValue(notices));
+    // Async file-inspection workflows depend on authoritative completion;
+    // preserve their barrier while the optimistic list remains visible.
+    return distributionNoticesDraft.flush();
   }
 
   function setDisplay(display: ProjectDisplaySettings) {
-    return commandSucceeded(
-      runProjectCommand('project.setDisplay', display, 'Update display settings'),
-    );
+    displayDraft.change(toJsonValue(display));
+    return true;
   }
 
   function setReferenceResolution(width: number, height: number) {
@@ -1473,19 +1572,14 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
     scale: 'uiScale' | 'textScale',
     policy: ProjectAccessibilityScalePolicy,
   ) {
-    return commandSucceeded(
-      runProjectCommand(
-        'project.setAccessibilityScale',
-        { scale, policy },
-        `Update ${scale === 'uiScale' ? 'UI' : 'text'} accessibility scale`,
-      ),
-    );
+    const field = scale === 'uiScale' ? uiScaleDraft : textScaleDraft;
+    field.change(toJsonValue(policy));
+    return field.flush();
   }
 
   function setAudio(audio: ProjectAudioSettings) {
-    return commandSucceeded(
-      runProjectCommand('project.setAudio', { audio }, 'Update project audio settings'),
-    );
+    audioDraft.change(toJsonValue(audio));
+    return audioDraft.flush();
   }
 
   function setAudioPurpose(
@@ -1511,13 +1605,8 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
   }
 
   function setCursors(cursors: ProjectCursorSettings) {
-    return commandSucceeded(
-      runProjectCommand(
-        'project.replaceAtPath',
-        { path: '/settings/cursors', value: cursors },
-        'Update Project cursors',
-      ),
-    );
+    cursorDraft.change(toJsonValue(cursors));
+    return true;
   }
 
   function setCursorDefault(semantic: keyof ProjectCursorSettings['defaults'], selection: string) {
@@ -2072,7 +2161,9 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
         </>
       ) : null}
 
-      {activeCategory === 'asset-memory' ? <AssetMemoryPoliciesEditor project={project} /> : null}
+      {activeCategory === 'asset-memory' ? (
+        <AssetMemoryPoliciesEditor project={project} tabId={tab.id} />
+      ) : null}
 
       {activeCategory === 'display' ? (
         <Card data-workbench-anchor="projectSettings.display">
@@ -2084,6 +2175,9 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
+            <ProjectFieldError field={displayDraft} />
+            <ProjectFieldError field={uiScaleDraft} />
+            <ProjectFieldError field={textScaleDraft} />
             <div className="grid gap-3 @3xl:grid-cols-2">
               <div className="space-y-2 rounded-md border p-3 @3xl:col-span-2">
                 <div className="flex flex-wrap items-start justify-between gap-3">
@@ -2229,6 +2323,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
 
       {activeCategory === 'audio' ? (
         <Card data-workbench-anchor="projectSettings.audio">
+          <ProjectFieldError field={audioDraft} />
           <CardHeader>
             <CardTitle>Audio Mix</CardTitle>
             <CardDescription>
@@ -2333,6 +2428,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
 
       {activeCategory === 'cursors' ? (
         <div className="space-y-4" data-workbench-anchor="projectSettings.cursors">
+          <ProjectFieldError field={cursorDraft} />
           <Card>
             <CardHeader>
               <CardTitle>{t('projectSettings.cursors.defaultsTitle')}</CardTitle>
@@ -2936,6 +3032,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
 
       {activeCategory === 'distribution-notices' ? (
         <Card data-workbench-anchor="projectSettings.distributionNotices">
+          <ProjectFieldError field={distributionNoticesDraft} />
           <CardHeader>
             <CardTitle>{t('projectSettings.distributionNotices.title')}</CardTitle>
             <CardDescription>

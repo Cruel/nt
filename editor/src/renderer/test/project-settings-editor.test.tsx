@@ -22,7 +22,10 @@ import { defaultDialogueData } from '../../shared/project-schema/authoring-dialo
 import { defaultInteractableData } from '../../shared/project-schema/authoring-interactables';
 import { emptyEditorProjectState } from '../../shared/project-schema/editor-project-state';
 import { defaultPlatformExportProfile } from '../../shared/project-schema/platform-export-contracts';
-import { admitNativeRendererCommandFixture } from '../test-support/native-acknowledged-command-fixture';
+import {
+  admitNativeRendererCommandFixture,
+  holdFirstNativeProjectPatch,
+} from '../test-support/native-acknowledged-command-fixture';
 
 vi.mock('@/components/source/SourceEditor', () => ({
   SourceEditor: ({
@@ -140,6 +143,53 @@ beforeEach(() => {
 });
 
 describe('ProjectSettingsEditor', () => {
+  it('paints Display and Accessibility edits while native is blocked and persists both without stale overwrite', async () => {
+    const native = admitNativeRendererCommandFixture(project());
+    const held = holdFirstNativeProjectPatch();
+    render(<ProjectSettingsEditor tab={tab} />);
+    selectProjectSettingsCategory('Display');
+
+    const barColor = screen.getByLabelText('Presentation bar color');
+    fireEvent.change(barColor, { target: { value: '#123abc' } });
+    expect(barColor).toHaveValue('#123abc');
+    await waitFor(() => expect(held.isHeld()).toBe(true));
+    const minimum = screen.getByLabelText('UI scale minimum');
+    fireEvent.change(minimum, { target: { value: '0.75' } });
+    expect(minimum).toHaveValue('0.75');
+    expect(native.patch).not.toHaveBeenCalled();
+
+    await act(async () => held.release());
+    await waitFor(() => {
+      const current = useProjectStore.getState().document as ReturnType<typeof project>;
+      expect(current.settings.display.barColor).toBe('#123abc');
+      expect(current.settings.accessibility.uiScale.minimum).toBe(0.75);
+    });
+    expect(native.patch.mock.calls.length).toBeLessThanOrEqual(2);
+  });
+  it('keeps Asset Memory policy creation and duplicate IDs immediate while native acknowledgment is held', async () => {
+    const native = admitNativeRendererCommandFixture(project());
+    const held = holdFirstNativeProjectPatch();
+    render(<ProjectSettingsEditor tab={tab} />);
+    selectProjectSettingsCategory('Asset Memory');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add Policy' }));
+    expect(screen.getByRole('button', { name: 'New Policy memory-policy' })).toBeInTheDocument();
+    await waitFor(() => expect(held.isHeld()).toBe(true));
+    fireEvent.click(screen.getByRole('button', { name: 'Duplicate' }));
+    expect(
+      screen.getByRole('button', { name: 'New Policy (2) memory-policy-2' }),
+    ).toBeInTheDocument();
+    expect(native.patch).not.toHaveBeenCalled();
+    await act(async () => held.release());
+    await waitFor(() => {
+      const current = useProjectStore.getState().document as ReturnType<typeof project>;
+      expect(current.export.assetMemoryPolicies.map((item) => item.id)).toEqual([
+        'memory-policy',
+        'memory-policy-2',
+      ]);
+    });
+    expect(native.patch.mock.calls.length).toBeLessThanOrEqual(2);
+  });
   it('displays native settings diagnostics while preserving pending numeric input without legacy validation', async () => {
     admitNativeRendererCommandFixture(project(), 'native-settings');
     useCommandStore.getState().enableNativeCommandMode(2);

@@ -370,24 +370,54 @@ native scheduler. The scoped identity resolver **does not** extend ordinary
 presenting owner: the Instance's Definition record, a Room whose composition
 references that exact Instance, or Project Settings for quantities/locations
 inside its starting Inventory. Owner-specific serialized recovery validation
-uses the same identity check. Another Save unit cannot silently take over an
-existing in-flight draft of the same exact path. Identity changes and
+uses the same identity check. A subsequent edit of the same exact path from
+another *valid* enclosing owner now transfers the transient draft and its
+single recovery record to the newest owner. If the earlier native command was
+already dispatched, it retains its original Save attribution and later input
+replays against its acknowledged path baseline; if it was queued but not yet
+dispatched, its obsolete planner is skipped before native execution and
+replanned under the new owner's identity. No edit runs with a contradictory
+owner, and sibling views subscribe to the same latest field value. Identity changes and
 Property-reference rewrites remain coordinated atomic commands, not scalar
 drafts. Test fixtures hold the first native acknowledgment while two distinct
 fields or owners are edited; the overlay and latest native readback remain
 correct, and clearing an optional Instance label leaves its quantity intact.
 
-**Still requiring #602 certification:** Exact-Instance cross-owner concurrent
-edit handling needs explicit conflict UX beyond its current fail-closed owner
-guard. Room geometry/drag, hotspot semantic edits and source editors retain
+**Still requiring #602 certification:** Room geometry/drag, hotspot semantic edits and source editors retain
 their respective atomic interaction/source-buffer contracts; the remaining
 Project Settings, Character, asset and other nested editor controls still
 need a complete field-by-field audit and interactive acceptance. The Save,
-Undo/recovery, worker-failure and external-conflict matrix must be exercised
-for the newly migrated Property and Instance surfaces. Native-addon and
+Undo/recovery, worker-failure and external-conflict matrix has additional
+blocked-native, restart/reopen, cross-owner and synthetic overlap/disjoint
+regression coverage, but still needs interactive confirmation on the newly
+migrated Property and Instance surfaces. Native-addon and
 Xvfb-packaged smoke tests alone cannot certify physical desktop input latency
 or the eight human Feature Lab cases. Neither #602 nor #522 may close based
 solely on the automated tests reported here.
+
+The subsequent #602 pass also moves the Project Settings Asset Memory Policy
+collection and the Display, Accessibility, Audio and Cursor groups onto the
+same field scheduler. Existing native semantic commands remain authoritative
+for the multi-value Display/Accessibility/Audio validations, with cursor
+identity renames/deletions still atomic. The Project app identity retains
+field-scoped scalar buffering and its original whole-App command for the
+optional settings that require semantic handling; a second `/settings/app`
+parent draft would overlap its independently edited child paths and is
+intentionally forbidden. Async distribution-notice inspection and numeric
+pending-input commits retain explicit native acknowledgment barriers while
+their field/list presentation is immediate. All newly buffered groups show
+recoverable field errors and conflict resolution. Native field timing now
+includes `flush-barrier` and `scoped-save` Performance measures in addition
+to the existing input-to-frame and acknowledgment measures. No authored
+property values or field source contents are recorded in metrics.
+
+The incremental real-addon full editor regression run passed **303 test files,
+2,278 tests**, with **94 skipped**, and zero failures. New tests cover both
+queued and dispatched exact-Instance owner transfers, native worker rejection
+followed by recovery, disjoint and overlapping restart/reconciliation (including
+explicit Keep mine), immediate Asset Memory creation/duplication with native
+held, and simultaneous Display/Accessibility edits under a blocked worker.
+This is an automated integration result, not the human Feature Lab gate.
 
 The Linux x64 packaged Electron distribution built from `71e3e703da0b`
 also passed packaged smoke and the existing Project-title typing benchmark.

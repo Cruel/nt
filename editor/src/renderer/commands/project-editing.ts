@@ -40,6 +40,8 @@ import {
   resolveProjectFieldIdentity,
   resolveExactInstanceFieldIdentity,
 } from './project-field-identity';
+import { NATIVE_FIELD_OWNER_CHANGED } from './native-field-drafts';
+import { measureProjectEdit } from './project-edit-timings';
 import {
   applySemanticCollectionOperation,
   applySemanticItemPatch,
@@ -202,6 +204,11 @@ export const projectEdits = {
       (readAtDispatch) =>
         useCommandStore.getState().executeCommandAsync(
           () => {
+            if (
+              useNativeFieldDraftStore.getState().entries[fieldKey]?.saveUnitId !==
+              intent.saveUnitId
+            )
+              throw new Error(NATIVE_FIELD_OWNER_CHANGED);
             const value = readAtDispatch();
             const command = intent.buildCommand
               ? intent.buildCommand(value as T)
@@ -237,8 +244,15 @@ export const projectEdits = {
     return true;
   },
 
-  flush(saveUnitId?: string): Promise<boolean> {
-    return flushNativeFields(saveUnitId);
+  async flush(saveUnitId?: string): Promise<boolean> {
+    const startedAt = performance.now();
+    const result = await flushNativeFields(saveUnitId);
+    measureProjectEdit('flush-barrier', startedAt, {
+      path: saveUnitId ?? '',
+      sequence: 0,
+      ok: result,
+    });
+    return result;
   },
 
   flushField(path: string): Promise<boolean> {

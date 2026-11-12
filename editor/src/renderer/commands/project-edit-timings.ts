@@ -9,7 +9,11 @@
  * commits the controlled field value; it is a rendering latency proxy, not
  * proof that pixels were scanned out by the display.
  */
-export type ProjectEditTimingPhase = 'input-to-paint-ready' | 'flush-to-native-ack';
+export type ProjectEditTimingPhase =
+  | 'input-to-paint-ready'
+  | 'flush-to-native-ack'
+  | 'flush-barrier'
+  | 'scoped-save';
 
 export function measureProjectEdit(
   phase: ProjectEditTimingPhase,

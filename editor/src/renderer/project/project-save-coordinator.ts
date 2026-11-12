@@ -1,4 +1,5 @@
 import { useCommandStore } from '@/commands/command-store';
+import { measureProjectEdit } from '@/commands/project-edit-timings';
 import {
   NATIVE_FIELD_DRAFT_SCHEMA,
   parseNativeFieldRecovery,
@@ -241,6 +242,7 @@ async function commitSelectedNativeSaveUnits(
     ReturnType<ReturnType<typeof useCommandStore.getState>['saveNativeUnitAsync']>
   >;
   for (let attempt = 0; ; attempt += 1) {
+    const saveStartedAt = performance.now();
     submitted = await useCommandStore.getState().saveNativeUnitAsync(
       saveUnitIds.length === 1 ? saveUnitIds[0]! : saveUnitIds,
       current.projectRevision,
@@ -329,6 +331,11 @@ async function commitSelectedNativeSaveUnits(
         ]);
       },
     );
+    measureProjectEdit('scoped-save', saveStartedAt, {
+      path: saveUnitIds.join(','),
+      sequence: attempt,
+      ok: submitted.ok,
+    });
     if (submitted.ok || !submitted.commentImpacts?.length || attempt >= 3) break;
     const decision = await confirmProjectComments(submitted.commentImpacts, 'Save Project');
     if (decision === 'cancel') {
