@@ -606,6 +606,59 @@ member merges, raw invalid numbers and an atomic Verb slot/reference rename.
 Neither these tests nor native source readback establish physical input-to-paint
 latency or complete the parent #602's platform/human gates.
 
+##### Layout, Map, Material and Animation authoring (#606)
+
+The `useBufferedRecordData` adapter projects each selected **top-level record
+data field** from its own native draft subscription and the record's existing
+`record:<collection>:<id>` Save owner. It is only transient presentation and
+recoverable intent: native ProjectSession owns the working/saved Project,
+revisions, native validation and disk YAML. `projectEdits.field` coalesces
+ordinary edits; the dispatch-time `nativeFieldJsonPatches` planner submits
+narrow changes to existing sparse source, not a normalized whole-record
+replacement. Stable-ID collection edits merge with the latest optimistic
+member (including insertions and reorderings); coordinated changes issue an
+atomic, late-bound native `project.applyPatch` after the normal field barrier.
+An overlapping native change is rejected, not silently overwritten.
+
+| Editor | Save owner | Optimistic native field paths and exceptions |
+| --- | --- | --- |
+| Layout | `record:layouts:<id>` | `/data/layoutKind`, `/target`, `/scalePolicy`, `/preview`, `/script`, `/mount`, `/dependencies`, `/contract`, `/sampleState`. Layout source selections and dependencies are ordinary metadata. Physical RML/RCSS/Lua companions read/write the same session-matched `ProjectSourceStore` buffer used by Files/source tabs, with its separate source Save and native staging; only inline data without a companion retains its CodeMirror/native semantic edit fallback. The system Title Layout role still has its coordinated Project Settings command. Invalid contract/sample-state JSON stays in local editable source draft rather than being submitted. |
+| Map | `record:maps:<id>` | `/data/presentation`, `/locations`, `/connections`. Semantic location/connection IDs edit on blur with stable-ID recovery paths. Location/connection numeric order fields retain incomplete raw text. All nested region, anchor, path and hit-region edits immediately project from the latest member; the geometry preview is read-only SVG, **not** a pointer-drag session. Deletion/pruning and reciprocal-exit selections commit as one native transaction. |
+| Material | `record:materials:<id>` | `/data/base`, `/displayName`, `/shader`, `/parameters`, `/textures`, `/preview`. Uniform/texture controls read the latest material override rather than stale resolved preview values. Numeric float/integer uniform input retains partial raw strings with synthetic per-parameter recovery paths. Shader **source text** belongs to the separate source-file store and compile/Save flow; shader identity/path and Material override metadata are record fields, not source-file buffers. |
+| Animation | `record:animations:<id>` | `/data/motions` and `/defaultMotionId` project stable motion/marker edits. Canvas `/data/canvas/width` and `/height` use separate exact native number fields. Frame and marker timing retain edit-on-blur numeric controls; marker IDs commit on blur through stable member identity. Scrub, play, loop-range selection, seek, media probing and pending target-FPS confirmation stay transient playback/approval state, not authored Project fields. `MotionPlaybackEditor` edits the supplied caller-owned policy; it does not own a second Animation Save unit. |
+
+The native worker's sparse-source projector now materializes *only* validated
+schema-default parent containers when an effective `Replace` targets an
+omitted source parent (notably default Map `presentation`). This is required
+for exact-field patches and does not clone or persist unrelated defaults.
+
+Held-native 500 ms and 1,000 ms renderer tests in `layout-editor.test.tsx`,
+`material-editor.test.tsx`, `animation-editor.test.tsx` and
+`map-editor-buffering.test.tsx` assert immediately rendered independent
+edits, final acknowledged values and bounded patch counts. Additional Map
+tests cover duplicate views, rejected native work retained for recovery,
+invalid numeric text, member rename and sibling edits behind a held worker.
+A Layout companion-source regression confirms that consecutive RML edits
+paint from the source buffer without invoking a Project content patch.
+The final four focused component suites passed **29 tests** after this source
+handoff and the numeric/semantic-field changes.
+The native-addon-backed editor suite passed **306 files, 2,323 tests**
+with **94 skips** before the final incremental raw-number changes. Two
+subsequent complete runs each passed **305 files and 2,325 tests**, but
+each had one different failure outside #606: a temporary-directory
+`ENOTEMPTY` in native editor-session cleanup and a workspace Preview-locale
+metadata-save timing assertion. Both failing tests passed in isolation;
+there is **not yet a clean full-suite pass against the final tree**. Final
+editor formatting, lint (zero warnings), TypeScript, schema policy and
+generated contract checks passed. The disposable native test
+`editor/scripts/certify-native-layout-map-material-animation-save.mjs`
+passed physical owner-scoped YAML Save/readback and a fresh Project reopen
+for all four editor families. Native Room/Map, ProjectSession, Layout and YAML
+transaction CTests also passed (4/4). No checked-in Feature Lab source was
+modified. These are automated tests, **not** a hand-driven Feature Lab or
+physical input-to-display latency pass: parent #602/#522 manual certification
+and cross-platform packaged verification remain open.
+
 This inventory identifies **entrypoints**, not a claim that every occurrence
 is defective: many Character, Room, Project Settings and other controls already
 use optimistic collection adapters, while read-only inputs and locally staged

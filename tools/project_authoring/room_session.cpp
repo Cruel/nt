@@ -6416,8 +6416,8 @@ RoomSessionResult RoomSession::patch(std::uint64_t expected_working_revision,
                     const auto replacement = Json::parse(concrete.value_json);
                     if (replacement.is_object() && replacement.contains("$ref")) {
                         const auto& ref = replacement.at("$ref");
-                        if (ref.is_object() && ref.contains("collection") &&
-                            ref.contains("id") && ref.at("id").is_string())
+                        if (ref.is_object() && ref.contains("collection") && ref.contains("id") &&
+                            ref.at("id").is_string())
                             concrete.value_json = ref.at("id").to_string();
                     }
                 }
@@ -6460,6 +6460,13 @@ RoomSessionResult RoomSession::patch(std::uint64_t expected_working_revision,
                         throw std::runtime_error(
                             "Normalized patch path cannot be projected to sparse source.");
                     const auto parent_path = concrete.path.substr(0, concrete.path.rfind('/'));
+                    // A normalized Replace can target a child of an omitted
+                    // schema-default container. Materialize only its proven
+                    // parent shells, as for an Add, before projecting the
+                    // authored child into sparse YAML.
+                    if (!is_project_ && !at_pointer(next, parent_path))
+                        materialize_implicit_parents(next, Json::parse(effective.normalized_json),
+                                                     concrete, resolved);
                     if (!at_pointer(next, parent_path))
                         throw std::runtime_error(
                             "Normalized patch requires unsupported source parent projection.");

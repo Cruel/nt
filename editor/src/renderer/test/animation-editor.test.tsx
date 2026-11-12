@@ -4,7 +4,10 @@ import { beforeEach, expect, it, vi } from 'vite-plus/test';
 import { AnimationEditor } from '@/editors/animations/AnimationEditor';
 import { useProjectStore } from '@/project/project-store';
 import { useCommandStore } from '@/commands/command-store';
-import { admitNativeRendererCommandFixture } from '../test-support/native-acknowledged-command-fixture';
+import {
+  admitNativeRendererCommandFixture,
+  holdFirstNativeProjectPatch,
+} from '../test-support/native-acknowledged-command-fixture';
 import {
   createAuthoringProject,
   isAuthoringProject,
@@ -42,6 +45,48 @@ function spriteMotion(project: ReturnType<typeof createAuthoringProject>) {
   if (motion.kind !== 'sprite-sequence') throw new Error('Expected sprite motion');
   return motion;
 }
+
+it.each([500, 1000])(
+  'renders independent Animation canvas dimensions during a %i ms native hold',
+  async (ms) => {
+    const project = useProjectStore.getState().document;
+    if (!isAuthoringProject(project)) throw new Error('Expected Project');
+    const native = admitNativeRendererCommandFixture(project);
+    const held = holdFirstNativeProjectPatch();
+    render(
+      <AnimationEditor
+        tab={{
+          id: 'pulse',
+          title: 'Pulse',
+          editorType: 'animation-detail',
+          resource: {
+            kind: 'record',
+            stableId: 'record:animations:pulse',
+            collection: 'animations',
+            entityId: 'pulse',
+          },
+        }}
+      />,
+    );
+    const width = screen.getByLabelText('Canvas width');
+    const height = screen.getByLabelText('Canvas height');
+    fireEvent.change(width, { target: { value: '32' } });
+    expect(width).toHaveValue('32');
+    await waitFor(() => expect(held.isHeld()).toBe(true));
+    await new Promise((resolve) => setTimeout(resolve, ms));
+    expect(width).toHaveValue('32');
+    fireEvent.change(height, { target: { value: '48' } });
+    expect(height).toHaveValue('48');
+    expect(native.patch).not.toHaveBeenCalled();
+    await act(async () => held.release());
+    await waitFor(() => {
+      expect(useProjectStore.getState().document).toMatchObject({
+        animations: { pulse: { data: { canvas: { width: 32, height: 48 } } } },
+      });
+    });
+    expect(native.patch.mock.calls.length).toBeLessThanOrEqual(2);
+  },
+);
 
 it('adds a timed image frame to an empty manual Animation through the command bus', async () => {
   const project = structuredClone(useProjectStore.getState().document);
@@ -314,10 +359,12 @@ it('confirms target FPS at authoring time before committing and preserves ration
   if (!isAuthoringProject(document)) throw new Error('Expected Project');
   expect(document.animations.pulse!.data.motions[0]).not.toHaveProperty('frameSampling');
   await user.click(screen.getByRole('button', { name: 'Apply FPS' }));
-  document = useProjectStore.getState().document;
-  if (!isAuthoringProject(document)) throw new Error('Expected Project');
-  expect(document.animations.pulse!.data.motions[0]).toMatchObject({
-    frameSampling: { mode: 'target-fps', fps: { numerator: 30000, denominator: 1001 } },
+  await waitFor(() => {
+    document = useProjectStore.getState().document;
+    if (!isAuthoringProject(document)) throw new Error('Expected Project');
+    expect(document.animations.pulse!.data.motions[0]).toMatchObject({
+      frameSampling: { mode: 'target-fps', fps: { numerator: 30000, denominator: 1001 } },
+    });
   });
   // A lower target rate maps each output to a distinct source PTS: no modal.
   fireEvent.change(screen.getByLabelText('FPS denominator'), { target: { value: '6000' } });
@@ -366,9 +413,11 @@ it('commits frame timing only after an integer duration is entered', async () =>
   await user.clear(duration);
   await user.type(duration, '80');
   await user.tab();
-  const document = useProjectStore.getState().document;
-  if (!isAuthoringProject(document)) throw new Error('Expected Project');
-  expect(spriteMotion(document).frames[1]!.durationMs).toBe(80);
+  await waitFor(() => {
+    const document = useProjectStore.getState().document;
+    if (!isAuthoringProject(document)) throw new Error('Expected Project');
+    expect(spriteMotion(document).frames[1]!.durationMs).toBe(80);
+  });
   await act(async () => {
     await useCommandStore.getState().undoAsync();
   });

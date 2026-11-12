@@ -1,4 +1,5 @@
 import { projectEdits } from '@/commands/project-editing';
+import { useBufferedRecordData } from '@/commands/buffered-record-data';
 import { resolveEditorPreviewSplitOrientation } from '@/components/editor-preview-layout';
 import { EditorPreviewSplit } from '@/components/editor-preview-split';
 import { LuaExplicitFallbackEditor } from '@/components/lua-explicit-fallback-editor';
@@ -14,6 +15,7 @@ import { DiagnosticList } from '@/diagnostics/DiagnosticList';
 import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
 import { DerivedPreviewPane } from '@/preview/DerivedPreviewPane';
 import { useNativeProjectDiagnostics } from '@/project/native-project-diagnostics';
+import { useProjectSourceStore } from '@/project/project-source-store';
 import { useProjectStore } from '@/project/project-store';
 import { MUTATION_SURFACE_ATTRIBUTIONS, recordSaveUnitId } from '@/project/save-unit-registry';
 import { usePreferencesStore } from '@/stores/preferences-store';
@@ -62,6 +64,18 @@ import { parseScriptModuleData } from '../../../shared/project-schema/authoring-
 function assetRef(assetId: string): LayoutAssetRef {
   return { $ref: { collection: 'assets', id: assetId } };
 }
+
+const LAYOUT_FIELDS = [
+  'layoutKind',
+  'target',
+  'scalePolicy',
+  'preview',
+  'script',
+  'mount',
+  'dependencies',
+  'contract',
+  'sampleState',
+] as const;
 
 function refIds<T extends { $ref: { id: string } }>(refs: T[]): string[] {
   return refs.map((ref) => ref.$ref.id);
@@ -151,14 +165,27 @@ function parseLayoutEditorTabState(
   };
 }
 
-function updateLayout(layoutId: string, next: LayoutData, label: string) {
-  return projectEdits.execute({
+function layoutUpdateCommand(layoutId: string, next: LayoutData, label: string) {
+  return {
     type: 'layout.replaceData',
     label,
     payload: { layoutId, data: next },
     originSaveUnitId: recordSaveUnitId('layouts', layoutId),
-    persistencePolicy: 'manual-save',
+    persistencePolicy: 'manual-save' as const,
+  };
+}
+
+function updateLayout(layoutId: string, before: LayoutData, next: LayoutData, label: string) {
+  const action = projectEdits.rebasedProjectRecordData({
+    collection: 'layouts',
+    id: layoutId,
+    before,
+    after: next,
+    makeCommand: (data) => layoutUpdateCommand(layoutId, data as LayoutData, label),
   });
+  return action
+    ? projectEdits.execute(action)
+    : Promise.resolve({ ok: true, projectChanged: false, diagnostics: [] });
 }
 
 function selectableAssets(
@@ -220,6 +247,11 @@ function DependencySelector({
 export function LayoutEditor({ tab }: WorkbenchEditorProps) {
   const { t } = useTranslation('workspace');
   const projectDocument = useProjectStore((state) => state.document);
+  const projectSessionId = useProjectStore((state) => state.projectSessionId);
+  const sourceSessionId = useProjectSourceStore((state) => state.projectSessionId);
+  const sourceFiles = useProjectSourceStore((state) => state.files);
+  const sourceBuffers = useProjectSourceStore((state) => state.buffersById);
+  const setProjectSourceText = useProjectSourceStore((state) => state.setText);
   const executeCommand = projectEdits.execute;
   const editorPreviewLayout = usePreferencesStore((state) => state.editorPreviewLayout);
   const layoutId = tab.resource?.entityId;
@@ -230,7 +262,17 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
     () => defaultLayoutData(record?.label ?? layoutId ?? 'Layout'),
     [layoutId, record?.label],
   );
-  const data = parsedData ?? fallbackData;
+  const {
+    data,
+    commit: bufferCommit,
+    errors: fieldErrors,
+  } = useBufferedRecordData({
+    collection: 'layouts',
+    id: layoutId ?? '',
+    tabId: tab.id,
+    data: parsedData ?? fallbackData,
+    fields: LAYOUT_FIELDS,
+  });
   const resolvedScalePolicy = resolveLayoutScalePolicy(data.target, data.scalePolicy);
   const contractText = useMemo(() => JSON.stringify(data.contract, null, 2), [data.contract]);
   const sampleStateText = useMemo(
@@ -367,7 +409,11 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
     projectSettingsFromProject(activeProject).display,
   );
   function commit(next: LayoutData, label = 'Update layout') {
-    void updateLayout(activeLayoutId, next, label).then((result) => {
+    if (next.rml === data.rml && next.rcss === data.rcss && next.lua === data.lua) {
+      bufferCommit(next, label);
+      return;
+    }
+    void updateLayout(activeLayoutId, data, next, label).then((result) => {
       const failure = result.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
       setMessage(failure?.message ?? null);
     });
@@ -391,10 +437,27 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
   }
 
   function setInlineSource(which: 'rml' | 'rcss' | 'lua', sourceText: string) {
+    const companion = companionSource(which);
+    if (companion && sourceBuffers[companion.id]) {
+      setProjectSourceText(companion.id, sourceText);
+      return;
+    }
     commit(
       { ...data, [which]: { ...data[which], sourceText } },
       `Update ${which.toUpperCase()} source`,
     );
+  }
+
+  function companionSource(which: 'rml' | 'rcss' | 'lua') {
+    if (!projectSessionId || sourceSessionId !== projectSessionId) return undefined;
+    return sourceFiles.find(
+      (file) => file.layout?.id === activeLayoutId && file.layout.channel === which,
+    );
+  }
+
+  function sourceText(which: 'rml' | 'rcss' | 'lua') {
+    const file = companionSource(which);
+    return file ? (sourceBuffers[file.id]?.text ?? data[which].sourceText) : data[which].sourceText;
   }
 
   function setContractSource(sourceText: string) {
@@ -523,6 +586,7 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
             Layout data was invalid; showing editable defaults until you apply a change.
           </div>
         ) : null}
+        {fieldErrors}
         {message ? (
           <div className="mt-3 rounded border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">
             {message}
@@ -711,7 +775,7 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
                 <SourceEditor
                   ref={sourceEditors.refFor('rml')}
                   language="rml"
-                  value={data.rml.sourceText}
+                  value={sourceText('rml')}
                   onChange={(value) => setInlineSource('rml', value)}
                   diagnostics={rmlDiagnostics}
                   className="h-72"
@@ -760,7 +824,7 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
                 <SourceEditor
                   ref={sourceEditors.refFor('rcss')}
                   language="rcss"
-                  value={data.rcss.sourceText}
+                  value={sourceText('rcss')}
                   onChange={(value) => setInlineSource('rcss', value)}
                   diagnostics={rcssDiagnostics}
                   className="h-64"
@@ -845,7 +909,7 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
               <SourceEditor
                 ref={sourceEditors.refFor('lua')}
                 language="lua"
-                value={data.lua.sourceText}
+                value={sourceText('lua')}
                 onChange={(value) => setInlineSource('lua', value)}
                 diagnostics={luaDiagnostics}
                 className="h-56"

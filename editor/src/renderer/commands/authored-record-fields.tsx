@@ -395,6 +395,7 @@ export function AuthoredMemberNumber({
   collection,
   recordId,
   memberId: id,
+  family,
   field,
   value,
   label,
@@ -402,9 +403,10 @@ export function AuthoredMemberNumber({
   min,
   onChange,
 }: {
-  collection: Collection;
+  collection: Collection | 'maps' | 'animations' | 'materials';
   recordId: string;
   memberId: string;
+  family?: string;
   field: string;
   value: number;
   label: string;
@@ -413,7 +415,14 @@ export function AuthoredMemberNumber({
   onChange: (value: number) => void;
 }) {
   const owner = recordSaveUnitId(collection, recordId);
-  const path = buildJsonPointer([collection, recordId, 'data', '@' + id, field]);
+  const path = buildJsonPointer([
+    collection,
+    recordId,
+    'data',
+    ...(family ? [family] : []),
+    '@' + id,
+    field,
+  ]);
   const pending = usePendingInputStore((state) => selectPendingInput(state, owner, path));
   const [editing, setEditing] = useState<string | null>(null);
   return (
@@ -454,7 +463,7 @@ export function AuthoredMemberIdInput({
   onCommit,
   label,
 }: {
-  collection: Collection;
+  collection: Collection | 'maps' | 'animations';
   recordId: string;
   memberId: string;
   family: string;

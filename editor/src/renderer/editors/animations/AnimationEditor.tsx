@@ -21,7 +21,9 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useProjectStore } from '@/project/project-store';
-import { projectEdits } from '@/commands/project-editing';
+import { useBufferedRecordData } from '@/commands/buffered-record-data';
+import { AuthoredMemberIdInput } from '@/commands/authored-record-fields';
+import { ProjectFieldNumber, useProjectField } from '@/commands/use-project-field';
 import { recordSaveUnitId } from '@/project/save-unit-registry';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 import { isAuthoringProjectView } from '../../../shared/project-schema/authoring-project-view';
@@ -44,6 +46,8 @@ import {
   type MotionPolicy,
 } from '../../../shared/animation-timeline';
 
+const ANIMATION_FIELDS = ['motions', 'defaultMotionId'] as const;
+
 export function AnimationEditor({ tab }: WorkbenchEditorProps) {
   const { t } = useTranslation('workspace');
   const document = useProjectStore((state) => state.document);
@@ -52,7 +56,44 @@ export function AnimationEditor({ tab }: WorkbenchEditorProps) {
   const id = tab.resource?.entityId;
   const record = id ? project?.animations[id] : null;
   const parsed = useMemo(() => animationDataSchema.safeParse(record?.data), [record?.data]);
-  const data = parsed.success ? parsed.data : null;
+  const acknowledged = parsed.success ? parsed.data : null;
+  const saveUnitId = recordSaveUnitId('animations', id ?? '');
+  const {
+    data: bufferedData,
+    commit: bufferCommit,
+    errors: fieldErrors,
+  } = useBufferedRecordData({
+    collection: 'animations',
+    id: id ?? '',
+    tabId: tab.id,
+    data:
+      acknowledged ??
+      ({
+        kind: 'animation',
+        canvas: { width: 1, height: 1 },
+        defaultMotionId: '',
+        motions: [],
+      } as AnimationData),
+    fields: ANIMATION_FIELDS,
+  });
+  const width = useProjectField({
+    tabId: tab.id,
+    saveUnitId,
+    path: `/animations/${id ?? ''}/data/canvas/width`,
+    value: acknowledged?.canvas.width ?? 1,
+    label: t('animationEditor.canvasWidth'),
+  });
+  const height = useProjectField({
+    tabId: tab.id,
+    saveUnitId,
+    path: `/animations/${id ?? ''}/data/canvas/height`,
+    value: acknowledged?.canvas.height ?? 1,
+    label: t('animationEditor.canvasHeight'),
+  });
+  const data = {
+    ...bufferedData,
+    canvas: { width: width.value, height: height.value },
+  };
   const hasVideoMotion = data?.motions.some((entry) => entry.kind === 'video') ?? false;
   const canvasNotice = hasVideoMotion && data ? videoCanvasNotice(data.canvas) : null;
   const [newFrameAsset, setNewFrameAsset] = useState<string | null>(null);
@@ -180,17 +221,11 @@ export function AnimationEditor({ tab }: WorkbenchEditorProps) {
     setPendingSampling(null);
   }, [motion?.id, session]);
 
-  if (!data || !record || !id || !motion)
+  if (!acknowledged || !record || !id || !motion)
     return <div className="p-4">{t('animationEditor.unavailable')}</div>;
   const commit = (next: AnimationData) => {
     if (!animationDataSchema.safeParse(next).success) return;
-    void projectEdits.execute({
-      type: 'entity.replaceRecord',
-      label: t('animationEditor.edit'),
-      payload: { collection: 'animations', entityId: id, record: { ...record, data: next } },
-      originSaveUnitId: recordSaveUnitId('animations', id),
-      persistencePolicy: 'manual-save',
-    });
+    bufferCommit(next, t('animationEditor.edit'));
   };
   const setMarkers = (markers: typeof motion.markers) =>
     commit({
@@ -308,23 +343,16 @@ export function AnimationEditor({ tab }: WorkbenchEditorProps) {
             <Label htmlFor={`canvas-${axis}-${tab.id}`}>
               {t(`animationEditor.canvas${axis === 'width' ? 'Width' : 'Height'}`)}
             </Label>
-            <Input
+            <ProjectFieldNumber
               id={`canvas-${axis}-${tab.id}`}
-              key={`${axis}:${data.canvas[axis]}`}
-              type="number"
+              tabId={tab.id}
+              saveUnitId={saveUnitId}
+              path={`/animations/${id}/data/canvas/${axis}`}
+              label={t(`animationEditor.canvas${axis === 'width' ? 'Width' : 'Height'}`)}
+              value={data.canvas[axis]}
+              mode="integer"
               min={1}
               max={10000}
-              defaultValue={data.canvas[axis]}
-              onBlur={(event) => {
-                const value = Number(event.target.value);
-                if (
-                  Number.isInteger(value) &&
-                  value > 0 &&
-                  value <= 10000 &&
-                  value !== data.canvas[axis]
-                )
-                  commit({ ...data, canvas: { ...data.canvas, [axis]: value } });
-              }}
             />
           </div>
         ))}
@@ -361,6 +389,7 @@ export function AnimationEditor({ tab }: WorkbenchEditorProps) {
           </EditorHelpIcon>
         </div>
       ) : null}
+      {fieldErrors}
       {select(
         t('animationEditor.motion'),
         motion.id,
@@ -637,18 +666,14 @@ export function AnimationEditor({ tab }: WorkbenchEditorProps) {
       <div className="text-sm">start: 0 ms · end: {duration} ms</div>
       {motion.markers.map((marker, index) => (
         <div key={`${motion.id}:${index}`} className="flex gap-2">
-          <Input
-            aria-label={t('animationEditor.markerId')}
-            defaultValue={marker.id}
-            key={marker.id}
-            onBlur={(event) => {
-              const value = event.target.value;
-              if (
-                value === 'start' ||
-                value === 'end' ||
-                motion.markers.some((entry, other) => other !== index && entry.id === value)
-              )
-                return;
+          <AuthoredMemberIdInput
+            collection="animations"
+            recordId={id}
+            memberId={marker.id}
+            family={`motions/@${motion.id}/markers`}
+            ids={[...markers]}
+            label={t('animationEditor.markerId')}
+            onCommit={(value) => {
               setMarkers(
                 motion.markers.map((entry, other) =>
                   other === index ? { ...entry, id: value } : entry,

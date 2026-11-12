@@ -4,8 +4,8 @@ import { RecursiveConditionEditor } from '@/components/conditions/ConditionEdito
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
-import { projectEdits } from '@/commands/project-editing';
-import { recordSaveUnitId } from '@/project/save-unit-registry';
+import { useBufferedRecordData } from '@/commands/buffered-record-data';
+import { AuthoredMemberIdInput, AuthoredMemberNumber } from '@/commands/authored-record-fields';
 import { useProjectStore } from '@/project/project-store';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 import {
@@ -17,6 +17,8 @@ import {
 import type { Condition } from '../../../shared/project-schema/authoring-flow';
 import { parseMapData } from '../../../shared/project-schema/authoring-maps';
 import { parseRoomData } from '../../../shared/project-schema/authoring-rooms';
+
+const MAP_FIELDS = ['presentation', 'locations', 'connections'] as const;
 
 const defaultRegion = () => ({
   points: [
@@ -49,30 +51,53 @@ export function MapEditor({ tab }: WorkbenchEditorProps) {
   const data = parseMapData(record?.data);
   if (!project || !id || !record || !data)
     return <div className="p-4 text-sm text-muted-foreground">Map record not found.</div>;
-  const commit = (next: typeof data) =>
-    projectEdits.execute({
-      type: 'map.replaceData',
-      label: 'Update map',
-      payload: { mapId: id, data: next },
-      originSaveUnitId: recordSaveUnitId('maps', id),
-      persistencePolicy: 'manual-save',
-    });
+  return <EditableMap tabId={tab.id} id={id} project={project} data={data} label={record.label} />;
+}
+
+function EditableMap({
+  tabId,
+  id,
+  project,
+  data: acknowledged,
+  label,
+}: {
+  tabId: string;
+  id: string;
+  project: AuthoringEditorProject;
+  data: NonNullable<ReturnType<typeof parseMapData>>;
+  label: string;
+}) {
+  const { data, commit, errors } = useBufferedRecordData({
+    collection: 'maps',
+    id,
+    tabId,
+    data: acknowledged,
+    fields: MAP_FIELDS,
+  });
   return (
     <div className="h-full overflow-auto bg-background p-4">
       <div className="mb-4 flex gap-2">
-        <h2 className="text-lg font-semibold">{record.label}</h2>
+        <h2 className="text-lg font-semibold">{label}</h2>
         <Badge variant="outline">{id}</Badge>
       </div>
-      <MapForm data={data} project={project} onChange={commit} />
+      {errors}
+      <MapForm
+        recordId={id}
+        data={data}
+        project={project}
+        onChange={(next) => commit(next, 'Update map')}
+      />
     </div>
   );
 }
 
 function MapForm({
+  recordId,
   data,
   project,
   onChange,
 }: {
+  recordId: string;
   data: NonNullable<ReturnType<typeof parseMapData>>;
   project: AuthoringEditorProject;
   onChange: (next: NonNullable<ReturnType<typeof parseMapData>>) => void;
@@ -263,16 +288,18 @@ function MapForm({
         {data.locations.map((location, locationIndex) => (
           <div className="space-y-3 rounded border p-3" key={location.id}>
             <div className="grid gap-2 @3xl:grid-cols-5">
-              <Input
-                aria-label="Location ID"
-                value={location.id}
-                onChange={(event) =>
+              <AuthoredMemberIdInput
+                collection="maps"
+                recordId={recordId}
+                memberId={location.id}
+                family="locations"
+                ids={data.locations.map((item) => item.id)}
+                label="Location ID"
+                onCommit={(nextId) =>
                   onChange({
                     ...data,
                     locations: data.locations.map((current, index) =>
-                      index === locationIndex
-                        ? { ...current, id: event.currentTarget.value }
-                        : current,
+                      index === locationIndex ? { ...current, id: nextId } : current,
                     ),
                   })
                 }
@@ -325,32 +352,38 @@ function MapForm({
                   })
                 }
               />
-              <Input
-                aria-label="Pick order"
-                type="number"
+              <AuthoredMemberNumber
+                collection="maps"
+                recordId={recordId}
+                memberId={location.id}
+                family="locations"
+                field="pickOrder"
+                label="Pick order"
+                mode="integer"
                 value={location.pickOrder}
-                onChange={(event) =>
+                onChange={(pickOrder) =>
                   onChange({
                     ...data,
                     locations: data.locations.map((current, index) =>
-                      index === locationIndex
-                        ? { ...current, pickOrder: Number(event.currentTarget.value) || 0 }
-                        : current,
+                      index === locationIndex ? { ...current, pickOrder } : current,
                     ),
                   })
                 }
               />
-              <Input
-                aria-label="Logical order"
-                type="number"
+              <AuthoredMemberNumber
+                collection="maps"
+                recordId={recordId}
+                memberId={location.id}
+                family="locations"
+                field="logicalOrder"
+                label="Logical order"
+                mode="integer"
                 value={location.logicalOrder}
-                onChange={(event) =>
+                onChange={(logicalOrder) =>
                   onChange({
                     ...data,
                     locations: data.locations.map((current, index) =>
-                      index === locationIndex
-                        ? { ...current, logicalOrder: Number(event.currentTarget.value) || 0 }
-                        : current,
+                      index === locationIndex ? { ...current, logicalOrder } : current,
                     ),
                   })
                 }
@@ -752,16 +785,18 @@ function MapForm({
           return (
             <div className="space-y-3 rounded border p-3" key={connection.id}>
               <div className="grid gap-2 @3xl:grid-cols-4">
-                <Input
-                  aria-label="Connection ID"
-                  value={connection.id}
-                  onChange={(event) =>
+                <AuthoredMemberIdInput
+                  collection="maps"
+                  recordId={recordId}
+                  memberId={connection.id}
+                  family="connections"
+                  ids={data.connections.map((item) => item.id)}
+                  label="Connection ID"
+                  onCommit={(nextId) =>
                     onChange({
                       ...data,
                       connections: data.connections.map((current, index) =>
-                        index === connectionIndex
-                          ? { ...current, id: event.currentTarget.value }
-                          : current,
+                        index === connectionIndex ? { ...current, id: nextId } : current,
                       ),
                     })
                   }
@@ -817,17 +852,20 @@ function MapForm({
                     </SelectItem>
                   ))}
                 </Select>
-                <Input
-                  aria-label="Connection logical order"
-                  type="number"
+                <AuthoredMemberNumber
+                  collection="maps"
+                  recordId={recordId}
+                  memberId={connection.id}
+                  family="connections"
+                  field="logicalOrder"
+                  label="Connection logical order"
+                  mode="integer"
                   value={connection.logicalOrder}
-                  onChange={(event) =>
+                  onChange={(logicalOrder) =>
                     onChange({
                       ...data,
                       connections: data.connections.map((current, index) =>
-                        index === connectionIndex
-                          ? { ...current, logicalOrder: Number(event.currentTarget.value) || 0 }
-                          : current,
+                        index === connectionIndex ? { ...current, logicalOrder } : current,
                       ),
                     })
                   }

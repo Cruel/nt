@@ -132,6 +132,45 @@ export const projectEdits = {
     return rebasedGameplayDataCommand(options);
   },
 
+  /** Apply a non-gameplay editor's event-time data delta at native dispatch,
+   * rather than submitting a whole-record snapshot captured before a hold.
+   * The command remains native and keeps its existing Save-owner contract. */
+  rebasedProjectRecordData(options: {
+    collection: string;
+    id: string;
+    before: unknown;
+    after: unknown;
+    makeCommand: (data: JsonValue, record: JsonValue) => CommandRequest;
+  }): (() => CommandRequest) | null {
+    const previous = toJsonValue(JSON.parse(JSON.stringify(options.before)));
+    const changes = diffJsonDocuments(
+      previous,
+      toJsonValue(JSON.parse(JSON.stringify(options.after))),
+    );
+    if (changes.length === 0) return null;
+    return () => {
+      const project = useProjectStore.getState().document;
+      if (!project) throw new Error('No Project is open.');
+      const path = buildJsonPointer([options.collection, options.id]);
+      const record = getJsonAtPointer(project, path);
+      const latest = getJsonAtPointer(record, '/data');
+      for (const change of changes) {
+        const existed = hasJsonAtPointer(previous, change.path);
+        const existsNow = hasJsonAtPointer(latest, change.path);
+        if (
+          existed !== existsNow ||
+          (existed &&
+            !jsonValuesEqual(
+              getJsonAtPointer(previous, change.path),
+              getJsonAtPointer(latest, change.path),
+            ))
+        )
+          throw new Error(`Record field '${change.path}' changed before this edit was applied.`);
+      }
+      return options.makeCommand(applyJsonPatch(latest, changes).document, record);
+    };
+  },
+
   /** A stable-ID list action, evaluated in the native command queue. */
   recordList(options: {
     record: GameplayRecordRef;

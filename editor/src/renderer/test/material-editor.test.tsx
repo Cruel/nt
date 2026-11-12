@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MaterialEditor } from '@/editors/materials/MaterialEditor';
 import { useProjectStore } from '@/project/project-store';
 import { useProjectSourceStore } from '@/project/project-source-store';
@@ -7,6 +7,10 @@ import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
+import {
+  admitNativeRendererCommandFixture,
+  holdFirstNativeProjectPatch,
+} from '../test-support/native-acknowledged-command-fixture';
 
 vi.mock('@/material-preview/MaterialPreview', () => ({
   MaterialPreview: ({ materialId }: { materialId: string }) => <div>{`preview:${materialId}`}</div>,
@@ -40,6 +44,50 @@ beforeEach(() => {
 });
 
 describe('focused Material editor', () => {
+  it.each([500, 1000])(
+    'keeps shader paths and independent parameters visible during a %i ms native hold',
+    async (ms) => {
+      const project = createAuthoringProject();
+      project.materials.panel = {
+        id: 'panel',
+        label: 'Panel',
+        data: {
+          ...defaultMaterialData('Panel', 'postprocess-tint'),
+          parameters: { u_tint: { value: [0.2, 0.3, 0.4, 1] } },
+        },
+      };
+      const native = admitNativeRendererCommandFixture(project);
+      const held = holdFirstNativeProjectPatch();
+      render(<MaterialEditor tab={materialTab('panel')} />);
+
+      const shader = screen.getByText('Shader Sources').closest('section')!.querySelector('input')!;
+      fireEvent.change(shader, { target: { value: 'shaders/panel.vs.sc' } });
+      expect(shader).toHaveValue('shaders/panel.vs.sc');
+      await waitFor(() => expect(held.isHeld()).toBe(true));
+      await new Promise((resolve) => setTimeout(resolve, ms));
+      expect(shader).toHaveValue('shaders/panel.vs.sc');
+      const tint = screen.getByDisplayValue('0.2, 0.3, 0.4, 1');
+      fireEvent.change(tint, { target: { value: '0.1, 0.2, 0.3, 1' } });
+      expect(tint).toHaveValue('0.1, 0.2, 0.3, 1');
+      expect(native.patch).not.toHaveBeenCalled();
+
+      await act(async () => held.release());
+      await waitFor(() => {
+        expect(useProjectStore.getState().document).toMatchObject({
+          materials: {
+            panel: {
+              data: {
+                shader: { vertex: { kind: 'project', path: 'shaders/panel.vs.sc' } },
+                parameters: { u_tint: { value: [0.1, 0.2, 0.3, 1] } },
+              },
+            },
+          },
+        });
+      });
+      expect(native.patch.mock.calls.length).toBeLessThanOrEqual(2);
+    },
+  );
+
   it('shows effective inherited values with provenance and opens built-in shader source read-only', () => {
     const project = createAuthoringProject();
     project.materials.base = {

@@ -17,8 +17,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { projectEdits } from '@/commands/project-editing';
-import { recordSaveUnitId } from '@/project/save-unit-registry';
+import { useBufferedRecordData } from '@/commands/buffered-record-data';
+import { AuthoredMemberNumber } from '@/commands/authored-record-fields';
 import { MaterialPreview } from '@/material-preview/MaterialPreview';
 import { useMaterialPreviewResource } from '@/material-preview/material-preview-provider';
 import { useProjectSourceStore } from '@/project/project-source-store';
@@ -61,15 +61,14 @@ import {
 } from '@/workbench/editor-registry';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 
-function updateMaterial(materialId: string, next: MaterialData, label: string) {
-  void projectEdits.execute({
-    type: 'material.replaceData',
-    label,
-    payload: { materialId, data: next },
-    originSaveUnitId: recordSaveUnitId('materials', materialId),
-    persistencePolicy: 'manual-save',
-  });
-}
+const MATERIAL_FIELDS = [
+  'base',
+  'displayName',
+  'shader',
+  'parameters',
+  'textures',
+  'preview',
+] as const;
 
 function parseParameterValue(type: ShaderUniformType, text: string): ShaderUniformValue {
   const raw =
@@ -269,7 +268,17 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
   const project = isAuthoringProjectView(projectDocument) ? projectDocument : null;
   const record = materialId && project ? project.materials[materialId] : null;
   const parsedData = parseMaterialData(record?.data);
-  const data = parsedData ?? defaultMaterialData(record?.label ?? materialId ?? 'Material');
+  const {
+    data,
+    commit: bufferCommit,
+    errors: fieldErrors,
+  } = useBufferedRecordData({
+    collection: 'materials',
+    id: materialId ?? '',
+    tabId: tab.id,
+    data: parsedData ?? defaultMaterialData(record?.label ?? materialId ?? 'Material'),
+    fields: MATERIAL_FIELDS,
+  });
   const resolved = useMemo(
     () =>
       project && materialId
@@ -289,7 +298,7 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
     return <div className="p-4 text-sm text-muted-foreground">{t('materialEditor.missing')}</div>;
 
   function commit(next: MaterialData, label = t('materialEditor.commands.update')) {
-    updateMaterial(materialId!, next, label);
+    bufferCommit(next, label);
   }
 
   function setParameter(name: string, patch: MaterialParameterOverride) {
@@ -416,6 +425,7 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
           {t('materialEditor.invalidData')}
         </div>
       ) : null}
+      {fieldErrors}
       <div className="mt-3 grid gap-3 @7xl:grid-cols-[1fr_320px]">
         <div className="space-y-3">
           <section
@@ -606,7 +616,7 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
                         value: address,
                         label: address,
                       }))}
-                      value={current?.address ?? slot.addressPolicy[0] ?? 'clamp'}
+                      value={local?.address ?? current?.address ?? slot.addressPolicy[0] ?? 'clamp'}
                       disabled={!canEditAddress}
                       onValueChange={(address) =>
                         setTexture(slot.name, {
@@ -628,7 +638,7 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
                     </Select>
                     <Select
                       items={slot.filterPolicy.map((filter) => ({ value: filter, label: filter }))}
-                      value={current?.filter ?? slot.filterPolicy[0] ?? 'linear'}
+                      value={local?.filter ?? current?.filter ?? slot.filterPolicy[0] ?? 'linear'}
                       disabled={!canEditFilter}
                       onValueChange={(filter) =>
                         setTexture(slot.name, {
@@ -728,7 +738,7 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
                           { value: 'false', label: 'false' },
                           { value: 'true', label: 'true' },
                         ]}
-                        value={currentValue === true ? 'true' : 'false'}
+                        value={(local?.value ?? currentValue) === true ? 'true' : 'false'}
                         onValueChange={(value) =>
                           setParameter(name, { ...local, value: value === 'true' })
                         }
@@ -741,9 +751,26 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
                           <SelectItem value="true">true</SelectItem>
                         </SelectContent>
                       </Select>
+                    ) : declaration.type === 'float' || declaration.type === 'int' ? (
+                      <AuthoredMemberNumber
+                        collection="materials"
+                        recordId={materialId}
+                        memberId={name}
+                        family="parameters"
+                        field="value"
+                        label={declarationLabel ?? name}
+                        mode={declaration.type === 'int' ? 'integer' : 'decimal'}
+                        min={range?.[0]}
+                        value={
+                          typeof (local?.value ?? currentValue) === 'number'
+                            ? ((local?.value ?? currentValue) as number)
+                            : 0
+                        }
+                        onChange={(value) => setParameter(name, { ...local, value })}
+                      />
                     ) : (
                       <Input
-                        value={valueToText(currentValue)}
+                        value={valueToText(local?.value ?? currentValue)}
                         min={range?.[0]}
                         max={range?.[1]}
                         onChange={(event) =>
@@ -845,8 +872,8 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
                 const rendererBound =
                   declaration.binding != null || rendererOwnedSamplerNames.has(name);
                 const provenance = effective?.provenance[`textures.${name}`];
-                const refId =
-                  current?.source && '$ref' in current.source ? current.source.$ref.id : null;
+                const source = local?.source ?? current?.source;
+                const refId = source && '$ref' in source ? source.$ref.id : null;
                 return (
                   <div
                     key={name}
@@ -909,7 +936,7 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
                         value: address,
                         label: address,
                       }))}
-                      value={current?.address ?? 'clamp'}
+                      value={local?.address ?? current?.address ?? 'clamp'}
                       disabled={rendererBound}
                       onValueChange={(address) =>
                         setTexture(name, {
@@ -934,7 +961,7 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
                         value: filter,
                         label: filter,
                       }))}
-                      value={current?.filter ?? 'linear'}
+                      value={local?.filter ?? current?.filter ?? 'linear'}
                       disabled={rendererBound}
                       onValueChange={(filter) =>
                         setTexture(name, {

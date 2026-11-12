@@ -1,10 +1,14 @@
-import { admitNativeRendererCommandFixture } from '../test-support/native-acknowledged-command-fixture';
+import {
+  admitNativeRendererCommandFixture,
+  holdFirstNativeProjectPatch,
+} from '../test-support/native-acknowledged-command-fixture';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { LayoutEditor } from '@/editors/layouts/LayoutEditor';
 import { useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
+import { useProjectSourceStore } from '@/project/project-source-store';
 import { usePreferencesStore } from '@/stores/preferences-store';
 import {
   DEFAULT_EDITOR_PREVIEW_SPLIT_SYNC_SOURCE_IDS,
@@ -128,10 +132,98 @@ beforeEach(() => {
   });
   useCommandStore.getState().resetCommandHistory();
   useProjectStore.getState().clearProject();
+  useProjectSourceStore.getState().clear();
   clearWorkbenchTabStates();
 });
 
 describe('LayoutEditor', () => {
+  it('stages physical RML companion typing in its shared source buffer, not Project patches', () => {
+    const project = createAuthoringProject();
+    project.layouts.main = { id: 'main', label: 'Main UI', data: defaultLayoutData('Main UI') };
+    const native = admitNativeRendererCommandFixture(project);
+    const sourceId = 'layouts/main/layout.rml';
+    const baseText = project.layouts.main.data.rml.sourceText;
+    useProjectSourceStore.setState({
+      projectSessionId: useProjectStore.getState().projectSessionId,
+      files: [
+        {
+          id: sourceId,
+          displayPath: sourceId,
+          projectRelativePath: 'records/layouts/main/layout.rml',
+          kind: 'layout-rml',
+          text: true,
+          contentHash: 'absent',
+          layout: { id: 'main', channel: 'rml' },
+        },
+      ],
+      textById: { [sourceId]: baseText },
+      buffersById: {
+        [sourceId]: {
+          text: baseText,
+          baseText,
+          baseContentHash: 'absent',
+          dirty: false,
+          conflict: null,
+        },
+      },
+    });
+    render(<LayoutEditor tab={tab} />);
+    const editor = screen.getByLabelText('source-rml');
+    fireEvent.change(editor, { target: { value: '<div>First</div>' } });
+    expect(editor).toHaveValue('<div>First</div>');
+    fireEvent.change(editor, { target: { value: '<div>Latest</div>' } });
+    expect(editor).toHaveValue('<div>Latest</div>');
+    expect(useProjectSourceStore.getState().buffersById[sourceId]).toMatchObject({
+      text: '<div>Latest</div>',
+      dirty: true,
+    });
+    expect(native.patch).not.toHaveBeenCalled();
+    useProjectSourceStore.getState().clear();
+  });
+
+  it.each([500, 1000])(
+    'shows independent metadata immediately through a %i ms native hold',
+    async (ms) => {
+      const project = createAuthoringProject();
+      project.layouts.main = { id: 'main', label: 'Main UI', data: defaultLayoutData('Main UI') };
+      const native = admitNativeRendererCommandFixture(project);
+      const held = holdFirstNativeProjectPatch();
+      render(<LayoutEditor tab={tab} />);
+
+      const namespace = screen.getByPlaceholderText('layout_preview');
+      const mount = screen.getByPlaceholderText('nt-layout-preview-mount');
+      fireEvent.change(namespace, { target: { value: 'new_namespace' } });
+      expect(namespace).toHaveValue('new_namespace');
+      await waitFor(() => expect(held.isHeld()).toBe(true));
+      await new Promise((resolve) => setTimeout(resolve, ms));
+      expect(namespace).toHaveValue('new_namespace');
+      fireEvent.change(mount, { target: { value: 'new_mount' } });
+      expect(mount).toHaveValue('new_mount');
+      expect(native.patch).not.toHaveBeenCalled();
+
+      await act(async () => held.release());
+      await waitFor(() => {
+        expect(useProjectStore.getState().document).toMatchObject({
+          layouts: {
+            main: {
+              data: {
+                script: { namespace: 'new_namespace' },
+                mount: { defaultParent: 'new_mount' },
+              },
+            },
+          },
+        });
+      });
+      expect(native.patch.mock.calls.length).toBeLessThanOrEqual(2);
+      expect(native.patch.mock.calls.flatMap((call) => call[2].map((patch) => patch.path))).toEqual(
+        expect.arrayContaining([
+          '/layouts/main/data/script/namespace',
+          '/layouts/main/data/mount/defaultParent',
+        ]),
+      );
+    },
+  );
+
   it('renders typed layout defaults and preview surface', () => {
     const project = createAuthoringProject();
     project.layouts.main = { id: 'main', label: 'Main UI', data: defaultLayoutData('Main UI') };
@@ -170,15 +262,19 @@ describe('LayoutEditor', () => {
     await user.click(uiScaleSelect);
     await user.click(await screen.findByRole('option', { name: 'inherit' }));
 
-    expect(useProjectStore.getState().document).toMatchObject({
-      layouts: { main: { data: { scalePolicy: { ui: 'inherit', text: 'inherit' } } } },
+    await waitFor(() => {
+      expect(useProjectStore.getState().document).toMatchObject({
+        layouts: { main: { data: { scalePolicy: { ui: 'inherit', text: 'inherit' } } } },
+      });
     });
 
     await user.click(screen.getByRole('button', { name: 'Use target defaults' }));
-    expect(
-      (useProjectStore.getState().document as { layouts: { main: { data: unknown } } }).layouts.main
-        .data,
-    ).not.toHaveProperty('scalePolicy');
+    await waitFor(() => {
+      expect(
+        (useProjectStore.getState().document as { layouts: { main: { data: unknown } } }).layouts
+          .main.data,
+      ).not.toHaveProperty('scalePolicy');
+    });
   });
 
   it('commits source edits immediately through layout.replaceData', async () => {
