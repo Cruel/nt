@@ -44,6 +44,7 @@ interface TerminalSession {
   createdAt: string;
   originProject: TerminalProjectOrigin | null;
   launchCommand: { executable: string; args: string[] } | null;
+  launchPath: string | null;
   status: 'running' | 'exited' | 'error';
   commandState: TerminalCommandState;
   currentCommandStartedAt: string | null;
@@ -100,12 +101,14 @@ export class TerminalService {
     cwd: string,
     originProject: TerminalProjectOrigin | null,
     command: { executable: string; args: string[] },
+    launchPath?: string,
   ): Promise<TerminalHostSnapshot> {
     this.used = true;
     const session = await this.createNewSession(this.lifecycleGeneration, {
       cwd,
       originProject,
       command,
+      launchPath,
     });
     this.selectedSessionId = session.id;
     return this.snapshotState();
@@ -211,6 +214,7 @@ export class TerminalService {
       cwd: string;
       originProject: TerminalProjectOrigin | null;
       command: { executable: string; args: string[] };
+      launchPath?: string;
     },
   ): Promise<TerminalSession> {
     const sequence = this.nextSequence++;
@@ -224,6 +228,7 @@ export class TerminalService {
       createdAt: (this.options.now?.() ?? new Date()).toISOString(),
       originProject: creationContext.originProject,
       launchCommand: repair ? { ...repair.command, args: [...repair.command.args] } : null,
+      launchPath: repair?.launchPath ?? null,
       status: 'running',
       commandState: 'unknown',
       currentCommandStartedAt: null,
@@ -273,6 +278,9 @@ export class TerminalService {
     try {
       const shell = session.launchCommand?.executable ?? this.options.resolveShell();
       const env = normalizedEnvironment(this.options.env ?? processEnv());
+      // Launch with the same shell-resolved PATH that admitted the executable,
+      // including its interpreter, even when the GUI inherited a smaller PATH.
+      if (session.launchCommand && session.launchPath) env.PATH = session.launchPath;
       const preparedShell = session.launchCommand
         ? { args: session.launchCommand.args, env, integrationExpected: false, dispose() {} }
         : prepareTerminalShell(shell, env);

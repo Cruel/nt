@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vite-plus/test';
 import {
   probeRepairHarnesses,
   repairHarnessCommand,
+  resolveRepairExecutionEnvironment,
 } from '../../main/services/repair-harness-service';
 import { repairHarnessLaunchArgumentsSchema } from '../../main/editor-ipc-trust-boundary';
 
@@ -31,6 +32,44 @@ describe('repair harness host boundary', () => {
       expect(await probeRepairHarnesses(env, 'linux')).toEqual(['claude', 'opencode']);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('discovers tools from the selected shell PATH, without installation-directory guesses', async () => {
+    if (process.platform === 'win32') return;
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'noveltea-gui-harness-home-'));
+    const toolDirectory = path.join(home, 'arbitrary-custom-tools');
+    const inheritedDirectory = path.join(home, 'inherited');
+    const shell = path.join(home, 'zsh');
+    fs.mkdirSync(toolDirectory);
+    fs.mkdirSync(inheritedDirectory);
+    const install = (name: string, output: string) =>
+      fs.writeFileSync(path.join(toolDirectory, name), `#!/bin/sh\nprintf '%s\\n' '${output}'\n`, {
+        mode: 0o755,
+      });
+    try {
+      install('opencode', 'opencode v2.0.28');
+      install('codex', 'codex-cli 0.164.0');
+      // A shell startup script may print unrelated text. Only its bounded,
+      // delimited PATH output is authoritative, never a guessed HOME subdir.
+      fs.writeFileSync(
+        shell,
+        `#!/bin/sh\nprintf 'shell init noise\\n__NT_REPAIR_PATH_START__\\n%s\\n__NT_REPAIR_PATH_END__\\n' '${toolDirectory}'\n`,
+        { mode: 0o755 },
+      );
+      const guiEnv = { HOME: home, PATH: inheritedDirectory, SHELL: shell };
+      expect(await probeRepairHarnesses(guiEnv, 'linux')).toEqual([]);
+      const resolved = await resolveRepairExecutionEnvironment(guiEnv, 'linux');
+      expect(resolved.PATH).toBe(toolDirectory);
+      expect(await probeRepairHarnesses(resolved, 'linux')).toEqual(['codex', 'opencode']);
+      expect(guiEnv.PATH).toBe(inheritedDirectory);
+      // Failed shell initialization cannot erase the inherited executable PATH.
+      fs.writeFileSync(shell, '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+      expect((await resolveRepairExecutionEnvironment(guiEnv, 'linux')).PATH).toBe(
+        inheritedDirectory,
+      );
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
     }
   });
 

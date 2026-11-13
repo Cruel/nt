@@ -71,7 +71,14 @@ metadata. New sessions after a Project switch use the new current Project contex
 sessions are never implicitly moved, restarted, renamed, or terminated. On POSIX, main prefers the
 user's existing `SHELL` when it resolves to an executable path, then zsh/bash/sh fallbacks. On Windows,
 main prefers `pwsh.exe` from `PATH`, then Windows PowerShell. The shell inherits the ordinary editor
-process environment; NovelTea does not inject tool-specific PATH entries. zsh integration preserves the
+process environment; NovelTea does not inject tool-specific PATH entries. Repair harness
+discovery is a separate bounded check: the main process invokes the selected
+Terminal shell with a fixed command to read its effective PATH after normal
+startup, falling back to the inherited PATH if unavailable. That PATH is reused
+for AI tool identity probing, model catalog subprocesses, and the corresponding
+repair PTY launch/relaunch; ordinary Terminal sessions keep their native shell
+startup behavior. No package-manager-specific install directories are embedded.
+zsh integration preserves the
 normal login/interactive startup chain (`.zshenv`, `.zprofile`, `.zshrc`, and `.zlogin`) through temporary
 wrapper files, and PowerShell lifecycle escapes use syntax compatible with both Windows PowerShell 5.1
 and modern PowerShell. PowerShell integration wraps the ConsoleHost `PSConsoleHostReadLine` function

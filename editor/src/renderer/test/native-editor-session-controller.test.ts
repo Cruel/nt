@@ -1274,6 +1274,100 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
     }
   }, 120_000);
 
+  it('reopens invalid localized Room draft without treating saved project.yaml as a broken Project', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'native-editor-invalid-localized-draft-'));
+    await cp(path.resolve(process.cwd(), '../tests/projects/feature-lab'), root, {
+      recursive: true,
+    });
+    const rooms = ['director-completion-demo', 'properties-and-traits'];
+    const sources = await Promise.all(
+      rooms.map((room) => readFile(path.join(root, 'records/rooms', room + '.yaml'))),
+    );
+    const sessions = new ActiveProjectSessionService();
+    const makeController = () => {
+      const bridge = new NativeAuthoringSessionBridge(sessions, {
+        addonPath: nativeAddon!,
+        workerScript: path.resolve(
+          process.cwd(),
+          'dist-electron/authoring-worker/native-authoring-worker.cjs',
+        ),
+        pollIntervalMs: 100,
+      });
+      return new NativeEditorSessionController(
+        sessions,
+        bridge,
+        new NativeAuthoringWorkingProject(bridge),
+      );
+    };
+    let controller = makeController();
+    try {
+      const { id, admitted } = await admitNativeSession(sessions, controller, root);
+      const patched = await controller.applyRevisionedPatches(id, admitted.revision, [
+        {
+          op: 'replace',
+          path: '/rooms/properties-and-traits/data/displayName',
+          value: 'Properties & Traits 2',
+        },
+        {
+          op: 'replace',
+          path: '/rooms/director-completion-demo/data/description/source/kind',
+          value: 'localized',
+        },
+        {
+          op: 'remove',
+          path: '/rooms/director-completion-demo/data/description/source/text',
+        },
+        {
+          op: 'add',
+          path: '/rooms/director-completion-demo/data/description/source/key',
+          value: '',
+        },
+      ]);
+      expect(patched.accepted, patched.error).toBe(true);
+      expect(patched.snapshot.recordSnapshots?.['rooms/director-completion-demo']).toMatchObject({
+        dirty: true,
+        valid: false,
+      });
+      controller.dispose();
+      sessions.closeActiveProject();
+      controller = makeController();
+
+      const opened = await openNativeEditorProject(
+        root,
+        sessions.beginProjectActivation(),
+        sessions,
+        controller,
+      );
+      expect(opened.success, opened.error).toBe(true);
+      expect(
+        controller.recoveredContentProject()?.rooms['properties-and-traits']?.data.displayName,
+      ).toBe('Properties & Traits 2');
+      expect(
+        opened.diagnostics.some(
+          (diagnostic) => diagnostic.sourcePath === 'records/rooms/director-completion-demo.yaml',
+        ),
+      ).toBe(true);
+      const snapshot = controller.copyRecovery(opened.projectSessionId!).checkpoint;
+      expect(
+        snapshot.batches.some((batch) =>
+          batch.patches.some(
+            (patch) =>
+              patch.path === '/rooms/director-completion-demo/data/description/source/key' &&
+              patch.value === '',
+          ),
+        ),
+      ).toBe(true);
+      for (let index = 0; index < rooms.length; index++)
+        expect(await readFile(path.join(root, 'records/rooms', rooms[index]! + '.yaml'))).toEqual(
+          sources[index],
+        );
+    } finally {
+      controller.dispose();
+      sessions.dispose();
+      await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    }
+  }, 120_000);
+
   it('keeps a semantically invalid Room editable and replays its unsaved edit on reopen', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'native-editor-invalid-recovery-'));
     await cp(path.resolve(process.cwd(), '../tests/projects/feature-lab'), root, {

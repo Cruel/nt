@@ -245,6 +245,7 @@ export class NativeEditorSessionController {
       if (generation !== this.generation || !this.authority.isCurrent(projectSessionId))
         throw new Error('Native Project admission was superseded during recovery lookup.');
       let finalRevision = prepared.workingRevision;
+      let recoveryDiagnostics: typeof prepared.diagnostics | null = null;
       if (
         checkpoint &&
         (checkpoint.batches.length ||
@@ -262,6 +263,7 @@ export class NativeEditorSessionController {
               `Native Project recovery cannot prepare dirty content: ${recovered.error}`,
             );
           this.recoveredProject = projectFromNativeCompletePreparation(recovered);
+          recoveryDiagnostics = recovered.diagnostics;
           finalRevision = recovered.workingRevision;
           if (recovery.warning) recovery.warning += ' Native replay restored the retained entries.';
         } catch (error) {
@@ -293,7 +295,7 @@ export class NativeEditorSessionController {
         sourceRevisions: { ...prepared.sourceRevisions },
         diagnostics: recovery.warning
           ? [
-              ...prepared.diagnostics,
+              ...(recoveryDiagnostics ?? prepared.diagnostics),
               {
                 code: 'native.recovery.quarantined',
                 severity: 'warning' as const,
@@ -301,7 +303,7 @@ export class NativeEditorSessionController {
                 message: recovery.warning,
               },
             ]
-          : prepared.diagnostics,
+          : (recoveryDiagnostics ?? prepared.diagnostics),
       };
     } catch (error) {
       if (generation === this.generation) this.close();

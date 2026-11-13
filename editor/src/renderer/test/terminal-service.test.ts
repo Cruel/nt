@@ -88,6 +88,7 @@ describe('TerminalService', () => {
       '/candidate',
       { id: 'candidate', name: 'Candidate' },
       command,
+      '/custom/shell-path:/usr/bin',
     );
     expect(launched.sessions).toHaveLength(2);
     expect(launched.sessions[0]).toMatchObject({
@@ -105,6 +106,7 @@ describe('TerminalService', () => {
         shell: '/usr/bin/codex',
         cwd: '/candidate',
         args: ['exec', '--model', 'gpt-6', '--', "line 1\n' && $(touch /tmp/no)"],
+        env: expect.objectContaining({ PATH: '/custom/shell-path:/usr/bin' }),
       }),
     );
     expect(
@@ -122,6 +124,7 @@ describe('TerminalService', () => {
         shell: '/usr/bin/codex',
         cwd: '/candidate',
         args: command.args,
+        env: expect.objectContaining({ PATH: '/custom/shell-path:/usr/bin' }),
       }),
     );
     service.dispose();

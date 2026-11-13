@@ -221,6 +221,7 @@ import {
   installedRepairHarnessCommand,
   prepareRepairAgentKit,
   probeRepairHarnesses,
+  resolveRepairExecutionEnvironment,
 } from './main/services/repair-harness-service';
 import { getRepairModelCatalog } from './main/services/repair-model-catalog-service';
 import {
@@ -1242,10 +1243,11 @@ void app.whenReady().then(async () => {
         if (risk === 'newer' && !request.authorizeNewer)
           throw new Error('Explicit authorization is required for a newer Project format.');
       }
+      const repairEnvironment = await resolveRepairExecutionEnvironment();
       const command = await installedRepairHarnessCommand(
         request.harness,
         request.prompt,
-        process.env,
+        repairEnvironment,
         process.platform,
         request.model,
       );
@@ -1269,6 +1271,7 @@ void app.whenReady().then(async () => {
           ? { id: request.id, name: `Project Candidate: ${path.basename(root)}` }
           : activeProjectSessions.currentProjectIdentity(),
         command,
+        repairEnvironment.PATH,
       );
     },
   );

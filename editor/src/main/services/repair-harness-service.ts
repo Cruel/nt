@@ -8,9 +8,66 @@ import {
   type RepairHarness,
 } from '../../shared/repair-harness';
 import { resolveNovelTeaCliPath } from '../../shared/noveltea-cli-subprocess';
+import { resolveDefaultTerminalShell } from './terminal-service';
 
 const exec = promisify(execFile);
 const MAX_PROMPT_BYTES = 128 * 1024;
+const SHELL_PATH_START = '__NT_REPAIR_PATH_START__';
+const SHELL_PATH_END = '__NT_REPAIR_PATH_END__';
+
+/**
+ * Desktop launchers may not inherit the PATH initialized by a user's shell.
+ * Query the same default shell as Terminal, rather than guessing install dirs.
+ * Never interpolate Project data or tool prompts into the shell command.
+ */
+export async function resolveRepairExecutionEnvironment(
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): Promise<NodeJS.ProcessEnv> {
+  const shell = resolveDefaultTerminalShell(platform, env);
+  const name = path.basename(shell).toLowerCase();
+  let args: string[];
+  if (platform === 'win32') {
+    if (!['pwsh.exe', 'powershell.exe'].includes(name)) return { ...env };
+    args = [
+      '-NoLogo',
+      '-Command',
+      "Write-Output '__NT_REPAIR_PATH_START__'; Write-Output $env:PATH; Write-Output '__NT_REPAIR_PATH_END__'",
+    ];
+  } else {
+    const command = 'printf "\\n__NT_REPAIR_PATH_START__\\n%s\\n__NT_REPAIR_PATH_END__\\n" "$PATH"';
+    if (name === 'zsh') args = ['-ilc', command];
+    else if (name === 'bash') args = ['-ic', command];
+    else if (name === 'sh') args = ['-c', command];
+    else return { ...env };
+  }
+  try {
+    const { stdout } = await exec(shell, args, {
+      env,
+      windowsHide: true,
+      timeout: 5_000,
+      maxBuffer: 64 * 1024,
+    });
+    // PowerShell emits CRLF on Windows; normalize marker boundaries only.
+    const output = stdout.replaceAll('\r\n', '\n');
+    const start = output.lastIndexOf(SHELL_PATH_START + '\n');
+    if (start === -1) return { ...env };
+    const from = start + SHELL_PATH_START.length + 1;
+    const end = output.indexOf('\n' + SHELL_PATH_END, from);
+    if (end === -1) return { ...env };
+    const shellPath = output.slice(from, end);
+    if (
+      !shellPath ||
+      shellPath.length > 32 * 1024 ||
+      /[\r\n]/u.test(shellPath) ||
+      shellPath.includes('\0')
+    )
+      return { ...env };
+    return { ...env, PATH: shellPath };
+  } catch {
+    return { ...env };
+  }
+}
 
 export function localRepairExecutable(
   name: string,
@@ -18,7 +75,8 @@ export function localRepairExecutable(
   platform: NodeJS.Platform,
 ): string | null {
   const win = platform === 'win32';
-  for (const directory of (env.PATH ?? env.Path ?? '').split(win ? ';' : ':').filter(Boolean)) {
+  const searchDirectories = (env.PATH ?? env.Path ?? '').split(win ? ';' : ':').filter(Boolean);
+  for (const directory of new Set(searchDirectories)) {
     if (!path.isAbsolute(directory)) continue;
     for (const suffix of win ? ['.exe', '.cmd'] : ['']) {
       const file = path.join(directory, name + suffix);
@@ -82,17 +140,18 @@ export function repairHarnessProcessCommand(
 }
 
 export async function probeRepairHarnesses(
-  env: NodeJS.ProcessEnv = process.env,
+  env?: NodeJS.ProcessEnv,
   platform: NodeJS.Platform = process.platform,
 ): Promise<RepairHarness[]> {
+  const effectiveEnv = env ?? (await resolveRepairExecutionEnvironment());
   const results = await Promise.all(
     REPAIR_HARNESSES.map(async (harness) => {
-      const candidate = localRepairExecutable(harness, env, platform);
+      const candidate = localRepairExecutable(harness, effectiveEnv, platform);
       if (!candidate) return null;
       try {
         const invocation = repairHarnessProcessCommand(candidate, ['--version'], platform);
         const { stdout, stderr } = await exec(invocation.executable, invocation.args, {
-          env,
+          env: effectiveEnv,
           windowsHide: true,
           timeout: 2_500,
           maxBuffer: 32 * 1024,
@@ -103,7 +162,7 @@ export async function probeRepairHarnesses(
             ? /Claude Code/iu.test(version)
             : harness === 'codex'
               ? /codex(?:-cli)?\s+\d/u.test(version)
-              : /^\s*\d+\.\d+\.\d+/u.test(version);
+              : /^\s*(?:opencode\s+v?)?\d+\.\d+\.\d+/iu.test(version);
         return identified ? harness : null;
       } catch {
         return null;
@@ -143,15 +202,16 @@ export function repairHarnessCommand(
 export async function installedRepairHarnessCommand(
   harness: RepairHarness,
   prompt: string,
-  env: NodeJS.ProcessEnv = process.env,
+  env?: NodeJS.ProcessEnv,
   platform: NodeJS.Platform = process.platform,
   model = '',
 ): Promise<{ executable: string; args: string[] }> {
-  if (!(await probeRepairHarnesses(env, platform)).includes(harness))
+  const effectiveEnv = env ?? (await resolveRepairExecutionEnvironment());
+  if (!(await probeRepairHarnesses(effectiveEnv, platform)).includes(harness))
     throw new Error(
       `The selected ${harness} executable is no longer available. Recheck installed tools.`,
     );
-  const executable = localRepairExecutable(harness, env, platform);
+  const executable = localRepairExecutable(harness, effectiveEnv, platform);
   if (!executable) throw new Error(`The selected ${harness} executable is no longer available.`);
   return repairHarnessCommand(harness, executable, prompt, platform, model);
 }

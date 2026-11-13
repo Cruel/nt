@@ -12,6 +12,7 @@ import {
   localRepairExecutable,
   probeRepairHarnesses,
   repairHarnessProcessCommand,
+  resolveRepairExecutionEnvironment,
 } from './repair-harness-service';
 
 const exec = promisify(execFile);
@@ -230,19 +231,20 @@ export async function listClaudeSdkModels(
 
 export async function discoverRepairModels(
   harness: RepairHarness,
-  env: NodeJS.ProcessEnv = process.env,
+  env?: NodeJS.ProcessEnv,
   platform: NodeJS.Platform = process.platform,
 ): Promise<RepairModelCatalog> {
   const unavailable: RepairModelCatalog = { harness, status: 'unavailable', models: [] };
+  const effectiveEnv = env ?? (await resolveRepairExecutionEnvironment());
   // Distinguish absent tools from an empty successful catalog.
-  if (!(await probeRepairHarnesses(env, platform)).includes(harness)) return unavailable;
-  const executable = localRepairExecutable(harness, env, platform);
+  if (!(await probeRepairHarnesses(effectiveEnv, platform)).includes(harness)) return unavailable;
+  const executable = localRepairExecutable(harness, effectiveEnv, platform);
   if (!executable) return unavailable;
   const models =
     harness === 'opencode'
-      ? await listOpenCodeModels(executable, env, platform)
+      ? await listOpenCodeModels(executable, effectiveEnv, platform)
       : harness === 'codex'
-        ? await listCodexAppServerModels(executable, env, platform)
+        ? await listCodexAppServerModels(executable, effectiveEnv, platform)
         : await listClaudeSdkModels();
   return models === null ? unavailable : { harness, status: 'available', models };
 }

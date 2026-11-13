@@ -213,6 +213,7 @@ export function CandidateRepairEditor({ tab }: WorkbenchEditorProps) {
             onChange={(text) => setBuffer(id, text)}
             language="text"
             diagnostics={diagnostics}
+            className="h-full min-h-0 rounded-none border-0"
           />
         </div>
       ) : (

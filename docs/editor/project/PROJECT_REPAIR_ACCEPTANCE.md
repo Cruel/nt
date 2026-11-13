@@ -160,6 +160,66 @@ checks above remain **not run**. Keep #622 open until required interactive
 integration checks complete or failures are routed to the responsible
 vertical tickets.
 
+## November 13 interactive follow-up: invalid native recovery and repair UI
+
+A user Project failed Open with
+`Native Project recovery cannot prepare dirty content: Cannot prepare invalid working
+record rooms/director-completion-demo`. The **disk manifest was not invalid**.
+The native dirty checkpoint carried two unsaved Room changes: a normal display
+name and an unfinished text-source switch to `localized` with an empty key.
+The failed native replay preparation was misclassified as a damaged pre-admission
+Project Candidate, and **Fix it** consequently opened the unrelated
+`project.yaml` source (at a locale-list line).
+
+Native editor projection now retains an invalid dirty Room in the native
+journal without publishing an unvalidated record as typed editor content.
+The saved effective Room remains the structured display fallback until the
+draft becomes valid; the restored native working snapshot reports the offending
+Room diagnostic. On Open, main publishes **replayed** validation diagnostics
+rather than stale saved-source diagnostics. Runtime/Test/export strict
+validation is unchanged. The regression reproduces the exact two-owner
+checkpoint pattern on a disposable Feature Lab copy and verifies successful
+Open, recovered valid owner, native recovery retention, Room-owned diagnostics
+and unchanged physical YAML.
+
+The embedded Terminal may load additional PATH entries from a user's shell
+startup files that the Electron main process never sees. Repair discovery,
+model lookup, and launch now query the same selected shell used by Terminal
+for its effective PATH, using a fixed, bounded shell command. No user
+installation directories are hardcoded; if shell startup fails, the inherited
+environment remains in force. The independent probe regression demonstrates
+discovery from a custom tool directory absent from the GUI PATH and validates
+`opencode v2.0.28` as well as bare-version formats. A second
+repair UI problem was an auto-sized CodeMirror host inside an overflow-clipped
+candidate panel; the candidate editor now supplies a full-height, minimum-zero
+host so CodeMirror's own scrolling element receives the bounded viewport.
+
+**Limits requiring interactive confirmation:** The structured form shows the
+last valid saved representation of a schema-invalid recovered Room; invalid
+unsaved fields remain in native recovery and are not silently written to
+physical YAML. Verify the workflow for editing or explicitly discarding these
+fields, rather than assuming an AI tool's disk edits also resolve an unsaved
+native draft. Recheck candidate YAML scrolling by mouse wheel, trackpad and
+scrollbar, and confirm Codex/OpenCode appear and can launch via the **Fix**
+prompt in a real desktop session. The `Fix it` action for malformed physical
+candidates remains a raw-source editor, not an automatic AI invocation; scoped
+Fix/Run or Copy is the separate diagnostic action.
+
+**Verification:** Native addon integration (including the new exact checkpoint
+reproduction) and repair harness host tests: 51 passed. Native
+`native_authoring_project_session`, `invalid_manifest`, `repairable_records`,
+and `working_preparation` CTests: 4/4 passed on the locally rebuilt
+`linux-debug` target. The first full editor run reached 2,365 passed and four
+failures in Character editor and workspace recovery debounce; rerunning both
+affected suites in isolation passed 48/48. A second full run reached 2,368
+passed and one remaining workspace recovery-debounce failure; that entire
+41-test suite passed again in isolation. This is an unresolved aggregate-run
+intermittence, not a passing full-suite certification. Editor
+`check` (format, lint, typechecking and schema policy) passed. The pinned C++
+format-check target was attempted but the developer machine lacks `uv`,
+required by the repository's clang-format 18.1.8 runner. This does not certify
+formatter success. Do not close #622 on these automated results alone.
+
 ## Feature Lab and documentation
 
 Feature Lab: **already covered as a valid authored reference**; use only a

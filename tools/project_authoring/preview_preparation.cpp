@@ -160,6 +160,13 @@ ProjectSession::prepare_working(std::uint64_t expected_revision, std::string_vie
             }
             if (!state.dirty && !source_dirty)
                 continue;
+            if (editor_projection && state.dirty && state.normalized_json.empty() &&
+                !state.normalized_baseline_json.empty()) {
+                // Preserve the invalid local source in the native session and
+                // recovery journal; never publish it as a typed renderer record.
+                // The saved effective value remains the display fallback.
+                continue;
+            }
             if ((!state.valid && !editor_projection) || state.normalized_json.empty()) {
                 prepared.error = "Cannot prepare invalid working record " + owner;
                 return prepared;
