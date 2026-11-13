@@ -733,6 +733,7 @@ export type EditorToPreviewMessage =
       shaderMaterialMetadata?: unknown;
       assets?: Array<{ sourcePath: string; runtimePath: string }>;
       noticeIndexText?: string;
+      preparedMediaManifestText?: string;
     }
   | { version: 1; type: 'runtime-start'; requestId: string }
   | { version: 1; type: 'runtime-stop'; requestId: string }
@@ -2190,6 +2191,9 @@ export function isEditorToPreviewMessage(value: unknown): value is EditorToPrevi
         (value.noticeIndexText === undefined ||
           (typeof value.noticeIndexText === 'string' &&
             value.noticeIndexText.length <= 1024 * 1024)) &&
+        (value.preparedMediaManifestText === undefined ||
+          (typeof value.preparedMediaManifestText === 'string' &&
+            value.preparedMediaManifestText.length <= 1024 * 1024)) &&
         (value.shaderMaterialMetadata === undefined || isRecord(value.shaderMaterialMetadata)) &&
         (value.assets === undefined ||
           (Array.isArray(value.assets) &&

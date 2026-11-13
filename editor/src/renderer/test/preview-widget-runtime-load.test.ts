@@ -532,4 +532,24 @@ describe('preview widget runtime project loading', () => {
     await harness.loadCompiledProject({ requestId: 'without-notices', compiledProject: {} });
     expect(harness.removedFiles).toContain('/assets/project/licenses/index.json');
   });
+
+  it('stages the prepared video motion catalog before the native load and clears it for the next project', async () => {
+    const harness = createRuntimeLoadHarness();
+    const preparedMediaManifestText = JSON.stringify({
+      schema: 'noveltea.private.prepared-media',
+      version: 1,
+      motions: [{ animationId: 'video-animation', motionId: 'idle' }],
+    });
+    await harness.loadCompiledProject({
+      requestId: 'with-video',
+      compiledProject: {},
+      preparedMediaManifestText,
+    });
+    expect(harness.stagedFiles).toContainEqual([
+      '/assets/project/assets/.prepared-media/manifest.json',
+      preparedMediaManifestText,
+    ]);
+    await harness.loadCompiledProject({ requestId: 'without-video', compiledProject: {} });
+    expect(harness.removedFiles).toContain('/assets/project/assets/.prepared-media/manifest.json');
+  });
 });

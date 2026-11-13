@@ -307,6 +307,61 @@ TEST_CASE("packaged JSON data Assets load through the native Lua Asset boundary"
     )"));
 }
 
+TEST_CASE("loose compiled Project admits prepared video motions for Play")
+{
+    auto gameplay = minimal_gameplay();
+    gameplay["resources"]["assets"].push_back({{"id", "video-source"},
+                                               {"kind", "video"},
+                                               {"path", "assets/video/source.mov"},
+                                               {"aliases", nlohmann::json::array()}});
+    gameplay["resources"]["animations"] = nlohmann::json::array({
+        {{"id", "video-animation"},
+         {"canvas", {{"width", 320}, {"height", 180}}},
+         {"defaultMotionId", "idle"},
+         {"motions", nlohmann::json::array({{{"id", "idle"},
+                                             {"kind", "video"},
+                                             {"video", {{"kind", "asset"}, {"id", "video-source"}}},
+                                             {"sourceRange", {{"startMs", 100}, {"endMs", 1100}}},
+                                             {"markers", nlohmann::json::array()}}})}},
+    });
+    const auto media_path = "assets/.prepared-media/video-animation/idle/a/opaque.webm";
+    nlohmann::json catalog = {
+        {"schema", "noveltea.private.prepared-media"},
+        {"version", 1},
+        {"motions",
+         nlohmann::json::array({
+             {{"animationId", "video-animation"},
+              {"motionId", "idle"},
+              {"representation", "opaque-vp9-webm"},
+              {"contentHash", std::string(64, 'a')},
+              {"browserVideo", {{"path", media_path}, {"width", 320}, {"height", 180}}},
+              {"frames", nlohmann::json::array({{{"durationMs", 500}}, {{"durationMs", 500}}})}},
+         })},
+    };
+    auto source = std::make_shared<assets::MemoryAssetSource>();
+    source->add("project:/game", json_bytes(gameplay));
+    source->add("project:/assets/video/source.mov", bytes("original"));
+    source->add(std::string("project:/") + media_path, bytes("prepared"));
+    assets::AssetManager manager;
+    manager.mount("project", source);
+    const auto missing = runtime::resolve_running_game_source(manager, "project:/game", "en");
+    REQUIRE_FALSE(missing.has_value());
+    CHECK(std::ranges::any_of(missing.error(), [](const auto& diagnostic) {
+        return diagnostic.code == "runtime_package.missing_prepared_video_motion";
+    }));
+
+    source->add("project:/assets/.prepared-media/manifest.json", json_bytes(catalog));
+    const auto resolved = runtime::resolve_running_game_source(manager, "project:/game", "en");
+    if (!resolved)
+        for (const auto& diagnostic : resolved.error())
+            UNSCOPED_INFO(diagnostic.code << ": " << diagnostic.message);
+    REQUIRE(resolved.has_value());
+    CHECK(resolved.value_if()->input.package.prepared_media().motions.size() == 1);
+    CHECK(
+        std::ranges::any_of(resolved.value_if()->input.package.manifest().entries,
+                            [media_path](const auto& entry) { return entry.path == media_path; }));
+}
+
 TEST_CASE("loose compiled project strips shader sources before runtime package assembly")
 {
     // Editor Play mounts authored shader metadata beside the loose compiled project; the runtime

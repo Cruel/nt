@@ -110,6 +110,7 @@ import {
   recordedTestDraftToTestData,
   type RecordedRuntimeInputKind,
 } from '../../../shared/project-schema/recorded-test-draft';
+import { PREPARED_MEDIA_MANIFEST_PATH } from '../../../shared/prepared-media';
 import type { ShaderVariant } from '../../../shared/shader-variants';
 import { DebugReportExportButton } from './DebugReportExportButton';
 import { RmlUiDebuggerControls } from './RmlUiDebuggerControls';
@@ -472,6 +473,7 @@ async function compiledProjectDiagnosticEntries(
   shaderMaterialMetadata: unknown;
   previewAssets: Array<{ sourcePath: string; runtimePath: string }>;
   noticeIndexText: string | undefined;
+  preparedMediaManifestText: string | undefined;
   sourceFingerprint: string | null;
   blockers: ProjectValidationDiagnostic[];
   entries: Omit<RuntimeLogEntry, 'id'>[];
@@ -484,6 +486,7 @@ async function compiledProjectDiagnosticEntries(
       shaderMaterialMetadata: null,
       previewAssets: [],
       noticeIndexText: undefined,
+      preparedMediaManifestText: undefined,
       sourceFingerprint: null,
       blockers: [],
       entries: [
@@ -507,6 +510,7 @@ async function compiledProjectDiagnosticEntries(
           shaderMaterialMetadata: null,
           previewAssets: [],
           noticeIndexText: undefined,
+          preparedMediaManifestText: undefined,
           sourceFingerprint: null,
           blockers: [],
           entries: [
@@ -537,6 +541,9 @@ async function compiledProjectDiagnosticEntries(
         noticeIndexText: shared.artifact.packageOptions.textEntries.find(
           (entry) => entry.packagePath === 'licenses/index.json',
         )?.text,
+        preparedMediaManifestText: shared.artifact.packageOptions.textEntries.find(
+          (entry) => entry.packagePath === PREPARED_MEDIA_MANIFEST_PATH,
+        )?.text,
         sourceFingerprint:
           recoveryFingerprint &&
           typeof recoveryFingerprint === 'object' &&
@@ -560,6 +567,7 @@ async function compiledProjectDiagnosticEntries(
         shaderMaterialMetadata: null,
         previewAssets: [],
         noticeIndexText: undefined,
+        preparedMediaManifestText: undefined,
         sourceFingerprint: null,
         blockers: shared.diagnostics.filter((diagnostic) =>
           projectValidationBlocksBoundary(diagnostic, 'runtime-package'),
@@ -579,6 +587,7 @@ async function compiledProjectDiagnosticEntries(
     shaderMaterialMetadata: null,
     previewAssets: [],
     noticeIndexText: undefined,
+    preparedMediaManifestText: undefined,
     sourceFingerprint: null,
     blockers: [],
     entries: [
@@ -2771,6 +2780,7 @@ export function FullGamePreviewEditor({
     shaderMaterialMetadata: null,
     previewAssets: [],
     noticeIndexText: undefined,
+    preparedMediaManifestText: undefined,
     sourceFingerprint: null,
     blockers: [],
     entries: [],
@@ -2908,6 +2918,7 @@ export function FullGamePreviewEditor({
         exported.previewAssets,
         exported.shaderMaterialMetadata,
         exported.noticeIndexText,
+        exported.preparedMediaManifestText,
       );
       notifyAssetProfilerProjectReplaced();
       setCompiledProjectState({

@@ -1141,6 +1141,12 @@ thead, tbody, tfoot {
         // Editor preview runs a compiled Project directly, not an .ntpkg. Mirror its
         // prepared package index into the same AssetManager namespace used by players.
         // Entry texts are supplied by the existing verified preview asset manifest.
+        if (typeof message.preparedMediaManifestText === 'string' && message.preparedMediaManifestText.length <= 1024 * 1024) {
+          fs.mkdirTree('/assets/project/assets/.prepared-media');
+          fs.writeFile('/assets/project/assets/.prepared-media/manifest.json', message.preparedMediaManifestText);
+        } else {
+          try { fs.unlink('/assets/project/assets/.prepared-media/manifest.json'); } catch {}
+        }
         if (typeof message.noticeIndexText === 'string' && message.noticeIndexText.length <= 1024 * 1024) {
           fs.mkdirTree('/assets/project/licenses');
           fs.writeFile('/assets/project/licenses/index.json', message.noticeIndexText);

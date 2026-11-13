@@ -162,7 +162,15 @@ beforeEach(() => {
           },
           fileEntries: [],
           requiredShaderBinaryPaths: [],
-          packageOptions: { textEntries: [], shaderAssetRoot: null },
+          packageOptions: {
+            textEntries: [
+              {
+                packagePath: 'assets/.prepared-media/manifest.json',
+                text: '{"schema":"noveltea.private.prepared-media","version":1,"motions":[]}',
+              },
+            ],
+            shaderAssetRoot: null,
+          },
           sourceFingerprint: fingerprint,
           shaderMaterialMetadata: null,
           diagnostics: [],
@@ -704,7 +712,7 @@ describe('FullGamePreviewEditor', () => {
       expect(latestRequest(editorPort, 'runtime-load-compiled-project')).toBeDefined(),
     );
     const request = latestRequest(editorPort, 'runtime-load-compiled-project') as
-      | { compiledProject?: unknown; assets?: unknown }
+      | { compiledProject?: unknown; assets?: unknown; preparedMediaManifestText?: string }
       | undefined;
     expect(request?.compiledProject).toMatchObject({
       schema: 'noveltea.compiled.project',
@@ -717,6 +725,9 @@ describe('FullGamePreviewEditor', () => {
         runtimePath: 'images/demo.png',
       },
     ]);
+    expect(request?.preparedMediaManifestText).toBe(
+      '{"schema":"noveltea.private.prepared-media","version":1,"motions":[]}',
+    );
     await resolveLatest(editorPort, previewPort, 'runtime-load-compiled-project');
     await waitFor(() =>
       expect(latestRequest(editorPort, 'runtime-request-debug-snapshot')).toBeDefined(),

@@ -405,6 +405,8 @@ describe('preview protocol validation', () => {
         requestId: 'runtime-load-compiled-project-assets',
         compiledProject: { engine: 1 },
         assets: [{ sourcePath: 'assets/images/foyer.png', runtimePath: 'textures/foyer.png' }],
+        preparedMediaManifestText:
+          '{"schema":"noveltea.private.prepared-media","version":1,"motions":[]}',
       }),
     ).toBe(true);
     expect(

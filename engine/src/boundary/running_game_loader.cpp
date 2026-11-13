@@ -422,7 +422,7 @@ std::string loose_runtime_package_path(std::string_view path)
 core::Result<RunningGameLoadInput, core::Diagnostics>
 make_loose_project_load_input(core::CompiledProject project,
                               std::optional<ShaderMaterialProject> shader_materials,
-                              std::string runtime_locale)
+                              core::PreparedMediaCatalog prepared_media, std::string runtime_locale)
 {
     if (shader_materials)
         strip_loose_runtime_shader_sources(*shader_materials);
@@ -459,6 +459,16 @@ make_loose_project_load_input(core::CompiledProject project,
         if (locale.catalog_path)
             add_file(loose_runtime_package_path(*locale.catalog_path));
     }
+    // Play stages the same prepared media catalog and private video streams
+    // that a packaged player would load from the ZIP inventory.
+    for (const auto& motion : prepared_media.motions) {
+        if (motion.browser_video)
+            add_file(motion.browser_video->path);
+        if (motion.alpha_webp)
+            add_file(motion.alpha_webp->path);
+        for (const auto& frame : motion.frames)
+            add_file(frame.path);
+    }
     if (shader_materials) {
         std::vector<std::string> variants;
         for (const auto& shader : shader_materials->shaders) {
@@ -483,7 +493,8 @@ make_loose_project_load_input(core::CompiledProject project,
     }
 
     auto package = core::assemble_compiled_package(std::move(project), std::move(manifest),
-                                                   std::move(shader_materials), std::move(files));
+                                                   std::move(shader_materials), std::move(files),
+                                                   std::move(prepared_media));
     if (!package) {
         return core::Result<RunningGameLoadInput, core::Diagnostics>::failure(
             std::move(package).error());
@@ -532,8 +543,21 @@ resolve_running_game_source(assets::AssetManager& assets, std::string_view logic
                 std::move(parsed).error());
         shader_materials = std::move(*parsed.value_if());
     }
-    auto input = make_loose_project_load_input(
-        std::move(*project.value_if()), std::move(shader_materials), std::move(runtime_locale));
+    core::PreparedMediaCatalog prepared_media;
+    constexpr std::string_view prepared_media_path =
+        "project:/assets/.prepared-media/manifest.json";
+    auto prepared_text = assets.read_text(prepared_media_path);
+    if (prepared_text) {
+        auto decoded = core::decode_prepared_media_catalog_json(*prepared_text.value,
+                                                                std::string(prepared_media_path));
+        if (!decoded)
+            return core::Result<ResolvedRunningGameSource, core::Diagnostics>::failure(
+                std::move(decoded).error());
+        prepared_media = std::move(*decoded.value_if());
+    }
+    auto input =
+        make_loose_project_load_input(std::move(*project.value_if()), std::move(shader_materials),
+                                      std::move(prepared_media), std::move(runtime_locale));
     if (!input)
         return core::Result<ResolvedRunningGameSource, core::Diagnostics>::failure(
             std::move(input).error());

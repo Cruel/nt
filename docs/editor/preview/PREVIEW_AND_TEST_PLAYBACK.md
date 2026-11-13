@@ -79,10 +79,15 @@ filenames as preview asset fetch paths. Electron main registers the prepared pac
 and compiled shader binaries with the loopback `EnginePreviewServer`, which returns opaque,
 Project-relative `__runtime-prepared/<token>/<index>` fetch identities. The renderer forwards this
 mapping unchanged in `runtime-load-compiled-project`; the widget validates both relative paths
-and stages the verified bytes into their compiled runtime destinations. The server serves only
-explicitly registered sources, retains a bounded number of generations for simultaneous preview
-tabs, and revokes its registrations on Project switch and shutdown. A file that disappears from a
-retired native preparation is not silently replaced by a same-named Project file.
+and stages the verified bytes into their compiled runtime destinations. The prepared runtime
+artifact's `assets/.prepared-media/manifest.json` text entry is also carried into the Play
+message and staged alongside video streams; the C++ loose-project loader decodes that existing
+catalog and admits its browser/alpha stream paths into the same synthetic runtime package
+inventory. A subsequent load without prepared video removes the previous catalog so stale
+motions cannot affect another session. The server serves only explicitly registered sources,
+retains a bounded number of generations for simultaneous preview tabs, and revokes its
+registrations on Project switch and shutdown. A file that disappears from a retired native
+preparation is not silently replaced by a same-named Project file.
 
 The transport message name is an external protocol operation, not a schema name. Its `project`
 payload must be `noveltea.compiled.project` format version 1.

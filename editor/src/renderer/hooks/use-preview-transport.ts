@@ -316,6 +316,7 @@ export function usePreviewTransport({
         assets?: Array<{ sourcePath: string; runtimePath: string }>,
         shaderMaterialMetadata?: unknown,
         noticeIndexText?: string,
+        preparedMediaManifestText?: string,
       ) =>
         send(
           {
@@ -324,6 +325,7 @@ export function usePreviewTransport({
             assets,
             shaderMaterialMetadata,
             noticeIndexText,
+            preparedMediaManifestText,
           },
           {
             disconnectedMessage:
