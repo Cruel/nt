@@ -23,6 +23,8 @@ import { NativeEditorSessionController } from '../../main/services/native-editor
 import { projectFromNativeCompletePreparation } from '../../main/services/native-authoring-runtime-preparation';
 import { openNativeEditorProject } from '../../main/services/native-editor-project-open';
 import { NativeAuthoringSessionBridge } from '../../main/services/native-authoring-session-bridge';
+import { NativeDirtyCheckpointStore } from '../../main/services/native-dirty-checkpoint-store';
+import { createNativeEditorProject } from '../../main/services/native-editor-project-create';
 import {
   NativeAuthoringWorkingProject,
   type NativeDirtyCheckpoint,
@@ -165,7 +167,11 @@ function fixture(projectRoot = '/trusted/project') {
     reopenAndReplay,
   };
   const checkpoints = {
-    read: vi.fn(async (): Promise<NativeDirtyCheckpoint | null> => null),
+    readResult: vi.fn(
+      async (): Promise<{ checkpoint: NativeDirtyCheckpoint | null; warning?: string }> => ({
+        checkpoint: null,
+      }),
+    ),
     write: vi.fn(async () => {}),
   };
   const controller = new NativeEditorSessionController(
@@ -261,19 +267,59 @@ describe('native admission at the editor main Project lifecycle', () => {
       diagnostics: [],
     });
     expect(test.open).toHaveBeenCalledExactlyOnceWith('one');
-    expect(test.checkpoints.read).toHaveBeenCalledExactlyOnceWith(root, 'native-open');
+    expect(test.checkpoints.readResult).toHaveBeenCalledExactlyOnceWith(root, 'native-open');
     expect(test.controller.isAdmitted('one')).toBe(true);
     test.controller.dispose();
   });
 
-  it('refuses a corrupt recovery lookup instead of accepting native disk state alone', async () => {
+  it('refuses an unsafe filesystem recovery lookup instead of ignoring it', async () => {
     const test = fixture();
-    test.checkpoints.read.mockRejectedValueOnce(new Error('Native recovery identity conflict'));
-    await expect(test.controller.admitFromNative('one')).rejects.toThrow(
-      'Native recovery identity conflict',
-    );
+    test.checkpoints.readResult.mockRejectedValueOnce(new Error('Unsafe recovery path'));
+    await expect(test.controller.admitFromNative('one')).rejects.toThrow('Unsafe recovery path');
     expect(test.controller.isAdmitted('one')).toBe(false);
     expect(test.close).toHaveBeenCalled();
+    test.controller.dispose();
+  });
+
+  it('admits saved native content if independently retained partial entries fail native replay', async () => {
+    const test = fixture();
+    const checkpoint: NativeDirtyCheckpoint = {
+      batches: [
+        {
+          patches: [{ operation: 'replace', path: '/project/name', value: 'unverified' }],
+          diskPreconditions: { project: `xxh3-128:${'a'.repeat(32)}` },
+        },
+      ],
+      textSources: {},
+      conflicts: {},
+      pendingFields: {},
+    };
+    test.checkpoints.readResult.mockResolvedValueOnce({
+      checkpoint,
+      warning: 'Recovery Checkpoint was partially damaged; original preserved at /archive.',
+    });
+    test.restoreDirtyCheckpoint.mockRejectedValueOnce(
+      new Error('Native physical revision conflict'),
+    );
+    const result = await test.controller.admitFromNative('one');
+    expect(result.revision).toBe(0);
+    expect(result.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'native.recovery.quarantined',
+          severity: 'warning',
+          message: expect.stringContaining('none were restored'),
+        }),
+      ]),
+    );
+    expect(test.checkpoints.write).toHaveBeenCalledWith('/trusted/project', 'native-open', {
+      batches: [],
+      textSources: {},
+      conflicts: {},
+      pendingFields: {},
+    });
+    expect(test.open).toHaveBeenCalledTimes(2);
+    expect(test.controller.isAdmitted('one')).toBe(true);
     test.controller.dispose();
   });
 
@@ -366,7 +412,7 @@ describe('native admission at the editor main Project lifecycle', () => {
       conflicts: {},
       pendingFields: {},
     };
-    test.checkpoints.read.mockResolvedValueOnce(checkpoint);
+    test.checkpoints.readResult.mockResolvedValueOnce({ checkpoint });
     const recovered = { ...test.saved, project: { ...test.saved.project, name: 'Dirty' } };
     test.prepareCompleteWorking.mockResolvedValueOnce(test.preparation).mockResolvedValueOnce({
       ...test.preparation,
@@ -399,7 +445,7 @@ describe('native admission at the editor main Project lifecycle', () => {
     const test = fixture();
     await test.controller.admit('one', test.saved);
     const checkpoint = { batches: [], textSources: {}, conflicts: {}, pendingFields: {} };
-    test.checkpoints.read.mockResolvedValueOnce(checkpoint);
+    test.checkpoints.readResult.mockResolvedValueOnce({ checkpoint });
     test.fail(new Error('worker exited'));
     expect(test.controller.isAdmitted('one')).toBe(false);
     await vi.waitFor(() =>
@@ -877,6 +923,284 @@ describe('native admission at the editor main Project lifecycle', () => {
 
 const nativeAddon = process.env.NOVELTEA_AUTHORING_NODE_ADDON;
 describe.skipIf(!nativeAddon)('real native worker admission of the editor Project', () => {
+  it.each(['malformed', 'truncated', 'oversized', 'unsupported', 'wrong-root', 'wrong-id'])(
+    'opens and saves a native Project with %s recovery quarantined exactly once',
+    async (kind) => {
+      const parent = await mkdtemp(path.join(tmpdir(), 'native-editor-quarantine-'));
+      const root = path.join(parent, 'project');
+      const created = await createNativeEditorProject({
+        projectName: 'Recovery Test',
+        projectDirectory: root,
+      });
+      expect(created.success, created.error).toBe(true);
+      const projectId = (await readFile(path.join(root, 'project.yaml'), 'utf8')).match(
+        /^\s+id: (\S+)/m,
+      )?.[1];
+      expect(projectId).toBeTruthy();
+      const store = new NativeDirtyCheckpointStore();
+      const blank: NativeDirtyCheckpoint = {
+        batches: [],
+        textSources: {},
+        conflicts: {},
+        pendingFields: {},
+      };
+      await store.write(root, projectId!, blank);
+      const location = path.join(root, '.noveltea/editor/native-dirty-state.json');
+      const saved = JSON.parse(await readFile(location, 'utf8'));
+      const evidence =
+        kind === 'malformed'
+          ? Buffer.from('{bad:')
+          : kind === 'truncated'
+            ? Buffer.from('{"version":1,"checkpoint":')
+            : kind === 'oversized'
+              ? Buffer.alloc(24 * 1024 * 1024 + 1, 65)
+              : Buffer.from(
+                  JSON.stringify({
+                    ...saved,
+                    ...(kind === 'unsupported' ? { version: 2 } : {}),
+                    ...(kind === 'wrong-root' ? { projectRoot: '/another/root' } : {}),
+                    ...(kind === 'wrong-id' ? { projectId: 'another-project' } : {}),
+                  }),
+                );
+      await writeFile(location, evidence);
+      const sessions = new ActiveProjectSessionService();
+      const makeController = () => {
+        const bridge = new NativeAuthoringSessionBridge(sessions, {
+          addonPath: nativeAddon!,
+          workerScript: path.resolve(
+            process.cwd(),
+            'dist-electron/authoring-worker/native-authoring-worker.cjs',
+          ),
+          pollIntervalMs: 100,
+        });
+        return new NativeEditorSessionController(
+          sessions,
+          bridge,
+          new NativeAuthoringWorkingProject(bridge),
+        );
+      };
+      let controller = makeController();
+      try {
+        const opened = await openNativeEditorProject(
+          root,
+          sessions.beginProjectActivation(),
+          sessions,
+          controller,
+        );
+        expect(opened.success, opened.error).toBe(true);
+        expect(opened.diagnostics).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              code: 'native.recovery.quarantined',
+              severity: 'warning',
+              message: expect.stringContaining('preserved at'),
+            }),
+          ]),
+        );
+        const archives = (await readdir(path.dirname(location))).filter((name) =>
+          name.includes('.quarantine-'),
+        );
+        expect(archives).toHaveLength(1);
+        // Compare bytes directly; deep equality allocates per-byte assertion state
+        // for the 24 MiB oversized checkpoint.
+        expect(
+          (await readFile(path.join(path.dirname(location), archives[0]))).equals(evidence),
+        ).toBe(true);
+        const patched = await controller.applyRevisionedPatches(
+          opened.projectSessionId!,
+          opened.nativeWorkingRevision!,
+          [{ op: 'replace', path: '/project/name', value: 'Saved after recovery quarantine' }],
+        );
+        expect(patched.accepted, patched.error).toBe(true);
+        const savedUnit = await controller.saveUnit(
+          opened.projectSessionId!,
+          patched.snapshot.workingRevision,
+          'project:settings',
+          {},
+        );
+        expect(savedUnit.accepted, savedUnit.error).toBe(true);
+        expect(await readFile(path.join(root, 'project.yaml'), 'utf8')).toContain(
+          'Saved after recovery quarantine',
+        );
+        controller.dispose();
+        sessions.closeActiveProject();
+        controller = makeController();
+        const reopened = await openNativeEditorProject(
+          root,
+          sessions.beginProjectActivation(),
+          sessions,
+          controller,
+        );
+        expect(reopened.success, reopened.error).toBe(true);
+        expect(
+          reopened.diagnostics.some(
+            (diagnostic) => diagnostic.code === 'native.recovery.quarantined',
+          ),
+        ).toBe(false);
+        expect(
+          (await readdir(path.dirname(location))).filter((name) => name.includes('.quarantine-')),
+        ).toHaveLength(1);
+      } finally {
+        controller.dispose();
+        sessions.dispose();
+        await rm(parent, { recursive: true, force: true });
+      }
+    },
+    120_000,
+  );
+
+  it('replays attributable native edits from a partially damaged journal and preserves the damaged bytes', async () => {
+    const parent = await mkdtemp(path.join(tmpdir(), 'native-editor-partial-quarantine-'));
+    const root = path.join(parent, 'project');
+    const created = await createNativeEditorProject({
+      projectName: 'Partial Recovery Test',
+      projectDirectory: root,
+    });
+    expect(created.success, created.error).toBe(true);
+    const sessions = new ActiveProjectSessionService();
+    const makeController = () => {
+      const bridge = new NativeAuthoringSessionBridge(sessions, {
+        addonPath: nativeAddon!,
+        workerScript: path.resolve(
+          process.cwd(),
+          'dist-electron/authoring-worker/native-authoring-worker.cjs',
+        ),
+        pollIntervalMs: 100,
+      });
+      return new NativeEditorSessionController(
+        sessions,
+        bridge,
+        new NativeAuthoringWorkingProject(bridge),
+      );
+    };
+    let controller = makeController();
+    try {
+      const first = await admitNativeSession(sessions, controller, root);
+      const patched = await controller.applyRevisionedPatches(first.id, first.admitted.revision, [
+        { op: 'replace', path: '/project/name', value: 'Recovered partial journal edit' },
+      ]);
+      expect(patched.accepted, patched.error).toBe(true);
+      controller.dispose();
+      sessions.closeActiveProject();
+      const location = path.join(root, '.noveltea/editor/native-dirty-state.json');
+      const original = JSON.parse(await readFile(location, 'utf8'));
+      const damaged = Buffer.from(
+        JSON.stringify({
+          ...original,
+          checkpoint: {
+            ...original.checkpoint,
+            textSources: {
+              'scripts/corrupt.lua': { text: 'untrusted', diskRevision: 'sha256:invalid' },
+            },
+          },
+        }),
+      );
+      await writeFile(location, damaged);
+      controller = makeController();
+      const reopened = await openNativeEditorProject(
+        root,
+        sessions.beginProjectActivation(),
+        sessions,
+        controller,
+      );
+      expect(reopened.success, reopened.error).toBe(true);
+      expect(
+        reopened.diagnostics.some(
+          (diagnostic) => diagnostic.code === 'native.recovery.quarantined',
+        ),
+      ).toBe(true);
+      expect(controller.recoveredContentProject()?.project.name).toBe(
+        'Recovered partial journal edit',
+      );
+      const archived = (await readdir(path.dirname(location))).filter((name) =>
+        name.includes('.quarantine-'),
+      );
+      expect(archived).toHaveLength(1);
+      expect(await readFile(path.join(path.dirname(location), archived[0]))).toEqual(damaged);
+      const saved = await controller.saveUnit(
+        reopened.projectSessionId!,
+        reopened.nativeWorkingRevision!,
+        'project:settings',
+        {},
+      );
+      expect(saved.accepted, saved.error).toBe(true);
+      expect(await readFile(path.join(root, 'project.yaml'), 'utf8')).toContain(
+        'Recovered partial journal edit',
+      );
+
+      // A structurally valid independent entry can still fail native disk
+      // certification. Its original bytes remain archived and cannot leave a
+      // new permanent Project Open/Save barrier.
+      controller.dispose();
+      sessions.closeActiveProject();
+      const clean = JSON.parse(await readFile(location, 'utf8'));
+      const unsafeReplay = Buffer.from(
+        JSON.stringify({
+          ...clean,
+          checkpoint: {
+            ...clean.checkpoint,
+            textSources: {
+              'scripts/unknown.lua': {
+                text: 'unsaved',
+                diskRevision: `xxh3-128:${'a'.repeat(32)}`,
+              },
+            },
+            pendingFields: { '/project/name': 42 },
+          },
+        }),
+      );
+      await writeFile(location, unsafeReplay);
+      controller = makeController();
+      const fallback = await openNativeEditorProject(
+        root,
+        sessions.beginProjectActivation(),
+        sessions,
+        controller,
+      );
+      expect(fallback.success, fallback.error).toBe(true);
+      expect(fallback.diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            code: 'native.recovery.quarantined',
+            message: expect.stringContaining('none were restored'),
+          }),
+        ]),
+      );
+      expect(controller.recoveredContentProject()).toBeNull();
+      const revised = await controller.applyRevisionedPatches(
+        fallback.projectSessionId!,
+        fallback.nativeWorkingRevision!,
+        [{ op: 'replace', path: '/project/name', value: 'Saved after rejected partial recovery' }],
+      );
+      expect(revised.accepted, revised.error).toBe(true);
+      const savedAfterFallback = await controller.saveUnit(
+        fallback.projectSessionId!,
+        revised.snapshot.workingRevision,
+        'project:settings',
+        {},
+      );
+      expect(savedAfterFallback.accepted, savedAfterFallback.error).toBe(true);
+      expect(await readFile(path.join(root, 'project.yaml'), 'utf8')).toContain(
+        'Saved after rejected partial recovery',
+      );
+      const after = (await readdir(path.dirname(location))).filter((name) =>
+        name.includes('.quarantine-'),
+      );
+      expect(after).toHaveLength(2);
+      expect(
+        (
+          await readFile(
+            path.join(path.dirname(location), after.find((name) => name !== archived[0])!),
+          )
+        ).equals(unsafeReplay),
+      ).toBe(true);
+    } finally {
+      controller.dispose();
+      sessions.dispose();
+      await rm(parent, { recursive: true, force: true });
+    }
+  }, 120_000);
+
   it('rejects a broken unsaved shader source without modifying saved bytes', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'native-editor-shader-validation-'));
     await cp(path.resolve(process.cwd(), '../tests/projects/feature-lab'), root, {

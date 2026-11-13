@@ -881,6 +881,22 @@ rejected, including links whose targets are inside the Project. Revoked session 
 unreadable existing state fail without replacing the recovery file. The writer never touches
 tracked Project files or the independently owned `native-dirty-state.json` checkpoint.
 
+The native Recovery Checkpoint is editor-local evidence, not an admission precondition for a
+trustworthy saved Project. During native Open, `NativeDirtyCheckpointStore` verifies the canonical
+Project root, Project ID, current format, bounded size, and structural integrity before replay. An
+unreadable, unsupported, oversized or foreign checkpoint is quarantined once beside the original
+filename as `native-dirty-state.json.quarantine-<unique-id>`; the archive preserves the exact
+original bytes, while a fresh active checkpoint allows ordinary Project Open and later Save. The
+Open response includes a nonblocking recovery warning naming the archive and whether work could
+be restored. Structurally valid independent entries from a *partly* damaged, identity-matching
+checkpoint can be retained: patch batches only through the first invalid batch, separately valid
+text sources and pending fields, and conflict markers only for recovered physical owners. No
+unknown content is inferred, and native replay/source-revision checks remain authoritative.
+Quarantine uses exclusive same-directory hard-link publication before unlinking the old active
+entry; linked/unsafe recovery files or directories and failed archive operations remain explicit
+non-destructive errors rather than being ignored. Reopening a replacement healthy checkpoint does
+not create another archive or repeat a warning.
+
 Native Project Copy As copies the saved source bytes and preserves an independently acknowledged,
 unsaved native recovery checkpoint in `.noveltea/editor/native-dirty-state.json`. The checkpoint is
 rebased to the destination Project root, and the native working revision is checked before and after
