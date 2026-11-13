@@ -23,6 +23,7 @@ import { defaultCharacterData } from '../../shared/project-schema/authoring-char
 import { defaultArchetypeData } from '../../shared/project-schema/authoring-archetypes';
 import { defaultRoomData, parseRoomData } from '../../shared/project-schema/authoring-rooms';
 import { useProjectStore } from '@/project/project-store';
+import { getJsonAtPointer } from '@/project/json-pointer';
 import { useCommandStore } from '@/commands/command-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { WorkbenchEditorLocationProvider } from '@/workbench/workbench-editor-location';
@@ -123,6 +124,79 @@ beforeEach(() => {
   });
 });
 describe('RoomEditor', () => {
+  it('preserves the Room while a localized Description key is temporarily invalid', async () => {
+    const project = createAuthoringProject();
+    project.assets.image = {
+      id: 'image',
+      label: 'Reference Bedroom',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/images/bedroom.png' },
+        aliases: [],
+        imageMetadata: { width: 800, height: 450, hasAlpha: false, orientation: 1 },
+      },
+    };
+    const room = defaultRoomData('Foyer');
+    room.displayName = 'Room Name';
+    room.background.asset = { $ref: { collection: 'assets', id: 'image' } };
+    room.description = {
+      source: { kind: 'localized', key: 'room.description' },
+      markup: 'active-text',
+    };
+    project.rooms.foyer = { id: 'foyer', label: 'foyer', data: room };
+    const native = admitNativeRendererCommandFixture(project);
+    const currentRoomData = () => {
+      const current = useProjectStore.getState().document;
+      return current ? getJsonAtPointer(current, '/rooms/foyer/data') : undefined;
+    };
+    renderEditor();
+    selectRoomCategory('General');
+    const keyInput = document.querySelector('[data-workbench-anchor="room.description"] textarea')!;
+    expect(screen.getByRole('textbox', { name: 'Room display name' })).toHaveValue('Room Name');
+    expect(screen.getByText('Reference Bedroom')).toBeInTheDocument();
+    fireEvent.change(keyInput, { target: { value: '' } });
+    await waitFor(() => expect(native.patch).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(currentRoomData()).toMatchObject({
+        description: { source: { kind: 'localized', key: '' } },
+      }),
+    );
+    expect(screen.getByRole('textbox', { name: 'Room display name' })).toHaveValue('Room Name');
+    expect(screen.getByText('Reference Bedroom')).toBeInTheDocument();
+    expect(keyInput).toHaveValue('');
+    expect(screen.getByText('Localized key')).toBeInTheDocument();
+    expect(parseRoomData(currentRoomData())).toBeNull();
+
+    fireEvent.change(keyInput, { target: { value: 'room.repaired' } });
+    await waitFor(() => {
+      expect(parseRoomData(currentRoomData())?.description).toMatchObject({
+        source: { kind: 'localized', key: 'room.repaired' },
+      });
+    });
+    expect(screen.getByRole('textbox', { name: 'Room display name' })).toHaveValue('Room Name');
+    expect(screen.getByText('Reference Bedroom')).toBeInTheDocument();
+
+    await act(async () => {
+      const result = await useCommandStore.getState().executeCommandAsync({
+        type: 'project.applyPatch',
+        label: 'Introduce invalid Room guard',
+        payload: [
+          {
+            op: 'replace',
+            path: '/rooms/foyer/data/lifecycle/canEnter',
+            value: { kind: 'invalid' },
+          },
+        ],
+        originSaveUnitId: 'record:rooms:foyer',
+        persistencePolicy: 'manual-save',
+      });
+      expect(result.ok).toBe(true);
+    });
+    expect(parseRoomData(currentRoomData())).toBeNull();
+    expect(screen.getByRole('textbox', { name: 'Room display name' })).toHaveValue('Room Name');
+    expect(screen.getByText('Reference Bedroom')).toBeInTheDocument();
+  });
+
   it('keeps Room Exit labels, directions, and insertions visible while native is blocked', async () => {
     const project = createAuthoringProject();
     const foyer = defaultRoomData('Foyer');

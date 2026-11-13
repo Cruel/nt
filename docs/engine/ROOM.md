@@ -169,6 +169,11 @@ transition precedence contract is explicit request, selected exit override, then
 Live realization uses the final revision-bound Room-navigation operation contract described above.
 
 The Room editor uses the shared categorized-editor shell also used by Settings and Project Settings.
+For invalid native working records, it projects valid Room fields independently rather than
+substituting a default Room when one field fails schema validation. In particular, a localized
+Description key may be empty or incomplete during editing without resetting the Room name,
+background, or other fields. This leniency is presentation-only: canonical Room validation and
+runtime compilation still reject invalid keys and other malformed data.
 General, Camera, Composition, Hotspots, Navigation, Contents, and Behavior categories keep only the
 selected group mounted, retain the selected category as Room tab state, and route workbench targets
 to their owning category before reveal. Camera edits the logical presentation-space size, optional

@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useTranslation } from 'react-i18next';
+import { z } from 'zod';
 import { GameplayArchetypeControls } from '@/components/GameplayArchetypeControls';
 import { CollectionMasterDetail } from '@/components/collection-master-detail';
 import { EditorHelpIcon, EditorSectionHeading } from '@/components/editor-section-heading';
@@ -165,6 +166,7 @@ const roomPrecommitGameplayCommandKinds: readonly GameplayCommandKind[] = [
 import {
   defaultRoomData,
   parseRoomData,
+  roomDataSchema,
   roomAssetRef,
   roomBackgroundFitValues,
   roomEnvironmentClockValues,
@@ -184,7 +186,11 @@ import {
 } from '../../../shared/project-schema/authoring-rooms';
 import { isAuthoringProjectView } from '../../../shared/project-schema/authoring-project-view';
 import { projectSettingsFromProject } from '../../../shared/project-schema/authoring-project-settings';
-import { inlineTextContent, type TextContent } from '../../../shared/project-schema/authoring-flow';
+import {
+  inlineTextContent,
+  textContentSchema,
+  type TextContent,
+} from '../../../shared/project-schema/authoring-flow';
 import { resolveMaterialData } from '../../../shared/project-schema/authoring-materials';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 import {
@@ -483,6 +489,35 @@ const oppositeExitDirection: Record<RoomExitData['direction'], RoomExitData['dir
   south: 'north',
   southeast: 'northwest',
 };
+
+// A localized Message key is temporarily invalid while being cleared or
+// rewritten. Preserve the rest of the Room for editing without weakening the
+// canonical project/runtime validator or replacing it with defaults.
+const editableRoomDataSchema = roomDataSchema.safeExtend({
+  description: z.union([
+    textContentSchema,
+    z.strictObject({
+      source: z.strictObject({ kind: z.literal('localized'), key: z.string() }),
+      markup: z.enum(['plain', 'active-text']),
+    }),
+  ]),
+});
+
+function editableRoomData(value: unknown, fallbackLabel: string): RoomData {
+  const parsed = editableRoomDataSchema.safeParse(value);
+  if (parsed.success) return parsed.data;
+  const projected = defaultRoomData(fallbackLabel);
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return projected;
+  // Invalid fields cannot invalidate their siblings. This is presentation-only:
+  // native validation and Save still see the original, unmodified record.
+  for (const field of Object.keys(projected) as Array<keyof RoomData>) {
+    const result = editableRoomDataSchema.shape[field].safeParse(
+      (value as Record<string, unknown>)[field],
+    );
+    if (result.success) Object.assign(projected, { [field]: result.data });
+  }
+  return projected;
+}
 
 function TextContentEditor({
   value,
@@ -943,13 +978,12 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   );
   const record = roomId && project ? project.rooms[roomId] : null;
   const effectiveRecord =
-    project && record ? resolveGameplayInstanceRecord(project, 'room', record) : record;
+    project && record ? (resolveGameplayInstanceRecord(project, 'room', record) ?? record) : record;
   const inheritedPropertyConfiguration =
     project && record?.archetype
       ? resolveArchetypeConfiguration(project, record.archetype.$ref.id)
       : null;
-  const data =
-    parseRoomData(effectiveRecord?.data) ?? defaultRoomData(record?.label ?? roomId ?? 'Room');
+  const data = editableRoomData(effectiveRecord?.data, record?.label ?? roomId ?? 'Room');
   useEffect(() => {
     if (!project || !record || !roomId || hotspotFocusSession) return;
     restoreHotspotFocus({
