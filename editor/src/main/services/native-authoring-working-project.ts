@@ -171,16 +171,19 @@ export class NativeAuthoringWorkingProject {
       if (source.conflictingPaths?.length) conflicts[owner] = [...source.conflictingPaths];
       if (
         source.dirtyPatches.length > 0 &&
-        source.baseline &&
+        (source.baseline || source.diskSourceRevision === 'absent') &&
         source.source &&
-        typeof source.baseline === 'object' &&
-        !Array.isArray(source.baseline) &&
+        (source.diskSourceRevision === 'absent' ||
+          (typeof source.baseline === 'object' && !Array.isArray(source.baseline))) &&
         typeof source.source === 'object' &&
         !Array.isArray(source.source)
       ) {
         ownerEvidence[owner] = {
           diskRevision: source.diskSourceRevision,
-          baseline: structuredClone(source.baseline as Record<string, unknown>),
+          baseline:
+            source.diskSourceRevision === 'absent'
+              ? {}
+              : structuredClone(source.baseline as Record<string, unknown>),
           working: structuredClone(source.source as Record<string, unknown>),
         };
       }
@@ -752,6 +755,36 @@ export class NativeAuthoringWorkingProject {
       this.pendingDeletedOwners.clear();
       this.pendingLayoutCopySources.clear();
       try {
+        // Older journals have no owner evidence. An exact absent-source
+        // precondition plus a whole-record Add is sufficient to restore a
+        // creation without reconstructing any other old source values.
+        for (const batch of batches) {
+          if (batch.patches.length !== 1) continue;
+          const [patch] = batch.patches;
+          if (
+            patch.operation !== 'add' ||
+            !patch.value ||
+            typeof patch.value !== 'object' ||
+            Array.isArray(patch.value)
+          )
+            continue;
+          const locale = /^\/localization\/(translations|assets)\/([^/]+)$/.exec(patch.path);
+          const owner = locale
+            ? `i18n/${locale[1] === 'translations' ? 'locales' : 'assets'}/${locale[2]}.yaml`
+            : patchOwner(patch.path);
+          if (
+            owner === 'project' ||
+            batch.diskPreconditions[owner] !== 'absent' ||
+            patch.path !== logicalOwnerPath(owner) ||
+            evidence.has(owner)
+          )
+            continue;
+          evidence.set(owner, {
+            diskRevision: 'absent',
+            baseline: {},
+            working: structuredClone(patch.value as Record<string, unknown>),
+          });
+        }
         for (const [owner, base] of evidence) {
           if (!batches.some((batch) => Object.hasOwn(batch.diskPreconditions, owner))) continue;
           const restored = await this.bridge.request({
@@ -779,9 +812,17 @@ export class NativeAuthoringWorkingProject {
               ),
           );
           if (!remaining.length) continue;
+          // A historical batch can contain multiple physical owners. Native
+          // recovery already verified/rebased some of them, so stale source
+          // preconditions must not be submitted a second time for those owners.
+          const remainingPreconditions = Object.fromEntries(
+            Object.entries(batch.diskPreconditions).filter(
+              ([owner]) => !reconciledOwners.has(owner),
+            ),
+          );
           let result = await this.requestPatch(
             remaining,
-            batch.diskPreconditions,
+            remainingPreconditions,
             batch.layoutCopySources,
           );
           if (!result.accepted && result.error.startsWith('Recovery source conflict for ')) {
@@ -793,7 +834,7 @@ export class NativeAuthoringWorkingProject {
               throw new Error(`Native Project recovery unexpectedly rejected ${changedOwner}`);
             result = await this.requestPatch(remaining, undefined, batch.layoutCopySources);
             if (result.accepted)
-              for (const changed of Object.keys(batch.diskPreconditions)) {
+              for (const changed of Object.keys(remainingPreconditions)) {
                 const state =
                   changed === 'project'
                     ? result.snapshot

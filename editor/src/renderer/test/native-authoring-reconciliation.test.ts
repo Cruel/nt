@@ -578,6 +578,53 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
     expect((await working.useDiskUnit('project:localization')).accepted).toBe(true);
     expect(await readFile(path.join(root, ja), 'utf8')).toBe(untouchedJa);
   }, 120_000);
+  it('keeps a new localization fragment conflicted when that locale was created externally', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'noveltea-locale-create-conflict-'));
+    await cp(fixture, root, { recursive: true });
+    const bridge = new NativeAuthoringSessionBridge(
+      { requireActiveProjectRoot: () => root, isCurrent: () => true },
+      {
+        addonPath: path.resolve(addon!),
+        workerScript,
+        pollIntervalMs: deterministicPollIntervalMs,
+      },
+    );
+    cleanups.push(async () => {
+      await bridge.closeAndWait();
+      await rm(root, { recursive: true, force: true });
+    });
+    const working = new NativeAuthoringWorkingProject(bridge);
+    await working.open('native-locale-create-conflict');
+    expect((await working.inspectRecord('i18n/locales/fr.yaml')).accepted).toBe(true);
+    const original = await readFile(path.join(root, 'i18n/locales/fr.yaml'), 'utf8');
+    const local = structuredClone(
+      working.snapshot()!.recordSnapshots!['i18n/locales/fr.yaml']!.source,
+    ) as Record<string, { review?: string }>;
+    const key = Object.keys(local)[0]!;
+    local[key] = { ...local[key], review: 'local' };
+    const added = await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
+      { op: 'add', path: '/localization/translations/fr-CA', value: local },
+    ]);
+    expect(added.accepted, added.error).toBe(true);
+    const legacy = working.dirtyCheckpoint();
+    delete legacy.ownerEvidence;
+    await bridge.closeAndWait();
+    const target = path.join(root, 'i18n/locales/fr-CA.yaml');
+    await writeFile(target, original);
+    const recovered = await working.reopenAndReplay('native-locale-create-conflict');
+    expect(recovered.recordSnapshots?.['i18n/locales/fr-CA.yaml']?.conflictingPaths).toContain('/');
+    expect((await working.saveOwners(['i18n/locales/fr-CA.yaml'])).accepted).toBe(false);
+    expect(await readFile(target, 'utf8')).toBe(original);
+    await bridge.closeAndWait();
+    const recoveredOld = await working.restoreDirtyCheckpoint(
+      'native-locale-create-conflict',
+      legacy,
+    );
+    expect(recoveredOld.recordSnapshots?.['i18n/locales/fr-CA.yaml']?.conflictingPaths).toContain(
+      '/',
+    );
+    expect((await working.saveOwners(['i18n/locales/fr-CA.yaml'])).accepted).toBe(false);
+  }, 60_000);
   it('admits a deleted tracked Room, preserving dirty edits as a native conflict until Use Disk', async () => {
     const { root, bridge, working, roomPath } = await testProject();
     cleanups.push(async () => {
@@ -1511,6 +1558,31 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
     expect(recovered.recordSnapshots?.[owner]?.conflictingPaths).toEqual(['/']);
     expect((await working.saveOwners([owner])).accepted).toBe(false);
   }, 60_000);
+  it('retains an invalid unsaved Room value when that Room is deleted while closed', async () => {
+    const { root, bridge, working } = await testProject();
+    cleanups.push(async () => {
+      await bridge.closeAndWait();
+      await rm(root, { recursive: true, force: true });
+    });
+    const record = 'rooms/active-text';
+    expect((await working.inspectRecord(record)).accepted).toBe(true);
+    const result = await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
+      {
+        op: 'replace',
+        path: '/rooms/active-text/data/background/asset',
+        value: 'missing-review-asset',
+      },
+    ]);
+    expect(result.accepted, result.error).toBe(true);
+    await bridge.closeAndWait();
+    await rm(path.join(root, 'records/rooms/active-text.yaml'));
+    const recovered = await working.reopenAndReplay('native-reconcile-test');
+    expect(recovered.recordSnapshots?.[record]?.source).toMatchObject({
+      data: { background: { asset: 'missing-review-asset' } },
+    });
+    expect(recovered.recordSnapshots?.[record]?.conflictingPaths).toContain('/');
+    expect((await working.saveOwners([record])).accepted).toBe(false);
+  }, 60_000);
 
   it('treats a changed owner with no checkpoint base evidence as a conservative conflict', async () => {
     const { root, roomPath, bridge, working } = await testProject();
@@ -1542,6 +1614,115 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
     });
     expect(opened.recordSnapshots?.[owner]?.conflictingPaths).toEqual(['/label']);
     expect((await working.saveOwners([owner])).accepted).toBe(false);
+  }, 60_000);
+
+  it('recovers a locally-created Room conservatively when its source appears on disk while closed', async () => {
+    const { root, bridge, working, roomPath } = await testProject();
+    cleanups.push(async () => {
+      await bridge.closeAndWait();
+      await rm(root, { recursive: true, force: true });
+    });
+    const id = 'offline-created-room';
+    const sourceOwner = `rooms/${id}`;
+    const local = createDefaultAuthoringRecord('rooms', id, { label: 'Local creation' });
+    const patch = await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
+      { op: 'add', path: `/rooms/${id}`, value: toJsonValue(local) },
+    ]);
+    expect(patch.accepted, patch.error).toBe(true);
+    expect(working.dirtyCheckpoint().ownerEvidence?.[sourceOwner]).toMatchObject({
+      diskRevision: 'absent',
+      baseline: {},
+    });
+    const legacy = working.dirtyCheckpoint();
+    delete legacy.ownerEvidence;
+    await bridge.closeAndWait();
+    const diskPath = path.join(root, `records/rooms/${id}.yaml`);
+    await writeFile(
+      diskPath,
+      (await readFile(roomPath, 'utf8'))
+        .replaceAll(roomId, id)
+        .replace('label: Lifecycle Round Trip', 'label: External creation'),
+    );
+    const recovered = await working.reopenAndReplay('native-reconcile-test');
+    expect(recovered.recordSnapshots?.[sourceOwner]?.source).toMatchObject({
+      label: 'Local creation',
+    });
+    expect(recovered.recordSnapshots?.[sourceOwner]?.baseline).toMatchObject({
+      label: 'External creation',
+    });
+    expect(recovered.recordSnapshots?.[sourceOwner]?.conflictingPaths).toContain('/');
+    expect((await working.saveOwners([sourceOwner])).accepted).toBe(false);
+    expect(await readFile(diskPath, 'utf8')).toContain('label: External creation');
+    await bridge.closeAndWait();
+    const legacyRecovery = await working.restoreDirtyCheckpoint('native-reconcile-test', legacy);
+    expect(legacyRecovery.recordSnapshots?.[sourceOwner]?.source).toMatchObject({
+      label: 'Local creation',
+    });
+    expect(legacyRecovery.recordSnapshots?.[sourceOwner]?.conflictingPaths).toContain('/');
+    expect((await working.saveOwners([sourceOwner])).accepted).toBe(false);
+  }, 60_000);
+
+  it('retains an offline structural array conflict over repeated restarts', async () => {
+    const { root, roomPath, bridge, working } = await testProject();
+    cleanups.push(async () => {
+      await bridge.closeAndWait();
+      await rm(root, { recursive: true, force: true });
+    });
+    const original = await readFile(roomPath, 'utf8');
+    const patched = await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
+      { op: 'replace', path: `/rooms/${roomId}/data/exits/0/label`, value: 'Local exit' },
+    ]);
+    expect(patched.accepted, patched.error).toBe(true);
+    await bridge.closeAndWait();
+    await writeFile(roomPath, original.replace('label: Enter child flow', 'label: External exit'));
+    const reopened = await working.reopenAndReplay('native-reconcile-test');
+    expect(reopened.recordSnapshots?.[owner]?.conflictingPaths).toContain('/data/exits');
+    expect((await working.saveOwners([owner])).accepted).toBe(false);
+    await bridge.closeAndWait();
+    const again = await working.reopenAndReplay('native-reconcile-test');
+    expect(again.recordSnapshots?.[owner]?.conflictingPaths).toContain('/data/exits');
+    expect((await working.saveOwners([owner])).accepted).toBe(false);
+  }, 60_000);
+
+  it('replays a mixed-owner old batch after one owner was already reconciled natively', async () => {
+    const { root, roomPath, bridge, working } = await testProject();
+    cleanups.push(async () => {
+      await bridge.closeAndWait();
+      await rm(root, { recursive: true, force: true });
+    });
+    const original = await readFile(roomPath, 'utf8');
+    const secondary = 'rooms/active-text';
+    expect((await working.inspectRecord(secondary)).accepted).toBe(true);
+    expect(
+      (
+        await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
+          { op: 'replace', path: labelPath, value: 'First owner local' },
+          { op: 'replace', path: '/rooms/active-text/label', value: 'Other owner local' },
+        ])
+      ).accepted,
+    ).toBe(true);
+    const checkpoint = working.dirtyCheckpoint();
+    checkpoint.batches = [
+      {
+        patches: checkpoint.batches.flatMap((batch) => batch.patches),
+        diskPreconditions: Object.assign(
+          {},
+          ...checkpoint.batches.map((batch) => batch.diskPreconditions),
+        ),
+      },
+    ];
+    checkpoint.ownerEvidence = { [owner]: checkpoint.ownerEvidence![owner]! };
+    await bridge.closeAndWait();
+    await writeFile(
+      roomPath,
+      original.replace('label: Lifecycle Round Trip', 'label: First owner disk'),
+    );
+    const recovered = await working.restoreDirtyCheckpoint('native-reconcile-test', checkpoint);
+    expect(recovered.recordSnapshots?.[owner]?.conflictingPaths).toEqual(['/label']);
+    expect(recovered.recordSnapshots?.[secondary]?.source).toMatchObject({
+      label: 'Other owner local',
+    });
+    expect((await working.saveOwners([secondary])).accepted).toBe(true);
   }, 60_000);
 
   it('recovers disjoint shared editor metadata without overwriting a neighboring field', async () => {

@@ -126,6 +126,10 @@ public:
     static std::unique_ptr<RoomSession>
     open_localization_source(const std::filesystem::path& project_root,
                              std::string_view relative_path, std::string& error);
+    // Reuse the same absent-fragment representation for new edits and recovery.
+    static std::unique_ptr<RoomSession>
+    stage_new_localization_source(const std::filesystem::path& project_root,
+                                  std::string_view relative_path);
 
     RoomSessionSnapshot snapshot() const;
     RoomSessionResult patch(std::uint64_t expected_working_revision,

@@ -1329,6 +1329,27 @@ RoomSession::open_localization_source(const std::filesystem::path& project_root,
     }
 }
 
+std::unique_ptr<RoomSession>
+RoomSession::stage_new_localization_source(const std::filesystem::path& project_root,
+                                           std::string_view relative_path)
+{
+    if ((!relative_path.starts_with("i18n/locales/") &&
+         !relative_path.starts_with("i18n/assets/")) ||
+        !tracked_fragment(relative_path))
+        throw std::runtime_error("Invalid new localization source owner.");
+    const auto name = std::string(relative_path);
+    const auto leaf = std::string_view(name).substr(name.find_last_of('/') + 1);
+    if (!is_canonical_localization_locale(leaf.substr(0, leaf.size() - 5)))
+        throw std::runtime_error("Invalid new localization chunk locale.");
+    auto result = std::unique_ptr<RoomSession>(new RoomSession(project_root / name, "", "", "{}"));
+    result->disk_revision_ = "absent";
+    result->is_localization_ = true;
+    result->validation_contract_ = name.starts_with("i18n/locales/")
+                                       ? "WorkspaceLocalizationLocale"
+                                       : "WorkspaceLocalizationAssets";
+    return result;
+}
+
 std::unique_ptr<ProjectSession> ProjectSession::open(const std::filesystem::path& root,
                                                      std::string& error)
 {
@@ -4643,7 +4664,9 @@ RoomSessionResult ProjectSession::recover_owner(std::uint64_t revision, std::str
             else if (name == "traits")
                 staged = RoomSession::open_traits_source(root_, error);
             else if (name.starts_with("i18n/") && tracked_fragment(name))
-                staged = RoomSession::open_localization_source(root_, name, error);
+                staged = source_revision_or_absent(root_ / name) == "absent"
+                             ? RoomSession::stage_new_localization_source(root_, name)
+                             : RoomSession::open_localization_source(root_, name, error);
             else if (record_contracts().contains(family) && is_id(id)) {
                 if (source_revision_or_absent(family == "layouts"
                                                   ? root_ / "records" / family / id / "layout.yaml"
@@ -4666,17 +4689,29 @@ RoomSessionResult ProjectSession::recover_owner(std::uint64_t revision, std::str
              !local.contains("id") || local.at("id") != staged->room_id_))
             throw std::runtime_error("Dirty recovery source identity changed.");
         const auto current_revision = source_revision_or_absent(staged->source_path());
-        staged->disk_json_ = base.to_string();
         staged->working_json_ = local.to_string();
-        staged->disk_revision_ = std::string(old_disk_revision);
         staged->unsaved_patches_.clear();
         staged->conflicting_paths_.clear();
         staged->snapshot_cache_.reset();
         RoomSessionResult merged;
-        if (current_revision == old_disk_revision) {
+        if (old_disk_revision == "absent" && !base.empty())
+            throw std::runtime_error("New-record recovery requires an absent baseline.");
+        if (old_disk_revision == "absent" && current_revision != "absent") {
+            // The same ID was created on disk while NovelTea was closed.
+            // No common record existed; both versions require a whole-owner
+            // decision rather than a fabricated field-level merge.
+            staged->conflicting_paths_ = {"/"};
+            const auto external = Json::parse(staged->disk_json_);
+            json_delta(&external, &local, "", staged->unsaved_patches_);
+            merged.accepted = true;
+        } else if (current_revision == old_disk_revision) {
+            staged->disk_json_ = base.to_string();
+            staged->disk_revision_ = std::string(old_disk_revision);
             json_delta(&base, &local, "", staged->unsaved_patches_);
             merged.accepted = true;
         } else {
+            staged->disk_json_ = base.to_string();
+            staged->disk_revision_ = std::string(old_disk_revision);
             merged = current_revision == "absent" ? staged->reconcile_deleted_disk()
                                                   : staged->reconcile_disk();
         }
@@ -5917,13 +5952,8 @@ ProjectSession::patch(std::uint64_t revision, const std::vector<RoomPatch>& patc
                     if (whole_fragment && operation.operation == RoomPatch::Operation::Add &&
                         !std::filesystem::exists(root_ / destination->owner) &&
                         !std::filesystem::is_symlink(root_ / destination->owner)) {
-                        fragment.reset(new RoomSession(root_ / destination->owner, "", "", "{}"));
-                        fragment->disk_revision_ = "absent";
-                        fragment->is_localization_ = true;
-                        fragment->validation_contract_ =
-                            destination->owner.starts_with("i18n/locales/")
-                                ? "WorkspaceLocalizationLocale"
-                                : "WorkspaceLocalizationAssets";
+                        fragment =
+                            RoomSession::stage_new_localization_source(root_, destination->owner);
                     } else {
                         fragment =
                             RoomSession::open_localization_source(root_, destination->owner, error);
