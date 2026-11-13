@@ -173,14 +173,20 @@ Project Candidate, and **Fix it** consequently opened the unrelated
 
 Native editor projection now retains an invalid dirty Room in the native
 journal without publishing an unvalidated record as typed editor content.
-The saved effective Room remains the structured display fallback until the
-draft becomes valid; the restored native working snapshot reports the offending
-Room diagnostic. On Open, main publishes **replayed** validation diagnostics
-rather than stale saved-source diagnostics. Runtime/Test/export strict
-validation is unchanged. The regression reproduces the exact two-owner
-checkpoint pattern on a disposable Feature Lab copy and verifies successful
-Open, recovered valid owner, native recovery retention, Room-owned diagnostics
-and unchanged physical YAML.
+The initial fix incorrectly left the invalid draft invisible, showing only
+the last valid saved Room instead. The corrected editor projection now includes
+the saved valid Room as a typed baseline and overlays its **native-authored
+B→L recovery patches** into the renderer's editable view, including a
+zero-length localized description key. Native working snapshots and the
+checkpoint remain the sole mutable authority. The renderer never uses this
+invalid view for native validation, Save, runtime Tests or export.
+
+On Open, main publishes **replayed** validation diagnostics rather than stale
+saved-source diagnostics. The regression reproduces the exact two-owner
+checkpoint pattern on a disposable Feature Lab copy, verifies successful Open,
+the exact invalid key and unrelated display-name change in the actual
+main→renderer Open projection, two successive reopen cycles, retained dirty
+recovery, Room-owned diagnostics and unchanged physical YAML.
 
 The embedded Terminal may load additional PATH entries from a user's shell
 startup files that the Electron main process never sees. Repair discovery,
@@ -194,12 +200,11 @@ repair UI problem was an auto-sized CodeMirror host inside an overflow-clipped
 candidate panel; the candidate editor now supplies a full-height, minimum-zero
 host so CodeMirror's own scrolling element receives the bounded viewport.
 
-**Limits requiring interactive confirmation:** The structured form shows the
-last valid saved representation of a schema-invalid recovered Room; invalid
-unsaved fields remain in native recovery and are not silently written to
-physical YAML. Verify the workflow for editing or explicitly discarding these
-fields, rather than assuming an AI tool's disk edits also resolve an unsaved
-native draft. Recheck candidate YAML scrolling by mouse wheel, trackpad and
+**Limits requiring interactive confirmation:** The structured form now
+shows the native invalid draft, not the last saved description; invalid unsaved
+fields remain in native recovery and are not silently written to physical
+YAML. Verify direct field repair and explicit discard on a real desktop, rather
+than assuming an AI tool's disk edits also resolve an unsaved native draft. Recheck candidate YAML scrolling by mouse wheel, trackpad and
 scrollbar, and confirm Codex/OpenCode appear and can launch via the **Fix**
 prompt in a real desktop session. The `Fix it` action for malformed physical
 candidates remains a raw-source editor, not an automatic AI invocation; scoped

@@ -61,6 +61,69 @@ describe('project recovery reconstruction', () => {
     });
   });
 
+  it('shows an invalid native recovered Room source with its exact empty key and keeps unrelated edits', () => {
+    const saved = createAuthoringProject({ id: 'native-invalid-draft', name: 'Saved' });
+    const room = {
+      id: 'director-completion-demo',
+      label: 'Director',
+      data: {
+        ...defaultRoomData('Director'),
+        description: {
+          source: { kind: 'inline' as const, text: 'Before' },
+          markup: 'plain' as const,
+        },
+      },
+    };
+    saved.rooms['director-completion-demo'] = room;
+    saved.rooms['properties-and-traits'] = {
+      id: 'properties-and-traits',
+      label: 'Properties',
+      data: defaultRoomData('Properties'),
+    };
+    const disk = toJsonValue(stripEditorProjectState(saved));
+    const nativeWorking = {
+      ...saved,
+      rooms: {
+        ...saved.rooms,
+        'properties-and-traits': {
+          ...saved.rooms['properties-and-traits'],
+          data: {
+            ...saved.rooms['properties-and-traits']!.data,
+            displayName: 'Properties & Traits 2',
+          },
+        },
+      },
+    };
+    const recovered = adoptNativeRecoveredProject(
+      reconstructEditorProject(disk, disk, emptyEditorProjectState(), []),
+      toJsonValue(nativeWorking),
+      {},
+      {
+        'rooms/director-completion-demo': [
+          { operation: 'remove', path: '/data/description/source/text' },
+          { operation: 'replace', path: '/data/description/source/kind', value: 'localized' },
+          { operation: 'add', path: '/data/description/source/key', value: '' },
+        ],
+      },
+    );
+    const restored = recovered.workingDocument as typeof saved;
+    expect(restored.rooms['director-completion-demo']?.data.description).toEqual({
+      source: { kind: 'localized', key: '' },
+      markup: 'plain',
+    });
+    expect(restored.rooms['properties-and-traits']?.data.displayName).toBe('Properties & Traits 2');
+    expect(
+      (recovered.savedDocument as typeof saved).rooms['director-completion-demo']?.data.description,
+    ).toEqual({
+      source: { kind: 'inline', text: 'Before' },
+      markup: 'plain',
+    });
+    expect(
+      recovered.editorState.recovery.saveUnitsById['record:rooms:director-completion-demo']
+        ?.affectedPaths,
+    ).toContain('/rooms/director-completion-demo/data/description/source/key');
+  });
+
   it('reinstates verified native conflicts even when the metadata write had not flushed', () => {
     const saved = createAuthoringProject({ id: 'native-conflict', name: 'Saved' });
     const disk = toJsonValue(stripEditorProjectState(saved));

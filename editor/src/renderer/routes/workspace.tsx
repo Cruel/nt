@@ -903,6 +903,7 @@ export function WorkspacePage() {
           reconstructed,
           toJsonValue(loaded.nativeRecoveredContentProject),
           loaded.nativeRecoveredConflicts,
+          loaded.nativeRecoveredInvalidDrafts,
         );
       }
       if (

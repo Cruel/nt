@@ -162,9 +162,18 @@ ProjectSession::prepare_working(std::uint64_t expected_revision, std::string_vie
                 continue;
             if (editor_projection && state.dirty && state.normalized_json.empty() &&
                 !state.normalized_baseline_json.empty()) {
-                // Preserve the invalid local source in the native session and
-                // recovery journal; never publish it as a typed renderer record.
-                // The saved effective value remains the display fallback.
+                // Invalid draft values remain exclusively in the native source
+                // snapshot. Explicitly project the last valid saved record so
+                // it cannot disappear when the invalid working snapshot omits
+                // it from the normalized aggregate. The renderer overlays only
+                // the native B->L draft patches for editing, never for runtime.
+                if (separator != std::string::npos && owner != "editor" &&
+                    owner != "traits" && !owner.starts_with("i18n/")) {
+                    if (!changed.contains(family))
+                        changed.insert_or_assign(family, Json::object());
+                    changed[family].insert_or_assign(id,
+                                                     Json::parse(state.normalized_baseline_json));
+                }
                 continue;
             }
             if ((!state.valid && !editor_projection) || state.normalized_json.empty()) {

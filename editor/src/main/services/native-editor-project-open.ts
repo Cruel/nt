@@ -24,7 +24,7 @@ type NativeOpenController = Pick<
   | 'recoveredTextSources'
   | 'close'
 > &
-  Partial<Pick<NativeEditorSessionController, 'sourceRevisionFor'>>;
+  Partial<Pick<NativeEditorSessionController, 'sourceRevisionFor' | 'recoveredInvalidDrafts'>>;
 
 /**
  * Native-only editor Open admission, prepared for the atomic editor/CLI
@@ -106,6 +106,9 @@ export async function openNativeEditorProject(
       nativeWorkingRevision: admitted.revision,
       ...(recovered ? { nativeRecoveredContentProject: recovered } : {}),
       ...(recovered ? { nativeRecoveredConflicts: native.recoveredConflicts() } : {}),
+      ...(recovered && native.recoveredInvalidDrafts
+        ? { nativeRecoveredInvalidDrafts: native.recoveredInvalidDrafts() }
+        : {}),
     };
     sessions.commitStagedNativeProject(projectSessionId, activationGeneration);
     return response;

@@ -17,7 +17,10 @@ import { projectWithPreviewLocale, effectivePreviewLocale } from '../../shared/p
 import { PSEUDO_PREVIEW_LOCALE } from '../../shared/pseudo-localization';
 import type { ShaderVariant } from '../../shared/shader-variants';
 import type { EditorRuntimePreparationResult } from '../../shared/editor-runtime-cache';
-import type { PlaybackReportResponse } from '../../shared/editor-tooling';
+import type {
+  PlaybackReportResponse,
+  NativeRecoveredInvalidDrafts,
+} from '../../shared/editor-tooling';
 import { buildRuntimeTestCatalog } from '../../shared/runtime-test-catalog';
 import { invokeNovelTeaNativeOperation } from '../../shared/noveltea-cli-subprocess';
 import { NativeDirtyCheckpointStore } from './native-dirty-checkpoint-store';
@@ -153,6 +156,20 @@ export class NativeEditorSessionController {
 
   recoveredTextSources(): NativeDirtyCheckpoint['textSources'] {
     return this.recoveredProject ? this.working.dirtyCheckpoint().textSources : {};
+  }
+
+  recoveredInvalidDrafts(): NativeRecoveredInvalidDrafts {
+    if (!this.recoveredProject) return {};
+    return Object.fromEntries(
+      Object.entries(this.working.snapshot()?.recordSnapshots ?? {}).flatMap(([owner, record]) =>
+        record.dirty &&
+        !record.valid &&
+        record.normalized === null &&
+        record.normalizedBaseline != null
+          ? [[owner, record.dirtyPatches.map((patch) => ({ ...patch }))]]
+          : [],
+      ),
+    );
   }
 
   recoveredConflicts(): Record<string, { paths: string[]; revision: string }> {

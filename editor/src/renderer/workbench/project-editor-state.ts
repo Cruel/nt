@@ -3,7 +3,7 @@ import { getJsonAtPointer, hasJsonAtPointer, parseJsonPointer } from '@/project/
 import { applyJsonPatch, type JsonPatchOperation } from '@/project/json-patch';
 import { diffJsonDocuments } from '@/project/project-external-reconciliation';
 import { nativeExternalOwnerPath } from '@/project/native-external-projection';
-import { cloneJsonValue, jsonValuesEqual, type JsonValue } from '@/project/json-value';
+import { cloneJsonValue, jsonValuesEqual, toJsonValue, type JsonValue } from '@/project/json-value';
 import {
   PROJECT_SETTINGS_SAVE_UNIT_ID,
   SAVE_UNIT_IDS,
@@ -35,6 +35,7 @@ import {
 } from '../../shared/project-schema/editor-project-state';
 type AuthoringEnumRepair = never;
 import { isAuthoringCollectionKey } from '../../shared/project-schema/authoring-collections';
+import type { NativeRecoveredInvalidDrafts } from '../../shared/editor-tooling';
 import {
   createProjectValidationDiagnostic,
   type ProjectValidationDiagnostic,
@@ -276,10 +277,41 @@ export function adoptNativeRecoveredProject(
   reconstructed: ReconstructedEditorProject,
   nativeContent: JsonValue,
   nativeConflicts: Record<string, { paths: string[]; revision: string }> = {},
+  invalidDrafts: NativeRecoveredInvalidDrafts = {},
 ): ReconstructedEditorProject {
   const saved = reconstructed.savedDocument;
+  // The native editor projection omits schema-invalid dirty owners to keep
+  // runtime/preview inputs strictly valid. For the *editing view only*, replay
+  // the native-calculated B->L patches over the last valid projected record.
+  // Do not revalidate, normalize or write these values: native remains the
+  // authority for validation, Save and the durable recovery journal.
+  let visibleContent = nativeContent;
+  for (const [owner, patches] of Object.entries(invalidDrafts)) {
+    const [collection, id, extra] = owner.split('/');
+    if (
+      extra ||
+      !collection ||
+      !id ||
+      !isAuthoringCollectionKey(collection) ||
+      !/^[A-Za-z0-9_-]+$/u.test(id)
+    )
+      throw new Error('Native recovery contains an unsupported invalid draft owner.');
+    const prefix = `/${collection}/${id}`;
+    for (const patch of patches) {
+      if (!patch.path.startsWith('/') || patch.path.includes('..'))
+        throw new Error('Native recovery contains an invalid draft patch path.');
+      const absolutePath = patch.path === '/' ? prefix : prefix + patch.path;
+      if (patch.operation !== 'remove' && patch.value === undefined)
+        throw new Error('Native recovery contains a draft patch without its value.');
+      const command: JsonPatchOperation =
+        patch.operation === 'remove'
+          ? { op: 'remove', path: absolutePath }
+          : { op: patch.operation, path: absolutePath, value: toJsonValue(patch.value) };
+      visibleContent = applyJsonPatch(visibleContent, [command]).document;
+    }
+  }
   const nativeTracked = parseEditorProjectState(
-    isObject(nativeContent) ? nativeContent.editor : undefined,
+    isObject(visibleContent) ? visibleContent.editor : undefined,
   );
   const recovery = reconstructed.editorState.recovery;
   const workingState = {
@@ -288,7 +320,7 @@ export function adoptNativeRecoveredProject(
     tags: nativeTracked.tags,
     recordMetadata: nativeTracked.recordMetadata,
   };
-  const working = mergeContentAndEditorState(nativeContent, workingState);
+  const working = mergeContentAndEditorState(visibleContent, workingState);
   const entries: EditorRecoveryState['saveUnitsById'] = {};
   for (const [id, entry] of Object.entries(recovery.saveUnitsById)) {
     if (Object.keys(entry.pendingRawInputByPath).length || entry.externalConflict)
@@ -369,7 +401,7 @@ export function adoptNativeRecoveredProject(
   usePendingInputStore.getState().hydratePendingInputs(editorState.recovery);
   return {
     savedDocument: mergeContentAndEditorState(saved, savedState),
-    workingDocument: mergeContentAndEditorState(nativeContent, editorState),
+    workingDocument: mergeContentAndEditorState(visibleContent, editorState),
     editorState,
     diagnostics: reconstructed.diagnostics.filter(
       (entry) =>

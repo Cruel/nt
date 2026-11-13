@@ -22,6 +22,12 @@ export interface ToolDiagnostic {
   navigation?: ToolDiagnosticNavigation;
 }
 
+/** Native B->L source deltas for invalid dirty owners, exposed only for editor display. */
+export type NativeRecoveredInvalidDrafts = Record<
+  string,
+  Array<{ operation: 'add' | 'replace' | 'remove'; path: string; value?: unknown }>
+>;
+
 export interface OpenProjectResponse {
   ok: boolean;
   success: boolean;
@@ -44,6 +50,9 @@ export interface OpenProjectResponse {
   /** Native-only acknowledged working content restored from a local replay checkpoint. */
   nativeRecoveredContentProject?: unknown;
   nativeRecoveredConflicts?: Record<string, { paths: string[]; revision: string }>;
+  /** Native-owned unsaved patches for invalid records omitted from the typed projection.
+   * Renderer may use them for display only; native Save/validation stay authoritative. */
+  nativeRecoveredInvalidDrafts?: NativeRecoveredInvalidDrafts;
 }
 
 export interface SaveProjectEditorMetadataResponse {

@@ -41,6 +41,10 @@ import {
 import { toJsonValue } from '../project/json-value';
 import { createInitialCommandBusState, executeCommand } from '../commands/command-bus';
 import { confirmNativeCommand } from '../commands/native-command-execution';
+import {
+  adoptNativeRecoveredProject,
+  reconstructEditorProject,
+} from '../workbench/project-editor-state';
 
 async function cp(source: string, destination: string, options: { recursive: true }) {
   await copyDirectory(source, destination, {
@@ -1339,6 +1343,38 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
         controller,
       );
       expect(opened.success, opened.error).toBe(true);
+      expect(opened.nativeRecoveredInvalidDrafts?.['rooms/director-completion-demo']).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            operation: 'add',
+            path: '/data/description/source/key',
+            value: '',
+          }),
+        ]),
+      );
+      // Exercise the exact main Open payload consumed by WorkspacePage. An
+      // invalid native Room must be visible in the edit view, not only retained
+      // invisibly by the checkpoint and replaced with its saved projection.
+      const editorView = adoptNativeRecoveredProject(
+        reconstructEditorProject(
+          toJsonValue(opened.savedContentProject),
+          toJsonValue(opened.contentProject),
+          opened.editorState!,
+          [],
+        ),
+        toJsonValue(opened.nativeRecoveredContentProject),
+        opened.nativeRecoveredConflicts,
+        opened.nativeRecoveredInvalidDrafts,
+      );
+      const visibleRooms = (
+        editorView.workingDocument as {
+          rooms: Record<string, { data: { description: unknown; displayName: string } }>;
+        }
+      ).rooms;
+      expect(visibleRooms['director-completion-demo']?.data.description).toMatchObject({
+        source: { kind: 'localized', key: '' },
+      });
+      expect(visibleRooms['properties-and-traits']?.data.displayName).toBe('Properties & Traits 2');
       expect(
         controller.recoveredContentProject()?.rooms['properties-and-traits']?.data.displayName,
       ).toBe('Properties & Traits 2');
@@ -1357,6 +1393,36 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
           ),
         ),
       ).toBe(true);
+      // A second close/reopen must not silently discard the same invalid draft
+      // merely because the editor projection used a valid saved fallback.
+      controller.dispose();
+      sessions.closeActiveProject();
+      controller = makeController();
+      const reopened = await openNativeEditorProject(
+        root,
+        sessions.beginProjectActivation(),
+        sessions,
+        controller,
+      );
+      expect(reopened.success, reopened.error).toBe(true);
+      const twiceRecovered = adoptNativeRecoveredProject(
+        reconstructEditorProject(
+          toJsonValue(reopened.savedContentProject),
+          toJsonValue(reopened.contentProject),
+          reopened.editorState!,
+          [],
+        ),
+        toJsonValue(reopened.nativeRecoveredContentProject),
+        reopened.nativeRecoveredConflicts,
+        reopened.nativeRecoveredInvalidDrafts,
+      );
+      expect(
+        (
+          twiceRecovered.workingDocument as {
+            rooms: Record<string, { data: { description: unknown } }>;
+          }
+        ).rooms['director-completion-demo']?.data.description,
+      ).toMatchObject({ source: { kind: 'localized', key: '' } });
       for (let index = 0; index < rooms.length; index++)
         expect(await readFile(path.join(root, 'records/rooms', rooms[index]! + '.yaml'))).toEqual(
           sources[index],
