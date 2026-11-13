@@ -2,13 +2,17 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { REPAIR_HARNESSES, type RepairHarness } from '../../shared/repair-harness';
+import {
+  REPAIR_HARNESSES,
+  validRepairModelId,
+  type RepairHarness,
+} from '../../shared/repair-harness';
 import { resolveNovelTeaCliPath } from '../../shared/noveltea-cli-subprocess';
 
 const exec = promisify(execFile);
 const MAX_PROMPT_BYTES = 128 * 1024;
 
-function localExecutable(
+export function localRepairExecutable(
   name: string,
   env: NodeJS.ProcessEnv,
   platform: NodeJS.Platform,
@@ -64,7 +68,7 @@ function windowsShimCommand(
   };
 }
 
-function processCommand(
+export function repairHarnessProcessCommand(
   executable: string,
   args: string[],
   platform: NodeJS.Platform,
@@ -83,10 +87,10 @@ export async function probeRepairHarnesses(
 ): Promise<RepairHarness[]> {
   const results = await Promise.all(
     REPAIR_HARNESSES.map(async (harness) => {
-      const candidate = localExecutable(harness, env, platform);
+      const candidate = localRepairExecutable(harness, env, platform);
       if (!candidate) return null;
       try {
-        const invocation = processCommand(candidate, ['--version'], platform);
+        const invocation = repairHarnessProcessCommand(candidate, ['--version'], platform);
         const { stdout, stderr } = await exec(invocation.executable, invocation.args, {
           env,
           windowsHide: true,
@@ -114,6 +118,7 @@ export function repairHarnessCommand(
   executable: string,
   prompt: string,
   platform: NodeJS.Platform = process.platform,
+  model = '',
 ): { executable: string; args: string[] } {
   if (
     !prompt.trim() ||
@@ -121,15 +126,18 @@ export function repairHarnessCommand(
     prompt.includes('\0')
   )
     throw new Error('Repair prompt must be nonempty, valid text of at most 128 KiB.');
+  if (model !== '' && !validRepairModelId(model))
+    throw new Error('The selected model ID is invalid. Choose Default or enter a valid model ID.');
   // Direct argv, never an interpolated shell line. Defaults remain entirely
   // owned by the selected tool (model, authorization, sandbox, profiles).
+  const modelArgs = model ? ['--model', model] : [];
   const args =
     harness === 'claude'
-      ? ['--print', '--', prompt]
+      ? ['--print', ...modelArgs, '--', prompt]
       : harness === 'codex'
-        ? ['exec', '--', prompt]
-        : ['run', '--', prompt];
-  return processCommand(executable, args, platform);
+        ? ['exec', ...modelArgs, '--', prompt]
+        : ['run', ...modelArgs, '--', prompt];
+  return repairHarnessProcessCommand(executable, args, platform);
 }
 
 export async function installedRepairHarnessCommand(
@@ -137,14 +145,15 @@ export async function installedRepairHarnessCommand(
   prompt: string,
   env: NodeJS.ProcessEnv = process.env,
   platform: NodeJS.Platform = process.platform,
+  model = '',
 ): Promise<{ executable: string; args: string[] }> {
   if (!(await probeRepairHarnesses(env, platform)).includes(harness))
     throw new Error(
       `The selected ${harness} executable is no longer available. Recheck installed tools.`,
     );
-  const executable = localExecutable(harness, env, platform);
+  const executable = localRepairExecutable(harness, env, platform);
   if (!executable) throw new Error(`The selected ${harness} executable is no longer available.`);
-  return repairHarnessCommand(harness, executable, prompt, platform);
+  return repairHarnessCommand(harness, executable, prompt, platform, model);
 }
 
 export async function prepareRepairAgentKit(root: string, authorizeWeak: boolean): Promise<void> {

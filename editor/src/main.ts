@@ -103,6 +103,7 @@ import {
   terminalNotificationArgumentsSchema,
   terminalResizeArgumentsSchema,
   terminalSessionArgumentsSchema,
+  terminalRepairHarnessArgumentsSchema,
   terminalWriteArgumentsSchema,
   validateDirectoryArgumentsSchema,
 } from './main/editor-ipc-trust-boundary';
@@ -221,6 +222,7 @@ import {
   prepareRepairAgentKit,
   probeRepairHarnesses,
 } from './main/services/repair-harness-service';
+import { getRepairModelCatalog } from './main/services/repair-model-catalog-service';
 import {
   createNodePtyAdapter,
   resolveDefaultTerminalShell,
@@ -1204,6 +1206,12 @@ void app.whenReady().then(async () => {
   );
 
   guardedIpc.handle(
+    IPC_CHANNELS.REPAIR_MODEL_CATALOG,
+    (arguments_) => terminalRepairHarnessArgumentsSchema.parse(arguments_),
+    (harness) => getRepairModelCatalog(harness),
+  );
+
+  guardedIpc.handle(
     IPC_CHANNELS.REPAIR_HARNESS_LAUNCH,
     (arguments_) => repairHarnessLaunchArgumentsSchema.parse(arguments_),
     async (request) => {
@@ -1234,7 +1242,13 @@ void app.whenReady().then(async () => {
         if (risk === 'newer' && !request.authorizeNewer)
           throw new Error('Explicit authorization is required for a newer Project format.');
       }
-      const command = await installedRepairHarnessCommand(request.harness, request.prompt);
+      const command = await installedRepairHarnessCommand(
+        request.harness,
+        request.prompt,
+        process.env,
+        process.platform,
+        request.model,
+      );
       await prepareRepairAgentKit(root, candidate?.recognition === 'weak');
       // Reauthenticate after async preparation: closing a candidate or
       // switching the active Project must not grant a delayed launch.

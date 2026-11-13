@@ -147,6 +147,7 @@ Object.defineProperty(window, 'noveltea', {
     }),
     createTerminalSession: vi.fn(),
     probeRepairHarnesses: vi.fn(),
+    repairModelCatalog: vi.fn(),
     launchRepairHarness: vi.fn(),
     selectTerminalSession: vi.fn(),
     closeTerminalSession: vi.fn(),

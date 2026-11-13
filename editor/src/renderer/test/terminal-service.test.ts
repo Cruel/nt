@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vite-plus/test';
 import { prepareTerminalShell } from '../../main/services/terminal-shell-integration';
+import { repairHarnessCommand } from '../../main/services/repair-harness-service';
 import {
   resolveDefaultTerminalShell,
   terminateTerminalProcessTree,
@@ -76,10 +77,13 @@ describe('TerminalService', () => {
       resolveProjectOrigin: () => ({ id: 'active', name: 'Active' }),
     });
     const first = await service.createSession();
-    const command = {
-      executable: '/usr/bin/codex',
-      args: ['exec', '--', "line 1\n' && $(touch /tmp/no)"],
-    };
+    const command = repairHarnessCommand(
+      'codex',
+      '/usr/bin/codex',
+      "line 1\n' && $(touch /tmp/no)",
+      'linux',
+      'gpt-6',
+    );
     const launched = await service.createRepairSession(
       '/candidate',
       { id: 'candidate', name: 'Candidate' },
@@ -100,7 +104,7 @@ describe('TerminalService', () => {
       expect.objectContaining({
         shell: '/usr/bin/codex',
         cwd: '/candidate',
-        args: command.args,
+        args: ['exec', '--model', 'gpt-6', '--', "line 1\n' && $(touch /tmp/no)"],
       }),
     );
     expect(

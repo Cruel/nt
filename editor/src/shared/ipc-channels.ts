@@ -24,6 +24,7 @@ export const IPC_CHANNELS = {
   TERMINAL_ENSURE_STATE: 'noveltea:terminal-ensure-state',
   TERMINAL_CREATE_SESSION: 'noveltea:terminal-create-session',
   REPAIR_HARNESS_PROBE: 'noveltea:repair-harness-probe',
+  REPAIR_MODEL_CATALOG: 'noveltea:repair-model-catalog',
   REPAIR_HARNESS_LAUNCH: 'noveltea:repair-harness-launch',
   TERMINAL_SELECT_SESSION: 'noveltea:terminal-select-session',
   TERMINAL_CLOSE_SESSION: 'noveltea:terminal-close-session',

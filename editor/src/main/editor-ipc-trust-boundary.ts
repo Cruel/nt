@@ -50,6 +50,7 @@ import { userExportConfigSchema } from '../shared/project-schema/platform-export
 import { novelTeaUserPreferencesSchema } from '../shared/user-config';
 import { completeDesktopProjectImportRequestSchema } from '../shared/project-import-handoff';
 import { TERMINAL_LIMITS } from '../shared/terminal';
+import { REPAIR_HARNESSES, validRepairModelId } from '../shared/repair-harness';
 import { shaderVariantSchema } from '../shared/shader-variants';
 import {
   opaqueVideoPreparationRequestSchema,
@@ -887,6 +888,7 @@ export const cancelImageThumbnailPrewarmArgumentsSchema = z.tuple([
 
 const terminalSessionIdSchema = z.string().uuid().max(TERMINAL_LIMITS.sessionIdLength);
 export const terminalSessionArgumentsSchema = z.tuple([terminalSessionIdSchema]);
+export const terminalRepairHarnessArgumentsSchema = z.tuple([z.enum(REPAIR_HARNESSES)]);
 export const repairHarnessLaunchArgumentsSchema = z.tuple([
   z
     .object({
@@ -895,7 +897,8 @@ export const repairHarnessLaunchArgumentsSchema = z.tuple([
       candidateRevision: z
         .union([z.literal('absent'), z.string().regex(/^sha256:[0-9a-f]{64}$/u)])
         .optional(),
-      harness: z.enum(['claude', 'codex', 'opencode']),
+      harness: z.enum(REPAIR_HARNESSES),
+      model: z.string().refine(validRepairModelId).optional(),
       prompt: z
         .string()
         .min(1)

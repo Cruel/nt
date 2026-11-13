@@ -204,6 +204,37 @@ describe('preferences-store', () => {
     dispose();
   });
 
+  it('persists only editor-wide per-harness model preferences through shared config', async () => {
+    const dispose = await initializeSharedPreferencesPersistence();
+    const save = window.noveltea.saveUserPreferences as ReturnType<typeof vi.fn>;
+    save.mockClear();
+
+    usePreferencesStore.getState().setRepairHarness('opencode');
+    usePreferencesStore.getState().setRepairModel('opencode', 'openai/gpt-6#high');
+    usePreferencesStore.getState().setRepairModel('codex', 'gpt-6');
+    expect(save).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        repair: {
+          preferredHarness: 'opencode',
+          modelByHarness: {
+            claude: '',
+            codex: 'gpt-6',
+            opencode: 'openai/gpt-6#high',
+          },
+        },
+      }),
+    );
+    const persisted = JSON.parse(localStorage.getItem('noveltea-preferences')!);
+    expect(persisted.state.repair).toBeUndefined();
+    expect(selectEditorPreferencesAreDefaults(usePreferencesStore.getState())).toBe(false);
+    usePreferencesStore.getState().resetToDefaults();
+    expect(usePreferencesStore.getState().repair).toEqual({
+      preferredHarness: null,
+      modelByHarness: { claude: '', codex: '', opencode: '' },
+    });
+    dispose();
+  });
+
   it('keeps file persistence active when initialization is mounted again', async () => {
     const firstDispose = await initializeSharedPreferencesPersistence();
     firstDispose();

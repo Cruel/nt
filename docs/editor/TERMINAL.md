@@ -49,6 +49,19 @@ confirmation follow the ordinary Terminal lifecycle. Working directory is not a 
 the user's harness permissions govern modifications. Normal Project observation/reconciliation
 handles external AI edits; there is no separate agent-job or review system.
 
+The Run selector also offers **Default** or a per-harness explicit model override, with optional
+manual model ID entry. Default passes no model flag and preserves the harness's configured model.
+Chosen harness and model IDs persist in the editor-wide shared user preferences (not Project
+source, checkpoint, or browser-local settings). Host-side catalog discovery is bounded and cached:
+OpenCode uses its installed `models` command; Codex uses a short-lived `app-server`
+`initialize`/`model/list` JSONL exchange; Claude uses `supportedModels()` only when the optional
+local Claude Agent SDK module is already resolvable. NovelTea does not install the SDK, start a
+Claude turn, or contact provider APIs itself to populate the picker. When any catalog is unavailable,
+Default and manual entry remain available; previously chosen IDs are preserved across availability
+changes, and a successful new catalog that omits the saved ID produces a visible warning rather than
+substituting another model. The selected model goes directly into the selected tool's ordinary
+`--model` argument as a single validated argv value without changing its permissions or sandbox.
+
 Existing sessions keep their original cwd when Project context changes. The Terminal surface presents
 session tabs as a vertical rail on the right side of the terminal viewport so session chrome does not
 consume terminal height; the rail scrolls independently when many sessions are open. Each session

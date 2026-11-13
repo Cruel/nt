@@ -56,6 +56,7 @@ const api: NovelTeaElectronApi = {
   ensureTerminalState: () => invokeGuarded(IPC_CHANNELS.TERMINAL_ENSURE_STATE),
   createTerminalSession: () => invokeGuarded(IPC_CHANNELS.TERMINAL_CREATE_SESSION),
   probeRepairHarnesses: () => invokeGuarded(IPC_CHANNELS.REPAIR_HARNESS_PROBE),
+  repairModelCatalog: (harness) => invokeGuarded(IPC_CHANNELS.REPAIR_MODEL_CATALOG, harness),
   launchRepairHarness: (request) => invokeGuarded(IPC_CHANNELS.REPAIR_HARNESS_LAUNCH, request),
   selectTerminalSession: (sessionId) =>
     invokeGuarded(IPC_CHANNELS.TERMINAL_SELECT_SESSION, sessionId),

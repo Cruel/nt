@@ -15,6 +15,8 @@ import { useWorkspaceStore } from '../stores/workspace-store';
 import { useBottomPanelStore } from '../workbench/bottom-panel-store';
 import { launchWindowRepairTerminal } from '../workbench/terminal-window-host';
 import type { RepairHarness } from '../../shared/repair-harness';
+import { validRepairModelId, type RepairModelCatalog } from '../../shared/repair-harness';
+import { usePreferencesStore } from '../stores/preferences-store';
 import {
   useRepairPromptStore,
   repairPromptIsCurrent,
@@ -38,6 +40,11 @@ export function RepairPromptDialog() {
   const [copyMessage, setCopyMessage] = useState<'copied' | 'failed' | null>(null);
   const [harnesses, setHarnesses] = useState<RepairHarness[]>([]);
   const [harness, setHarness] = useState<RepairHarness | ''>('');
+  const repairPreferences = usePreferencesStore((state) => state.repair);
+  const [catalog, setCatalog] = useState<RepairModelCatalog | null>(null);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [manualModel, setManualModel] = useState(false);
+  const [manualText, setManualText] = useState('');
   const [probing, setProbing] = useState(false);
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
@@ -54,7 +61,13 @@ export function RepairPromptDialog() {
         if (!active) return;
         setHarnesses(installed);
         setHarness((previous) =>
-          installed.includes(previous as RepairHarness) ? previous : (installed[0] ?? ''),
+          installed.includes(previous as RepairHarness)
+            ? previous
+            : installed.includes(
+                  usePreferencesStore.getState().repair.preferredHarness as RepairHarness,
+                )
+              ? usePreferencesStore.getState().repair.preferredHarness!
+              : (installed[0] ?? ''),
         );
       })
       .catch((error: unknown) => {
@@ -71,8 +84,49 @@ export function RepairPromptDialog() {
     };
   }, [visible, t]);
 
+  useEffect(() => {
+    if (!visible || !harness) return;
+    let active = true;
+    setCatalog(null);
+    setCatalogLoading(true);
+    setManualModel(false);
+    setManualText(usePreferencesStore.getState().repair.modelByHarness[harness]);
+    void window.noveltea
+      .repairModelCatalog(harness)
+      .then((result) => {
+        if (active) setCatalog(result);
+      })
+      .catch(() => {
+        if (active) setCatalog({ harness, status: 'unavailable', models: [] });
+      })
+      .finally(() => {
+        if (active) setCatalogLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [visible, harness]);
+
+  const storedModel = harness ? repairPreferences.modelByHarness[harness] : '';
+  const listedModel =
+    !!storedModel &&
+    !!catalog &&
+    catalog.status === 'available' &&
+    catalog.models.includes(storedModel);
+  const missingModel = !!storedModel && catalog?.status === 'available' && !listedModel;
+  const showManual = manualModel || (!!storedModel && !listedModel);
+  const effectiveModel = manualModel ? manualText : storedModel;
+  const modelIsValid = !effectiveModel || validRepairModelId(effectiveModel);
+
   async function run() {
-    if (!draft || !harness || running || !draft.text.trim() || !repairPromptRunAuthorized(draft))
+    if (
+      !draft ||
+      !harness ||
+      running ||
+      !modelIsValid ||
+      !draft.text.trim() ||
+      !repairPromptRunAuthorized(draft)
+    )
       return;
     setRunning(true);
     setRunError(null);
@@ -82,11 +136,13 @@ export function RepairPromptDialog() {
         id: draft.id,
         candidateRevision: draft.candidateRevision,
         harness,
+        ...(effectiveModel ? { model: effectiveModel } : {}),
         prompt: draft.text,
         authorizeWeak: draft.authorizeWeak,
         authorizeOlder: draft.authorizeOlder,
         authorizeNewer: draft.authorizeNewer,
       });
+      usePreferencesStore.getState().setRepairHarness(harness);
       useBottomPanelStore.getState().setActivePanelId('terminal');
       close();
     } catch (error) {
@@ -187,6 +243,94 @@ export function RepairPromptDialog() {
                 spellCheck={false}
               />
             </label>
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <label htmlFor="repair-harness">{t('repairPrompt.harnessLabel')}</label>
+              <select
+                id="repair-harness"
+                className="h-8 max-w-36 rounded border bg-background px-2 text-xs"
+                value={harness}
+                disabled={probing || running || harnesses.length === 0}
+                onChange={(event) => {
+                  const next = event.target.value as RepairHarness;
+                  setHarness(next);
+                  usePreferencesStore.getState().setRepairHarness(next);
+                }}
+              >
+                {harnesses.length === 0 ? (
+                  <option value="">{t('repairPrompt.noHarness')}</option>
+                ) : null}
+                {harnesses.map((available) => (
+                  <option key={available} value={available}>
+                    {available === 'claude'
+                      ? 'Claude Code'
+                      : available === 'codex'
+                        ? 'Codex'
+                        : 'OpenCode'}
+                  </option>
+                ))}
+              </select>
+              <label htmlFor="repair-model">{t('repairPrompt.modelLabel')}</label>
+              <select
+                id="repair-model"
+                className="h-8 max-w-56 rounded border bg-background px-2 text-xs"
+                value={showManual ? '__manual__' : storedModel}
+                disabled={!harness || running}
+                onChange={(event) => {
+                  const selected = event.target.value;
+                  if (selected === '__manual__') {
+                    setManualModel(true);
+                    setManualText(storedModel);
+                  } else if (harness) {
+                    setManualModel(false);
+                    usePreferencesStore.getState().setRepairModel(harness, selected);
+                  }
+                }}
+              >
+                <option value="">{t('repairPrompt.defaultModel')}</option>
+                {catalog?.status === 'available'
+                  ? catalog.models.map((model) => (
+                      <option key={model} value={model}>
+                        {model}
+                      </option>
+                    ))
+                  : null}
+                <option value="__manual__">{t('repairPrompt.manualModel')}</option>
+              </select>
+              {showManual ? (
+                <input
+                  className="h-8 min-w-32 flex-1 rounded border bg-background px-2 font-mono text-xs"
+                  aria-label={t('repairPrompt.manualModelLabel')}
+                  value={manualModel ? manualText : storedModel}
+                  maxLength={256}
+                  placeholder={t('repairPrompt.manualModelPlaceholder')}
+                  onChange={(event) => {
+                    const next = event.target.value;
+                    setManualModel(true);
+                    setManualText(next);
+                    if (harness && (!next || validRepairModelId(next)))
+                      usePreferencesStore.getState().setRepairModel(harness, next);
+                  }}
+                />
+              ) : null}
+              {catalogLoading ? (
+                <span role="status" className="text-muted-foreground">
+                  {t('repairPrompt.modelLoading')}
+                </span>
+              ) : null}
+              {!catalogLoading && harness && catalog?.status === 'unavailable' ? (
+                <span className="text-muted-foreground">{t('repairPrompt.modelUnavailable')}</span>
+              ) : null}
+            </div>
+            {missingModel ? (
+              <p role="alert" className="text-xs text-amber-600">
+                {t('repairPrompt.modelMissing', { model: storedModel })}
+              </p>
+            ) : null}
+            {!modelIsValid ? (
+              <p role="alert" className="text-xs text-destructive">
+                {t('repairPrompt.invalidModel')}
+              </p>
+            ) : null}
           </>
         ) : null}
         {runError ? (
@@ -209,26 +353,6 @@ export function RepairPromptDialog() {
           <Button disabled={!draft || !current || !draft.text.trim()} onClick={() => void copy()}>
             {t('repairPrompt.copy')}
           </Button>
-          <select
-            className="h-8 max-w-32 rounded border bg-background px-2 text-xs"
-            aria-label={t('repairPrompt.harnessLabel')}
-            value={harness}
-            disabled={probing || running || harnesses.length === 0}
-            onChange={(event) => setHarness(event.target.value as RepairHarness)}
-          >
-            {harnesses.length === 0 ? (
-              <option value="">{t('repairPrompt.noHarness')}</option>
-            ) : null}
-            {harnesses.map((available) => (
-              <option key={available} value={available}>
-                {available === 'claude'
-                  ? 'Claude Code'
-                  : available === 'codex'
-                    ? 'Codex'
-                    : 'OpenCode'}
-              </option>
-            ))}
-          </select>
           <span title={harnesses.length === 0 ? t('repairPrompt.noHarnessTooltip') : undefined}>
             <Button
               disabled={
@@ -236,6 +360,7 @@ export function RepairPromptDialog() {
                 !harness ||
                 probing ||
                 running ||
+                !modelIsValid ||
                 !draft.text.trim() ||
                 !repairPromptRunAuthorized(draft)
               }

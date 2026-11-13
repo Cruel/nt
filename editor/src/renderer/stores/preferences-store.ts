@@ -23,6 +23,13 @@ import {
   normalizeTerminalPreferences,
   type TerminalPreferences,
 } from '../../shared/terminal-preferences';
+import {
+  DEFAULT_REPAIR_PREFERENCES,
+  normalizeRepairPreferences,
+  validRepairModelId,
+  type RepairHarness,
+  type RepairPreferences,
+} from '../../shared/repair-harness';
 
 export type Theme = 'system' | 'light' | 'dark';
 
@@ -107,6 +114,7 @@ function sharedPreferencesSnapshot(state: ResettableEditorPreferences): NovelTea
     showCategorizedEditorHeaders: state.showCategorizedEditorHeaders,
     materialLibraryLivePreviews: state.materialLibraryLivePreviews,
     terminal: state.terminal,
+    repair: state.repair,
     exportPreferences: state.exportPreferences,
   };
 }
@@ -168,6 +176,7 @@ function sharedPreferencesState(
       ? { materialLibraryLivePreviews: candidate.materialLibraryLivePreviews }
       : {}),
     terminal: normalizeTerminalPreferences(candidate.terminal ?? current.terminal),
+    repair: normalizeRepairPreferences(candidate.repair ?? current.repair),
     exportPreferences: normalizeExportPreferences(
       candidate.exportPreferences ?? current.exportPreferences,
     ),
@@ -192,6 +201,7 @@ export interface ResettableEditorPreferences {
   materialLibraryLivePreviews: boolean;
   editorPreviewSplitSizes: EditorPreviewSplitSizes;
   terminal: TerminalPreferences;
+  repair: RepairPreferences;
   exportPreferences: ExportPreferences;
 }
 
@@ -220,6 +230,8 @@ interface PreferencesState extends ResettableEditorPreferences {
     previewSize: number,
   ) => void;
   setTerminalPreferences: (patch: Partial<TerminalPreferences>) => void;
+  setRepairHarness: (harness: RepairHarness) => void;
+  setRepairModel: (harness: RepairHarness, model: string) => void;
   setExportPreferences: (patch: Partial<ExportPreferences>) => void;
   resetToDefaults: () => void;
 }
@@ -243,6 +255,7 @@ export function createDefaultEditorPreferences(): ResettableEditorPreferences {
     materialLibraryLivePreviews: true,
     editorPreviewSplitSizes: { ...DEFAULT_EDITOR_PREVIEW_SPLIT_SIZES },
     terminal: { ...DEFAULT_TERMINAL_PREFERENCES },
+    repair: normalizeRepairPreferences(DEFAULT_REPAIR_PREFERENCES),
     exportPreferences: normalizeExportPreferences(DEFAULT_EXPORT_PREFERENCES),
   };
 }
@@ -268,6 +281,7 @@ export function selectEditorPreferencesAreDefaults(state: ResettableEditorPrefer
     JSON.stringify(state.editorPreviewSplitSizes) ===
       JSON.stringify(defaults.editorPreviewSplitSizes) &&
     JSON.stringify(state.terminal) === JSON.stringify(defaults.terminal) &&
+    JSON.stringify(state.repair) === JSON.stringify(defaults.repair) &&
     JSON.stringify(state.exportPreferences) === JSON.stringify(defaults.exportPreferences)
   );
 }
@@ -319,6 +333,17 @@ export const usePreferencesStore = create<PreferencesState>()(
         set((state) => ({
           terminal: normalizeTerminalPreferences({ ...state.terminal, ...patch }),
         })),
+      setRepairHarness: (preferredHarness) =>
+        set((state) => ({ repair: { ...state.repair, preferredHarness } })),
+      setRepairModel: (harness, model) => {
+        if (model !== '' && !validRepairModelId(model)) return;
+        set((state) => ({
+          repair: {
+            ...state.repair,
+            modelByHarness: { ...state.repair.modelByHarness, [harness]: model },
+          },
+        }));
+      },
       setExportPreferences: (patch) =>
         set((state) => ({
           exportPreferences: normalizeExportPreferences({

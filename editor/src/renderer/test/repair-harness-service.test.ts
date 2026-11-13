@@ -54,6 +54,26 @@ describe('repair harness host boundary', () => {
     },
   );
 
+  it.each(['claude', 'codex', 'opencode'] as const)(
+    '%s appends only a valid explicit model override, omitting it for Default',
+    (harness) => {
+      const base = repairHarnessCommand(harness, '/tool', 'hello', 'linux').args;
+      expect(base).not.toContain('--model');
+      const args = repairHarnessCommand(
+        harness,
+        '/tool',
+        'hello',
+        'linux',
+        'provider/model#high',
+      ).args;
+      expect(args).toEqual([...base.slice(0, -2), '--model', 'provider/model#high', '--', 'hello']);
+      expect(() =>
+        repairHarnessCommand(harness, '/tool', 'hello', 'linux', '--dangerous'),
+      ).toThrow();
+      expect(() => repairHarnessCommand(harness, '/tool', 'hello', 'linux', 'bad model')).toThrow();
+    },
+  );
+
   it('admits only bounded prompt, tool and identity rather than arbitrary terminal shell or cwd', () => {
     const request = {
       kind: 'candidate',
