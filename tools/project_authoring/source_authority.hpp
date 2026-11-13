@@ -105,6 +105,9 @@ public:
     // Only usable after a successful physical observation; the resident inventory
     // is valid only with intact watcher coverage.
     std::optional<std::map<std::string, std::string>> verified_revisions() const;
+    // Scoped physical proof includes safely captured but invalid YAML sources.
+    // Editors may use it to display/repair files, never as runtime admission.
+    std::optional<std::map<std::string, std::string>> scoped_revisions() const;
     // Synchronous callers may inspect the immutable observed map without
     // copying it. Never retain this pointer across observe()/writes.
     const std::map<std::string, std::string>* verified_revisions_view() const noexcept;

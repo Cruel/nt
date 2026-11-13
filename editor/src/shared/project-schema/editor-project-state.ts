@@ -283,7 +283,7 @@ export const editorSourceRecoveryEntrySchema = z
         id: z.string().min(1),
         displayPath: z.string().min(1),
         projectRelativePath: z.string().min(1),
-        kind: z.enum(['lua', 'shader', 'asset', 'layout-rml', 'layout-rcss', 'layout-lua']),
+        kind: z.enum(['lua', 'shader', 'yaml', 'asset', 'layout-rml', 'layout-rcss', 'layout-lua']),
       })
       .strict(),
     text: z.string(),

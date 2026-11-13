@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vite-plus/test';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
@@ -42,6 +42,57 @@ async function admitIncumbent(
 }
 
 describe('native-only editor Open lifecycle', () => {
+  it('shows only native-verified invalid YAML owners as raw source files', async () => {
+    const root = await workspace();
+    const sessions = new ActiveProjectSessionService();
+    const native = nativeStub();
+    const roomRoot = path.join(root, 'records', 'rooms');
+    await mkdir(roomRoot, { recursive: true });
+    const rawText = '# original source\nid: broken\ndata: [\n';
+    await writeFile(path.join(roomRoot, 'broken.yaml'), rawText);
+    await symlink('broken.yaml', path.join(roomRoot, 'alias.yaml'));
+    const revision = 'xxh3-128:123456789012345678901234567890ab';
+    sessions.setNativeSourceRevisionFor(() => revision);
+    native.admitFromNative.mockResolvedValueOnce({
+      savedProject: native.savedProject,
+      revision: 2,
+      diagnostics: [],
+      sourceRevisions: {
+        'records/rooms/broken.yaml': revision,
+        'records/rooms/alias.yaml': revision,
+        'records/unknown/hidden.yaml': revision,
+      },
+    });
+    try {
+      const opened = await openNativeEditorProject(
+        root,
+        sessions.beginProjectActivation(),
+        sessions,
+        native,
+      );
+      expect(opened.success).toBe(true);
+      const listed = await sessions.listProjectSourceFiles({
+        projectSessionId: opened.projectSessionId!,
+      });
+      expect(listed.files.map((file) => file.id)).toEqual(['records/rooms/broken.yaml']);
+      expect(listed.files[0].kind).toBe('yaml');
+      const read = await sessions.read({
+        projectSessionId: opened.projectSessionId!,
+        entries: [
+          {
+            readKey: 'broken',
+            projectRelativePath: 'records/rooms/broken.yaml',
+            expectedContentHash: null,
+          },
+        ],
+      });
+      expect(read.entries[0]).toMatchObject({ status: 'ready', text: rawText });
+    } finally {
+      sessions.dispose();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('preserves the previous session on an attempted unverified Project handoff', async () => {
     const original = await workspace();
     const candidate = await workspace();

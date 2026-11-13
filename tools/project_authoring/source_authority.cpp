@@ -1126,6 +1126,13 @@ std::optional<std::map<std::string, std::string>> SourceAuthority::verified_revi
     return std::nullopt;
 }
 
+std::optional<std::map<std::string, std::string>> SourceAuthority::scoped_revisions() const
+{
+    if (initialized_ && !uncertain_)
+        return baseline_;
+    return std::nullopt;
+}
+
 const std::map<std::string, std::string>* SourceAuthority::verified_revisions_view() const noexcept
 {
     return initialized_ && !uncertain_ && invalid_sources_.empty() ? &baseline_ : nullptr;

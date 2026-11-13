@@ -47,6 +47,7 @@ interface ActiveProjectSession {
   projectIdentity: { id: string; name: string } | null;
   assets: ReadonlyMap<string, ActiveProjectAssetAuthorization>;
   nativeLayoutIds?: ReadonlySet<string>;
+  nativeRawRecordPaths?: ReadonlySet<string>;
 }
 
 interface StagedNativeProjectSession {
@@ -202,18 +203,38 @@ export class ActiveProjectSessionService {
   async acceptNativeProject(
     projectSessionId: string,
     nativeProject: AuthoringProject,
+    sourceRevisions: Readonly<Record<string, string>> = {},
   ): Promise<void> {
     const staged = this.stagedNative?.session.id === projectSessionId;
     const active = staged ? this.stagedNative!.session : this.active;
     if (!active || active.id !== projectSessionId)
       throw new Error('Project session is stale or unknown.');
     const assets = admittedAssetsFromProject(nativeProject);
+    const collections = nativeProject as unknown as Record<string, unknown>;
+    const rawRecords = new Set<string>();
+    for (const [relative, revision] of Object.entries(sourceRevisions)) {
+      if (!revision.startsWith('xxh3-128:')) continue;
+      const match = /^records\/([a-z]+)\/([a-z0-9_-]+)\.yaml$/u.exec(relative);
+      const layout = /^records\/layouts\/([a-z0-9_-]+)\/layout\.yaml$/u.exec(relative);
+      const family = layout ? 'layouts' : match?.[1];
+      const id = layout ? layout[1] : match?.[2];
+      if (!family || !id) continue;
+      const collection = collections[family];
+      if (
+        collection &&
+        typeof collection === 'object' &&
+        !Array.isArray(collection) &&
+        !Object.hasOwn(collection, id)
+      )
+        rawRecords.add(relative);
+    }
     if ((staged ? this.stagedNative?.session : this.active) !== active)
       throw new Error('Project session changed during native Asset authorization.');
     const accepted = {
       ...active,
       assets,
       nativeLayoutIds: new Set(Object.keys(nativeProject.layouts)),
+      nativeRawRecordPaths: rawRecords,
       projectIdentity: { id: nativeProject.project.id, name: nativeProject.project.name },
     };
     if (staged) this.stagedNative = { ...this.stagedNative!, session: accepted };
@@ -350,6 +371,29 @@ export class ActiveProjectSessionService {
           });
         }
       }
+    }
+
+    // Only the native admission's exact physical source revisions may expose
+    // invalid YAML as editable text. Structured records are not duplicated in Files.
+    for (const relative of active.nativeRawRecordPaths ?? []) {
+      const absolute = path.join(active.root, relative);
+      let canonical: string;
+      try {
+        canonical = await fs.realpath(absolute);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
+        throw error;
+      }
+      if (path.relative(active.root, canonical) !== relative.split('/').join(path.sep)) continue; // A symlink must never become an editor-owned write target.
+      if (!(await fs.stat(canonical)).isFile()) continue;
+      files.set(relative, {
+        id: relative,
+        displayPath: relative,
+        projectRelativePath: relative,
+        kind: 'yaml',
+        text: true,
+        contentHash: this.sourceRevision(await fs.readFile(canonical)),
+      });
     }
 
     return {

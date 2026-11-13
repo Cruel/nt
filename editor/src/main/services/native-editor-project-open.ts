@@ -58,7 +58,11 @@ export async function openNativeEditorProject(
     const state = await readNativeEditorLocalState(root, admitted.savedProject);
     if (!sessions.isProjectActivationCurrent(activationGeneration))
       throw new Error('Project activation was superseded during local recovery.');
-    await sessions.acceptNativeProject(projectSessionId, admitted.savedProject);
+    await sessions.acceptNativeProject(
+      projectSessionId,
+      admitted.savedProject,
+      admitted.sourceRevisions,
+    );
     const textSources = native.recoveredTextSources();
     const editorState = Object.keys(textSources).length
       ? await withNativeRecoveredTextSources(

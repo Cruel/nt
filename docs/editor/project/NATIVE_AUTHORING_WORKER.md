@@ -10,6 +10,19 @@ non-authoritative, editor-visible projection even when a record is semantically 
 runtime/package preparation retains strict validation and can return `blocked`. This permits an
 invalid Room or missing Asset to be edited and recovered without writing it to disk.
 
+For invalid physical record YAML (#615), the editor-only Node adapter opens a
+repairable Project session. Its source observer retains exact original bytes,
+source diagnostics, and scoped physical revisions even when YAML cannot be
+parsed or the native record schema rejects it. Such owners are omitted from
+the structured editor projection and surfaced as raw `.yaml` files in Files;
+the main process exposes only native-proven canonical paths. Raw Save uses the
+same native staged-text journal, exact disk-revision comparison and conflict
+handling as other source files and accepts still-invalid repairs. Unrelated
+valid records retain scoped structured Save. This does **not** relax the CLI,
+runtime, Test, or export gates: they still require globally valid sources.
+Unsafe source paths, unverified revisions and symlink aliases never grant raw
+Save authority. Reopening after repair restores ordinary structured editing.
+
 Native Save Copy As preserves its acknowledged journal with the destination Project identity and
 checks for intervening edits. Renderer Project switches request candidate admission without first
 closing the incumbent, and only discard incumbent tabs after success. Native diagnostic source

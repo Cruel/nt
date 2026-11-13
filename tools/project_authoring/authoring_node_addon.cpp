@@ -309,7 +309,7 @@ napi_value call(napi_env env, napi_callback_info info)
             if (argc != 1)
                 throw std::runtime_error("open requires one canonical Project root.");
             std::string error;
-            auto project = ProjectSession::open(string_arg(env, argv[0]), error);
+            auto project = ProjectSession::open_editor(string_arg(env, argv[0]), error);
             if (!project)
                 throw std::runtime_error("Native Project open failed: " + error);
             auto handle = std::make_unique<Session>();

@@ -3112,6 +3112,139 @@ void clean_cache_offline_roundtrip(const std::filesystem::path& fixture)
     certify_fresh(changed_invalid_result.snapshot, "changed-invalid");
 }
 
+void repairable_records_roundtrip(const std::filesystem::path& fixture)
+{
+    TemporaryProject temp(fixture);
+    const std::string path = "records/rooms/unrelated.yaml";
+    const auto absolute = temp.root / path;
+    const auto original = read(absolute);
+    const auto malformed =
+        std::string("# keep original bytes\nid: unrelated\n") + "broken: [\n# cannot parse yet\n";
+    write(absolute, malformed);
+    std::string error;
+    require(!ProjectSession::open(temp.root, error),
+            "Strict CLI Project admission rejects a malformed record");
+    auto editor = ProjectSession::open_editor(temp.root, error);
+    require(editor != nullptr && read(absolute) == malformed,
+            "Editor admits a malformed record without rewriting original bytes: " + error);
+    const auto invalid = editor->validate_project();
+    require(!invalid.valid && std::any_of(invalid.diagnostics.begin(), invalid.diagnostics.end(),
+                                          [&](const auto& diagnostic) {
+                                              return diagnostic.source_path == path &&
+                                                     diagnostic.severity == "error" &&
+                                                     diagnostic.line.has_value();
+                                          }),
+            "Malformed record diagnostics retain owner and source coordinates");
+    const auto editor_view =
+        editor->prepare_complete_working(editor->working_revision(), "", false, false, true);
+    require(editor_view.accepted && !editor_view.complete_project_json.empty() &&
+                !Json::parse(editor_view.complete_project_json).at("rooms").contains("unrelated") &&
+                !editor->prepare_complete_working(editor->working_revision()).accepted,
+            "Editor projection omits invalid record while runtime admission remains strict");
+    const auto unsafe_structured_edit = editor->patch(
+        editor->working_revision(),
+        {{RoomPatch::Operation::Replace, "/rooms/unrelated/label", "\"Not normalized\""}});
+    require(!unsafe_structured_edit.accepted && read(absolute) == malformed,
+            "Unparseable source cannot enter structured field editing");
+
+    const auto sibling = std::string("records/rooms/start.yaml");
+    const auto sibling_before = read(temp.root / sibling);
+    auto inspected = editor->inspect_record("rooms/start");
+    require(inspected.accepted, "Unrelated record remains structurally editable");
+    const auto modified = editor->patch(
+        editor->working_revision(),
+        {{RoomPatch::Operation::Replace, "/rooms/start/label", "\"Independent edit\""}});
+    require(modified.accepted, "Unrelated edit must not depend on malformed sibling");
+    const auto saved_sibling = editor->save_owners(editor->working_revision(), {"rooms/start"},
+                                                   false, TransactionDecision::KeepComments);
+    require(saved_sibling.accepted && read(temp.root / sibling) != sibling_before &&
+                read(absolute) == malformed,
+            "Scoped Save preserves malformed sibling bytes and commits valid owner");
+
+    const std::string still_invalid = malformed + "# raw edit remains malformed\n";
+    const auto staged = editor->stage_text_source(editor->working_revision(), path, still_invalid,
+                                                  exact_source_revision(malformed));
+    require(staged.accepted && read(absolute) == malformed,
+            "Native raw stage preserves physical YAML until Save");
+    const auto saved = editor->save_text_sources(editor->working_revision(), {path},
+                                                 {{path, exact_source_revision(malformed)}});
+    require(saved.accepted && read(absolute) == still_invalid,
+            "Raw source Save must commit exact malformed YAML bytes without normalization");
+    const auto persisted_invalid = editor->validate_project();
+    require(!persisted_invalid.valid && std::any_of(persisted_invalid.diagnostics.begin(),
+                                                    persisted_invalid.diagnostics.end(),
+                                                    [&](const auto& diagnostic) {
+                                                        return diagnostic.source_path == path &&
+                                                               diagnostic.severity == "error";
+                                                    }),
+            "Saved still-invalid YAML retains attributable diagnostics, not runtime readiness");
+
+    // An external edit between staging and Save must not be overwritten.
+    const auto staged_repair = editor->stage_text_source(editor->working_revision(), path, original,
+                                                         exact_source_revision(still_invalid));
+    require(staged_repair.accepted, "Raw repair can stage valid replacement source");
+    const auto changed_on_disk = still_invalid + "# disk changed externally\n";
+    write(absolute, changed_on_disk);
+    const auto unknown = editor->stage_text_source(
+        editor->working_revision(), "records/rooms/unknown.yaml", original, "absent");
+    require(!unknown.accepted, "An unadmitted raw owner cannot acquire a source Save capability");
+    const auto conflicted = editor->save_text_sources(
+        editor->working_revision(), {path}, {{path, exact_source_revision(still_invalid)}});
+    require(!conflicted.accepted && read(absolute) == changed_on_disk,
+            "Stale raw Save refuses to overwrite externally changed invalid source");
+    std::filesystem::remove(absolute);
+    const auto missing = editor->stage_text_source(editor->working_revision(), path, original,
+                                                   exact_source_revision(changed_on_disk));
+    require(!missing.accepted,
+            "Deleted raw owner must reject new edits without escaping the native result boundary");
+    write(absolute, changed_on_disk);
+    editor.reset();
+
+    auto reopened = ProjectSession::open_editor(temp.root, error);
+    require(reopened != nullptr && read(absolute) == changed_on_disk,
+            "Invalid source reopens with untouched exact bytes");
+    const auto repaired = reopened->stage_text_source(reopened->working_revision(), path, original,
+                                                      exact_source_revision(changed_on_disk));
+    require(repaired.accepted, "Reopened invalid source can be repaired as raw text");
+    const auto committed = reopened->save_text_sources(
+        reopened->working_revision(), {path}, {{path, exact_source_revision(changed_on_disk)}});
+    require(committed.accepted && read(absolute) == original,
+            "Raw Save preserves the valid exact replacement source");
+    reopened.reset();
+    auto strict = ProjectSession::open(temp.root, error);
+    require(strict && strict->validate_project().valid,
+            "Repaired Project returns to strict native runtime admission");
+    strict.reset();
+
+    // Schema-invalid but syntactically well-formed records use the same raw
+    // repair path, not an unsafe structured normalization fallback.
+    auto schema_invalid = original;
+    const auto label = schema_invalid.find("label: Unrelated Room");
+    require(label != std::string::npos, "Fixture must expose a typed Room label");
+    schema_invalid.replace(label, std::strlen("label: Unrelated Room"), "label: []");
+    write(absolute, schema_invalid);
+    auto semantic_editor = ProjectSession::open_editor(temp.root, error);
+    require(semantic_editor && !semantic_editor->validate_project().valid,
+            "Editor admits syntactically valid but semantically invalid record");
+    const auto semantic_view = semantic_editor->prepare_complete_working(
+        semantic_editor->working_revision(), "", false, false, true);
+    require(semantic_view.accepted &&
+                !Json::parse(semantic_view.complete_project_json).at("rooms").contains("unrelated"),
+            "Schema-invalid record is not exposed as a structured Room");
+    const auto semantic_stage = semantic_editor->stage_text_source(
+        semantic_editor->working_revision(), path, original, exact_source_revision(schema_invalid));
+    require(semantic_stage.accepted, "Schema-invalid Room permits native raw repair");
+    const auto semantic_save =
+        semantic_editor->save_text_sources(semantic_editor->working_revision(), {path},
+                                           {{path, exact_source_revision(schema_invalid)}});
+    require(semantic_save.accepted && read(absolute) == original,
+            "Schema-invalid Room repairs without lossy source normalization");
+    semantic_editor.reset();
+    strict = ProjectSession::open(temp.root, error);
+    require(strict && strict->validate_project().valid,
+            "Schema-invalid Room is valid for runtime after exact raw repair");
+}
+
 void invalid_manifest_roundtrip(const std::filesystem::path& fixture)
 {
     TemporaryProject temp(fixture);
@@ -3493,6 +3626,10 @@ int main(int argc, char** argv)
         }
         if (argc == 3 && std::string_view(argv[1]) == "--invalid-manifest") {
             invalid_manifest_roundtrip(argv[2]);
+            return 0;
+        }
+        if (argc == 3 && std::string_view(argv[1]) == "--repairable-records") {
+            repairable_records_roundtrip(argv[2]);
             return 0;
         }
         if (argc == 5 && std::string_view(argv[1]) == "--normalized-record") {

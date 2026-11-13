@@ -777,7 +777,8 @@ std::optional<LocalizationPatchTarget> localization_patch_target(std::string_vie
 
 std::optional<std::vector<ProjectFile>> inventory_project(const std::filesystem::path& root,
                                                           const Json& manifest, std::string& error,
-                                                          bool validation_only = false)
+                                                          bool validation_only = false,
+                                                          bool repairable_records = false)
 {
     static const std::set<std::string> collections{
         "animations",   "archetypes", "assets",    "characters", "dialogues", "interactables",
@@ -896,7 +897,7 @@ std::optional<std::vector<ProjectFile>> inventory_project(const std::filesystem:
                     !is_id(leaf.substr(0, leaf.size() - 5)))
                     throw std::runtime_error("Noncanonical record path: " + relative);
                 const auto decoded = open_yaml_source(read_bytes(it->path()));
-                if (!decoded.accepted && validation_only) {
+                if (!decoded.accepted && (validation_only || repairable_records)) {
                     files.push_back({relative, ProjectFileKind::TrackedSource});
                     continue;
                 }
@@ -910,7 +911,7 @@ std::optional<std::vector<ProjectFile>> inventory_project(const std::filesystem:
                 const auto value = Json::parse(decoded.source_json);
                 if (!value.is_object() || !value.contains("id") || !value.at("id").is_string() ||
                     value.at("id") != leaf.substr(0, leaf.size() - 5)) {
-                    if (validation_only) {
+                    if (validation_only || repairable_records) {
                         files.push_back({relative, ProjectFileKind::TrackedSource});
                         continue;
                     }
@@ -943,7 +944,7 @@ std::optional<std::vector<ProjectFile>> inventory_project(const std::filesystem:
                     throw std::runtime_error("Invalid Layout companion path: " + relative);
                 if (leaf == "layout.yaml") {
                     const auto decoded = open_yaml_source(read_bytes(it->path()));
-                    if (validation_only) {
+                    if (validation_only || repairable_records) {
                         files.push_back({relative, ProjectFileKind::TrackedSource});
                         continue;
                     }
@@ -1204,7 +1205,7 @@ RoomSession::stage_new_record(const std::filesystem::path& project_root, std::st
 
 std::unique_ptr<RoomSession>
 RoomSession::open_project_source(const std::filesystem::path& project_root, std::string& error,
-                                 bool validation_only)
+                                 bool validation_only, bool repairable_records)
 {
     try {
         auto path = project_root / "project.yaml";
@@ -1226,7 +1227,7 @@ RoomSession::open_project_source(const std::filesystem::path& project_root, std:
             return nullptr;
         }
         auto inventory = inventory_project(project_root, Json::parse(opened.source_json), error,
-                                           validation_only);
+                                           validation_only, repairable_records);
         if (!inventory)
             return nullptr;
         auto result = std::unique_ptr<RoomSession>(
@@ -1356,6 +1357,12 @@ std::unique_ptr<ProjectSession> ProjectSession::open(const std::filesystem::path
     return open_impl(root, error, false);
 }
 
+std::unique_ptr<ProjectSession> ProjectSession::open_editor(const std::filesystem::path& root,
+                                                            std::string& error)
+{
+    return open_impl(root, error, false, true);
+}
+
 // Read-only validation of an inadmissible manifest. Mutable Project sessions
 // still require an entirely valid manifest and must never use this fallback.
 static std::vector<Diagnostic> invalid_manifest_diagnostics(const std::filesystem::path& root)
@@ -1432,16 +1439,18 @@ ProjectSession::validate_cold_project(const std::filesystem::path& root, std::st
 }
 
 std::unique_ptr<ProjectSession> ProjectSession::open_impl(const std::filesystem::path& root,
-                                                          std::string& error, bool validation_only)
+                                                          std::string& error, bool validation_only,
+                                                          bool repairable_records)
 {
     auto decoded = std::make_shared<YamlDecodeCache>();
     ScopedYamlDecodeCache decoding(*decoded);
-    auto source = RoomSession::open_project_source(root, error, validation_only);
+    auto source =
+        RoomSession::open_project_source(root, error, validation_only, repairable_records);
     if (!source)
         return nullptr;
     try {
         auto authority = std::make_unique<SourceAuthority>(root);
-        if (!authority->initialize(error, validation_only))
+        if (!authority->initialize(error, validation_only || repairable_records))
             return nullptr;
         ScopedVerifiedProjectSources observed(*authority);
         auto traits = RoomSession::open_traits_source(root, error);
@@ -1850,6 +1859,23 @@ RoomSessionSnapshot ProjectSession::validate_project(bool observed_at_entry,
             Diagnostic issue{"/" + pointer_token(owner), "source.yaml",
                              error.empty() ? "Invalid tracked Project source." : error};
             issue.source_path = path;
+            if (const auto* verified = source_authority_->verified_source(path);
+                verified && verified->yaml && !verified->yaml->accepted) {
+                // The parser's byte offset refers to the original physical
+                // source, not a guessed normalized substitute.
+                const auto& source = *verified->yaml;
+                const auto offset =
+                    std::min(source.error_offset.value_or(0), verified->bytes.size());
+                issue.line = 1;
+                issue.column = 1;
+                for (std::size_t index = 0; index < offset; ++index) {
+                    if (verified->bytes[index] == '\n') {
+                        ++*issue.line;
+                        issue.column = 1;
+                    } else
+                        ++*issue.column;
+                }
+            }
             validation_source_errors_.emplace(path, std::move(issue));
             // An invalid source still has a certified physical identity. Retain
             // that identity with its diagnostic proof, never with normalized
@@ -3431,6 +3457,8 @@ const std::map<std::string, SourceAnalysis>& ProjectSession::source_analyses() c
 {
     const auto staged_sources = staged_layout_text_sources();
     for (const auto& path : text_source_paths_) {
+        if (path.starts_with("records/") && path.ends_with(".yaml"))
+            continue; // Raw recovery YAML is not a Lua/RML/RCSS text-analysis input.
         const auto overlay = text_source_overlays_.find(path);
         const auto inlined = inline_text_sources_.find(path);
         const auto cached = text_analysis_cache_.find(path);
@@ -3885,6 +3913,61 @@ SourceObservation ProjectSession::observe_sources()
     return observed;
 }
 
+bool ProjectSession::repairable_raw_record(std::string_view relative_path) const
+{
+    const std::string path(relative_path);
+    const std::filesystem::path relative(path);
+    if (!path.starts_with("records/") || !path.ends_with(".yaml") ||
+        relative != relative.lexically_normal() || path.find_first_of(":\\") != std::string::npos ||
+        path.find("//") != std::string::npos)
+        return false;
+    try {
+        const auto separator = path.find('/', sizeof("records/") - 1);
+        if (separator == std::string::npos)
+            return false;
+        const auto family =
+            path.substr(sizeof("records/") - 1, separator - (sizeof("records/") - 1));
+        const auto tail = path.substr(separator + 1);
+        const bool layout = family == "layouts";
+        const auto id = layout && tail.ends_with("/layout.yaml")
+                            ? tail.substr(0, tail.size() - sizeof("/layout.yaml") + 1)
+                        : !layout && tail.find('/') == std::string::npos
+                            ? tail.substr(0, tail.size() - 5)
+                            : std::string{};
+        if (!record_contracts().contains(family) || !is_id(id) ||
+            (layout ? path != "records/layouts/" + id + "/layout.yaml"
+                    : path != "records/" + family + "/" + id + ".yaml"))
+            return false;
+        const auto* observed = source_authority_->verified_source(path);
+        const auto owned_revision = text_disk_revisions_.find(path);
+        const bool acknowledged_raw_save =
+            text_source_paths_.contains(path) && owned_revision != text_disk_revisions_.end() &&
+            source_revision_or_absent(root_ / relative) == owned_revision->second;
+        if ((!observed && !acknowledged_raw_save) ||
+            std::none_of(file_inventory().begin(), file_inventory().end(), [&](const auto& file) {
+                return file.path == path && file.kind == ProjectFileKind::TrackedSource;
+            }))
+            return false;
+        // No aliases, including contained symlinks, may acquire raw Save authority.
+        std::error_code error;
+        const auto canonical = std::filesystem::canonical(root_ / relative, error);
+        if (error || canonical != std::filesystem::canonical(root_) / relative)
+            return false;
+        const auto owner = family + "/" + id;
+        if (const auto working = records_.find(owner);
+            working != records_.end() && working->second->snapshot().dirty)
+            return false;
+        std::string reason;
+        const auto parsed = RoomSession::open_record(root_, family, id, reason);
+        return !parsed || !parsed->snapshot().valid;
+    } catch (const std::exception&) {
+        // A removed, replaced, unreadable or cyclic physical source is not a
+        // raw Save capability. Reject through the normal native result rather
+        // than allowing a filesystem exception to escape the worker boundary.
+        return false;
+    }
+}
+
 RoomSessionResult ProjectSession::stage_text_source(std::uint64_t revision,
                                                     std::string_view relative_path,
                                                     std::string source_text,
@@ -3900,14 +3983,25 @@ RoomSessionResult ProjectSession::stage_text_source(std::uint64_t revision,
     const std::string path(relative_path);
     const std::filesystem::path relative(path);
     const bool shader = path.starts_with("shaders/") && path.ends_with(".sc");
-    if (!(analyzable_text_path(path) || shader) ||
-        (!text_source_paths_.contains(path) && !text_source_overlays_.contains(path)) ||
+    const bool raw_record = repairable_raw_record(path);
+    if (!(analyzable_text_path(path) || shader || raw_record) ||
+        (!raw_record && !text_source_paths_.contains(path) &&
+         !text_source_overlays_.contains(path)) ||
         relative != relative.lexically_normal() || path.find_first_of(":\\") != std::string::npos ||
         path.find("//") != std::string::npos || source_text.size() > 4 * 1024 * 1024) {
-        response.error = "Text overlay requires an admitted canonical Lua/RML/RCSS Project source.";
+        response.error = "Text overlay requires an admitted source or an invalid canonical record.";
         return response;
     }
     try {
+        if (raw_record) {
+            const auto* verified = source_authority_->verified_source(path);
+            const auto retained = text_disk_revisions_.find(path);
+            if (!verified && retained == text_disk_revisions_.end())
+                throw std::runtime_error("Raw record lost its verified source revision: " + path);
+            text_source_paths_.insert(path);
+            text_disk_revisions_.try_emplace(path,
+                                             verified ? verified->revision : retained->second);
+        }
         // An explicit Use Disk may accept deletion of a previously staged
         // source. Never fabricate replacement bytes or leave its old overlay
         // live in the native preview after the renderer closes the buffer.
@@ -3971,7 +4065,7 @@ RoomSessionResult ProjectSession::stage_text_source(std::uint64_t revision,
             return response;
         }
         bool managed_changed = false;
-        if (!shader) {
+        if (!shader && !raw_record) {
             const auto previous_analysis = text_analysis_cache_.find(path);
             const auto previous_managed =
                 previous_analysis == text_analysis_cache_.end()
@@ -4035,8 +4129,9 @@ ProjectSession::save_text_sources(std::uint64_t revision, const std::vector<std:
         std::set<std::string> used;
         std::vector<YamlTransactionTarget> targets;
         for (const auto& path : paths) {
+            const bool raw_record = repairable_raw_record(path);
             if (!used.insert(path).second ||
-                !(analyzable_text_path(path) ||
+                !(raw_record || analyzable_text_path(path) ||
                   (path.starts_with("shaders/") && path.ends_with(".sc"))) ||
                 !text_source_paths_.contains(path) || path.starts_with("inline/") ||
                 !text_disk_revisions_.contains(path))
@@ -4064,6 +4159,7 @@ ProjectSession::save_text_sources(std::uint64_t revision, const std::vector<std:
             target.expected_revision = expected;
             target.baseline_source = baseline;
             target.raw_text_source = overlay->second;
+            target.repairable_raw_record = raw_record;
             targets.push_back(std::move(target));
         }
         if (targets.empty()) {
@@ -4078,6 +4174,8 @@ ProjectSession::save_text_sources(std::uint64_t revision, const std::vector<std:
         if (!saved.accepted)
             throw std::runtime_error(saved.error);
         for (const auto& target : prepared.targets) {
+            const bool raw_record =
+                target.path.starts_with("records/") && target.path.ends_with(".yaml");
             text_disk_revisions_[target.path] = target.after_revision;
             text_source_overlays_.erase(target.path);
             text_overlay_disk_revisions_.erase(target.path);
@@ -4088,6 +4186,20 @@ ProjectSession::save_text_sources(std::uint64_t revision, const std::vector<std:
             response.affected_records.push_back("source:" + target.path);
             if (!source_authority_->acknowledge_own_write(target.path, target.after_revision))
                 source_authority_->coverage_lost();
+            if (raw_record) {
+                validation_pending_source_revisions_.insert_or_assign(target.path,
+                                                                      target.after_revision);
+                validation_snapshot_.reset();
+                const auto name = target.path.substr(sizeof("records/") - 1);
+                const auto split = name.find('/');
+                if (split != std::string::npos) {
+                    const auto family = name.substr(0, split);
+                    const auto leaf = name.substr(split + 1);
+                    const auto id = family == "layouts" ? leaf.substr(0, leaf.find('/'))
+                                                        : leaf.substr(0, leaf.size() - 5);
+                    records_.erase(family + "/" + id);
+                }
+            }
         }
         ++working_revision_;
         response.accepted = true;

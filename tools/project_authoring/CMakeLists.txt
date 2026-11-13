@@ -354,6 +354,8 @@ if(BUILD_TESTING)
     set_tests_properties(native_authoring_cache_writer_processes PROPERTIES TIMEOUT 120)
     add_test(NAME native_authoring_invalid_manifest COMMAND noveltea-project-session-certify
         --invalid-manifest "${NOVELTEA_AUTHORING_SMALL_PROJECT}")
+    add_test(NAME native_authoring_repairable_records COMMAND noveltea-project-session-certify
+        --repairable-records "${NOVELTEA_AUTHORING_SMALL_PROJECT}")
     if(NOVELTEA_AUTHORING_TEST_NODE)
         add_test(NAME native_authoring_project_record_differential
             COMMAND "${NOVELTEA_AUTHORING_TEST_NODE}"

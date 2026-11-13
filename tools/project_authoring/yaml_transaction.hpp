@@ -34,6 +34,9 @@ struct YamlTransactionTarget {
     // raw byte replacement. The transaction journal still checks the exact
     // original source revision and performs crash-safe multi-file publication.
     std::optional<std::string> raw_text_source = std::nullopt;
+    // Granted only by ProjectSession after validating an exact physical
+    // invalid record source; never inferred from a caller-supplied path.
+    bool repairable_raw_record = false;
     // Only permitted for a canonical record source, when native validation
     // proves that omission of explicit defaults leaves its effective value
     // exactly unchanged.

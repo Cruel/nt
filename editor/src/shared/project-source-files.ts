@@ -1,5 +1,6 @@
 export type ProjectSourceFileKind =
   | 'lua'
+  | 'yaml'
   | 'shader'
   | 'asset'
   | 'layout-rml'

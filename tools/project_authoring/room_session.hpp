@@ -118,7 +118,7 @@ public:
     // Kept parallel to the production workspace until the migration cutover.
     static std::unique_ptr<RoomSession>
     open_project_source(const std::filesystem::path& project_root, std::string& error,
-                        bool validation_only = false);
+                        bool validation_only = false, bool repairable_records = false);
     static std::unique_ptr<RoomSession>
     open_editor_source(const std::filesystem::path& project_root, std::string& error);
     static std::unique_ptr<RoomSession>
@@ -196,6 +196,10 @@ public:
     ~ProjectSession();
     static std::unique_ptr<ProjectSession> open(const std::filesystem::path& root,
                                                 std::string& error);
+    // The editor may admit a valid workspace identity with individually invalid
+    // record files. CLI/runtime admission remains strict.
+    static std::unique_ptr<ProjectSession> open_editor(const std::filesystem::path& root,
+                                                       std::string& error);
     // Cold diagnostics may inspect malformed saved fragments, but cannot
     // expose such a Project as a mutable session.
     static std::optional<RoomSessionSnapshot>
@@ -495,7 +499,9 @@ private:
     void note_disk_cache_change();
     bool acquire_cache_lease_if_due();
     static std::unique_ptr<ProjectSession> open_impl(const std::filesystem::path& root,
-                                                     std::string& error, bool validation_only);
+                                                     std::string& error, bool validation_only,
+                                                     bool repairable_records = false);
+    bool repairable_raw_record(std::string_view relative_path) const;
     ProjectSession(std::unique_ptr<RoomSession> source,
                    std::unique_ptr<SourceAuthority> source_authority, std::filesystem::path root,
                    std::string traits_baseline_json);

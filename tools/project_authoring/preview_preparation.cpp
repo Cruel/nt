@@ -429,6 +429,19 @@ ProjectSession::prepare_complete_working(std::uint64_t expected_revision, std::s
             }
             ++cache->snapshot_reads;
             const auto record = session->snapshot();
+            if (editor_projection && record.normalized_json.empty() &&
+                owner.find('/') != std::string::npos && !owner.starts_with("i18n/")) {
+                // Invalid physical owners remain in the native diagnostic and
+                // source-revision inventory, never in the editor's normalized
+                // structured model. A repaired source can be re-admitted later.
+                const auto split = owner.find('/');
+                const auto family = owner.substr(0, split);
+                if (complete.contains(family))
+                    complete[family].erase(owner.substr(split + 1));
+                cache->contributors.erase(owner);
+                ++cache->projected;
+                continue;
+            }
             if ((!record.valid && !editor_projection &&
                  !(only_test_errors && owner.starts_with("tests/"))) ||
                 record.normalized_json.empty())
@@ -525,7 +538,8 @@ ProjectSession::prepare_complete_working(std::uint64_t expected_revision, std::s
                 throw std::runtime_error(
                     "Project source revision changed during complete preparation.");
         }
-        const auto physical = source_authority_->verified_revisions();
+        const auto physical = editor_projection ? source_authority_->scoped_revisions()
+                                                : source_authority_->verified_revisions();
         if (!physical)
             throw std::runtime_error("Cannot prove the complete native Project source manifest.");
         // Include referenced binary Assets and other exact source dependencies,

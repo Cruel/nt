@@ -6,7 +6,9 @@ import { ActiveProjectSessionService } from '../../main/services/active-project-
 import { NativeAuthoringSessionBridge } from '../../main/services/native-authoring-session-bridge';
 import { NativeAuthoringWorkingProject } from '../../main/services/native-authoring-working-project';
 import { NativeEditorSessionController } from '../../main/services/native-editor-session-controller';
+import { openNativeEditorProject } from '../../main/services/native-editor-project-open';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
+import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
 import { Worker, type WorkerOptions } from 'node:worker_threads';
 
 const addonPath = process.env.NOVELTEA_AUTHORING_NODE_ADDON;
@@ -57,6 +59,110 @@ async function roomBytes(root: string, id: string) {
 }
 
 describe.skipIf(!addonPath)('#608 real native Save and recovery integration', () => {
+  it('admits, edits, persists and reopens an invalid record through the actual native editor', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'noveltea-repair-record-615-'));
+    const fixture = path.resolve(
+      process.cwd(),
+      'src/renderer/test/fixtures/project-compiler-cli/minimal-project',
+    );
+    await cp(fixture, root, {
+      recursive: true,
+      filter: (candidate) => !candidate.split(path.sep).includes('.noveltea'),
+    });
+    const invalidPath = 'records/rooms/unrelated.yaml';
+    const roomFile = path.join(root, invalidPath);
+    const original = await readFile(roomFile, 'utf8');
+    const malformed = '# native repair\nid: unrelated\ndata: [\n';
+    await writeFile(roomFile, malformed);
+    const sessions = new ActiveProjectSessionService();
+    let controller = nativeHarness(sessions);
+    try {
+      const hash = controller.sourceRevisionFor();
+      expect(hash).toBeDefined();
+      sessions.setNativeSourceRevisionFor((bytes) => hash!(bytes) as `xxh3-128:${string}`);
+      const opened = await openNativeEditorProject(
+        root,
+        sessions.beginProjectActivation(),
+        sessions,
+        controller,
+      );
+      expect(opened.success, opened.error).toBe(true);
+      expect((opened.contentProject as AuthoringProject).rooms.unrelated).toBeUndefined();
+      expect(opened.diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ sourcePath: invalidPath, severity: 'error' }),
+        ]),
+      );
+      const listing = await sessions.listProjectSourceFiles({
+        projectSessionId: opened.projectSessionId!,
+      });
+      const rawFile = listing.files.find((file) => file.id === invalidPath);
+      expect(rawFile).toMatchObject({ kind: 'yaml', text: true });
+      expect(rawFile?.contentHash).toBe(hash!(Buffer.from(malformed)));
+
+      const savedRoomBefore = await roomBytes(root, 'start');
+      const patched = await controller.applyRevisionedPatches(
+        opened.projectSessionId!,
+        opened.nativeWorkingRevision!,
+        [{ op: 'replace', path: '/rooms/start/label', value: 'Independent repair-time edit' }],
+      );
+      expect(patched.accepted, patched.error).toBe(true);
+      const savedRoom = await controller.saveUnit(
+        opened.projectSessionId!,
+        patched.snapshot.workingRevision,
+        'record:rooms:start',
+        {},
+      );
+      expect(savedRoom.accepted, savedRoom.error).toBe(true);
+      expect(await roomBytes(root, 'start')).not.toBe(savedRoomBefore);
+      expect(await readFile(roomFile, 'utf8')).toBe(malformed);
+
+      const incomplete = malformed + '# intentionally still invalid\n';
+      const savedRaw = await controller.saveText(
+        opened.projectSessionId!,
+        savedRoom.snapshot.workingRevision,
+        invalidPath,
+        rawFile!.contentHash!,
+        incomplete,
+      );
+      expect(savedRaw.accepted, savedRaw.error).toBe(true);
+      expect(await readFile(roomFile, 'utf8')).toBe(incomplete);
+      const repaired = await controller.saveText(
+        opened.projectSessionId!,
+        savedRaw.snapshot.workingRevision,
+        invalidPath,
+        hash!(Buffer.from(incomplete)),
+        original,
+      );
+      expect(repaired.accepted, repaired.error).toBe(true);
+      expect(await readFile(roomFile, 'utf8')).toBe(original);
+      controller.dispose();
+      sessions.closeActiveProject();
+      controller = nativeHarness(sessions);
+      const reopenedHash = controller.sourceRevisionFor();
+      sessions.setNativeSourceRevisionFor((bytes) => reopenedHash!(bytes) as `xxh3-128:${string}`);
+      const reopened = await openNativeEditorProject(
+        root,
+        sessions.beginProjectActivation(),
+        sessions,
+        controller,
+      );
+      expect(reopened.success, reopened.error).toBe(true);
+      expect((reopened.contentProject as AuthoringProject).rooms.unrelated).toBeDefined();
+      expect((reopened.contentProject as AuthoringProject).rooms.start?.label).toBe(
+        'Independent repair-time edit',
+      );
+      expect(
+        (await sessions.listProjectSourceFiles({ projectSessionId: reopened.projectSessionId! }))
+          .files,
+      ).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: invalidPath })]));
+    } finally {
+      controller.dispose();
+      sessions.dispose();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('commits exactly one edited Room to YAML and recovers the other Room across a cold worker restart', async () => {
     const root = await disposableProject();
     const sessions = new ActiveProjectSessionService();

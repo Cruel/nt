@@ -870,6 +870,14 @@ YamlTransactionService::prepare(const std::vector<YamlTransactionTarget>& target
                 ((target.path.starts_with("scripts/") || target.path.starts_with("assets/")) &&
                  (target.path.ends_with(".lua") || target.path.ends_with(".rml") ||
                   target.path.ends_with(".rcss")));
+            const bool repairable_record_path =
+                target.repairable_raw_record &&
+                std::regex_match(
+                    target.path,
+                    std::regex(
+                        R"(^records/(?:[a-z]+/[a-z][a-z0-9]*(?:-[a-z0-9]+)*\.yaml|layouts/[a-z][a-z0-9]*(?:-[a-z0-9]+)*/layout\.yaml)$)"));
+            if (target.repairable_raw_record && (!raw_text || !repairable_record_path))
+                throw std::runtime_error("Invalid native raw record repair grant.");
             if (admitted_text_path && !raw_text && !target.erase && !target.create_source)
                 throw std::runtime_error(
                     "Tracked text sources require exact raw text replacement.");
@@ -877,9 +885,10 @@ YamlTransactionService::prepare(const std::vector<YamlTransactionTarget>& target
                 (!target.edits.empty() || (!target.create_source && !target.erase && !raw_text)))
                 throw std::runtime_error("Layout companion transaction only supports whole-file "
                                          "creation or deletion.");
-            if (raw_text && (target.erase || target.create_source || target.replacement_source ||
-                             target.semantic_compaction_family || !target.edits.empty() ||
-                             (!admitted_text_path && !target.raw_asset_file)))
+            if (raw_text &&
+                (target.erase || target.create_source || target.replacement_source ||
+                 target.semantic_compaction_family || !target.edits.empty() ||
+                 (!admitted_text_path && !target.raw_asset_file && !repairable_record_path)))
                 throw std::runtime_error(
                     "Raw source replacement must be a tracked text-only edit.");
             const auto absolute = checked_path(target.path);
