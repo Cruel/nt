@@ -1,6 +1,8 @@
 import type { AuthoringDependencyGraphSnapshot } from '../../shared/authoring-dependency-contracts';
 import type { ToolDiagnostic } from '../../shared/editor-tooling';
 import { isAuthoringCollectionKey } from '../../shared/project-schema/authoring-collections';
+import { getJsonAtPointer, hasJsonAtPointer } from './json-pointer';
+import { jsonValuesEqual, type JsonValue } from './json-value';
 import { candidateFormatRisk } from '../../shared/repair-format-risk';
 export { candidateFormatRisk } from '../../shared/repair-format-risk';
 export type { CandidateFormatRisk } from '../../shared/repair-format-risk';
@@ -35,6 +37,15 @@ export function selectedRepairDiagnostics(
     .slice(0, 1);
 }
 
+function projectRelativeSourcePath(value: string): string | null {
+  const candidate = (
+    value.startsWith('project:/') ? value.slice('project:/'.length) : value
+  ).replaceAll('\\', '/');
+  if (!candidate || candidate.startsWith('/') || /^[A-Za-z]:/u.test(candidate)) return null;
+  if (candidate.split('/').some((segment) => !segment || segment === '.' || segment === '..'))
+    return null;
+  return candidate;
+}
 function sourceFileForPath(pointer: string): string | null {
   const segments = pointer
     .split('/')
@@ -91,6 +102,58 @@ function dependencyContext(
   return [...context].sort();
 }
 
+function boundedValue(value: JsonValue | null, exists: boolean): string {
+  if (!exists) return '(absent)';
+  const text = JSON.stringify(value);
+  return text.length <= 240 ? text : '(value too large to inline; inspect in editor)';
+}
+
+function workingDiagnosticContext(
+  diagnostic: ToolDiagnostic,
+  saved: JsonValue | null | undefined,
+  working: JsonValue | null | undefined,
+): string {
+  if (saved == null || working == null) return 'Saved/working comparison unavailable.';
+  const owner = ownerOf(diagnostic.ownerPaths?.[0] ?? diagnostic.path);
+  if (!owner.startsWith('/')) return 'Saved/working comparison unavailable for this owner.';
+  const savedOwner = hasJsonAtPointer(saved, owner);
+  const workingOwner = hasJsonAtPointer(working, owner);
+  const ownerDiffers =
+    savedOwner !== workingOwner ||
+    (savedOwner &&
+      workingOwner &&
+      !jsonValuesEqual(getJsonAtPointer(saved, owner), getJsonAtPointer(working, owner)));
+  const context = [
+    (ownerDiffers ? 'Unsaved differences in owner ' : 'Owner matches saved baseline: ') +
+      owner +
+      '.',
+  ];
+  const pointer = diagnostic.path;
+  if (pointer.startsWith('/') && pointer !== '/' && pointer !== owner) {
+    const savedPresent = hasJsonAtPointer(saved, pointer);
+    const workingPresent = hasJsonAtPointer(working, pointer);
+    const savedValue = savedPresent ? getJsonAtPointer(saved, pointer) : null;
+    const workingValue = workingPresent ? getJsonAtPointer(working, pointer) : null;
+    if (
+      savedPresent !== workingPresent ||
+      (savedPresent && workingPresent && !jsonValuesEqual(savedValue!, workingValue!))
+    ) {
+      context.push(
+        'At ' +
+          pointer +
+          ': saved baseline ' +
+          boundedValue(savedValue, savedPresent) +
+          '; working ' +
+          boundedValue(workingValue, workingPresent) +
+          '.',
+      );
+    }
+  }
+  return (
+    context.join(' ') + ' This comparison does not prove which revision introduced the diagnostic.'
+  );
+}
+
 export interface RepairPromptInput {
   root: string;
   kind: 'candidate' | 'active';
@@ -100,6 +163,9 @@ export interface RepairPromptInput {
   recognition?: 'strong' | 'weak';
   manifest?: string;
   graph?: AuthoringDependencyGraphSnapshot | null;
+  /** Last observed saved baseline and current native editing view. */
+  savedDocument?: JsonValue | null;
+  workingDocument?: JsonValue | null;
 }
 
 export function repairDiagnosticFingerprint(diagnostics: readonly ToolDiagnostic[]): string {
@@ -112,7 +178,10 @@ export function buildRepairPrompt(input: RepairPromptInput): string | null {
 
   const filePaths = new Set<string>();
   for (const diagnostic of selected) {
-    if (diagnostic.sourcePath) filePaths.add(diagnostic.sourcePath);
+    if (diagnostic.sourcePath) {
+      const relative = projectRelativeSourcePath(diagnostic.sourcePath);
+      if (relative) filePaths.add(relative);
+    }
     for (const pointer of diagnostic.ownerPaths?.length
       ? diagnostic.ownerPaths
       : [diagnostic.path]) {
@@ -132,8 +201,19 @@ export function buildRepairPrompt(input: RepairPromptInput): string | null {
       const location = d.sourcePath
         ? `; source ${d.sourcePath}${d.line ? `:${d.line}${d.column ? `:${d.column}` : ''}` : ''}`
         : '';
-      return `${index + 1}. [${d.severity}] ${d.code ?? 'diagnostic'} at ${d.path}${location}: ${d.message}${d.ownerPaths?.length ? `; owners: ${d.ownerPaths.join(', ')}` : ''}`;
+      const description = `${index + 1}. [${d.severity}] ${d.code ?? 'diagnostic'} at ${d.path}${location}: ${d.message}${d.ownerPaths?.length ? `; owners: ${d.ownerPaths.join(', ')}` : ''}`;
+      return input.kind === 'active'
+        ? description +
+            '\n   Working-state comparison: ' +
+            workingDiagnosticContext(d, input.savedDocument, input.workingDocument)
+        : description;
     }),
+    ...(input.kind === 'active'
+      ? [
+          '',
+          'Validation target: current editor working Project, including unsaved edits. Standalone `noveltea validate` checks disk files only and cannot disprove a working-state diagnostic.',
+        ]
+      : []),
     '',
     'Affected source files (inspect; change only what is required by the selected diagnostics):',
     ...(affected.length
@@ -151,7 +231,14 @@ export function buildRepairPrompt(input: RepairPromptInput): string | null {
         ]),
     '',
     'Constraints:',
-    '- Work only within this selected Project root. Do not change unrelated records, files, warnings excluded by scope, or the currently active Project if different.',
+    '- Read, list, search, and edit Project content ONLY within the selected Project root. Do not read, grep, browse, or inspect files in parent or sibling directories, home directories, engine/editor repositories (including ~/dev/nt), or any other location outside that root. Do not follow symlinks escaping the Project root. If external source inspection is genuinely required, stop and ask the user for explicit authorization.',
+    '- Installed CLI and AI executable programs may be run, but do not read their implementation or unrelated repository source code outside the Project root. Do not reverse-engineer a diagnostic by browsing engine/editor internals.',
+    '- Do not change unrelated records, files, warnings excluded by scope, or the currently active Project if different.',
+    ...(input.kind === 'active'
+      ? [
+          '- An unsaved working-state issue cannot be repaired by changing only the saved YAML. Never edit .noveltea/ recovery files. If no authorized editor working-state mutation interface is available, explain that the repair is blocked and stop; do not claim disk validation resolved the working-state diagnostic.',
+        ]
+      : []),
     '- Preserve original YAML, comments and user-written values. Do not invent defaults, fabricate a Project, silently normalize malformed source, or overwrite external edits.',
     '- Read AGENTS.md and the generated NovelTea Agent Kit: .noveltea/agent/GUIDE.md, concepts/, reference/, and schemas/ as needed. If the kit is missing, prepare it with `noveltea repair project` before working; this prepares guidance, not authored source.',
     '- Use the installed CLI schema as the only supported current Project format. Older format conversion requires explicit user authorization; never silently downgrade newer source.',

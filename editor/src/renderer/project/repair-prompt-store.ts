@@ -75,6 +75,8 @@ function currentInput(
       selectedKey: request.selectedKey,
       diagnostics: useWorkspaceStore.getState().diagnostics,
       graph: currentAuthoringGraphSnapshot(),
+      savedDocument: project.savedDocument,
+      workingDocument: project.document,
     },
     sourceFingerprint: String(project.projectRevision),
   };

@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it } from 'vite-plus/test';
 import type { ToolDiagnostic } from '../../shared/editor-tooling';
 import type { AuthoringDependencyGraphSnapshot } from '../../shared/authoring-dependency-contracts';
 import { useCandidateRepairStore } from '../project/candidate-repair-store';
+import { useProjectStore } from '../project/project-store';
+import { useWorkspaceStore } from '../stores/workspace-store';
 import {
   useRepairPromptStore,
   repairPromptIsCurrent,
@@ -94,6 +96,79 @@ describe('scoped Project diagnostic prompts', () => {
     expect(prompt).toContain('noveltea validate` only after');
   });
 
+  it('describes native working changes without mislabeling a dirty owner as the cause', () => {
+    const savedDocument = { rooms: { foyer: { data: { name: 'Saved', description: 'Same' } } } };
+    const workingDocument = { rooms: { foyer: { data: { name: '', description: 'Same' } } } };
+    const prompt = buildRepairPrompt({
+      root: '/projects/feature-lab',
+      kind: 'active',
+      scope: 'one',
+      diagnostics,
+      selectedKey: repairDiagnosticKey(diagnostics[0]!),
+      savedDocument,
+      workingDocument,
+    })!;
+    expect(prompt).toContain('Validation target: current editor working Project');
+    expect(prompt).toContain('Unsaved differences in owner /rooms/foyer');
+    expect(prompt).toContain('saved baseline "Saved"; working ""');
+    expect(prompt).toContain('does not prove which revision introduced the diagnostic');
+    expect(prompt).toContain('Do not read, grep, browse, or inspect files in parent');
+    expect(prompt).toContain('including ~/dev/nt');
+    expect(prompt).toContain('Do not follow symlinks escaping the Project root');
+    expect(prompt).toContain('Never edit .noveltea/ recovery files');
+    expect(prompt).toContain('explain that the repair is blocked and stop');
+    expect(prompt).not.toContain('/assets/other');
+    const diskPrompt = buildRepairPrompt({
+      root: '/projects/feature-lab',
+      kind: 'candidate',
+      scope: 'errors',
+      diagnostics,
+    })!;
+    expect(diskPrompt).not.toContain('Validation target: current editor working Project');
+    expect(diskPrompt).toContain('Do not read, grep, browse, or inspect files in parent');
+  });
+
+  it('keeps clean records and missing baseline clearly distinct from dirty records', () => {
+    const base = { rooms: { foyer: { data: { name: 'Saved' } } } };
+    const input = {
+      root: '/project',
+      kind: 'active' as const,
+      scope: 'errors' as const,
+      diagnostics,
+    };
+    expect(buildRepairPrompt({ ...input, savedDocument: base, workingDocument: base })).toContain(
+      'Owner matches saved baseline: /rooms/foyer.',
+    );
+    expect(buildRepairPrompt(input)).toContain('Saved/working comparison unavailable.');
+  });
+  it('feeds the real active Project saved-versus-working values into the Fix prompt', () => {
+    const beforeProject = useProjectStore.getState();
+    const beforeWorkspace = useWorkspaceStore.getState();
+    try {
+      useProjectStore.setState({
+        projectPath: '/projects/feature-lab',
+        projectSessionId: 'session-working',
+        projectRevision: 17,
+        savedDocument: { rooms: { foyer: { data: { name: 'a.a' } } } },
+        document: { rooms: { foyer: { data: { name: '' } } } },
+      });
+      useWorkspaceStore.setState({ diagnostics: [diagnostics[0]!] });
+      expect(
+        useRepairPromptStore.getState().request({
+          kind: 'active',
+          id: 'session-working',
+          scope: 'errors',
+        }),
+      ).toBe(true);
+      const prompt = useRepairPromptStore.getState().draft?.text;
+      expect(prompt).toContain('saved baseline "a.a"; working ""');
+      expect(prompt).toContain('Do not read, grep, browse, or inspect files in parent');
+    } finally {
+      useProjectStore.setState(beforeProject);
+      useWorkspaceStore.setState(beforeWorkspace);
+    }
+  });
+
   it('includes warnings only for Fix All and does not fabricate unverified dependencies', () => {
     const common = { root: '/p', kind: 'candidate' as const, diagnostics };
     const all = buildRepairPrompt({ ...common, scope: 'all' })!;
@@ -116,6 +191,38 @@ describe('scoped Project diagnostic prompts', () => {
     expect(prompt).toContain('records/layouts/room_1/layout.yaml');
   });
 
+  it('never recommends reading external paths even if a diagnostic advertises one', () => {
+    const prompt = buildRepairPrompt({
+      root: '/project',
+      kind: 'candidate',
+      scope: 'errors',
+      diagnostics: [
+        {
+          severity: 'error',
+          path: '/unknown',
+          sourcePath: '../outside/private.yaml',
+          message: 'bad',
+        },
+        {
+          severity: 'error',
+          path: '/unknown',
+          sourcePath: '/home/user/dev/nt/internal.cpp',
+          message: 'bad',
+        },
+        {
+          severity: 'error',
+          path: '/unknown',
+          sourcePath: 'C:\\dev\\nt\\internal.cpp',
+          message: 'bad',
+        },
+      ],
+    })!;
+    const affected = prompt.split('Affected source files')[1]?.split('Dependency context')[0];
+    expect(affected).toContain('Resolve source ownership from the diagnostics');
+    expect(affected).not.toContain('private.yaml');
+    expect(affected).not.toContain('internal.cpp');
+    expect(prompt).toContain('Do not read, grep, browse, or inspect files in parent');
+  });
   it('detects manifest schema-version risk independently of broken YAML syntax', () => {
     expect(
       candidateFormatRisk('schema: noveltea.project.workspace\nschemaVersion: 99\nbroken: ['),
