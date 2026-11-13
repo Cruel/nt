@@ -13,6 +13,12 @@ _See_: `docs/engine/PROJECT.md`
 The directory-backed on-disk representation of a Project: its editable filesystem source tree rather than a runtime artifact.
 _See_: `docs/editor/project/PROJECT_WORKSPACE_FORMAT.md`
 
+**Project Candidate**:
+A selected Project Workspace under examination before admission as the active editable Project. A candidate may be invalid or need repair without replacing an existing active Project.
+
+**Recovery Checkpoint**:
+Persisted editor-local evidence of unsaved Project work that may be restored after a restart. It remains separate from the saved Project sources and can conflict with subsequent disk changes.
+
 **Compiled Project**:
 The generated gameplay representation produced from a Project for consumption by the native runtime. It is neither editable project source nor the distributable package around that runtime data.
 _See_: `docs/architecture/COMPILED_PROJECT_WIRE.md`
