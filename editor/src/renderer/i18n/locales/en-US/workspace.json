@@ -13,6 +13,7 @@
     "fixIt": "Fix it",
     "readDisk": "Inspect disk",
     "openProject": "Open Project",
+    "ready": "The source files passed read-only validation. Choose Open Project to activate this candidate; existing projects are not switched automatically.",
     "useDisk": "Use disk (discard my edits)",
     "save": "Save source",
     "saved": "Candidate source saved",

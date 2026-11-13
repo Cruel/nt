@@ -67,6 +67,7 @@ import {
   noArgumentsSchema,
   openExternalArgumentsSchema,
   openProjectArgumentsSchema,
+  observeRepairCandidateArgumentsSchema,
   readRepairCandidateArgumentsSchema,
   saveRepairCandidateArgumentsSchema,
   closeRepairCandidateArgumentsSchema,
@@ -370,7 +371,10 @@ const packageSmokeCacheRoot = process.argv.includes(PACKAGE_SMOKE_FLAG)
   ? process.env.NOVELTEA_EDITOR_PACKAGE_SMOKE_CACHE_ROOT?.trim()
   : undefined;
 const activeProjectSessions = new ActiveProjectSessionService();
-const projectCandidateRepairs = new ProjectCandidateRepairService();
+const projectCandidateRepairs = new ProjectCandidateRepairService(undefined, (status) => {
+  if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed())
+    mainWindow.webContents.send(IPC_CHANNELS.REPAIR_CANDIDATE_STATUS_EVENT, status);
+});
 // Native Project authority is unconditional in the production editor. Each
 // admitted Project owns one main-process worker; the CLI owns a separate
 // native session and cannot substitute for the editor's working revision.
@@ -861,6 +865,7 @@ function createWindow(): BrowserWindow {
   const sessionOwner = mainWindow;
   mainWindow.on('closed', () => {
     terminalService.dispose();
+    void projectCandidateRepairs.revokeAll().catch(() => undefined);
     closeNativeEditorHandoff();
     activeProjectSessions.dispose();
     if (mainWindow === sessionOwner) mainWindow = null;
@@ -1244,44 +1249,67 @@ void app.whenReady().then(async () => {
   guardedIpc.handle(
     IPC_CHANNELS.OPEN_PROJECT,
     (arguments_) => openProjectArgumentsSchema.parse(arguments_),
-    async (projectPath: string) => {
-      const incumbent = nativeEditorHandoff.current();
-      const result = await nativeEditorHandoff.open(projectPath);
-      if (result.success) {
-        if (incumbent && incumbent !== nativeEditorHandoff.current())
-          nativeEditorObservers.get(incumbent)?.close();
-        nativeEditorAdmission = nativeEditorHandoff.current();
-        // Native Open already supplies the canonical root; revocation must not
-        // turn a successful admission into a failed IPC response.
-        projectCandidateRepairs.revokeRoot(result.projectPath);
-      } else {
-        // Only this main-owned Open attempt can grant a candidate capability.
-        // A renderer path alone cannot authorize arbitrary source editing.
-        try {
-          const candidate = await projectCandidateRepairs.registerFailedOpen(projectPath);
-          if (candidate) {
-            result.repairCandidateId = candidate.id;
-            result.repairCandidateRecognition = candidate.recognition;
-            try {
-              const source = await projectCandidateRepairs.read(candidate.id);
-              if (source.revision !== 'absent')
-                result.diagnostics = [
-                  ...candidateManifestSyntaxDiagnostics(source.text),
-                  ...result.diagnostics,
-                ];
-            } catch {
-              // The repair source reader will expose a specific trust error.
+    async (request) => {
+      const projectPath =
+        typeof request === 'string'
+          ? request
+          : await projectCandidateRepairs.authorizeOpen(
+              request.repairCandidateId,
+              request.readyRevision,
+            );
+      // Freeze candidate writes while the normal native admission attempts
+      // this root. Failed opens leave the original repair capability intact.
+      const candidateRoot = path.resolve(
+        path.basename(projectPath) === 'project.yaml' ? path.dirname(projectPath) : projectPath,
+      );
+      await projectCandidateRepairs.freezeRoot(candidateRoot);
+      try {
+        const incumbent = nativeEditorHandoff.current();
+        const result = await nativeEditorHandoff.open(projectPath);
+        if (result.success) {
+          if (incumbent && incumbent !== nativeEditorHandoff.current())
+            nativeEditorObservers.get(incumbent)?.close();
+          nativeEditorAdmission = nativeEditorHandoff.current();
+          // Native Open already supplies the canonical root; revocation must not
+          // turn a successful admission into a failed IPC response.
+          await projectCandidateRepairs.revokeRoot(result.projectPath);
+        } else if (!/superseded/iu.test(result.error ?? '')) {
+          // Only this main-owned Open attempt can grant a candidate capability.
+          // A superseded attempt cannot mint a fresh capability after the
+          // newer Project activation has already won.
+          try {
+            const candidate = await projectCandidateRepairs.registerFailedOpen(projectPath);
+            if (candidate) {
+              result.repairCandidateId = candidate.id;
+              result.repairCandidateRecognition = candidate.recognition;
+              try {
+                const source = await projectCandidateRepairs.read(candidate.id);
+                if (source.revision !== 'absent')
+                  result.diagnostics = [
+                    ...candidateManifestSyntaxDiagnostics(source.text),
+                    ...result.diagnostics,
+                  ];
+              } catch {
+                // The repair source reader will expose a specific trust error.
+              }
             }
+          } catch {
+            // Keep the original native admission diagnostic available even when
+            // candidate source inspection itself is unsafe or unavailable.
           }
-        } catch {
-          // Keep the original native admission diagnostic available even when
-          // candidate source inspection itself is unsafe or unavailable.
         }
+        return rememberPreviewProjectRoot(result);
+      } finally {
+        await projectCandidateRepairs.thawRoot(candidateRoot);
       }
-      return rememberPreviewProjectRoot(result);
     },
   );
 
+  guardedIpc.handle(
+    IPC_CHANNELS.OBSERVE_REPAIR_CANDIDATE,
+    (arguments_) => observeRepairCandidateArgumentsSchema.parse(arguments_),
+    (id) => projectCandidateRepairs.observe(id),
+  );
   guardedIpc.handle(
     IPC_CHANNELS.READ_REPAIR_CANDIDATE,
     (arguments_) => readRepairCandidateArgumentsSchema.parse(arguments_),
@@ -2339,6 +2367,7 @@ void app.whenReady().then(async () => {
 });
 
 app.on('before-quit', () => {
+  void projectCandidateRepairs.revokeAll().catch(() => undefined);
   closeNativeEditorHandoff();
   activeProjectSessions.dispose();
   void enginePreviewServer.stop();

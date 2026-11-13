@@ -77,7 +77,7 @@ describe.skipIf(!process.env.NOVELTEA_AUTHORING_NODE_ADDON)(
         const reopened = await handoff.open(roots[1]!);
         expect(reopened.success).toBe(true);
         expect(sessions.currentSessionId()).not.toBe(sessionId);
-        repairs.revokeRoot(roots[1]!);
+        await repairs.revokeRoot(roots[1]!);
         await expect(repairs.read(candidate!.id)).rejects.toThrow(/expired/u);
       } finally {
         handoff.close();

@@ -184,7 +184,9 @@ describe('guarded editor IPC registrar', () => {
   it('strictly admits Project open and creation lifecycle arguments', async () => {
     const ipcMain = new FakeIpcMain();
     const harness = trustedHarness();
-    const openService = vi.fn((projectPath: string) => projectPath);
+    const openService = vi.fn(
+      (projectPath: string | { repairCandidateId: string; readyRevision: string }) => projectPath,
+    );
     const createService = vi.fn((request: { projectName: string; projectDirectory: string }) =>
       structuredClone(request),
     );

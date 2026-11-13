@@ -28,6 +28,8 @@ export type WorkspaceToolbarCommandDetail =
   | {
       command: WorkspaceToolbarCommand;
       projectPath?: string;
+      repairCandidateId?: string;
+      readyRevision?: string;
     };
 
 export function dispatchWorkspaceToolbarCommand(detail: WorkspaceToolbarCommandDetail) {

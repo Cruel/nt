@@ -1,6 +1,9 @@
 import { create } from 'zustand';
 import type { ToolDiagnostic } from '../../shared/editor-tooling';
-import type { CandidateRepairSource } from '../../shared/project-candidate-repair';
+import type {
+  CandidateRepairSource,
+  CandidateRepairStatus,
+} from '../../shared/project-candidate-repair';
 
 export interface CandidateRepairEntry {
   id: string;
@@ -15,6 +18,7 @@ export interface CandidateRepairEntry {
   loading?: boolean;
   saving?: boolean;
   admitted?: boolean;
+  status?: CandidateRepairStatus;
 }
 
 interface CandidateRepairStore {
@@ -28,6 +32,8 @@ interface CandidateRepairStore {
     diagnostics: ToolDiagnostic[],
   ) => void;
   load: (id: string, refresh?: boolean) => Promise<void>;
+  observe: (id: string) => Promise<void>;
+  applyStatus: (status: CandidateRepairStatus) => void;
   setBuffer: (id: string, text: string) => void;
   useDisk: (id: string) => void;
   save: (id: string) => Promise<boolean>;
@@ -48,7 +54,7 @@ export const useCandidateRepairStore = create<CandidateRepairStore>()((set, get)
       entries: Object.fromEntries(
         Object.entries(state.entries).map(([id, entry]) => [
           id,
-          entry.root === root ? { ...entry, admitted: true } : entry,
+          entry.root === root ? { ...entry, admitted: true, status: undefined } : entry,
         ]),
       ),
     })),
@@ -63,18 +69,49 @@ export const useCandidateRepairStore = create<CandidateRepairStore>()((set, get)
           recognition,
           diagnostics,
           admitted: false,
+          status: undefined,
         },
       },
     })),
+  observe: async (id) => {
+    try {
+      const status = await window.noveltea.observeRepairCandidate(id);
+      if (status) get().applyStatus(status);
+    } catch (error) {
+      set((state) => {
+        const entry = state.entries[id];
+        return entry && !entry.admitted
+          ? { entries: { ...state.entries, [id]: { ...entry, error: errorMessage(error) } } }
+          : state;
+      });
+    }
+  },
+  applyStatus: (status) => {
+    const entry = get().entries[status.id];
+    if (!entry || entry.admitted || (entry.status && status.generation < entry.status.generation))
+      return;
+    set((state) => {
+      const current = state.entries[status.id];
+      return current && !current.admitted
+        ? {
+            entries: {
+              ...state.entries,
+              [status.id]: { ...current, status, diagnostics: status.diagnostics },
+            },
+          }
+        : state;
+    });
+    void get().load(status.id, true);
+  },
   load: async (id, refresh = false) => {
     const prior = get().entries[id];
-    if (!prior || prior.loading || (prior.source && !refresh)) return;
+    if (!prior || prior.admitted || prior.loading || (prior.source && !refresh)) return;
     set((state) => ({ entries: { ...state.entries, [id]: { ...prior, loading: true } } }));
     try {
       const source = await window.noveltea.readRepairCandidate(id);
       set((state) => {
         const entry = state.entries[id];
-        if (!entry) return state;
+        if (!entry || entry.admitted) return state;
         const dirty = entry.source && entry.buffer !== entry.source.text;
         return {
           entries: {
@@ -98,7 +135,7 @@ export const useCandidateRepairStore = create<CandidateRepairStore>()((set, get)
     } catch (error) {
       set((state) => {
         const entry = state.entries[id];
-        return entry
+        return entry && !entry.admitted
           ? {
               entries: {
                 ...state.entries,

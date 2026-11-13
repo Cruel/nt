@@ -78,13 +78,16 @@ function ProblemsPanel() {
             <DiagnosticList
               items={candidate.diagnostics.map((item) => ({
                 ...item,
-                target: {
-                  tab,
-                  target: {
-                    id: 'source.line',
-                    payload: { line: item.line ?? 1, column: item.column ?? 1 },
-                  },
-                },
+                target:
+                  item.sourcePath && item.sourcePath !== 'project.yaml'
+                    ? null
+                    : {
+                        tab,
+                        target: {
+                          id: 'source.line',
+                          payload: { line: item.line ?? 1, column: item.column ?? 1 },
+                        },
+                      },
               }))}
               compact
               showPath={developerMode}

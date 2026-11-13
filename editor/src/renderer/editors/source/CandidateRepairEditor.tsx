@@ -42,7 +42,9 @@ export function CandidateRepairEditor({ tab }: WorkbenchEditorProps) {
   );
   useEffect(() => {
     if (!id || !entry?.source) return;
-    const diagnostic = entry.diagnostics.find((item) => item.line);
+    const diagnostic = entry.diagnostics.find(
+      (item) => item.line && (item.sourcePath === 'project.yaml' || item.path === '/project.yaml'),
+    );
     if (!diagnostic) return;
     sourceEditor.current?.revealLine(diagnostic.line!, diagnostic.column);
   }, [id, entry?.source, entry?.diagnostics]);
@@ -50,7 +52,7 @@ export function CandidateRepairEditor({ tab }: WorkbenchEditorProps) {
   if (!id || !entry) return <p className="p-4 text-sm">{t('candidateRepair.expired')}</p>;
   const source = entry.source;
   const diagnostics: SourceEditorDiagnostic[] = (entry.diagnostics || [])
-    .filter((d) => d.line)
+    .filter((d) => d.line && (d.sourcePath === 'project.yaml' || d.path === '/project.yaml'))
     .map((d) => {
       const lines = (entry.buffer ?? '').split('\n');
       const before = lines.slice(0, Math.max(0, d.line! - 1)).join('\n');
@@ -87,17 +89,33 @@ export function CandidateRepairEditor({ tab }: WorkbenchEditorProps) {
         <Button
           size="sm"
           variant="outline"
-          onClick={() =>
-            dispatchWorkspaceToolbarCommand({ command: 'open-project', projectPath: entry.root })
+          onClick={() => {
+            if (!entry.status?.ready || !entry.status.revision) return;
+            dispatchWorkspaceToolbarCommand({
+              command: 'open-project',
+              projectPath: entry.root,
+              repairCandidateId: id,
+              readyRevision: entry.status.revision,
+            });
+          }}
+          disabled={
+            entry.admitted ||
+            !entry.status?.ready ||
+            !entry.status.revision ||
+            dirty ||
+            entry.saving ||
+            !!entry.diskSource
           }
-          disabled={entry.admitted}
         >
           {t('candidateRepair.openProject')}
         </Button>
         <Button
           size="sm"
           variant="outline"
-          onClick={() => void load(id, true)}
+          onClick={() => {
+            void load(id, true);
+            void useCandidateRepairStore.getState().observe(id);
+          }}
           disabled={entry.loading || entry.saving || entry.admitted}
         >
           {t('candidateRepair.readDisk')}
@@ -116,6 +134,9 @@ export function CandidateRepairEditor({ tab }: WorkbenchEditorProps) {
       ) : null}
       {entry.admitted ? (
         <p className="text-xs text-muted-foreground">{t('candidateRepair.admitted')}</p>
+      ) : null}
+      {entry.status?.ready && !dirty ? (
+        <p className="text-xs text-muted-foreground">{t('candidateRepair.ready')}</p>
       ) : null}
       {entry.error ? (
         <p role="alert" className="text-xs text-destructive">

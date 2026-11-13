@@ -100,7 +100,8 @@ describe.skipIf(!process.env.NOVELTEA_AUTHORING_NODE_ADDON)(
       registrar.handle(
         IPC_CHANNELS.OPEN_PROJECT,
         (args) => openProjectArgumentsSchema.parse(args),
-        (directory) => handoff.open(directory),
+        (directory) =>
+          handoff.open(typeof directory === 'string' ? directory : directory.repairCandidateId),
       );
       registrar.handle(
         IPC_CHANNELS.NATIVE_PROJECT_PATCH,

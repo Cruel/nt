@@ -37,6 +37,8 @@ export const IPC_CHANNELS = {
   READ_REPAIR_CANDIDATE: 'noveltea:read-repair-candidate',
   SAVE_REPAIR_CANDIDATE: 'noveltea:save-repair-candidate',
   CLOSE_REPAIR_CANDIDATE: 'noveltea:close-repair-candidate',
+  OBSERVE_REPAIR_CANDIDATE: 'noveltea:observe-repair-candidate',
+  REPAIR_CANDIDATE_STATUS_EVENT: 'noveltea:repair-candidate-status-event',
   CREATE_PROJECT: 'noveltea:create-project',
   TAKE_PENDING_PROJECT_IMPORT: 'noveltea:take-pending-project-import',
   COMPLETE_PROJECT_IMPORT: 'noveltea:complete-project-import',

@@ -12,6 +12,21 @@ normal Open. The Fix it action is available from failed-open diagnostics and
 Problems, and candidate source buffers remain distinct from normal Project
 recovery. No generated or normalized Project is used as a fallback.
 
+Once a repair candidate is selected, its main-owned watcher observes only the
+candidate's source tree (not the incumbent active Project). Generated Agent Kit
+and unrelated changes do not trigger revalidation. Settled source updates and
+explicit raw Saves refresh physical diagnostics through the standalone native
+read-only validation contract, with a source-tree fingerprint and watcher
+generation fencing in-flight checks. No watcher result or agent completion can
+activate the candidate. The repair tab offers **Open Project** only after a
+successful check; the main-process Open request verifies the exact ready
+fingerprint again, freezes and drains in-flight candidate Saves, then invokes
+the ordinary native Project handoff. Failed admission unfreezes the existing
+repair session, while successful admission revokes its capability and watcher.
+The handoff rechecks native admission
+before replacing the incumbent. Closing or superseding a candidate revokes its
+watcher and readiness token, without granting active-Project authority.
+
 ## Purpose
 
 The Electron main process owns the authority for the active Project. Renderer state receives only an

@@ -13,6 +13,7 @@
     "fixIt": "Corrigir",
     "readDisk": "Inspecionar disco",
     "openProject": "Abrir projeto",
+    "ready": "Os arquivos de origem passaram pela validação somente leitura. Selecione Abrir projeto para ativar este candidato; a troca não ocorre automaticamente.",
     "useDisk": "Usar disco (descartar minhas alterações)",
     "save": "Salvar fonte",
     "saved": "Fonte do candidato salva",

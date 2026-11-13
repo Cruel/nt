@@ -25,6 +25,67 @@ afterEach(() => {
 });
 
 describe('candidate repair renderer buffer', () => {
+  it('refreshes physical diagnostics without replacing unsaved source or promoting Projects', async () => {
+    const read = vi.spyOn(window.noveltea, 'readRepairCandidate').mockResolvedValue(initial);
+    const open = vi.spyOn(window.noveltea, 'openProject');
+    const store = useCandidateRepairStore.getState();
+    store.register('repair-status', initial.root, 'strong', []);
+    await store.load('repair-status');
+    store.setBuffer('repair-status', 'unsaved candidate edit');
+    const external = {
+      ...initial,
+      text: 'repaired by external process',
+      revision: `sha256:${'d'.repeat(64)}`,
+    };
+    read.mockResolvedValue(external);
+    store.applyStatus({
+      id: 'repair-status',
+      generation: 3,
+      ready: true,
+      revision: `sha256:${'e'.repeat(64)}`,
+      diagnostics: [
+        {
+          severity: 'warning',
+          path: '/records/rooms/study.yaml',
+          sourcePath: 'records/rooms/study.yaml',
+          line: 7,
+          column: 4,
+          message: 'Physical source warning',
+        },
+      ],
+    });
+    await vi.waitFor(() =>
+      expect(useCandidateRepairStore.getState().entries['repair-status']?.diskSource).toEqual(
+        external,
+      ),
+    );
+    const entry = useCandidateRepairStore.getState().entries['repair-status']!;
+    expect(entry.buffer).toBe('unsaved candidate edit');
+    expect(entry.diagnostics[0]).toMatchObject({
+      sourcePath: 'records/rooms/study.yaml',
+      line: 7,
+    });
+    expect(open).not.toHaveBeenCalled();
+    store.applyStatus({
+      id: 'repair-status',
+      generation: 2,
+      ready: false,
+      revision: null,
+      diagnostics: [],
+    });
+    expect(useCandidateRepairStore.getState().entries['repair-status']?.status?.ready).toBe(true);
+    store.revokeRoot(initial.root);
+    store.applyStatus({
+      id: 'repair-status',
+      generation: 4,
+      ready: true,
+      revision: `sha256:${'f'.repeat(64)}`,
+      diagnostics: [],
+    });
+    expect(useCandidateRepairStore.getState().entries['repair-status']?.admitted).toBe(true);
+    expect(useCandidateRepairStore.getState().entries['repair-status']?.status).toBeUndefined();
+  });
+
   it('keeps local source edits independent from the disk and admitted Project', async () => {
     const read = vi.spyOn(window.noveltea, 'readRepairCandidate').mockResolvedValue(initial);
     useCandidateRepairStore.getState().register('repair-1', initial.root, 'strong', []);

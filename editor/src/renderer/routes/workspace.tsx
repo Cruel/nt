@@ -829,7 +829,10 @@ export function WorkspacePage() {
     addTimelineEntry({ source: 'command', message: 'Closed project' });
   }
 
-  async function openProject(projectPathOverride?: string) {
+  async function openProject(
+    projectPathOverride?: string,
+    readyCandidate?: { repairCandidateId: string; readyRevision: string },
+  ) {
     const dir = projectPathOverride ?? (await window.noveltea.selectProjectDirectory());
     if (!dir) return;
     setProjectOpening(true);
@@ -840,7 +843,7 @@ export function WorkspacePage() {
       if (!(await flushProjectEditorMetadata('switch-project'))) return;
       if (Object.keys(useWorkbenchStore.getState().tabsById).length > 0)
         saveLocalEditorSessionSnapshot(projectFilePath ?? null);
-      const loaded = await window.noveltea.openProject(dir);
+      const loaded = await window.noveltea.openProject(readyCandidate ?? dir);
       await useTemplateRegistryStore
         .getState()
         .ensureLoaded()
@@ -855,6 +858,7 @@ export function WorkspacePage() {
               loaded.repairCandidateRecognition ?? 'weak',
               loaded.diagnostics,
             );
+          void useCandidateRepairStore.getState().observe(loaded.repairCandidateId);
         }
         if (!useProjectStore.getState().document) {
           closeProjectTabs();
@@ -966,6 +970,8 @@ export function WorkspacePage() {
           title: 'Native project recovery requires attention',
           message: `${message}\n\nUnsaved recovery files were preserved. Resolve any changed source on disk and reopen the Project.`,
         });
+      } else if (readyCandidate) {
+        setAlert({ title: 'Project Candidate changed', message });
       } else if (projectPathOverride) {
         removeRecentProject(projectPathOverride);
         setAlert({
@@ -978,6 +984,14 @@ export function WorkspacePage() {
       setProjectOpening(false);
     }
   }
+
+  useEffect(
+    () =>
+      window.noveltea.onRepairCandidateStatus((status) => {
+        useCandidateRepairStore.getState().applyStatus(status);
+      }),
+    [],
+  );
 
   useEffect(() => {
     const unsubscribe = subscribeComfyUiProgress((progress) => {
@@ -2327,7 +2341,15 @@ export function WorkspacePage() {
             window.dispatchEvent(new CustomEvent('noveltea-open-new-entity-wizard'));
           break;
         case 'open-project':
-          void openProject(typeof detail === 'string' ? undefined : detail.projectPath);
+          void openProject(
+            typeof detail === 'string' ? undefined : detail.projectPath,
+            typeof detail !== 'string' && detail.repairCandidateId && detail.readyRevision
+              ? {
+                  repairCandidateId: detail.repairCandidateId,
+                  readyRevision: detail.readyRevision,
+                }
+              : undefined,
+          );
           break;
         case 'close-project':
           void closeProject();

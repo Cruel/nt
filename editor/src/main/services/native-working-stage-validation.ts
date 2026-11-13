@@ -21,13 +21,13 @@ interface WorkingValidationInput {
   checkpoint: NativeDirtyCheckpoint;
 }
 
-interface NativeCliValidation {
+export interface NativeCliValidation {
   success: boolean;
   diagnostics: ToolDiagnostic[];
   exitCode: number;
 }
 
-async function runNativeValidation(projectRoot: string): Promise<NativeCliValidation> {
+export async function runNativeValidation(projectRoot: string): Promise<NativeCliValidation> {
   const executable = resolveNovelTeaCliPath();
   const args = ['--no-daemon', '--json', '--project', projectRoot, 'validate'];
   const output = await new Promise<string>((resolve, reject) => {

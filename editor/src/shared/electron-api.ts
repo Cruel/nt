@@ -71,7 +71,15 @@ interface NovelTeaElectronApiContract {
     request: import('./project-import-handoff').CompleteDesktopProjectImportRequest,
   ): Promise<import('./project-import-handoff').DesktopProjectImportResult>;
   onProjectImportRequested(callback: () => void): () => void;
-  openProject(projectPath: string): Promise<OpenProjectResponse>;
+  openProject(
+    projectPath: string | import('./project-candidate-repair').OpenReadyRepairCandidate,
+  ): Promise<OpenProjectResponse>;
+  observeRepairCandidate(
+    id: string,
+  ): Promise<import('./project-candidate-repair').CandidateRepairStatus | null>;
+  onRepairCandidateStatus(
+    callback: (status: import('./project-candidate-repair').CandidateRepairStatus) => void,
+  ): () => void;
   readRepairCandidate(
     id: string,
   ): Promise<import('./project-candidate-repair').CandidateRepairSource>;
