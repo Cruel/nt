@@ -113,7 +113,14 @@ therefore converge on the same subject/navigation input. Hidden, disabled, absen
 and otherwise ineligible geometry does not produce enabled preview controls.
 
 Focused Room preview uses the current `noveltea.room-preview` document and remains passive for
-activation. Its projected snapshot includes eligible Room and Interactable Hotspot geometry so mouse
+activation. The native dependency graph can report an incomplete owner when a Room has a temporarily
+invalid field. Read-only focused previews may still use the current native graph when all incomplete
+owners are attributable to individual records, provided none lies inside that preview's dependency
+closure. An invalid Room therefore cannot remove unrelated Rooms' images or focused previews;
+previews depending on an invalid Room/Asset remain blocked. Unattributed source, localization, or
+Project-wide graph uncertainty still blocks preview. Rename/delete/repair and other mutating graph
+operations continue to require complete native evidence; preview eligibility never admits mutation.
+Its projected snapshot includes eligible Room and Interactable Hotspot geometry so mouse
 hover can exercise the same Project/Hotspot cursor arbitration as runtime, but focused preview does not
 route presses or releases into semantic Hotspot activation. Play preview uses the normal runtime
 projection and full world controller in the same preview executable.

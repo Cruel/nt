@@ -40,6 +40,7 @@ function sameIdentity(left: Identity | null, right: Identity | null) {
 class NativeRendererGraphService {
   private readonly listeners = new Set<() => void>();
   private current: NativeRendererGraphSnapshot | null = null;
+  private previewCurrent: NativeRendererGraphSnapshot | null = null;
   private previous: NativeRendererGraphSnapshot | null = null;
   private requested: Identity | null = null;
   private token = 0;
@@ -65,6 +66,17 @@ class NativeRendererGraphService {
       ? this.current
       : null;
   }
+  /** Read-only preview graph. Incomplete records are checked against the
+   * selected preview's dependency closure before building its document. */
+  previewSnapshot(): NativeRendererGraphSnapshot | null {
+    const identity = currentIdentity();
+    return identity &&
+      this.previewCurrent?.projectInstanceId === identity.instance &&
+      this.previewCurrent.projectRevision === identity.projectRevision &&
+      this.previewCurrent.nativeGraph.workingRevision === identity.nativeRevision
+      ? this.previewCurrent
+      : null;
+  }
   previousSnapshot() {
     const identity = currentIdentity();
     return identity && this.previous?.projectInstanceId === identity.instance
@@ -79,6 +91,7 @@ class NativeRendererGraphService {
     if (!identity) {
       this.token++;
       this.current = null;
+      this.previewCurrent = null;
       this.previous = null;
       this.requested = null;
       this.notify();
@@ -90,6 +103,7 @@ class NativeRendererGraphService {
     }
     this.requested = identity;
     this.current = null;
+    this.previewCurrent = null;
     this.lastError = null;
     const token = ++this.token;
     this.notify();
@@ -108,14 +122,21 @@ class NativeRendererGraphService {
           graph,
           identity.instance,
           identity.projectRevision,
+          { readOnlyScopedPreview: true },
         );
-        this.current = { ...snapshot, graphRevision: ++this.graphRevision };
+        const projected = { ...snapshot, graphRevision: ++this.graphRevision };
+        this.previewCurrent = projected;
+        if (graph.complete && graph.incompleteOwners.length === 0) this.current = projected;
+        else
+          this.lastError =
+            'Native semantic graph is incomplete; unsafe editor actions are blocked.';
         this.notify();
       })
       .catch((error: unknown) => {
         if (token !== this.token || !sameIdentity(identity, currentIdentity())) return;
         this.lastError = error instanceof Error ? error.message : String(error);
         this.current = null;
+        this.previewCurrent = null;
         this.notify();
       });
   }

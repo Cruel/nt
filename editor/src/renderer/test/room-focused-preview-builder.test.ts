@@ -3,7 +3,12 @@ import {
   recordNodeKey,
   serializeAuthoringDependencyNodeKey,
 } from '../../shared/authoring-graph-queries';
-import { nativeViewRecordGraphFixture } from '../test-support/native-renderer-graph-fixture';
+import {
+  nativeViewRecordGraphFixture,
+  nativeViewRecordGraphSnapshotFixture,
+} from '../test-support/native-renderer-graph-fixture';
+import { projectNativeGraphForRenderer } from '../project/native-authoring-graph-projection';
+import type { AuthoringDependencyGraphSnapshot } from '../../shared/authoring-dependency-contracts';
 import { DEFAULT_PREVIEW_DISPLAY_PREFERENCE } from '../../shared/preview-display';
 import { PSEUDO_PREVIEW_LOCALE, pseudoLocalizeText } from '../../shared/pseudo-localization';
 import { defaultArchetypeData } from '../../shared/project-schema/authoring-archetypes';
@@ -71,14 +76,14 @@ function fixture() {
   return project;
 }
 
-async function build(project = fixture()) {
+async function build(project = fixture(), override?: AuthoringDependencyGraphSnapshot) {
   const graph = nativeViewRecordGraphFixture(project);
   return buildFocusedRoomPreview({
     project,
     projectSessionId: '11111111-1111-4111-8111-111111111111',
     roomId: 'bedroom',
     inputs: { displayPreference: DEFAULT_PREVIEW_DISPLAY_PREFERENCE },
-    graph: {
+    graph: override ?? {
       projectInstanceId: 'project-instance',
       projectRevision: 1,
       graphRevision: 1,
@@ -101,6 +106,99 @@ function fixtureWithRoomMaterial() {
 }
 
 describe('graph-driven Room builder', () => {
+  it('keeps an unrelated Room preview and its image resources when another Room has invalid text', async () => {
+    const project = fixture();
+    const invalidRoom = defaultRoomData('Invalid room');
+    invalidRoom.description = {
+      markup: 'active-text',
+      source: { kind: 'localized', key: '' },
+    };
+    project.rooms.invalid = { id: 'invalid', label: 'Invalid room', data: invalidRoom };
+    project.assets.backdrop = {
+      id: 'backdrop',
+      label: 'Bedroom background',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/images/bedroom.png' },
+        aliases: [],
+        imageMetadata: { width: 800, height: 450, hasAlpha: false, orientation: 1 },
+      },
+    };
+    project.rooms.bedroom!.data.background.asset = {
+      $ref: { collection: 'assets', id: 'backdrop' },
+    };
+    const snapshot = nativeViewRecordGraphSnapshotFixture(project);
+    const partial = projectNativeGraphForRenderer(
+      { ...snapshot.nativeGraph, complete: false, incompleteOwners: ['rooms/invalid'] },
+      'project-instance',
+      1,
+      { readOnlyScopedPreview: true },
+    );
+    const result = await build(project, partial);
+    expect(result.data.room.roomId).toBe('bedroom');
+    expect(result.resources).toEqual(
+      expect.arrayContaining([expect.objectContaining({ resourceId: 'asset:backdrop' })]),
+    );
+    expect(result.diagnostics.filter((issue) => issue.severity === 'error')).toEqual([]);
+  });
+
+  it('rejects an invalid Record inside the focused Room dependency closure', async () => {
+    const project = fixture();
+    const snapshot = nativeViewRecordGraphSnapshotFixture(project);
+    const partial = projectNativeGraphForRenderer(
+      { ...snapshot.nativeGraph, complete: false, incompleteOwners: ['rooms/bedroom'] },
+      'project-instance',
+      1,
+      { readOnlyScopedPreview: true },
+    );
+    await expect(build(project, partial)).rejects.toThrow(
+      /depends on an invalid Project Record 'rooms\/bedroom'/,
+    );
+  });
+
+  it('blocks a focused Room whose Image dependency has an incomplete native owner', async () => {
+    const project = fixture();
+    project.assets.backdrop = {
+      id: 'backdrop',
+      label: 'Bedroom background',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/images/bedroom.png' },
+        aliases: [],
+        imageMetadata: { width: 800, height: 450, hasAlpha: false, orientation: 1 },
+      },
+    };
+    project.rooms.bedroom!.data.background.asset = {
+      $ref: { collection: 'assets', id: 'backdrop' },
+    };
+    const room = { kind: 'record' as const, collection: 'rooms', id: 'bedroom' };
+    const asset = { kind: 'record' as const, collection: 'assets', id: 'backdrop' };
+    const snapshot = nativeViewRecordGraphSnapshotFixture(project, {
+      edges: [
+        {
+          id: 'room-background-dependency',
+          source: room,
+          target: asset,
+          sourcePath: '/rooms/bedroom/data/background/asset',
+          targetPath: '/assets/backdrop',
+          role: 'room-background',
+          facets: ['preview-visual', 'resource'],
+          targetImpactPaths: [],
+          repair: { kind: 'set-null', path: '/rooms/bedroom/data/background/asset' },
+        },
+      ],
+    });
+    const partial = projectNativeGraphForRenderer(
+      { ...snapshot.nativeGraph, complete: false, incompleteOwners: ['assets/backdrop'] },
+      'project-instance',
+      1,
+      { readOnlyScopedPreview: true },
+    );
+    await expect(build(project, partial)).rejects.toThrow(
+      /depends on an invalid Project Record 'assets\/backdrop'/,
+    );
+  });
+
   it('stages Character Animation layers without an Environment or Interactable reference', async () => {
     const project = fixture();
     project.assets.frame = {

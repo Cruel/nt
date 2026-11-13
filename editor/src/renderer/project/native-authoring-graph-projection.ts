@@ -9,7 +9,10 @@ import type {
   DependencyImpactFacet,
 } from '../../shared/authoring-dependency-contracts';
 import { AUTHORING_DEPENDENCY_ROLES } from '../../shared/authoring-dependency-contracts';
-import type { AuthoringCollectionKey } from '../../shared/project-schema/authoring-collections';
+import {
+  authoringCollectionKeys,
+  type AuthoringCollectionKey,
+} from '../../shared/project-schema/authoring-collections';
 import { serializeAuthoringDependencyNodeKey } from '../../shared/authoring-graph-queries';
 
 export type NativeRendererGraphSnapshot = AuthoringDependencyGraphSnapshot & {
@@ -96,11 +99,27 @@ export function projectNativeGraphForRenderer(
   nativeGraph: NativeSemanticGraph,
   projectInstanceId: string,
   projectRevision: number,
+  options: { readOnlyScopedPreview?: boolean } = {},
 ): NativeRendererGraphSnapshot {
+  const complete = nativeGraph.complete && nativeGraph.incompleteOwners.length === 0;
+  // Preview can use trustworthy graph edges despite an unrelated invalid Record.
+  // Project/localization/physical-source uncertainty is not safely attributable,
+  // so it continues to block even read-only preview. Mutation callers never opt in.
+  const scopedIncomplete =
+    !nativeGraph.complete &&
+    nativeGraph.incompleteOwners.length > 0 &&
+    nativeGraph.incompleteOwners.every((owner) => {
+      const separator = owner.indexOf('/');
+      return (
+        separator > 0 &&
+        separator === owner.lastIndexOf('/') &&
+        owner.length > separator + 1 &&
+        authoringCollectionKeys.includes(owner.slice(0, separator) as AuthoringCollectionKey)
+      );
+    });
   if (
-    !nativeGraph.complete ||
-    nativeGraph.incompleteOwners.length ||
-    !nativeGraph.sourceRevisions['project.yaml']
+    !nativeGraph.sourceRevisions['project.yaml'] ||
+    (!complete && (!options.readOnlyScopedPreview || !scopedIncomplete))
   )
     throw new Error('Native semantic graph is incomplete; unsafe editor actions are blocked.');
 

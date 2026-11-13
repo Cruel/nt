@@ -82,7 +82,22 @@ describe('admitted native renderer graph lifecycle', () => {
       );
       await nativeRendererGraphService.refresh();
       expect(nativeRendererGraphService.currentSnapshot()).toBeNull();
+      expect(nativeRendererGraphService.previewSnapshot()?.nativeGraph.incompleteOwners).toEqual([
+        'rooms/missing',
+      ]);
       expect(nativeRendererGraphService.error()).toContain('incomplete');
+      // Incomplete physical/localization or Project-global evidence must not
+      // enable even a read-only preview of unrelated records.
+      read.mockImplementation(() =>
+        Promise.resolve({
+          ...nativeGraph(1),
+          complete: false,
+          incompleteOwners: ['i18n/messages.yaml'],
+        }),
+      );
+      await nativeRendererGraphService.refresh();
+      expect(nativeRendererGraphService.currentSnapshot()).toBeNull();
+      expect(nativeRendererGraphService.previewSnapshot()).toBeNull();
     } finally {
       stop();
     }

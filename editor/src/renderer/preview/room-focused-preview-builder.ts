@@ -14,6 +14,7 @@ import type {
 } from '../../shared/focused-preview-contracts';
 import { analyzeHookRegistry } from '../../shared/hook-registry-analysis';
 import { lowerManagedLuaLocalizationForFocusedPreview } from '../../shared/authoring-lua-localization-lowering';
+import type { NativeRendererGraphSnapshot } from '../project/native-authoring-graph-projection';
 import { lowerLayoutContractForWire } from '../../shared/layout-contract-lowering';
 import { resolveMessage } from '../../shared/message-resolution';
 import {
@@ -1054,6 +1055,21 @@ export async function buildFocusedRoomPreview(
   );
   const compositionHook = hookRegistry.explain('compose', roomId).winner ?? null;
   const closure = roomClosure(graph, roomId);
+  const nativeGraph =
+    'nativeGraph' in graph ? (graph as NativeRendererGraphSnapshot).nativeGraph : null;
+  if (nativeGraph && !nativeGraph.complete) {
+    const invalidInClosure = nativeGraph.incompleteOwners.find((owner) => {
+      const path = `/${owner}`;
+      return [...closure.owningPaths].some(
+        (related) =>
+          related === path || related.startsWith(`${path}/`) || path.startsWith(`${related}/`),
+      );
+    });
+    if (invalidInClosure)
+      throw new Error(
+        `Focused Room '${roomId}' depends on an invalid Project Record '${invalidInClosure}'.`,
+      );
+  }
   const analysisOwnerKeys = closureAnalysisOwnerKeys(graph, closure);
   const relevantSourceAnalysis = sourceAnalysis.filter((artifact) =>
     analysisOwnerKeys.has(artifact.semanticOwnerKey),

@@ -3,7 +3,7 @@ import {
   type PreviewHostLease,
   type PreviewPanePolicy,
 } from '@/preview/preview-host-pool';
-import { useCurrentAuthoringDependencyGraphSnapshot } from '@/project/authoring-dependency-graph-runtime';
+import { useFocusedPreviewDependencyGraphSnapshot } from '@/project/authoring-dependency-graph-runtime';
 import { nativeRendererGraphService } from '@/project/native-authoring-graph-runtime';
 import { useProjectStore } from '@/project/project-store';
 import { usePreferencesStore } from '@/stores/preferences-store';
@@ -79,7 +79,7 @@ export function DerivedPreviewPane(props: FocusedProps | LegacyProps) {
   const projectInstanceId = useProjectStore((state) => state.projectInstanceId);
   const projectRevision = useProjectStore((state) => state.projectRevision);
   const publication = useProjectStore((state) => state.lastMutationPublication);
-  const graph = useCurrentAuthoringDependencyGraphSnapshot();
+  const graph = useFocusedPreviewDependencyGraphSnapshot();
   const sourceAnalysis = useMemo(() => [], []);
   const previousGraph = useMemo(
     () => (graph && projectInstanceId ? nativeRendererGraphService.previousSnapshot() : null),

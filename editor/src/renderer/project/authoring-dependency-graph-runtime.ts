@@ -38,6 +38,19 @@ export function useCurrentAuthoringDependencyGraphSnapshot() {
   return nativeRendererGraphService.currentSnapshot();
 }
 
+/** Read-only focused previews may use a partial native graph after checking
+ * that incomplete owners are outside the requested preview closure. */
+export function useFocusedPreviewDependencyGraphSnapshot() {
+  useCommandStore((state) => state.nativeWorkingRevision);
+  useProjectStore((state) => state.projectRevision);
+  useSyncExternalStore(
+    nativeRendererGraphService.subscribe,
+    nativeRendererGraphService.state,
+    nativeRendererGraphService.state,
+  );
+  return nativeRendererGraphService.previewSnapshot();
+}
+
 export function currentAuthoringGraphSnapshot() {
   return nativeRendererGraphService.currentSnapshot();
 }
