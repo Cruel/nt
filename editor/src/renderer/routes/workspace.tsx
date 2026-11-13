@@ -66,6 +66,7 @@ import {
   type ProjectSaveCoordinatorResult,
 } from '@/project/project-save-coordinator';
 import { flushNativeProjectSources, useProjectSourceStore } from '@/project/project-source-store';
+import { useCandidateRepairStore } from '@/project/candidate-repair-store';
 import { selectProjectDirty, useProjectStore } from '@/project/project-store';
 import { MUTATION_SURFACE_ATTRIBUTIONS, resolveSaveUnitForTab } from '@/project/save-unit-registry';
 import { usePreferencesStore } from '@/stores/preferences-store';
@@ -84,7 +85,9 @@ import {
   buildPlatformExportTab,
   buildProjectSettingsTab,
   buildTestDetailTabForRecord,
+  buildCandidateRepairTab,
 } from '@/workbench/editor-registry';
+import { navigateToWorkbenchTarget } from '@/workbench/workbench-navigation';
 import {
   collectPendingInputDiagnostics,
   usePendingInputStore,
@@ -208,6 +211,7 @@ function joinProjectPath(parent: string, child: string) {
 interface WorkspaceAlert {
   title: string;
   message: string;
+  repairCandidateId?: string;
 }
 
 export function WorkspacePage() {
@@ -842,10 +846,24 @@ export function WorkspacePage() {
         .ensureLoaded()
         .catch(() => []);
       if (!loaded.success || !loaded.contentProject || !loaded.editorState) {
+        if (loaded.repairCandidateId) {
+          useCandidateRepairStore
+            .getState()
+            .register(
+              loaded.repairCandidateId,
+              loaded.projectPath,
+              loaded.repairCandidateRecognition ?? 'weak',
+              loaded.diagnostics,
+            );
+        }
         if (!useProjectStore.getState().document) {
           closeProjectTabs();
           setDiagnostics(
-            loaded.diagnostics.length > 0 ? loaded.diagnostics : unsupportedProjectDiagnostics(),
+            loaded.repairCandidateId
+              ? []
+              : loaded.diagnostics.length > 0
+                ? loaded.diagnostics
+                : unsupportedProjectDiagnostics(),
           );
         }
         const reason = loaded.diagnostics.find((entry) => entry.severity === 'error')?.message;
@@ -860,10 +878,12 @@ export function WorkspacePage() {
           message: unsupported
             ? 'This project was created with an older or unsupported NovelTea format and cannot be opened by this version of the editor.'
             : (reason ?? 'The Project could not be admitted. Its source files were not changed.'),
+          repairCandidateId: loaded.repairCandidateId,
         });
         return;
       }
       candidateAdmitted = true;
+      useCandidateRepairStore.getState().revokeRoot(loaded.projectPath);
       await cancelAndClearComfyUiProjectJobs(projectFilePath);
       let reconstructed = reconstructEditorProject(
         toJsonValue(loaded.savedContentProject ?? loaded.contentProject),
@@ -1679,6 +1699,15 @@ export function WorkspacePage() {
 
   async function saveActiveProjectUnit() {
     setDismissedExternalConflict(null);
+    const activeWorkbench = useWorkbenchStore.getState();
+    const selected = activeWorkbench.groupsById[activeWorkbench.activeGroupId]?.activeTabId;
+    const activeCandidate = selected ? activeWorkbench.tabsById[selected] : undefined;
+    if (activeCandidate?.editorType === 'candidate-repair') {
+      const id = activeCandidate.resource?.sourceId;
+      const success = id ? await useCandidateRepairStore.getState().save(id) : false;
+      setStatusMessage(success ? t('candidateRepair.saved') : t('candidateRepair.saveFailed'));
+      return success;
+    }
     if (!project) return false;
     try {
       const workbench = useWorkbenchStore.getState();
@@ -2677,7 +2706,51 @@ export function WorkspacePage() {
         <DialogPopup>
           <DialogTitle>{alert?.title ?? 'Workspace warning'}</DialogTitle>
           <DialogDescription>{alert?.message}</DialogDescription>
+          {alert?.repairCandidateId ? (
+            <div className="space-y-2 text-xs">
+              {useCandidateRepairStore
+                .getState()
+                .entries[alert.repairCandidateId]?.diagnostics.map((diagnostic, index) => (
+                  <div key={index} className="rounded border p-2">
+                    <div>{diagnostic.message}</div>
+                    <div className="font-mono text-muted-foreground">
+                      {diagnostic.sourcePath ?? diagnostic.path}
+                      {diagnostic.line
+                        ? `:${diagnostic.line}${diagnostic.column ? `:${diagnostic.column}` : ''}`
+                        : ''}
+                    </div>
+                  </div>
+                ))}
+            </div>
+          ) : null}
           <div className="flex justify-end">
+            {alert?.repairCandidateId ? (
+              <Button
+                size="sm"
+                variant="default"
+                onClick={() => {
+                  const id = alert.repairCandidateId!;
+                  const candidate = useCandidateRepairStore.getState().entries[id];
+                  if (candidate)
+                    navigateToWorkbenchTarget({
+                      tab: buildCandidateRepairTab(id, candidate.root),
+                      target: {
+                        id: 'source.line',
+                        payload: {
+                          line:
+                            candidate.diagnostics.find((diagnostic) => diagnostic.line)?.line ?? 1,
+                          column:
+                            candidate.diagnostics.find((diagnostic) => diagnostic.column)?.column ??
+                            1,
+                        },
+                      },
+                    });
+                  setAlert(null);
+                }}
+              >
+                {t('candidateRepair.fixIt')}
+              </Button>
+            ) : null}
             <Button size="sm" onClick={() => setAlert(null)}>
               OK
             </Button>

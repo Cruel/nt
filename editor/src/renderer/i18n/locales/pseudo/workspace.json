@@ -1,4 +1,30 @@
 {
+  "candidateRepair": {
+    "errors": {
+      "stale": "[Mâñïfëšt çhâñgëd ôñ dïšk. Ëdïtš prëšërvëd. Ïñšpëçt dïšk bëfôrë rëšôlvïñg.]",
+      "unsafeTarget": "[Ûñšâfë šôûrçë târgët. Çhëçk šymlïñkš âñd pâthš.]",
+      "rootChanged": "[Prôjëçt rôôt çhâñgëd. Rëôpëñ çâñdïdâtë.]",
+      "expired": "[Rëpâïr përmïššïôñ ëxpïrëd. Rëôpëñ çâñdïdâtë.]",
+      "missingEvidence": "[Mïššïñg mâñïfëšt ñëëdš ïñdëpëñdëñt Prôjëçt ëvïdëñçë.]",
+      "permission": "[Âççëšš dëñïëd. Çhëçk fïlë përmïššïôñš.]"
+    },
+    "title": "[Prôjëçt Çâñdïdâtë · Fïx ït]",
+    "description": "[Ëdït thë ôrïgïñâl mâñïfëšt. Thïš ïš ñôt âñ ôpëñ Prôjëçt. Šâvë prëšërvëš ëxâçt tëxt âñd çhëçkš dïšk rëvïšïôñ.]",
+    "fixIt": "[Fïx ït]",
+    "readDisk": "[Ïñšpëçt dïšk]",
+    "openProject": "[Ôpëñ Prôjëçt]",
+    "useDisk": "[Ûšë dïšk (dïšçârd my ëdïtš)]",
+    "save": "[Šâvë šôûrçë]",
+    "saved": "[Çâñdïdâtë šôûrçë šâvëd]",
+    "admitted": "[Prôjëçt ôpëñ. Tëmpôrâry rëpâïr çâpâbïlïty çlôšëd.]",
+    "saving": "[Šâvïñg…]",
+    "loading": "[Rëâdïñg šôûrçë…]",
+    "unavailable": "[Šôûrçë ûñâvâïlâblë.]",
+    "expired": "[Rëpâïr šëššïôñ ëxpïrëd.]",
+    "weak": "[Ûñrëçôgñïzëd mâñïfëšt. ÂÏ wrïtëš ñëëd âûthôrïzâtïôñ.]",
+    "diskChanged": "[Dïšk vëršïôñ; bûffër prëšërvëd]",
+    "saveFailed": "[Çôûld ñôt šâvë šôûrçë.]"
+  },
   "projectField": {
     "retry": "[Rëtry]",
     "useCurrent": "[Ûšë çûrrëñt]",

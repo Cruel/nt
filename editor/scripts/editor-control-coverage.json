@@ -5,6 +5,7 @@
     "archetype-detail": "ArchetypeEditor",
     "asset-detail": "AssetEditor",
     "asset-library": "AssetLibraryEditor",
+    "candidate-repair": "CandidateRepairEditor",
     "character-detail": "CharacterEditor",
     "comfyui-workflows": "ComfyUiWorkflowsEditor",
     "components": "ComponentsTabEditor",
@@ -468,6 +469,10 @@
     "scripts/ScriptModuleEditor.tsx": {
       "onChange": 2,
       "onValueChange": 1
+    },
+    "source/CandidateRepairEditor.tsx": {
+      "onChange": 1,
+      "onClick": 4
     },
     "source/EngineShaderSourceEditor.tsx": {
       "onClick": 1

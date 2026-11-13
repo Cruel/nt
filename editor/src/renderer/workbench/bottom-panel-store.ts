@@ -17,6 +17,7 @@ export type BottomPanelId =
 
 export interface BottomPanelWorkbenchContext {
   hasProject: boolean;
+  hasRepairCandidate?: boolean;
   hasPreviewTab: boolean;
   hasPreviewDiagnostics: boolean;
   hasPlaybackReport: boolean;
@@ -35,7 +36,8 @@ export interface BottomPanelDefinition {
 }
 
 const globallyAvailable = () => true;
-const projectAvailable = (context: BottomPanelWorkbenchContext) => context.hasProject;
+const problemsAvailable = (context: BottomPanelWorkbenchContext) =>
+  context.hasProject || !!context.hasRepairCandidate;
 const previewAvailable = (context: BottomPanelWorkbenchContext) =>
   context.hasProject && context.hasPreviewTab;
 const previewDiagnosticsAvailable = (context: BottomPanelWorkbenchContext) =>
@@ -53,7 +55,7 @@ const previewRelevant = (context: BottomPanelWorkbenchContext) =>
   context.activeTabResourceKind === 'preview';
 
 export const bottomPanelDefinitions: BottomPanelDefinition[] = [
-  { id: 'problems', labelKey: 'bottomPanel.labels.problems', isAvailable: projectAvailable },
+  { id: 'problems', labelKey: 'bottomPanel.labels.problems', isAvailable: problemsAvailable },
   { id: 'output', labelKey: 'bottomPanel.labels.output', isAvailable: globallyAvailable },
   { id: 'terminal', labelKey: 'bottomPanel.labels.terminal', isAvailable: globallyAvailable },
   { id: 'tooling', labelKey: 'bottomPanel.labels.tooling', isAvailable: developerAvailable },

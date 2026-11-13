@@ -7,6 +7,7 @@ import { useCommandStore } from '@/commands/command-store';
 import { DiagnosticList } from '@/diagnostics/DiagnosticList';
 import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
 import { useProjectStore } from '@/project/project-store';
+import { useCandidateRepairStore } from '@/project/candidate-repair-store';
 import { useProjectSourceStore } from '@/project/project-source-store';
 import { useEntityUsagesStore } from '@/project/entity-usages-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
@@ -31,10 +32,14 @@ import { usePreviewManagerStore } from '@/preview/preview-manager-store';
 import { terminalHasUnreadAttention, useTerminalAttentionStore } from './terminal-attention-store';
 import { selectWindowTerminalSession } from './terminal-window-host';
 import { useWorkbenchStore } from './workbench-store';
+import { buildCandidateRepairTab } from './editor-registry';
+import { navigateToWorkbenchTarget } from './workbench-navigation';
 
 function ProblemsPanel() {
   const { t } = useTranslation('workspace');
   const diagnostics = useWorkspaceStore((state) => state.diagnostics);
+  const candidateEntries = useCandidateRepairStore((state) => state.entries);
+  const candidates = Object.values(candidateEntries);
   const developerMode = usePreferencesStore((state) => state.developerMode);
   const projectDocument = useProjectStore((state) => state.document);
   const sourceFiles = useProjectSourceStore((state) => state.files);
@@ -47,12 +52,46 @@ function ProblemsPanel() {
       })),
     [diagnostics, project, sourceFiles],
   );
-  if (diagnostics.length === 0) {
+  if (diagnostics.length === 0 && candidates.length === 0) {
     return <p className="p-3 text-xs text-muted-foreground">{t('bottomPanel.empty.problems')}</p>;
   }
   return (
-    <div className="p-3 text-xs">
+    <div className="space-y-3 p-3 text-xs">
       <DiagnosticList items={diagnosticItems} showPath={developerMode} compact />
+      {candidates.map((candidate) => {
+        const tab = buildCandidateRepairTab(candidate.id, candidate.root);
+        return (
+          <div key={candidate.id} className="space-y-1" data-candidate-problems={candidate.id}>
+            <div className="flex items-center gap-2">
+              <span className="min-w-0 flex-1 truncate font-medium" title={candidate.root}>
+                {candidate.root}
+              </span>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7"
+                onClick={() => navigateToWorkbenchTarget({ tab })}
+              >
+                {t('candidateRepair.fixIt')}
+              </Button>
+            </div>
+            <DiagnosticList
+              items={candidate.diagnostics.map((item) => ({
+                ...item,
+                target: {
+                  tab,
+                  target: {
+                    id: 'source.line',
+                    payload: { line: item.line ?? 1, column: item.column ?? 1 },
+                  },
+                },
+              }))}
+              compact
+              showPath={developerMode}
+            />
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -544,6 +583,9 @@ export function BottomPanel() {
   const hasPlaybackReport = useWorkspaceStore((state) => state.lastPlaybackReport !== null);
   const hasRetainedPackageExport = useWorkspaceStore((state) => state.lastExportResult !== null);
   const hasProject = useProjectStore((state) => state.document !== null);
+  const hasRepairCandidate = useCandidateRepairStore(
+    (state) => Object.keys(state.entries).length > 0,
+  );
   const projectInstanceId = useProjectStore((state) => state.projectInstanceId);
   const previousProjectInstanceId = useRef(projectInstanceId);
   const hasReferencesResult = useEntityUsagesStore((state) => state.result !== null);
@@ -560,6 +602,7 @@ export function BottomPanel() {
   const hasPreviewDiagnostics = usePreviewManagerStore((state) => state.diagnosticOrder.length > 0);
   const availabilityContext = {
     hasProject,
+    hasRepairCandidate,
     hasPreviewTab,
     hasPreviewDiagnostics,
     hasPlaybackReport,

@@ -476,26 +476,43 @@ function tabResourceStableId(tab: WorkbenchTab): string | null {
 
 export function serializeShellWorkbenchState(state: WorkbenchState): WorkbenchState {
   const next = normalizeWorkbenchState(state);
+  // Candidate repair capabilities exist only for this Electron main-process
+  // lifetime. Never persist their tabs into the next application launch.
+  const persistTab = (tab: WorkbenchTab) => tab.editorType !== 'candidate-repair';
+  const persistentIds = new Set(
+    Object.values(next.tabsById)
+      .filter(persistTab)
+      .map((tab) => tab.id),
+  );
   return {
     layout: cloneLayoutNode(next.layout),
     groupsById: Object.fromEntries(
       Object.entries(next.groupsById).map(([groupId, group]) => [
         groupId,
-        { ...group, tabIds: [...group.tabIds] },
+        {
+          ...group,
+          tabIds: group.tabIds.filter((id) => persistentIds.has(id)),
+          activeTabId:
+            group.activeTabId && persistentIds.has(group.activeTabId)
+              ? group.activeTabId
+              : (group.tabIds.find((id) => persistentIds.has(id)) ?? null),
+        },
       ]),
     ),
     tabsById: Object.fromEntries(
-      Object.entries(next.tabsById).map(([tabId, tab]) => [
-        tabId,
-        {
-          id: tab.id,
-          title: tab.title,
-          editorType: tab.editorType,
-          resource: tab.resource ? { ...tab.resource } : undefined,
-          pinned: tab.pinned || undefined,
-          preview: tab.preview || undefined,
-        },
-      ]),
+      Object.entries(next.tabsById)
+        .filter(([, tab]) => persistTab(tab))
+        .map(([tabId, tab]) => [
+          tabId,
+          {
+            id: tab.id,
+            title: tab.title,
+            editorType: tab.editorType,
+            resource: tab.resource ? { ...tab.resource } : undefined,
+            pinned: tab.pinned || undefined,
+            preview: tab.preview || undefined,
+          },
+        ]),
     ),
     activeGroupId: next.activeGroupId,
     recentlyClosedTabs: [],
@@ -509,7 +526,10 @@ export function restoreShellWorkbenchState(
 ): WorkbenchState {
   if (!serialized) return projectWorkbench;
   if (Object.keys(projectWorkbench.tabsById).length > 0) {
-    return graftGlobalTabsIntoFirstGroup(projectWorkbench, globalTabsInLayoutOrder(serialized));
+    return graftGlobalTabsIntoFirstGroup(
+      projectWorkbench,
+      globalTabsInLayoutOrder(serialized).filter((tab) => tab.editorType !== 'candidate-repair'),
+    );
   }
   const projectTabsByStableId = new Map(
     Object.values(projectWorkbench.tabsById)
@@ -518,6 +538,7 @@ export function restoreShellWorkbenchState(
   );
   const tabEntries: Array<readonly [string, WorkbenchTab]> = [];
   for (const [tabId, tab] of Object.entries(serialized.tabsById)) {
+    if (tab.editorType === 'candidate-repair') continue;
     if (tab.resource?.kind === 'tool') {
       tabEntries.push([tabId, { ...tab, resource: { ...tab.resource } }]);
       continue;

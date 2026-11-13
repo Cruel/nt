@@ -119,7 +119,9 @@ export async function openNativeEditorProject(
     return {
       ok: true,
       success: false,
-      diagnostics: [{ severity: 'error', path: '/project.yaml', message }],
+      diagnostics: [
+        { severity: 'error', path: '/project.yaml', sourcePath: 'project.yaml', message },
+      ],
       error: message,
       projectPath: path.dirname(manifestPath),
       projectFilePath: manifestPath,

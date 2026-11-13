@@ -308,6 +308,15 @@ export const setNativeWindowFrameArgumentsSchema = z.tuple([z.boolean()]);
 
 export const openProjectArgumentsSchema = z.tuple([z.string().min(1).max(MAX_PROJECT_PATH_LENGTH)]);
 
+const repairCandidateIdSchema = z.string().uuid();
+export const readRepairCandidateArgumentsSchema = z.tuple([repairCandidateIdSchema]);
+export const closeRepairCandidateArgumentsSchema = readRepairCandidateArgumentsSchema;
+export const saveRepairCandidateArgumentsSchema = z.tuple([
+  repairCandidateIdSchema,
+  z.union([z.literal('absent'), z.string().regex(/^sha256:[0-9a-f]{64}$/u)]),
+  z.string().max(4 * 1024 * 1024),
+]);
+
 export const completeProjectImportArgumentsSchema = z.tuple([
   completeDesktopProjectImportRequestSchema,
 ]);

@@ -72,6 +72,15 @@ interface NovelTeaElectronApiContract {
   ): Promise<import('./project-import-handoff').DesktopProjectImportResult>;
   onProjectImportRequested(callback: () => void): () => void;
   openProject(projectPath: string): Promise<OpenProjectResponse>;
+  readRepairCandidate(
+    id: string,
+  ): Promise<import('./project-candidate-repair').CandidateRepairSource>;
+  saveRepairCandidate(
+    id: string,
+    expectedRevision: string,
+    text: string,
+  ): Promise<import('./project-candidate-repair').CandidateRepairSource>;
+  closeRepairCandidate(id: string): Promise<void>;
   closeActiveProject(): Promise<void>;
   /** Revisioned native working Project mutation. Only enabled in the explicit
    * editor cutover certification mode; never a direct filesystem write. */

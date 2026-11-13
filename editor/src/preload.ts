@@ -89,6 +89,10 @@ const api: NovelTeaElectronApi = {
     return () => ipcRenderer.removeListener(IPC_CHANNELS.PROJECT_IMPORT_REQUESTED_EVENT, listener);
   },
   openProject: (projectPath: string) => invokeGuarded(IPC_CHANNELS.OPEN_PROJECT, projectPath),
+  readRepairCandidate: (id: string) => invokeGuarded(IPC_CHANNELS.READ_REPAIR_CANDIDATE, id),
+  saveRepairCandidate: (id: string, expectedRevision: string, text: string) =>
+    invokeGuarded(IPC_CHANNELS.SAVE_REPAIR_CANDIDATE, id, expectedRevision, text),
+  closeRepairCandidate: (id: string) => invokeGuarded(IPC_CHANNELS.CLOSE_REPAIR_CANDIDATE, id),
   closeActiveProject: () => invokeGuarded(IPC_CHANNELS.CLOSE_ACTIVE_PROJECT),
   nativeProjectPatch: (projectSessionId, expectedRevision, patches, layoutCopySources) =>
     invokeGuarded(

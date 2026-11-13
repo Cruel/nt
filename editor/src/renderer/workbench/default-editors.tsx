@@ -36,6 +36,7 @@ import { InteractionEditor } from '@/editors/interactions/InteractionEditor';
 import { MapEditor } from '@/editors/maps/MapEditor';
 import { ScriptModuleEditor } from '@/editors/scripts/ScriptModuleEditor';
 import { SourceFileEditor } from '@/editors/source/SourceFileEditor';
+import { CandidateRepairEditor } from '@/editors/source/CandidateRepairEditor';
 import { EngineShaderSourceEditor } from '@/editors/source/EngineShaderSourceEditor';
 import { VerbEditor } from '@/editors/verbs/VerbEditor';
 import { RoomEditor } from '@/editors/rooms/RoomEditor';
@@ -206,6 +207,12 @@ export const defaultEditorRegistrations: WorkbenchEditorRegistration[] = [
     icon: FileCode,
     component: SourceFileEditor,
     mountPolicy: 'keep-mounted-while-open',
+  },
+  {
+    type: 'candidate-repair',
+    label: 'Project Candidate Repair',
+    icon: FileCode,
+    component: CandidateRepairEditor,
   },
   {
     type: 'engine-shader-source',

@@ -1,4 +1,30 @@
 {
+  "candidateRepair": {
+    "errors": {
+      "stale": "The manifest changed on disk. Your edits are preserved. Inspect the disk version before resolving the conflict.",
+      "unsafeTarget": "The target is not a safe, ordinary source file (or it exceeds the size limit). Check for symlinks or path changes.",
+      "rootChanged": "The selected Project directory changed. Reopen the candidate before editing it.",
+      "expired": "This repair permission expired. Reopen the candidate Project.",
+      "missingEvidence": "A missing manifest can only be created when independent NovelTea Project evidence exists.",
+      "permission": "Access to this source was denied. Check filesystem permissions before retrying."
+    },
+    "title": "Project Candidate · Fix it",
+    "description": "Edit the original manifest source. This is not an open Project. Save preserves exact text and checks that the disk version has not changed. Open the Project normally after repairing it.",
+    "fixIt": "Fix it",
+    "readDisk": "Inspect disk",
+    "openProject": "Open Project",
+    "useDisk": "Use disk (discard my edits)",
+    "save": "Save source",
+    "saved": "Candidate source saved",
+    "admitted": "The Project is now open. This temporary source repair capability is closed; save through the normal Project editor.",
+    "saving": "Saving…",
+    "loading": "Reading source…",
+    "unavailable": "Source unavailable. Inspect the diagnostic above.",
+    "expired": "This Project Candidate repair session has expired. Open the Project again to repair it.",
+    "weak": "This directory has only an unrecognized manifest. Inspect manually; AI modifications require explicit authorization.",
+    "diskChanged": "Disk version (your unsaved buffer is preserved)",
+    "saveFailed": "Could not save candidate source. Review the repair diagnostic."
+  },
   "projectField": {
     "retry": "Retry",
     "useCurrent": "Use current",

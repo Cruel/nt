@@ -1,4 +1,5 @@
-import { useMemo, useRef, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, type ReactNode } from 'react';
+import { useCandidateRepairStore } from '@/project/candidate-repair-store';
 import { Group, Panel } from 'react-resizable-panels';
 import { PanelResizeSeparator } from '@/components/resize-separator';
 import { AuthoringWebGlGroupProvider } from '@/authoring-renderer/authoring-webgl-provider';
@@ -151,6 +152,25 @@ function WorkbenchLayoutRenderer({
 export function Workbench() {
   const layout = useWorkbenchStore((state) => state.layout);
   const rootRef = useRef<HTMLDivElement | null>(null);
+  useEffect(
+    () =>
+      useWorkbenchStore.subscribe((state, previous) => {
+        const candidates = Object.values(previous.tabsById).filter(
+          (tab) => tab.editorType === 'candidate-repair' && tab.resource?.sourceId,
+        );
+        for (const tab of candidates) {
+          const id = tab.resource!.sourceId!;
+          if (
+            Object.values(state.tabsById).some((next) => next.resource?.sourceId === id) ||
+            state.recentlyClosedTabs.some((closed) => closed.tab.resource?.sourceId === id)
+          )
+            continue;
+          useCandidateRepairStore.getState().release(id);
+          void window.noveltea.closeRepairCandidate(id).catch(() => undefined);
+        }
+      }),
+    [],
+  );
   return (
     <div
       ref={rootRef}

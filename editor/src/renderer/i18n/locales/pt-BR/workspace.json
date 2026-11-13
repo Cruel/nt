@@ -1,4 +1,30 @@
 {
+  "candidateRepair": {
+    "errors": {
+      "stale": "O manifesto mudou no disco. Suas alterações foram preservadas. Inspecione a versão em disco antes de resolver o conflito.",
+      "unsafeTarget": "O destino não é um arquivo de origem seguro (ou excede o limite de tamanho). Verifique links simbólicos e caminhos.",
+      "rootChanged": "O diretório do projeto mudou. Abra o candidato novamente antes de editar.",
+      "expired": "Esta permissão de reparo expirou. Abra o projeto candidato novamente.",
+      "missingEvidence": "Só é possível criar um manifesto ausente com evidências independentes de um projeto NovelTea.",
+      "permission": "Acesso negado ao arquivo. Verifique as permissões antes de tentar novamente."
+    },
+    "title": "Projeto candidato · Corrigir",
+    "description": "Edite o manifesto original. Este não é um projeto aberto. Salvar preserva o texto exato e verifica alterações no disco. Abra o projeto normalmente após corrigir.",
+    "fixIt": "Corrigir",
+    "readDisk": "Inspecionar disco",
+    "openProject": "Abrir projeto",
+    "useDisk": "Usar disco (descartar minhas alterações)",
+    "save": "Salvar fonte",
+    "saved": "Fonte do candidato salva",
+    "admitted": "O projeto foi aberto. A permissão temporária de reparo foi encerrada; salve pelo editor normal do projeto.",
+    "saving": "Salvando…",
+    "loading": "Lendo fonte…",
+    "unavailable": "Fonte indisponível. Consulte o diagnóstico acima.",
+    "expired": "A sessão de reparo expirou. Abra o projeto novamente para corrigi-lo.",
+    "weak": "Este diretório contém apenas um manifesto não reconhecido. Inspecione manualmente; alterações por IA exigem autorização explícita.",
+    "diskChanged": "Versão no disco (suas alterações foram preservadas)",
+    "saveFailed": "Não foi possível salvar a fonte. Consulte o diagnóstico de reparo."
+  },
   "projectField": {
     "retry": "Tentar novamente",
     "useCurrent": "Usar valor atual",

@@ -20,6 +20,7 @@ function recordResource(collection: string, entityId: string): WorkbenchResource
 }
 
 const representativeResources: Record<string, WorkbenchResource> = {
+  'candidate-repair': { kind: 'tool', stableId: 'candidate-repair:test', sourceId: 'test' },
   'engine-preview': { kind: 'preview', stableId: 'preview:engine' },
   'full-game-preview': { kind: 'preview', stableId: 'preview:full-game' },
   'asset-library': { kind: 'project', stableId: 'assets' },

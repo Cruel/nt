@@ -13,6 +13,7 @@ import { Dialog, DialogDescription, DialogPopup, DialogTitle } from '@/component
 import { flushStructuralCommandPersistence, useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
 import { useProjectSourceStore } from '@/project/project-source-store';
+import { useCandidateRepairStore } from '@/project/candidate-repair-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { hasRemainingViewForSaveUnit, useCloseGuardStore } from './close-guard-store';
 import {
@@ -116,6 +117,15 @@ export function DirtyCloseDialog() {
     setSaving(true);
     setProjectSaving(true);
     try {
+      for (const { tab: dirtyTab } of dirtyTabStates) {
+        if (dirtyTab.editorType !== 'candidate-repair') continue;
+        const id = dirtyTab.resource?.sourceId;
+        if (!id || !(await useCandidateRepairStore.getState().save(id))) {
+          setStatusMessage(t('candidateRepair.saveFailed'));
+          return;
+        }
+        useWorkbenchStore.getState().setTabDirty(dirtyTab.id, false);
+      }
       await flushStructuralCommandPersistence();
       for (const { tab: dirtyTab, dirty: dirtyState } of dirtyTabStates) {
         if (dirtyState.draftDirty) {
@@ -184,6 +194,15 @@ export function DirtyCloseDialog() {
     if (!pendingClose || pendingTabs.length === 0 || saving) return;
     setSaving(true);
     try {
+      for (const { tab: dirtyTab } of dirtyTabStates) {
+        if (dirtyTab.editorType !== 'candidate-repair') continue;
+        const id = dirtyTab.resource?.sourceId;
+        const entry = id ? useCandidateRepairStore.getState().entries[id] : undefined;
+        if (id && entry?.source) {
+          useCandidateRepairStore.getState().setBuffer(id, entry.source.text);
+          useWorkbenchStore.getState().setTabDirty(dirtyTab.id, false);
+        }
+      }
       const restoredSaveUnitIds = new Set<string>();
       const ownerIds = new Set(
         dirtyTabStates

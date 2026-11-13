@@ -395,6 +395,16 @@ export function buildProjectSourceTab(source: ProjectSourceFile): WorkbenchTab {
   };
 }
 
+export function buildCandidateRepairTab(id: string, root: string): WorkbenchTab {
+  return {
+    id: `tab:candidate-repair:${id}`,
+    title: `Fix: ${root.split(/[\\/]/u).at(-1) || 'Project'}`,
+    editorType: 'candidate-repair',
+    // Deliberately a global tool, never a Project-scoped source Save unit.
+    resource: { kind: 'tool', stableId: `candidate-repair:${id}`, sourceId: id },
+  };
+}
+
 export function buildAssetsEditorTab(selectedId?: string): WorkbenchTab {
   return {
     id: 'tab:assets',

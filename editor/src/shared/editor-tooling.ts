@@ -36,6 +36,9 @@ export interface OpenProjectResponse {
   projectPath: string;
   projectFilePath: string;
   projectSessionId?: string;
+  /** Main-owned, pre-admission capability for a failed Project Candidate only. */
+  repairCandidateId?: string;
+  repairCandidateRecognition?: 'strong' | 'weak';
   /** Present only in explicit native-edit certification launches. */
   nativeWorkingRevision?: number;
   /** Native-only acknowledged working content restored from a local replay checkpoint. */

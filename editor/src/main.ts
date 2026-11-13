@@ -67,6 +67,9 @@ import {
   noArgumentsSchema,
   openExternalArgumentsSchema,
   openProjectArgumentsSchema,
+  readRepairCandidateArgumentsSchema,
+  saveRepairCandidateArgumentsSchema,
+  closeRepairCandidateArgumentsSchema,
   openProjectAttachmentFileArgumentsSchema,
   organizeUntrackedProjectAssetArgumentsSchema,
   prepareOpaqueVideoArgumentsSchema,
@@ -102,6 +105,10 @@ import {
   validateDirectoryArgumentsSchema,
 } from './main/editor-ipc-trust-boundary';
 import { EnginePreviewServer } from './main/engine-preview-server';
+import {
+  candidateManifestSyntaxDiagnostics,
+  ProjectCandidateRepairService,
+} from './main/services/project-candidate-repair-service';
 import {
   createImageThumbnailProtocolHandler,
   IMAGE_THUMBNAIL_SCHEME,
@@ -363,6 +370,7 @@ const packageSmokeCacheRoot = process.argv.includes(PACKAGE_SMOKE_FLAG)
   ? process.env.NOVELTEA_EDITOR_PACKAGE_SMOKE_CACHE_ROOT?.trim()
   : undefined;
 const activeProjectSessions = new ActiveProjectSessionService();
+const projectCandidateRepairs = new ProjectCandidateRepairService();
 // Native Project authority is unconditional in the production editor. Each
 // admitted Project owns one main-process worker; the CLI owns a separate
 // native session and cannot substitute for the editor's working revision.
@@ -1243,9 +1251,51 @@ void app.whenReady().then(async () => {
         if (incumbent && incumbent !== nativeEditorHandoff.current())
           nativeEditorObservers.get(incumbent)?.close();
         nativeEditorAdmission = nativeEditorHandoff.current();
+        // Native Open already supplies the canonical root; revocation must not
+        // turn a successful admission into a failed IPC response.
+        projectCandidateRepairs.revokeRoot(result.projectPath);
+      } else {
+        // Only this main-owned Open attempt can grant a candidate capability.
+        // A renderer path alone cannot authorize arbitrary source editing.
+        try {
+          const candidate = await projectCandidateRepairs.registerFailedOpen(projectPath);
+          if (candidate) {
+            result.repairCandidateId = candidate.id;
+            result.repairCandidateRecognition = candidate.recognition;
+            try {
+              const source = await projectCandidateRepairs.read(candidate.id);
+              if (source.revision !== 'absent')
+                result.diagnostics = [
+                  ...candidateManifestSyntaxDiagnostics(source.text),
+                  ...result.diagnostics,
+                ];
+            } catch {
+              // The repair source reader will expose a specific trust error.
+            }
+          }
+        } catch {
+          // Keep the original native admission diagnostic available even when
+          // candidate source inspection itself is unsafe or unavailable.
+        }
       }
       return rememberPreviewProjectRoot(result);
     },
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.READ_REPAIR_CANDIDATE,
+    (arguments_) => readRepairCandidateArgumentsSchema.parse(arguments_),
+    (id) => projectCandidateRepairs.read(id),
+  );
+  guardedIpc.handle(
+    IPC_CHANNELS.SAVE_REPAIR_CANDIDATE,
+    (arguments_) => saveRepairCandidateArgumentsSchema.parse(arguments_),
+    (id, revision, text) => projectCandidateRepairs.save(id, revision, text),
+  );
+  guardedIpc.handle(
+    IPC_CHANNELS.CLOSE_REPAIR_CANDIDATE,
+    (arguments_) => closeRepairCandidateArgumentsSchema.parse(arguments_),
+    (id) => projectCandidateRepairs.close(id),
   );
 
   guardedIpc.handle(

@@ -114,6 +114,7 @@ export const RECORD_SAVE_UNIT_COLLECTIONS: ReadonlySet<string> = new Set(
 );
 
 const NON_CONTENT_EDITOR_TYPES = new Set([
+  'candidate-repair', // Pre-admission physical source CAS, never a Project Save unit.
   'engine-preview',
   'full-game-preview',
   'image-generation',

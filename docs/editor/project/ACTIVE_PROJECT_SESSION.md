@@ -1,5 +1,17 @@
 # Active Project Session
 
+Pre-admission repair after a failed Open is **not** an Active Project Session.
+`ProjectCandidateRepairService` issues opaque, main-owned capabilities tied to a
+canonical candidate root and its fixed `project.yaml` source. The candidate
+Source editor can read and explicitly Save original raw text (or create an
+absent manifest with independently recognized Project evidence), subject to
+physical source-revision checks and no-follow containment rules. It cannot
+patch native Project working state, call normal Save units, or promote the
+candidate. The incumbent active Project remains unchanged until a successful
+normal Open. The Fix it action is available from failed-open diagnostics and
+Problems, and candidate source buffers remain distinct from normal Project
+recovery. No generated or normalized Project is used as a fallback.
+
 ## Purpose
 
 The Electron main process owns the authority for the active Project. Renderer state receives only an
