@@ -433,6 +433,17 @@ export const nativeAuthoringCommandSchema = z.discriminatedUnion('operation', [
   z
     .object({
       requestId: z.number().int().positive(),
+      operation: z.literal('recoverOwner'),
+      expectedRevision: z.number().int().nonnegative(),
+      owner: z.string().min(1).max(2048),
+      diskRevision: z.union([z.literal('absent'), z.string().regex(/^xxh3-128:[a-f0-9]{32}$/)]),
+      baseline: z.record(z.string(), z.unknown()),
+      working: z.record(z.string(), z.unknown()),
+    })
+    .strict(),
+  z
+    .object({
+      requestId: z.number().int().positive(),
       operation: z.literal('useDisk'),
       owner: z.string().min(1).max(2048),
       expectedRevision: z.number().int().nonnegative(),

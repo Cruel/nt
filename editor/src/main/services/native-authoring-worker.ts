@@ -24,6 +24,14 @@ interface NativeBinding {
   validateWorking(handle: unknown, revision: number): string;
   inspect(handle: unknown, owner: string): string;
   reconcile(handle: unknown, owner: string): string;
+  recoverOwner(
+    handle: unknown,
+    revision: number,
+    owner: string,
+    diskRevision: string,
+    baseline: string,
+    working: string,
+  ): string;
   useDisk(handle: unknown, revision: number, owner: string, paths?: string): string;
   saveOwners(
     handle: unknown,
@@ -309,6 +317,25 @@ parent.on('message', (raw: unknown) => {
           requestId: command.requestId,
           result: nativeAuthoringResultSchema.parse(
             JSON.parse(binding.reconcile(handle, command.owner)),
+          ),
+        };
+        break;
+      case 'recoverOwner':
+        result = {
+          ...identity,
+          type: 'response',
+          requestId: command.requestId,
+          result: nativeAuthoringResultSchema.parse(
+            JSON.parse(
+              binding.recoverOwner(
+                handle,
+                command.expectedRevision,
+                command.owner,
+                command.diskRevision,
+                JSON.stringify(command.baseline),
+                JSON.stringify(command.working),
+              ),
+            ),
           ),
         };
         break;

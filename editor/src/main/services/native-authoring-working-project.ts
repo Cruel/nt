@@ -21,6 +21,11 @@ type RetainedBatch = Readonly<{
   layoutCopySources?: Record<string, string>;
 }>;
 type RetainedTextSource = Readonly<{ text: string; diskRevision: string }>;
+type RecoveryOwnerEvidence = Readonly<{
+  diskRevision: string;
+  baseline: Record<string, unknown>;
+  working: Record<string, unknown>;
+}>;
 
 /** Worker IPC creates mutable structured clones. Publish graph snapshots as
  * deep-frozen read-only evidence so presentation consumers cannot corrupt a
@@ -37,6 +42,8 @@ function freezeGraphDto<T>(value: T): T {
  * pending invalid inputs remain in the existing local editor-state file. */
 export interface NativeDirtyCheckpoint {
   batches: RetainedBatch[];
+  /** Bounded to dirty physical owners; a native B/L preimage for offline reconciliation. */
+  ownerEvidence?: Record<string, RecoveryOwnerEvidence>;
   textSources: Record<string, RetainedTextSource>;
   conflicts: Record<string, string[]>;
   pendingFields: Record<string, string>;
@@ -124,6 +131,7 @@ export class NativeAuthoringWorkingProject {
   private cursor = 0;
   private retained: RetainedBatch[] = [];
   private readonly retainedTextSources = new Map<string, RetainedTextSource>();
+  private readonly recoveryOwnerEvidence = new Map<string, RecoveryOwnerEvidence>();
   private readonly pendingFields = new Map<string, string>();
   private readonly pendingDeletedOwners = new Map<string, string>();
   private readonly pendingLayoutCopySources = new Map<string, string>();
@@ -155,17 +163,35 @@ export class NativeAuthoringWorkingProject {
 
   dirtyCheckpoint(): NativeDirtyCheckpoint {
     const conflicts: Record<string, string[]> = {};
+    const ownerEvidence: Record<string, RecoveryOwnerEvidence> = {};
     for (const [owner, source] of [
       ...Object.entries(this.view?.recordSnapshots ?? {}),
       ...(this.view ? [['project', this.view] as const] : []),
-    ])
+    ]) {
       if (source.conflictingPaths?.length) conflicts[owner] = [...source.conflictingPaths];
+      if (
+        source.dirtyPatches.length > 0 &&
+        source.baseline &&
+        source.source &&
+        typeof source.baseline === 'object' &&
+        !Array.isArray(source.baseline) &&
+        typeof source.source === 'object' &&
+        !Array.isArray(source.source)
+      ) {
+        ownerEvidence[owner] = {
+          diskRevision: source.diskSourceRevision,
+          baseline: structuredClone(source.baseline as Record<string, unknown>),
+          working: structuredClone(source.source as Record<string, unknown>),
+        };
+      }
+    }
     return {
       batches: this.currentDirtyBatches().map((entry) => ({
         patches: structuredClone(entry.patches),
         diskPreconditions: { ...entry.diskPreconditions },
         ...(entry.layoutCopySources ? { layoutCopySources: { ...entry.layoutCopySources } } : {}),
       })),
+      ownerEvidence,
       textSources: Object.fromEntries(this.retainedTextSources),
       conflicts,
       pendingFields: Object.fromEntries(this.pendingFields),
@@ -191,6 +217,9 @@ export class NativeAuthoringWorkingProject {
     if (!this.projectSessionId || this.projectSessionId !== sessionId)
       throw new Error('Cannot restore native recovery into another Project session.');
     this.retained = structuredClone(checkpoint.batches);
+    this.recoveryOwnerEvidence.clear();
+    for (const [owner, evidence] of Object.entries(checkpoint.ownerEvidence ?? {}))
+      this.recoveryOwnerEvidence.set(owner, structuredClone(evidence));
     this.retainedTextSources.clear();
     for (const [path, source] of Object.entries(checkpoint.textSources))
       this.retainedTextSources.set(path, { ...source });
@@ -211,6 +240,7 @@ export class NativeAuthoringWorkingProject {
       this.history = [];
       this.cursor = 0;
       this.retained = [];
+      this.recoveryOwnerEvidence.clear();
       this.retainedTextSources.clear();
       this.pendingDeletedOwners.clear();
       this.pendingLayoutCopySources.clear();
@@ -695,7 +725,11 @@ export class NativeAuthoringWorkingProject {
   }
 
   async reopenAndReplay(sessionId: string): Promise<Snapshot> {
-    return this.replayDirtyCheckpoint(sessionId, this.dirtyCheckpoint().conflicts);
+    const checkpoint = this.dirtyCheckpoint();
+    this.recoveryOwnerEvidence.clear();
+    for (const [owner, evidence] of Object.entries(checkpoint.ownerEvidence ?? {}))
+      this.recoveryOwnerEvidence.set(owner, evidence);
+    return this.replayDirtyCheckpoint(sessionId, checkpoint.conflicts);
   }
 
   private async replayDirtyCheckpoint(
@@ -710,17 +744,66 @@ export class NativeAuthoringWorkingProject {
       // original exact source identity, not the worker's new revision zero.
       const batches = [...this.retained];
       const textSources = [...this.retainedTextSources];
+      const evidence = new Map(this.recoveryOwnerEvidence);
+      const reconciledOwners = new Set<string>();
+      const unresolvedWithoutBase: Record<string, string[]> = {};
       const opened = await this.bridge.open(sessionId);
       this.view = opened.snapshot;
       this.pendingDeletedOwners.clear();
       this.pendingLayoutCopySources.clear();
       try {
+        for (const [owner, base] of evidence) {
+          if (!batches.some((batch) => Object.hasOwn(batch.diskPreconditions, owner))) continue;
+          const restored = await this.bridge.request({
+            operation: 'recoverOwner',
+            expectedRevision: this.view.workingRevision,
+            owner,
+            diskRevision: base.diskRevision,
+            baseline: base.baseline,
+            working: base.working,
+          });
+          if (!restored || !('accepted' in restored) || !restored.accepted)
+            throw new Error(
+              `Native Project recovery cannot reconcile ${owner}: ${restored && 'error' in restored ? restored.error : 'invalid response'}`,
+            );
+          this.view = this.mergeSnapshot(restored.snapshot, restored.affectedRecords);
+          reconciledOwners.add(owner);
+        }
         for (const batch of batches) {
-          const result = await this.requestPatch(
-            batch.patches,
+          const remaining = batch.patches.filter(
+            (patch) =>
+              !reconciledOwners.has(patchOwner(patch.path)) &&
+              !(
+                patch.path.startsWith('/localization/') &&
+                Object.keys(batch.diskPreconditions).every((owner) => reconciledOwners.has(owner))
+              ),
+          );
+          if (!remaining.length) continue;
+          let result = await this.requestPatch(
+            remaining,
             batch.diskPreconditions,
             batch.layoutCopySources,
           );
+          if (!result.accepted && result.error.startsWith('Recovery source conflict for ')) {
+            // Checkpoints from before bounded native preimages cannot prove a
+            // disjoint change. Retain working intent against today's native
+            // disk baseline, but require explicit whole-owner resolution.
+            const changedOwner = result.error.slice('Recovery source conflict for '.length);
+            if (evidence.has(changedOwner))
+              throw new Error(`Native Project recovery unexpectedly rejected ${changedOwner}`);
+            result = await this.requestPatch(remaining, undefined, batch.layoutCopySources);
+            if (result.accepted)
+              for (const changed of Object.keys(batch.diskPreconditions)) {
+                const state =
+                  changed === 'project'
+                    ? result.snapshot
+                    : result.snapshot.recordSnapshots?.[changed];
+                // Older journals have no B values, so every retained dirty
+                // path must be resolved; no path can be proved disjoint.
+                const paths = state?.dirtyPatches.map((patch) => patch.path) ?? [];
+                if (paths.length) unresolvedWithoutBase[changed] = paths;
+              }
+          }
           if (!result.accepted) throw new Error(`Native Project replay conflict: ${result.error}`);
           this.view = this.mergeSnapshot(result.snapshot, result.affectedRecords);
           for (const patch of batch.patches) {
@@ -768,11 +851,28 @@ export class NativeAuthoringWorkingProject {
             throw new Error(`Native Project text-source recovery conflict for ${path}`);
           this.view = this.mergeSnapshot(restored.snapshot);
         }
-        if (Object.keys(conflicts).length) {
+        // The native three-way merge may have found new overlaps while the
+        // editor was closed. Carry those forward alongside still-unresolved
+        // older conflicts, rather than replacing them with the old snapshot.
+        const allConflicts: Record<string, string[]> = {};
+        for (const owner of new Set([
+          ...Object.keys(conflicts),
+          ...Object.keys(unresolvedWithoutBase),
+        ])) {
+          const state = owner === 'project' ? this.view : this.view.recordSnapshots?.[owner];
+          if (!state?.dirty) continue;
+          const retained = [
+            ...(conflicts[owner] ?? []),
+            ...(unresolvedWithoutBase[owner] ?? []),
+          ].filter((path) => state.dirtyPatches.some((patch) => overlaps(path, patch.path)));
+          const paths = [...new Set([...(state.conflictingPaths ?? []), ...retained])];
+          if (paths.length) allConflicts[owner] = paths;
+        }
+        if (Object.keys(allConflicts).length) {
           const restored = await this.bridge.request({
             operation: 'restoreConflicts',
             expectedRevision: this.view.workingRevision,
-            conflicts,
+            conflicts: allConflicts,
           });
           if (!restored || !('accepted' in restored) || !restored.accepted)
             throw new Error(
@@ -785,6 +885,7 @@ export class NativeAuthoringWorkingProject {
         this.view = null;
         throw error;
       }
+      this.checkpointDirtyWorkingState();
       return this.view;
     });
   }

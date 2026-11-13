@@ -4608,6 +4608,109 @@ RoomSessionResult ProjectSession::reconcile_owner(std::string_view owner)
     return response;
 }
 
+RoomSessionResult ProjectSession::recover_owner(std::uint64_t revision, std::string_view owner,
+                                                std::string_view old_disk_revision,
+                                                std::string_view baseline_json,
+                                                std::string_view working_json)
+{
+    RoomSessionResult response;
+    response.snapshot = snapshot();
+    if (revision != working_revision_) {
+        response.error = "Stale working revision during dirty recovery.";
+        return response;
+    }
+    const auto before = response.snapshot;
+    try {
+        if (source_revision_algorithm(old_disk_revision) == SourceRevisionAlgorithm::Invalid)
+            throw std::runtime_error("Invalid dirty recovery source revision.");
+        const auto base = Json::parse(baseline_json);
+        const auto local = Json::parse(working_json);
+        if (!base.is_object() || !local.is_object())
+            throw std::runtime_error("Dirty recovery requires complete source objects.");
+        const auto name = std::string(owner);
+        std::unique_ptr<RoomSession> staged;
+        if (name == "project") {
+            staged = source_->clone();
+        } else if (const auto found = records_.find(name); found != records_.end()) {
+            staged = found->second->clone();
+        } else {
+            const auto slash = name.find('/');
+            const auto family = name.substr(0, slash);
+            const auto id = slash == std::string::npos ? std::string() : name.substr(slash + 1);
+            std::string error;
+            if (name == "editor")
+                staged = RoomSession::open_editor_source(root_, error);
+            else if (name == "traits")
+                staged = RoomSession::open_traits_source(root_, error);
+            else if (name.starts_with("i18n/") && tracked_fragment(name))
+                staged = RoomSession::open_localization_source(root_, name, error);
+            else if (record_contracts().contains(family) && is_id(id)) {
+                if (source_revision_or_absent(family == "layouts"
+                                                  ? root_ / "records" / family / id / "layout.yaml"
+                                                  : root_ / "records" / family / (id + ".yaml")) ==
+                    "absent") {
+                    staged = RoomSession::stage_new_record(root_, family, id,
+                                                           std::string(working_json), error);
+                } else {
+                    staged = RoomSession::open_record(root_, family, id, error);
+                }
+            }
+            if (!staged)
+                throw std::runtime_error("Cannot admit dirty recovery owner " + name + ": " +
+                                         error);
+        }
+        if (!staged->is_project_ && !staged->is_editor_ && !staged->is_traits_ &&
+            !staged->is_localization_ &&
+            ((old_disk_revision != "absent" &&
+              (!base.contains("id") || base.at("id") != staged->room_id_)) ||
+             !local.contains("id") || local.at("id") != staged->room_id_))
+            throw std::runtime_error("Dirty recovery source identity changed.");
+        const auto current_revision = source_revision_or_absent(staged->source_path());
+        staged->disk_json_ = base.to_string();
+        staged->working_json_ = local.to_string();
+        staged->disk_revision_ = std::string(old_disk_revision);
+        staged->unsaved_patches_.clear();
+        staged->conflicting_paths_.clear();
+        staged->snapshot_cache_.reset();
+        RoomSessionResult merged;
+        if (current_revision == old_disk_revision) {
+            json_delta(&base, &local, "", staged->unsaved_patches_);
+            merged.accepted = true;
+        } else {
+            merged = current_revision == "absent" ? staged->reconcile_deleted_disk()
+                                                  : staged->reconcile_disk();
+        }
+        if (!merged.accepted)
+            throw std::runtime_error("Cannot reconcile dirty recovery owner " + name + ": " +
+                                     merged.error);
+        if (name == "project")
+            source_ = std::move(staged);
+        else
+            records_.insert_or_assign(name, std::move(staged));
+        if (indexed_text_owner(name))
+            index_text_owner(name, records_.at(name)->snapshot().source_json);
+        if (localization_record_owner(name) || name.starts_with("i18n/") ||
+            name.starts_with("assets/"))
+            localization_cache_.reset();
+        if (name.starts_with("assets/"))
+            reindex_asset_consumers(name.substr(sizeof("assets/") - 1));
+        if (name.starts_with("materials/"))
+            material_compiler_results_.clear();
+        if (name.starts_with("interactions/")) {
+            interaction_sources_.reset();
+            interaction_resolver_cache_.reset();
+        }
+        ++working_revision_;
+        response.accepted = true;
+        response.affected_records = {name};
+        response.snapshot = snapshot();
+        diagnostic_delta(response, before);
+    } catch (const std::exception& error) {
+        response.error = error.what();
+    }
+    return response;
+}
+
 RoomSessionResult ProjectSession::use_disk(std::uint64_t revision, std::string_view owner,
                                            const std::vector<std::string>& paths)
 {

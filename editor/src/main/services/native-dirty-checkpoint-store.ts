@@ -55,6 +55,18 @@ const checkpointSchema = z
           }),
       )
       .max(4096),
+    ownerEvidence: z
+      .record(
+        z.string().min(1),
+        z
+          .object({
+            diskRevision: revision,
+            baseline: z.record(z.string(), z.unknown()),
+            working: z.record(z.string(), z.unknown()),
+          })
+          .strict(),
+      )
+      .optional(),
     textSources: z.record(
       z.string().min(1),
       z.object({ text: z.string().max(4 * 1024 * 1024), diskRevision: revision }).strict(),

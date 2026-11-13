@@ -73,6 +73,14 @@ and presents overlapping native conflict paths in the existing Problems panel
 and conflict dialog. The original TypeScript three-way merge remains available
 only for legacy sessions; it is not a native authoring authority.
 
+First-discovered **offline** YAML changes use that same resident reconciler on
+native dirty checkpoint replay. Per-dirty-owner checkpoint baselines supply the
+previous `B`/`L` source values, and current disk supplies `E`; the editor Open
+result carries the native `conflictingPaths` through `nativeRecoveredConflicts`.
+Unresolved conflicts do not block unrelated Save units or trigger an implicit
+disk write during admission. This native recovery rule supersedes the historical
+TypeScript checkpoint behavior described below.
+
 In an admitted session, **Use Disk** invokes native save-unit discard before the
 renderer adopts native snapshots. **Keep Mine** sends an explicit native Save
 override and remains subject to exact physical revision checks; **Cancel** closes

@@ -438,6 +438,19 @@ napi_value call(napi_env env, napi_callback_info info)
             const auto reconciled = session.project->reconcile_owner(string_arg(env, argv[1]));
             return js_string(env, result_json(*session.project, reconciled).to_string());
         }
+        if (name == "recoverOwner") {
+            if (argc != 6)
+                throw std::runtime_error("Dirty owner recovery requires revision, owner, source "
+                                         "revision, base and local "
+                                         "values.");
+            std::int64_t revision = -1;
+            if (napi_get_value_int64(env, argv[1], &revision) != napi_ok || revision < 0)
+                throw std::runtime_error("Invalid dirty owner recovery revision.");
+            const auto recovered = session.project->recover_owner(
+                static_cast<std::uint64_t>(revision), string_arg(env, argv[2]),
+                string_arg(env, argv[3]), string_arg(env, argv[4]), string_arg(env, argv[5]));
+            return js_string(env, result_json(*session.project, recovered).to_string());
+        }
         if (name == "useDisk") {
             if (argc < 3 || argc > 5)
                 throw std::runtime_error("useDisk requires working revision and owner.");
@@ -986,6 +999,7 @@ napi_value initialize(napi_env env, napi_value exports)
                                     "observe",
                                     "inspect",
                                     "reconcile",
+                                    "recoverOwner",
                                     "useDisk",
                                     "saveOwners",
                                     "resolveSaveUnits",

@@ -278,6 +278,11 @@ public:
                             const std::map<std::string, std::string>& layout_copy_sources = {});
     RoomSessionResult inspect_record(std::string_view owner);
     RoomSessionResult reconcile_owner(std::string_view owner);
+    // Restore one dirty checkpoint owner against its original semantic base,
+    // then use the normal native three-way disk reconciler for offline edits.
+    RoomSessionResult recover_owner(std::uint64_t revision, std::string_view owner,
+                                    std::string_view old_disk_revision,
+                                    std::string_view baseline_json, std::string_view working_json);
     RoomSessionResult use_disk(std::uint64_t revision, std::string_view owner,
                                const std::vector<std::string>& paths = {});
     RoomSessionResult use_disk_owners(std::uint64_t revision,

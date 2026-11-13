@@ -1473,4 +1473,56 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
       await rm(root, { recursive: true, force: true });
     }
   }, 120_000);
+
+  it('opens a Project with a first-discovered offline Room conflict and publishes it to the renderer', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'native-editor-offline-conflict-'));
+    await cp(path.resolve(process.cwd(), '../tests/projects/feature-lab'), root, {
+      recursive: true,
+    });
+    const room = 'active-text';
+    const file = path.join(root, `records/rooms/${room}.yaml`);
+    const sessions = new ActiveProjectSessionService();
+    const makeController = () => {
+      const bridge = new NativeAuthoringSessionBridge(sessions, {
+        addonPath: nativeAddon!,
+        workerScript: path.resolve(
+          process.cwd(),
+          'dist-electron/authoring-worker/native-authoring-worker.cjs',
+        ),
+        pollIntervalMs: 100,
+      });
+      return new NativeEditorSessionController(
+        sessions,
+        bridge,
+        new NativeAuthoringWorkingProject(bridge),
+      );
+    };
+    let controller = makeController();
+    try {
+      const original = await readFile(file, 'utf8');
+      const { id, admitted } = await admitNativeSession(sessions, controller, root);
+      const patched = await controller.applyRevisionedPatches(id, admitted.revision, [
+        { op: 'replace', path: `/rooms/${room}/label`, value: 'Local offline label' },
+      ]);
+      expect(patched.accepted, patched.error).toBe(true);
+      controller.dispose();
+      sessions.closeActiveProject();
+      await writeFile(file, original.replace('label: Active Text', 'label: Disk offline label'));
+      controller = makeController();
+      const opened = await openNativeEditorProject(
+        root,
+        sessions.beginProjectActivation(),
+        sessions,
+        controller,
+      );
+      expect(opened.success, opened.error).toBe(true);
+      expect(opened.nativeRecoveredConflicts?.[`rooms/${room}`]?.paths).toEqual(['/label']);
+      expect(controller.recoveredContentProject()?.rooms[room]?.label).toBe('Local offline label');
+      expect(await readFile(file, 'utf8')).toContain('Disk offline label');
+    } finally {
+      controller.dispose();
+      sessions.dispose();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 120_000);
 });

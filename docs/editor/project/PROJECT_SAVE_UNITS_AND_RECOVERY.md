@@ -25,6 +25,18 @@ preconditions; it no longer computes a second JSON diff to infer dirty native
 record content. The renderer keeps separate tab histories, drafts and pending
 invalid form input because those are UI state rather than Project authority.
 
+For native YAML recovery the local checkpoint also retains the native saved
+baseline and unsaved working value **only for dirty physical owners**. Restart
+compares exact source revisions: unchanged files restore equivalent working
+values without writing disk; changed files use the existing native three-way reconciler to merge
+disjoint fields or retain local values and publish overlapping conflict paths.
+An externally deleted dirty record becomes a whole-owner conflict. Shared
+`editor.yaml` metadata follows the same path rules. Older checkpoints lacking
+base evidence remain readable, but any changed dirty owner is conservatively
+conflicted at its retained dirty paths instead of receiving a guessed merge.
+This preserves the existing journal identity, bounded size and Save CAS without
+capturing clean owners or unrelated Assets.
+
 | Unit family | Stable ID | Owned paths | Policy used by current editor mutations |
 | --- | --- | --- | --- |
 | Record | `record:<collection>:<entityId>` | `/<collection>/<entityId>` plus `/editor/recordMetadata/<collection>/<entityId>` | `manual-save` |
