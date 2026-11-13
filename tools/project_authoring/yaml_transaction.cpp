@@ -949,8 +949,6 @@ YamlTransactionService::prepare(const std::vector<YamlTransactionTarget>& target
                             prepared.affected_comments.push_back(location.path);
                 }
             } else if (raw_text) {
-                if (current_revision == "absent")
-                    throw std::runtime_error("WORKSPACE_REVISION_CONFLICT: missing text source.");
                 prepared.after_source = *target.raw_text_source;
                 prepared.after_revision = exact_source_revision(prepared.after_source);
             } else if (target.create_source) {

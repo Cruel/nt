@@ -474,7 +474,7 @@
     },
     "source/SourceFileEditor.tsx": {
       "onChange": 1,
-      "onClick": 8
+      "onClick": 9
     },
     "tests/TestSuiteEditor.tsx": {
       "onClick": 4

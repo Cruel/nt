@@ -63,6 +63,23 @@ byte-verified latest disk revision before the native transaction's second
 revision check. A verified removal may discard a previously staged overlay
 using the `absent` revision. Use Disk and deletion never write physical bytes.
 
+On native Project reopen, a valid independent dirty text-source checkpoint is
+replayed even if that source changed or was deleted while the editor was closed.
+The original acknowledged bytes remain the local overlay; an exact fresh
+physical revision becomes the native stage fence, while the checkpoint keeps
+the original `conflictBaseRevision` to project a persistent source-editor
+conflict. Neither replay nor Continue Editing writes to disk. Ordinary scoped
+Save and mixed Save All reject the unresolved source; Keep Mine must explicitly
+send its authorization and the exact current physical revision through native
+Save, which checks the same revision again before writing. Use Disk discards
+the overlay. A subsequent external edit or recreation between review and Save
+loses the exact revision check; the local text remains recoverable. Recovery of
+an absent source uses a dedicated native-only path and never implicitly creates
+the file. That path requires native-acknowledged prior source admission evidence
+in the checkpoint; an unknown missing path or older entry without that evidence
+cannot be treated as an admitted deleted source. Independent clean owners remain
+writable throughout.
+
 The admitted native editor route consumes watcher **path hints** rather than the
 legacy reassembled authoring document. It maps each changed tracked YAML path to
 its native physical owner, serializes revision-gated native reconciliation with

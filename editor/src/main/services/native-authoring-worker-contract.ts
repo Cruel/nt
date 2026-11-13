@@ -397,6 +397,16 @@ export const nativeAuthoringCommandSchema = z.discriminatedUnion('operation', [
   z
     .object({
       requestId: z.number().int().positive(),
+      operation: z.literal('recoverDeletedTextSource'),
+      expectedRevision: z.number().int().nonnegative(),
+      path: z.string().min(1).max(2048),
+      text: z.string().max(4 * 1024 * 1024),
+      diskPrecondition: z.literal('absent'),
+    })
+    .strict(),
+  z
+    .object({
+      requestId: z.number().int().positive(),
       operation: z.literal('saveTextSources'),
       expectedRevision: z.number().int().nonnegative(),
       paths: z.array(z.string().min(1).max(2048)).min(1).max(128),

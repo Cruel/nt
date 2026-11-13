@@ -50,7 +50,12 @@ const batchSchema = z
     }
   });
 const textSourceSchema = z
-  .object({ text: z.string().max(4 * 1024 * 1024), diskRevision: revision })
+  .object({
+    text: z.string().max(4 * 1024 * 1024),
+    diskRevision: revision,
+    admittedAtStage: z.literal(true).optional(),
+    conflictBaseRevision: revision.optional(),
+  })
   .strict();
 const conflictSchema = z.array(z.string().startsWith('/'));
 const pendingFieldSchema = z.string();

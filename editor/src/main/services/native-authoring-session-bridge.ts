@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { readFile, realpath } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { Worker, type WorkerOptions } from 'node:worker_threads';
 import {
@@ -85,6 +86,43 @@ export class NativeAuthoringSessionBridge {
       sourceRevision(bytes: Buffer): string;
     };
     return this.sourceHasher.sourceRevision(Buffer.from(bytes));
+  }
+
+  /** Read only the one admitted text owner being recovered. Native staging
+   * independently verifies these bytes again before accepting the overlay. */
+  async currentTextSourceRevision(relativePath: string): Promise<string> {
+    const state = this.current;
+    if (!state?.ready || !this.authority.isCurrent(state.sessionId))
+      throw new Error('Native Project session is unavailable for text recovery.');
+    if (
+      !relativePath ||
+      path.posix.isAbsolute(relativePath) ||
+      relativePath.split('/').some((part) => !part || part === '.' || part === '..') ||
+      relativePath.includes('\\')
+    )
+      throw new Error('Invalid native text recovery path.');
+    const root = await realpath(this.authority.requireActiveProjectRoot(state.sessionId));
+    const candidate = path.join(root, relativePath);
+    let source: string;
+    try {
+      source = await realpath(candidate);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      source = path.join(await realpath(path.dirname(candidate)), path.basename(candidate));
+    }
+    const inside = path.relative(root, source);
+    if (!inside || inside === '..' || inside.startsWith(`..${path.sep}`) || path.isAbsolute(inside))
+      throw new Error('Native text recovery source escaped the Project.');
+    let bytes: Buffer;
+    try {
+      bytes = await readFile(source);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 'absent';
+      throw error;
+    }
+    if (bytes.length > 4 * 1024 * 1024)
+      throw new Error('Native text recovery source exceeds the supported size.');
+    return this.sourceRevision(bytes);
   }
 
   subscribe(handler: (delta: Delta) => void): () => void {

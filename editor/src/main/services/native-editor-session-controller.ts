@@ -708,6 +708,7 @@ export class NativeEditorSessionController {
     path: string,
     diskRevision: string,
     text: string,
+    keepMine = false,
   ) {
     if (!this.isAdmitted(projectSessionId))
       throw new Error('Native Project is not admitted for this editor session.');
@@ -715,7 +716,12 @@ export class NativeEditorSessionController {
     this.authority.requireActiveProjectRoot(projectSessionId);
     if (this.working.snapshot()?.workingRevision !== expectedRevision)
       throw new Error('Stale native text source Save revision.');
-    const staged = await this.working.stageTextSource(path, text, diskRevision);
+    const staged = await this.working.stageTextSource(
+      path,
+      text,
+      diskRevision,
+      ...(keepMine ? ([true] as const) : ([] as const)),
+    );
     if (generation !== this.generation || !this.isAdmitted(projectSessionId))
       throw new Error('Native text source stage was superseded by another Project.');
     if (!staged.accepted) return staged;

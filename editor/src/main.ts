@@ -59,6 +59,7 @@ import {
   nativeProjectRunSuiteArgumentsSchema,
   nativeProjectRunTestArgumentsSchema,
   nativeProjectSaveTextArgumentsSchema,
+  nativeProjectStageTextArgumentsSchema,
   nativeProjectSaveUnitArgumentsSchema,
   nativeProjectUseDiskUnitArgumentsSchema,
   nativeProjectValidateArgumentsSchema,
@@ -1325,7 +1326,7 @@ void app.whenReady().then(async () => {
   guardedIpc.handle(
     IPC_CHANNELS.NATIVE_PROJECT_SAVE_TEXT,
     (arguments_) => nativeProjectSaveTextArgumentsSchema.parse(arguments_),
-    (projectSessionId, expectedRevision, path, diskRevision, text) => {
+    (projectSessionId, expectedRevision, path, diskRevision, text, keepMine) => {
       if (!nativeEditorAdmission)
         throw new Error('Native Project text Save is not enabled for this editor.');
       return nativeEditorAdmission.saveText(
@@ -1334,13 +1335,14 @@ void app.whenReady().then(async () => {
         path,
         diskRevision,
         text,
+        keepMine,
       );
     },
   );
 
   guardedIpc.handle(
     IPC_CHANNELS.NATIVE_PROJECT_STAGE_TEXT,
-    (arguments_) => nativeProjectSaveTextArgumentsSchema.parse(arguments_),
+    (arguments_) => nativeProjectStageTextArgumentsSchema.parse(arguments_),
     (projectSessionId, expectedRevision, path, diskRevision, text) => {
       if (!nativeEditorAdmission)
         throw new Error('Native Project text staging is not enabled for this editor.');

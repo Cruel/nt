@@ -5,10 +5,10 @@ following the immediate-native-field migrations in #603–#606. Its machine-read
 counterpart is `editor/scripts/editor-control-coverage.json`. Every `.tsx` module
 under `editor/src/renderer/editors/` is inventoried, including nested property,
 selection, list, preview and import controls, whether or not it contains a JSX
-callback. The inventory currently covers **55 modules and 1,284 JSX callback
+callback. The inventory currently covers **55 modules and 1,285 JSX callback
 sites** (`onChange`, `onBlur`, `onClick`, `onValueChange`, custom semantic callbacks,
 etc.). This count is a *source coverage* measure, not a claim that there are
-1,284 distinct native mutations.
+1,285 distinct native mutations.
 
 The gate is run by `pnpm -C editor exec vp run check:editor-control-coverage` and by
 `pnpm -C editor run check` (through `check:types`). It fails for a new or removed
@@ -72,7 +72,7 @@ callbacks. `record:<collection>:<id>` is the logical Save unit unless noted.
 | Layout/Map (`layouts/LayoutEditor`, `maps/MapEditor`) | `/layouts/<id>`, `/maps/<id>` scalar fields, geometry, nodes, locations | N for labels/scalars; S for stable-ID node/location changes and gestures, no positional-array native patches | N/S; `layout-editor.test.tsx`, `map-editor-buffering.test.tsx`, #606 audit below |
 | Materials (`materials/MaterialEditor`, `MaterialsLibraryEditor`) | `/materials/<id>` sampler, shader path and parameter data | N for independent metadata; S/F for shader source, preset and compilation operations; O for list filters | N/S/F/O; `material-editor.test.tsx`, #606 audit below |
 | Traits and Variables (`traits/TraitsEditor`, `variables/VariablesEditor`) | `/traits` and `/variables` entries, typed properties and IDs | F: form-local modal or Property Manager edits until Create/Apply; S: atomic entity rename, type and property-list operations | F/S; `traits-editor.test.tsx`, `variables-editor.test.tsx` |
-| Scripts, raw JSON and source (`scripts/ScriptModuleEditor`, `raw-json/RawJsonEditor`, `source/*`) | Authored script/JSON or source-file text | F: local editor buffer and explicit Save/Apply; source-revision and compiler transactions retain their own lifecycle, no per-keystroke Project clone | F; `raw-json-editor.test.tsx`, `engine-shader-source-editor.test.tsx` |
+| Scripts, raw JSON and source (`scripts/ScriptModuleEditor`, `raw-json/RawJsonEditor`, `source/*`) | Authored script/JSON or source-file text | F: local editor buffer and explicit Save/Apply; source-revision and compiler transactions retain their own lifecycle, no per-keystroke Project clone. Source conflict **Continue Editing** is non-content (O): it returns focus without changing either version or clearing the Save barrier; Use Disk and Keep Mine remain explicit revision-checked choices | F/O; `raw-json-editor.test.tsx`, `engine-shader-source-editor.test.tsx`, `project-files-navigation.test.tsx` |
 | ComfyUI (`comfyui/*`) | Generator parameters, external workflows, generation instructions | F/O: local form and external service status; publication/import of produced assets is an explicit transaction | F/O; `comfyui-workflows-editor.test.tsx`, `comfyui-generation-service.test.ts` |
 | Preview, utility and placeholder (`preview/*`, `utility/*`, `placeholder/*`) | Runtime controls, debugging, inspection, selection, saved test recorder, placeholder views | O: preview/selection does not change authored Project; F/S only for explicit recorder publish to Tests. Never treat runtime state as a Project field | O/F/S; `full-game-preview-editor.test.tsx`, `editor-registry.test.tsx` |
 

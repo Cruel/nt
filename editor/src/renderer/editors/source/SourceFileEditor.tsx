@@ -294,6 +294,14 @@ export function SourceFileEditor({ tab }: WorkbenchEditorProps) {
           <Button size="sm" className="h-7" disabled={saving} onClick={() => void saveBuffer(true)}>
             Keep Mine
           </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7"
+            onClick={() => sourceEditorRef.current?.focus()}
+          >
+            Continue Editing
+          </Button>
         </div>
       ) : null}
       <SourceEditor

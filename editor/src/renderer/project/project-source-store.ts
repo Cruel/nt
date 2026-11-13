@@ -125,13 +125,14 @@ function mergeSnapshot(
       const changedExternally = prior.baseContentHash !== incomingHash;
       buffersById[file.id] = {
         ...prior,
-        conflict: changedExternally
-          ? {
-              externalExists: true,
-              externalText: incomingText,
-              externalContentHash: incomingHash,
-            }
-          : prior.conflict,
+        conflict:
+          changedExternally || prior.conflict
+            ? {
+                externalExists: true,
+                externalText: incomingText,
+                externalContentHash: incomingHash,
+              }
+            : prior.conflict,
       };
     } else {
       buffersById[file.id] = {
@@ -292,7 +293,9 @@ export const useProjectSourceStore = create<ProjectSourceStoreState>()((set, get
     set((state) => {
       const prior = state.buffersById[sourceId];
       if (!prior) return state;
-      const buffer = { ...prior, text, dirty: text !== prior.baseText };
+      // The pre-conflict baseline may differ from the current physical text.
+      // Typing back to that old baseline does not resolve a disk conflict.
+      const buffer = { ...prior, text, dirty: text !== prior.baseText || prior.conflict !== null };
       return {
         buffersById: { ...state.buffersById, [sourceId]: buffer },
         textById: { ...state.textById, [sourceId]: text },
@@ -328,7 +331,12 @@ export const useProjectSourceStore = create<ProjectSourceStoreState>()((set, get
       if (!buffer) return;
       void useCommandStore
         .getState()
-        .stageNativeTextAsync(sourceId, buffer.text, buffer.baseContentHash, revision)
+        .stageNativeTextAsync(
+          sourceId,
+          buffer.text,
+          buffer.conflict?.externalContentHash ?? buffer.baseContentHash,
+          revision,
+        )
         .then((result) => {
           if (!result.ok && get().projectSessionId === session)
             set({ error: result.diagnostics[0]?.message ?? 'Native source staging failed.' });
@@ -372,7 +380,7 @@ export const useProjectSourceStore = create<ProjectSourceStoreState>()((set, get
         .stageNativeTextAsync(
           sourceId,
           buffer.text,
-          buffer.baseContentHash,
+          buffer.conflict?.externalContentHash ?? buffer.baseContentHash,
           workingProject.projectRevision,
         );
       if (!result.ok) {
@@ -389,6 +397,10 @@ export const useProjectSourceStore = create<ProjectSourceStoreState>()((set, get
     const projectSessionId = state.projectSessionId;
     const buffer = state.buffersById[sourceId];
     if (!projectSessionId || !buffer) return false;
+    if (buffer.conflict && !acceptExternalBase) {
+      set({ error: 'Resolve the external text-source conflict before saving.' });
+      return false;
+    }
     const expectedRevision =
       acceptExternalBase && buffer.conflict
         ? buffer.conflict.externalContentHash
@@ -403,6 +415,7 @@ export const useProjectSourceStore = create<ProjectSourceStoreState>()((set, get
             submittedText,
             expectedRevision,
             useProjectStore.getState().projectRevision,
+            ...(acceptExternalBase ? ([true] as const) : ([] as const)),
           )
       : null;
     const result = nativeResult

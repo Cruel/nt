@@ -766,7 +766,7 @@ export const nativeProjectSaveUnitArgumentsSchema = z
         16 * 1024 * 1024
     );
   }, 'Native mixed Save requires matching bounded staged source contents');
-export const nativeProjectSaveTextArgumentsSchema = z.tuple([
+const nativeProjectTextArguments = [
   projectSessionIdSchema,
   z.number().int().nonnegative(),
   projectRelativePathSchema.refine(
@@ -776,8 +776,13 @@ export const nativeProjectSaveTextArgumentsSchema = z.tuple([
       ) || /^records\/layouts\/[a-z][a-z0-9-]*\/layout\.(?:lua|rml|rcss)$/u.test(value),
     'Native text Save must target an admitted Lua/RML/RCSS source.',
   ),
-  xxh3DigestSchema,
+  sourceRevisionSchema,
   z.string().refine((value) => utf8ByteLength(value) <= 4 * 1024 * 1024),
+] as const;
+export const nativeProjectStageTextArgumentsSchema = z.tuple(nativeProjectTextArguments);
+export const nativeProjectSaveTextArgumentsSchema = z.tuple([
+  ...nativeProjectTextArguments,
+  z.boolean().default(false), // explicit Keep Mine, never inferred from ordinary Save
 ]);
 export const nativeProjectValidateArgumentsSchema = z.tuple([
   projectSessionIdSchema,

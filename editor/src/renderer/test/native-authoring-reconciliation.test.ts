@@ -1205,11 +1205,22 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
     expect((await working.stageTextSource(source, dirty)).accepted).toBe(true);
     await writeFile(physical, `${original}\n<!-- External change -->\n`);
     await bridge.closeAndWait();
-    await expect(working.reopenAndReplay('text-replay')).rejects.toThrow(
-      `Native Project text-source recovery conflict for ${source}`,
-    );
-    expect(working.snapshot()).toBeNull();
-    expect(await readFile(physical, 'utf8')).toContain('External change');
+    await working.reopenAndReplay('text-replay');
+    expect((await working.prepareWorking()).textOverlays[source]).toBe(dirty);
+    const conflicted = working.dirtyCheckpoint().textSources[source]!;
+    expect(conflicted).toMatchObject({
+      text: dirty,
+      conflictBaseRevision: bridge.sourceRevision(Buffer.from(original)),
+      diskRevision: bridge.sourceRevision(Buffer.from(`${original}\n<!-- External change -->\n`)),
+    });
+    await bridge.closeAndWait();
+    await working.reopenAndReplay('text-replay');
+    expect(working.dirtyCheckpoint().textSources[source]).toEqual(conflicted);
+    await writeFile(physical, `${original}\n<!-- changed again -->\n`);
+    expect(
+      (await working.saveTextSources(working.snapshot()!.workingRevision, [source])).accepted,
+    ).toBe(false);
+    expect(await readFile(physical, 'utf8')).toContain('changed again');
   }, 120_000);
 
   it('allows exact Use Disk to clear a native staged text overlay after an external change', async () => {
@@ -1255,6 +1266,145 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
     expect(deleted).toMatchObject({ accepted: true, textSourceStaged: false });
     expect(working.dirtyCheckpoint().textSources[source]).toBeUndefined();
   });
+
+  it('restores offline-deleted text independently and requires a new exact revision for Keep Mine', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'native-text-offline-delete-'));
+    await cp(fixture, root, { recursive: true });
+    const bridge = new NativeAuthoringSessionBridge(
+      { requireActiveProjectRoot: () => root, isCurrent: () => true },
+      { addonPath: path.resolve(addon!), workerScript, pollIntervalMs: 0 },
+    );
+    cleanups.push(async () => {
+      await bridge.closeAndWait();
+      await rm(root, { recursive: true, force: true });
+    });
+    const working = new NativeAuthoringWorkingProject(bridge);
+    await working.open('text-offline-delete');
+    const deleted = 'scripts/unused-notice-board.lua';
+    const independent = 'records/layouts/notice-board/layout.rcss';
+    const oldLua = await readFile(path.join(root, deleted), 'utf8');
+    const oldRcss = await readFile(path.join(root, independent), 'utf8');
+    const mine = `${oldLua}\n-- recovered local`;
+    const other = `${oldRcss}\n/* independent */`;
+    expect(await working.stageTextSource(deleted, mine)).toMatchObject({
+      accepted: true,
+      textSourceStaged: true,
+    });
+    expect(await working.stageTextSource(independent, other)).toMatchObject({
+      accepted: true,
+      textSourceStaged: true,
+    });
+    expect(working.dirtyCheckpoint().textSources[deleted]?.text).toBe(mine);
+    expect(working.dirtyCheckpoint().textSources[independent]?.text).toBe(other);
+    await bridge.closeAndWait();
+    await rm(path.join(root, deleted));
+    await working.reopenAndReplay('text-offline-delete');
+    expect(working.dirtyCheckpoint().textSources[deleted]?.text).toBe(mine);
+    expect(working.dirtyCheckpoint().textSources[independent]?.text).toBe(other);
+    const prepared = await working.prepareWorking();
+    expect(prepared.accepted, prepared.error).toBe(true);
+    expect(prepared.textOverlays).toMatchObject({
+      [deleted]: mine,
+      [independent]: other,
+    });
+    expect(working.dirtyCheckpoint().textSources[deleted]).toMatchObject({
+      text: mine,
+      diskRevision: 'absent',
+      conflictBaseRevision: bridge.sourceRevision(Buffer.from(oldLua)),
+    });
+    expect(
+      (await working.saveTextSources(working.snapshot()!.workingRevision, [independent])).accepted,
+    ).toBe(true);
+    expect(await readFile(path.join(root, independent), 'utf8')).toBe(other);
+
+    // Another writer wins the absent-file CAS: no implicit resurrection.
+    await writeFile(path.join(root, deleted), 'return 3');
+    expect(
+      (await working.saveTextSources(working.snapshot()!.workingRevision, [deleted])).accepted,
+    ).toBe(false);
+    expect(await readFile(path.join(root, deleted), 'utf8')).toBe('return 3');
+    const current = bridge.sourceRevision(Buffer.from('return 3'));
+    expect((await working.stageTextSource(deleted, mine, current, true)).accepted).toBe(true);
+    expect(
+      (await working.saveTextSources(working.snapshot()!.workingRevision, [deleted])).accepted,
+    ).toBe(true);
+    expect(await readFile(path.join(root, deleted), 'utf8')).toBe(mine);
+  }, 120_000);
+
+  it('recreates a deleted source only after explicit Keep Mine, preserving even an empty local draft', async () => {
+    for (const mine of ['', 'return "recovered"\n']) {
+      const root = await mkdtemp(path.join(tmpdir(), 'native-text-absent-keep-mine-'));
+      await cp(fixture, root, { recursive: true });
+      const bridge = new NativeAuthoringSessionBridge(
+        { requireActiveProjectRoot: () => root, isCurrent: () => true },
+        { addonPath: path.resolve(addon!), workerScript, pollIntervalMs: 0 },
+      );
+      cleanups.push(async () => {
+        await bridge.closeAndWait();
+        await rm(root, { recursive: true, force: true });
+      });
+      const working = new NativeAuthoringWorkingProject(bridge);
+      await working.open('deleted-empty-source');
+      const source = 'scripts/unused-notice-board.lua';
+      const physical = path.join(root, source);
+      expect(await working.stageTextSource(source, mine)).toMatchObject({
+        accepted: true,
+        textSourceStaged: true,
+      });
+      await bridge.closeAndWait();
+      await rm(physical);
+      await working.reopenAndReplay('deleted-empty-source');
+      expect(working.dirtyCheckpoint().textSources[source]).toMatchObject({
+        text: mine,
+        diskRevision: 'absent',
+      });
+      expect((await working.prepareWorking()).textOverlays[source]).toBe(mine);
+      expect(
+        (await working.saveTextSources(working.snapshot()!.workingRevision, [source])).accepted,
+      ).toBe(false);
+      expect(await working.stageTextSource(source, mine, 'absent', true)).toMatchObject({
+        accepted: true,
+        textSourceStaged: true,
+      });
+      const saved = await working.saveTextSources(working.snapshot()!.workingRevision, [source]);
+      expect(saved.accepted, saved.error).toBe(true);
+      expect(await readFile(physical, 'utf8')).toBe(mine);
+    }
+  }, 120_000);
+
+  it('retains staged shader bytes when an external shader edit happens during shutdown', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'native-shader-offline-'));
+    await cp(fixture, root, { recursive: true });
+    const bridge = new NativeAuthoringSessionBridge(
+      { requireActiveProjectRoot: () => root, isCurrent: () => true },
+      { addonPath: path.resolve(addon!), workerScript, pollIntervalMs: 0 },
+    );
+    cleanups.push(async () => {
+      await bridge.closeAndWait();
+      await rm(root, { recursive: true, force: true });
+    });
+    const working = new NativeAuthoringWorkingProject(bridge);
+    await working.open('shader-offline');
+    const source = 'shaders/board-highlight.fs.sc';
+    const file = path.join(root, source);
+    const original = await readFile(file, 'utf8');
+    const local = `${original}\n// unsaved shader edit`;
+    const external = `${original}\n// another writer`;
+    expect((await working.stageTextSource(source, local)).accepted).toBe(true);
+    await bridge.closeAndWait();
+    await writeFile(file, external);
+    await working.reopenAndReplay('shader-offline');
+    expect((await working.prepareWorking()).textOverlays[source]).toBe(local);
+    expect(working.dirtyCheckpoint().textSources[source]).toMatchObject({
+      text: local,
+      diskRevision: bridge.sourceRevision(Buffer.from(external)),
+      conflictBaseRevision: bridge.sourceRevision(Buffer.from(original)),
+    });
+    expect(
+      (await working.saveTextSources(working.snapshot()!.workingRevision, [source])).accepted,
+    ).toBe(false);
+    expect(await readFile(file, 'utf8')).toBe(external);
+  }, 120_000);
 
   it('saves Keep Mine text only against an explicitly verified latest revision', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'native-text-keep-mine-'));

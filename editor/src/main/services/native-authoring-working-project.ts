@@ -20,7 +20,14 @@ type RetainedBatch = Readonly<{
   diskPreconditions: Record<string, string>;
   layoutCopySources?: Record<string, string>;
 }>;
-type RetainedTextSource = Readonly<{ text: string; diskRevision: string }>;
+type RetainedTextSource = Readonly<{
+  text: string;
+  diskRevision: string;
+  /** Set only after native staging accepted an existing admitted source. */
+  admittedAtStage?: true;
+  /** Original physical revision when an unresolved offline conflict was found. */
+  conflictBaseRevision?: string;
+}>;
 type RecoveryOwnerEvidence = Readonly<{
   diskRevision: string;
   baseline: Record<string, unknown>;
@@ -348,16 +355,32 @@ export class NativeAuthoringWorkingProject {
     path: string,
     text: string,
     diskPrecondition?: string,
+    keepMine = false,
   ): Promise<PatchResult> {
     return this.serial(async () => {
       if (!this.view) throw new Error('Native working Project has not opened.');
-      const result = await this.bridge.request({
-        operation: 'stageTextSource',
-        expectedRevision: this.view.workingRevision,
-        path,
-        text,
-        ...(diskPrecondition ? { diskPrecondition } : {}),
-      });
+      if (keepMine && !diskPrecondition)
+        throw new Error('Keep Mine requires the exact current physical source revision.');
+      // An empty local draft is still a real overlay when its physical source
+      // was deleted. The normal empty/absent native stage means Use Disk;
+      // explicit Keep Mine must instead retain the empty draft for recreation.
+      const result = await this.bridge.request(
+        keepMine && diskPrecondition === 'absent' && text === ''
+          ? {
+              operation: 'recoverDeletedTextSource',
+              expectedRevision: this.view.workingRevision,
+              path,
+              text,
+              diskPrecondition: 'absent',
+            }
+          : {
+              operation: 'stageTextSource',
+              expectedRevision: this.view.workingRevision,
+              path,
+              text,
+              ...(diskPrecondition ? { diskPrecondition } : {}),
+            },
+      );
       if (!result || !('accepted' in result))
         throw new Error('Native Project did not return a text-source result.');
       if (result.accepted) {
@@ -365,7 +388,14 @@ export class NativeAuthoringWorkingProject {
           throw new Error('Native text source omitted its acknowledged recovery evidence.');
         this.view = this.mergeSnapshot(result.snapshot);
         if (result.textSourceStaged)
-          this.retainedTextSources.set(path, { text, diskRevision: result.textSourceDiskRevision });
+          this.retainedTextSources.set(path, {
+            text,
+            diskRevision: result.textSourceDiskRevision,
+            admittedAtStage: true,
+            ...(!keepMine && this.retainedTextSources.get(path)?.conflictBaseRevision
+              ? { conflictBaseRevision: this.retainedTextSources.get(path)!.conflictBaseRevision }
+              : {}),
+          });
         else this.retainedTextSources.delete(path);
       }
       return result;
@@ -376,6 +406,16 @@ export class NativeAuthoringWorkingProject {
     return this.serial(async () => {
       if (!this.view || this.view.workingRevision !== expectedRevision)
         throw new Error('Stale native Project text Save revision.');
+      for (const path of paths)
+        if (this.retainedTextSources.get(path)?.conflictBaseRevision)
+          return {
+            accepted: false,
+            error: `Resolve offline text-source conflict before Save: ${path}`,
+            snapshot: this.view,
+            affectedRecords: [],
+            diagnosticsAdded: [],
+            diagnosticsRemoved: [],
+          };
       const result = await this.bridge.request({
         operation: 'saveTextSources',
         expectedRevision,
@@ -529,9 +569,12 @@ export class NativeAuthoringWorkingProject {
         for (const path of options.textPaths)
           if (
             !this.retainedTextSources.has(path) ||
-            this.retainedTextSources.get(path)!.text !== options.textContents?.[path]
+            this.retainedTextSources.get(path)!.text !== options.textContents?.[path] ||
+            this.retainedTextSources.get(path)!.conflictBaseRevision
           )
-            throw new Error(`Native staged source changed before mixed Save: ${path}`);
+            throw new Error(
+              `Native staged source changed before mixed Save (or conflicts): ${path}`,
+            );
       }
       const result = await this.bridge.request({
         operation: 'saveOwners',
@@ -893,20 +936,69 @@ export class NativeAuthoringWorkingProject {
           }
         }
         for (const [path, retained] of textSources) {
-          const restored = await this.bridge.request({
+          let restored = await this.bridge.request({
             operation: 'stageTextSource',
             expectedRevision: this.view.workingRevision,
             path,
             text: retained.text,
             diskPrecondition: retained.diskRevision,
           });
+          if (
+            restored &&
+            'accepted' in restored &&
+            !restored.accepted &&
+            (restored.error.startsWith('Text overlay requires an admitted ') ||
+              restored.error.startsWith('External source conflict for ') ||
+              restored.error.startsWith('Native Project text-source recovery conflict for ') ||
+              restored.error.startsWith('filesystem error: cannot make canonical path:'))
+          ) {
+            // Reopening an old overlay is not an authorization to write the
+            // newer physical bytes. Stage only in native memory against a
+            // freshly checked physical revision and retain the old revision
+            // as unresolved editor conflict evidence.
+            const current = await this.bridge.currentTextSourceRevision(path);
+            if (current === 'absent' && retained.admittedAtStage !== true)
+              throw new Error(
+                `Native Project cannot prove deleted text source was previously admitted: ${path}`,
+              );
+            restored =
+              current === 'absent'
+                ? await this.bridge.request({
+                    operation: 'recoverDeletedTextSource',
+                    expectedRevision: this.view.workingRevision,
+                    path,
+                    text: retained.text,
+                    diskPrecondition: 'absent',
+                  })
+                : await this.bridge.request({
+                    operation: 'stageTextSource',
+                    expectedRevision: this.view.workingRevision,
+                    path,
+                    text: retained.text,
+                    diskPrecondition: current,
+                  });
+            if (
+              restored &&
+              'accepted' in restored &&
+              restored.accepted &&
+              restored.textSourceStaged
+            )
+              this.retainedTextSources.set(path, {
+                text: retained.text,
+                diskRevision: current,
+                admittedAtStage: retained.admittedAtStage,
+                conflictBaseRevision: retained.conflictBaseRevision ?? retained.diskRevision,
+              });
+          }
           if (!restored || !('accepted' in restored) || !restored.accepted)
             throw new Error(
               `Native Project text-source replay failed for ${path}: ${restored && 'error' in restored ? restored.error : 'invalid response'}`,
             );
+          if (restored.textSourceStaged === false) this.retainedTextSources.delete(path);
           if (
-            restored.textSourceStaged !== true ||
-            restored.textSourceDiskRevision !== retained.diskRevision
+            restored.textSourceDiskRevision !==
+              (this.retainedTextSources.get(path)?.diskRevision ?? retained.diskRevision) &&
+            restored.textSourceStaged !== false
           )
             throw new Error(`Native Project text-source recovery conflict for ${path}`);
           this.view = this.mergeSnapshot(restored.snapshot);

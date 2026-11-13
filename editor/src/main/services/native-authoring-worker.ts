@@ -78,6 +78,13 @@ interface NativeBinding {
     text: string,
     diskPrecondition?: string,
   ): string;
+  recoverDeletedTextSource(
+    handle: unknown,
+    revision: number,
+    path: string,
+    text: string,
+    diskPrecondition: 'absent',
+  ): string;
   saveTextSources(handle: unknown, revision: number, paths: string, preconditions: string): string;
 }
 
@@ -255,19 +262,30 @@ parent.on('message', (raw: unknown) => {
         };
         break;
       case 'stageTextSource':
+      case 'recoverDeletedTextSource':
         result = {
           ...identity,
           type: 'response',
           requestId: command.requestId,
           result: nativeAuthoringResultSchema.parse(
             JSON.parse(
-              binding.stageTextSource(
-                handle,
-                command.expectedRevision,
-                command.path,
-                command.text,
-                ...(command.diskPrecondition !== undefined ? [command.diskPrecondition] : []),
-              ),
+              command.operation === 'recoverDeletedTextSource'
+                ? binding.recoverDeletedTextSource(
+                    handle,
+                    command.expectedRevision,
+                    command.path,
+                    command.text,
+                    'absent',
+                  )
+                : binding.stageTextSource(
+                    handle,
+                    command.expectedRevision,
+                    command.path,
+                    command.text,
+                    ...(command.diskPrecondition !== undefined
+                      ? ([command.diskPrecondition] as [string])
+                      : ([] as [])),
+                  ),
             ),
           ),
         };

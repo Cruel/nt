@@ -522,6 +522,85 @@ describe('project Files navigation', () => {
     });
   });
 
+  it('rehydrates an offline source conflict into the Files editor and keeps the original draft through Continue Editing', async () => {
+    loadProject();
+    vi.mocked(window.noveltea.writeProjectSource).mockClear();
+    const oldHash = `xxh3-128:${'a'.repeat(32)}` as const;
+    const changedHash = `xxh3-128:${'b'.repeat(32)}` as const;
+    vi.mocked(window.noveltea.readProjectTextSources).mockImplementation(async (request) => ({
+      entries: request.entries.map((entry) => ({
+        status: 'ready' as const,
+        readKey: entry.readKey,
+        projectRelativePath: entry.projectRelativePath,
+        contentHash: changedHash,
+        text: 'return disk after shutdown',
+        hadUtf8Bom: false,
+      })),
+    }));
+    await useProjectSourceStore.getState().refresh('session-source');
+    useProjectSourceStore.getState().restoreRecovery({
+      [helperSource.id]: {
+        file: helperSource,
+        text: 'return local before shutdown',
+        baseText: 'return original disk',
+        baseContentHash: oldHash,
+      },
+    });
+    expect(useProjectSourceStore.getState().buffersById[helperSource.id]).toMatchObject({
+      text: 'return local before shutdown',
+      baseContentHash: oldHash,
+      dirty: true,
+      conflict: {
+        externalExists: true,
+        externalText: 'return disk after shutdown',
+        externalContentHash: changedHash,
+      },
+    });
+    await expect(useProjectSourceStore.getState().save(helperSource.id)).resolves.toBe(false);
+    expect(window.noveltea.writeProjectSource).not.toHaveBeenCalled();
+    // A draft that returns to its former B value still conflicts with E.
+    useProjectSourceStore.getState().setText(helperSource.id, 'return original disk');
+    expect(useProjectSourceStore.getState().buffersById[helperSource.id]).toMatchObject({
+      dirty: true,
+      conflict: { externalText: 'return disk after shutdown' },
+    });
+    expect(buildEditorProjectStateSnapshot().sourceRecoveryById[helperSource.id]?.text).toBe(
+      'return original disk',
+    );
+    await expect(useProjectSourceStore.getState().useDisk(helperSource.id)).resolves.toBe(true);
+    expect(useProjectSourceStore.getState().buffersById[helperSource.id]).toMatchObject({
+      text: 'return disk after shutdown',
+      dirty: false,
+      conflict: null,
+    });
+  });
+
+  it('restores an offline-deleted source as a selectable dirty Files entry until Use Disk', async () => {
+    loadProject();
+    vi.mocked(window.noveltea.listProjectSourceFiles).mockResolvedValueOnce({ files: [] });
+    await useProjectSourceStore.getState().refresh('session-source');
+    useProjectSourceStore.getState().restoreRecovery({
+      [helperSource.id]: {
+        file: helperSource,
+        text: 'return unsaved before deletion',
+        baseText: 'return old disk',
+        baseContentHash: `xxh3-128:${'a'.repeat(32)}`,
+      },
+    });
+    expect(useProjectSourceStore.getState().files).toContainEqual(
+      expect.objectContaining({ id: helperSource.id, text: true }),
+    );
+    expect(useProjectSourceStore.getState().buffersById[helperSource.id]).toMatchObject({
+      text: 'return unsaved before deletion',
+      conflict: { externalExists: false, externalContentHash: 'absent' },
+    });
+    await expect(useProjectSourceStore.getState().save(helperSource.id)).resolves.toBe(false);
+    await expect(useProjectSourceStore.getState().useDisk(helperSource.id)).resolves.toBe(true);
+    expect(useProjectSourceStore.getState().files.some((file) => file.id === helperSource.id)).toBe(
+      false,
+    );
+  });
+
   it('keeps edits made while a source save is in flight dirty against the submitted baseline', async () => {
     await useProjectSourceStore.getState().refresh('session-source');
     useProjectSourceStore.getState().setText(helperSource.id, 'return submitted');

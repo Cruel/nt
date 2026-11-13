@@ -275,7 +275,14 @@ ProjectSession::prepare_working(std::uint64_t expected_revision, std::string_vie
                     continue;
                 }
             }
-            const auto actual = exact_source_revision(bytes_at(root_ / path));
+            const auto absolute = root_ / path;
+            const auto status = std::filesystem::symlink_status(absolute);
+            if (std::filesystem::is_symlink(status) ||
+                (std::filesystem::exists(status) && !std::filesystem::is_regular_file(status)))
+                throw std::runtime_error("Unsafe physical text source during preparation: " + path);
+            const auto actual = std::filesystem::exists(status)
+                                    ? exact_source_revision(bytes_at(absolute))
+                                    : std::string("absent");
             if (actual != baseline) {
                 prepared.error = "External source revision changed during preparation: " + path;
                 return prepared;

@@ -81,6 +81,61 @@ describe('durable native editor recovery', () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+  it('projects a verified newer disk version as a conflict without losing the original stage', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'native-text-offline-'));
+    const name = 'scripts/helper.lua';
+    const originalHash = `xxh3-128:${'a'.repeat(32)}` as const;
+    const diskHash = `xxh3-128:${'b'.repeat(32)}` as const;
+    const sourceRevisionFor = (bytes: Uint8Array) =>
+      Buffer.from(bytes).toString('utf8') === 'disk edit' ? diskHash : originalHash;
+    try {
+      await mkdir(path.join(root, 'scripts'));
+      await writeFile(path.join(root, name), 'disk edit');
+      const file = { id: name, displayPath: name, projectRelativePath: name, kind: 'lua' as const };
+      const editorState = {
+        ...emptyEditorProjectState(),
+        sourceRecoveryById: {
+          [name]: { file, text: 'mine', baseText: 'old disk', baseContentHash: originalHash },
+        },
+      };
+      const entry = { text: 'mine', diskRevision: diskHash, conflictBaseRevision: originalHash };
+      const recovered = await withNativeRecoveredTextSources(
+        root,
+        editorState,
+        [{ ...file, text: true }],
+        { [name]: entry },
+        sourceRevisionFor,
+      );
+      expect(recovered.sourceRecoveryById[name]).toMatchObject({
+        text: 'mine',
+        baseText: 'old disk',
+        baseContentHash: originalHash,
+      });
+      const deleted = await withNativeRecoveredTextSources(
+        root,
+        editorState,
+        [],
+        { [name]: { ...entry, diskRevision: 'absent' } },
+        sourceRevisionFor,
+      ).catch(() => null);
+      expect(deleted).toBeNull(); // A revision that falsely claims deletion is rejected.
+      await rm(path.join(root, name));
+      const missing = await withNativeRecoveredTextSources(
+        root,
+        editorState,
+        [],
+        { [name]: { ...entry, diskRevision: 'absent' } },
+        sourceRevisionFor,
+      );
+      expect(missing.sourceRecoveryById[name]).toMatchObject({
+        text: 'mine',
+        baseText: 'old disk',
+        baseContentHash: originalHash,
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
   it('quarantines a foreign Project checkpoint once, preserving every original byte', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'native-dirty-'));
     try {

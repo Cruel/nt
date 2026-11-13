@@ -106,7 +106,7 @@ const api: NovelTeaElectronApi = {
       saveUnitIds,
       options,
     ),
-  nativeProjectSaveText: (projectSessionId, expectedRevision, path, diskRevision, text) =>
+  nativeProjectSaveText: (projectSessionId, expectedRevision, path, diskRevision, text, keepMine) =>
     invokeGuarded(
       IPC_CHANNELS.NATIVE_PROJECT_SAVE_TEXT,
       projectSessionId,
@@ -114,6 +114,7 @@ const api: NovelTeaElectronApi = {
       path,
       diskRevision,
       text,
+      keepMine,
     ),
   nativeProjectStageText: (projectSessionId, expectedRevision, path, diskRevision, text) =>
     invokeGuarded(

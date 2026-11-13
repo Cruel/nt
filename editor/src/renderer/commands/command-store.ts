@@ -94,6 +94,7 @@ interface CommandStoreState {
     text: string,
     diskRevision: string,
     expectedProjectRevision: number,
+    keepMine?: boolean,
   ) => Promise<{ ok: boolean; contentHash?: string; error?: string }>;
   stageNativeTextAsync: (
     path: string,
@@ -1116,7 +1117,13 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
       }
     });
   },
-  saveNativeTextAsync: async (path, text, diskRevision, expectedProjectRevision) => {
+  saveNativeTextAsync: async (
+    path,
+    text,
+    diskRevision,
+    expectedProjectRevision,
+    keepMine = false,
+  ) => {
     if (get().nativeWorkingRevision === null)
       return { ok: false, error: 'Native source Save requires native authoring mode.' };
     const result = await queueNativeCommand(async () => {
@@ -1143,6 +1150,7 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
           path,
           diskRevision,
           text,
+          ...(keepMine ? ([true] as const) : ([] as const)),
         );
         const current = useProjectStore.getState();
         if (

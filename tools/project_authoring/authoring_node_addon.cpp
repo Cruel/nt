@@ -854,7 +854,7 @@ napi_value call(napi_env env, napi_callback_info info)
                     .at("diagnostics");
             return js_string(env, result.to_string());
         }
-        if (name == "stageTextSource") {
+        if (name == "stageTextSource" || name == "recoverDeletedTextSource") {
             if (argc != 4 && argc != 5)
                 throw std::runtime_error("Text source operation requires revision, path and body.");
             std::int64_t revision = -1;
@@ -867,7 +867,8 @@ napi_value call(napi_env env, napi_callback_info info)
             auto result = result_json(*session.project,
                                       session.project->stage_text_source(
                                           static_cast<std::uint64_t>(revision), path, content,
-                                          argc == 5 ? string_arg(env, argv[4]) : ""));
+                                          argc == 5 ? string_arg(env, argv[4]) : "",
+                                          name == "recoverDeletedTextSource"));
             if (result.at("accepted") == true) {
                 result["textSourceStaged"] = session.project->text_source_overlays().contains(path);
                 result["textSourceDiskRevision"] =
@@ -1015,6 +1016,7 @@ napi_value initialize(napi_env env, napi_value exports)
                                     "stageShaderSource",
                                     "textSourceOverlays",
                                     "stageTextSource",
+                                    "recoverDeletedTextSource",
                                     "saveTextSources",
                                     "sourceAnalyses",
                                     "semanticGraph",

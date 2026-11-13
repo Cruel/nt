@@ -106,6 +106,7 @@ interface NovelTeaElectronApiContract {
     projectRelativePath: string,
     diskRevision: string,
     text: string,
+    keepMine?: boolean,
   ): Promise<
     import('../main/services/native-authoring-worker-contract').NativeAuthoringPatchResult
   >;

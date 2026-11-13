@@ -864,6 +864,12 @@ The #522 manual acceptance cases remain separate and open.
   an external conflict when disk changed or the file disappeared. A successful source save advances
   the buffer baseline while newer typing remains dirty, and a subsequent metadata flush removes stale
   source recovery.
+  In the native recovery journal, changed/deleted physical source revisions are instead replayed
+  as an unsaved in-memory stage with `conflictBaseRevision` preserving the prior baseline. The
+  editor rebuilds the ordinary source buffer from that verified journal, including deleted source
+  identities absent from the new Files listing. Ordinary Save cannot authorize or clear this conflict;
+  only Use Disk or explicit Keep Mine (with a fresh exact physical check) does so. A resumed edit
+  keeps the conflict and does not write through to disk.
 - Closing the project, switching projects, and normal editor exit flush ignored local editor metadata
   and recovery only. They never pass the complete working document to a content-save API. Metadata-
   only writes never advance `savedDocument` or adopt newer tracked-file revisions. A scheduled recovery

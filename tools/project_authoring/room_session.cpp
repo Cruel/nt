@@ -3971,7 +3971,8 @@ bool ProjectSession::repairable_raw_record(std::string_view relative_path) const
 RoomSessionResult ProjectSession::stage_text_source(std::uint64_t revision,
                                                     std::string_view relative_path,
                                                     std::string source_text,
-                                                    std::string_view disk_precondition)
+                                                    std::string_view disk_precondition,
+                                                    bool recovering_deleted_source)
 {
     RoomSessionResult response;
     const auto before = snapshot();
@@ -3984,9 +3985,12 @@ RoomSessionResult ProjectSession::stage_text_source(std::uint64_t revision,
     const std::filesystem::path relative(path);
     const bool shader = path.starts_with("shaders/") && path.ends_with(".sc");
     const bool raw_record = repairable_raw_record(path);
+    const bool recover_missing = recovering_deleted_source && disk_precondition == "absent" &&
+                                 !text_source_paths_.contains(path) &&
+                                 !text_source_overlays_.contains(path);
     if (!(analyzable_text_path(path) || shader || raw_record) ||
         (!raw_record && !text_source_paths_.contains(path) &&
-         !text_source_overlays_.contains(path)) ||
+         !text_source_overlays_.contains(path) && !recover_missing) ||
         relative != relative.lexically_normal() || path.find_first_of(":\\") != std::string::npos ||
         path.find("//") != std::string::npos || source_text.size() > 4 * 1024 * 1024) {
         response.error = "Text overlay requires an admitted source or an invalid canonical record.";
@@ -4005,7 +4009,7 @@ RoomSessionResult ProjectSession::stage_text_source(std::uint64_t revision,
         // An explicit Use Disk may accept deletion of a previously staged
         // source. Never fabricate replacement bytes or leave its old overlay
         // live in the native preview after the renderer closes the buffer.
-        if (disk_precondition == "absent" && source_text.empty() &&
+        if (!recovering_deleted_source && disk_precondition == "absent" && source_text.empty() &&
             text_source_overlays_.contains(path)) {
             if (source_revision_or_absent(root_ / relative) != "absent")
                 throw std::runtime_error("Deleted text source was recreated before Use Disk.");
@@ -4023,12 +4027,21 @@ RoomSessionResult ProjectSession::stage_text_source(std::uint64_t revision,
             diagnostic_delta(response, before);
             return response;
         }
-        const auto canonical = std::filesystem::canonical(root_ / relative);
+        // A dirty source may have been deleted while the editor was closed.
+        // Keep its admitted owner and stage a local overlay against `absent`;
+        // physical recreation still requires an explicit revision-checked Save.
+        const auto canonical = std::filesystem::weakly_canonical(root_ / relative);
         const auto within = canonical.lexically_relative(std::filesystem::canonical(root_));
         if (within.empty() || within == "." || *within.begin() == "..")
             throw std::runtime_error("Text overlay source escapes Project root.");
-        const auto disk = read_bytes(canonical);
-        const auto actual_revision = exact_source_revision(disk);
+        const auto actual_revision = source_revision_or_absent(canonical);
+        const auto disk = actual_revision == "absent" ? std::string{} : read_bytes(canonical);
+        if (recover_missing) {
+            if (actual_revision != "absent")
+                throw std::runtime_error("Deleted text source was recreated before recovery.");
+            text_source_paths_.insert(path);
+            text_disk_revisions_.insert_or_assign(path, "absent");
+        }
         // An explicitly supplied latest exact revision permits either Use
         // Disk or Keep Mine against that current physical baseline. Ordinary
         // edits retain their previous admission revision, so stale saves
@@ -4054,7 +4067,9 @@ RoomSessionResult ProjectSession::stage_text_source(std::uint64_t revision,
         }
         const auto current = text_source_overlays_.find(path);
         const auto prior = current == text_source_overlays_.end() ? disk : current->second;
-        if (prior == source_text && !(adopting_disk && current != text_source_overlays_.end())) {
+        if (prior == source_text && !(adopting_disk && current != text_source_overlays_.end()) &&
+            !(recovering_deleted_source && actual_revision == "absent" &&
+              current == text_source_overlays_.end())) {
             response.accepted = true;
             if (rebasing_source) {
                 ++working_revision_;
@@ -4075,11 +4090,11 @@ RoomSessionResult ProjectSession::stage_text_source(std::uint64_t revision,
             managed_changed = previous_managed || text_affects_localization(next_analysis);
             text_analysis_cache_.insert_or_assign(path, std::move(next_analysis));
         }
-        if (source_text == disk) {
+        if (actual_revision != "absent" && source_text == disk) {
             text_source_overlays_.erase(path);
             text_overlay_disk_revisions_.erase(path);
         } else {
-            text_overlay_disk_revisions_.try_emplace(path, exact_source_revision(disk));
+            text_overlay_disk_revisions_.try_emplace(path, actual_revision);
             text_source_overlays_.insert_or_assign(path, std::move(source_text));
         }
         if (shader) {
@@ -4101,6 +4116,10 @@ RoomSessionResult ProjectSession::stage_text_source(std::uint64_t revision,
         response.snapshot = snapshot();
         diagnostic_delta(response, before);
     } catch (const std::exception& error) {
+        if (recover_missing) {
+            text_source_paths_.erase(path);
+            text_disk_revisions_.erase(path);
+        }
         response.error = error.what();
     }
     return response;
@@ -4145,14 +4164,14 @@ ProjectSession::save_text_sources(std::uint64_t revision, const std::vector<std:
                 throw std::runtime_error("WORKSPACE_REVISION_CONFLICT: staged text baseline " +
                                          path);
             const auto root = std::filesystem::canonical(root_);
-            const auto canonical = std::filesystem::canonical(root_ / path);
+            const auto canonical = std::filesystem::weakly_canonical(root_ / path);
             const auto relative = canonical.lexically_relative(root);
             if (relative.empty() || relative == "." || *relative.begin() == "..")
                 throw std::runtime_error("Text source escapes the Project root.");
-            const auto baseline = read_bytes(canonical);
             const auto expected = text_disk_revisions_.at(path);
-            if (exact_source_revision(baseline) != expected ||
-                !source_revision_matches(baseline, original->second))
+            const auto baseline = expected == "absent" ? std::string{} : read_bytes(canonical);
+            if (source_revision_or_absent(canonical) != expected || original->second != expected ||
+                (expected != "absent" && !source_revision_matches(baseline, expected)))
                 throw std::runtime_error("WORKSPACE_REVISION_CONFLICT: " + path);
             YamlTransactionTarget target;
             target.path = path;
@@ -5530,14 +5549,16 @@ RoomSessionResult ProjectSession::save_owners(
             if (overlay == text_source_overlays_.end())
                 throw std::runtime_error("Native mixed Save requires staged text: " + path);
             const auto root = std::filesystem::canonical(root_);
-            const auto canonical = std::filesystem::canonical(root_ / path);
+            const auto canonical = std::filesystem::weakly_canonical(root_ / path);
             const auto relative = canonical.lexically_relative(root);
             if (relative.empty() || relative == "." || *relative.begin() == ".." ||
                 relative.generic_string() != path)
                 throw std::runtime_error("Native text Save escapes Project root: " + path);
-            const auto original = read_bytes(canonical);
-            if (exact_source_revision(original) != text_disk_revisions_.at(path) ||
-                exact_source_revision(original) != text_overlay_disk_revisions_.at(path))
+            const auto original_revision = source_revision_or_absent(canonical);
+            const auto original =
+                original_revision == "absent" ? std::string{} : read_bytes(canonical);
+            if (original_revision != text_disk_revisions_.at(path) ||
+                original_revision != text_overlay_disk_revisions_.at(path))
                 throw std::runtime_error("WORKSPACE_REVISION_CONFLICT: " + path);
             YamlTransactionTarget text_target;
             text_target.path = path;
