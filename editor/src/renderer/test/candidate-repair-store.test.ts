@@ -25,6 +25,72 @@ afterEach(() => {
 });
 
 describe('candidate repair renderer buffer', () => {
+  it('allows fresh native validation diagnostics after candidate Save and an external source refresh', async () => {
+    const read = vi.spyOn(window.noveltea, 'readRepairCandidate').mockResolvedValue(initial);
+    const store = useCandidateRepairStore.getState();
+    store.register('current', initial.root, 'strong', [
+      { severity: 'error', path: '/project.yaml', message: 'Old parsing issue' },
+    ]);
+    await store.load('current');
+    store.setBuffer('current', 'repaired source');
+    useCandidateRepairStore.setState((state) => ({
+      entries: {
+        ...state.entries,
+        current: {
+          ...state.entries.current!,
+          source: {
+            ...initial,
+            text: 'repaired source',
+            revision: `sha256:${'b'.repeat(64)}`,
+          },
+          diagnostics: [],
+          diagnosticsNeedRefresh: true,
+        },
+      },
+    }));
+    read.mockResolvedValue({
+      ...initial,
+      text: 'repaired source',
+      revision: `sha256:${'b'.repeat(64)}`,
+    });
+    store.applyStatus({
+      id: 'current',
+      generation: 2,
+      ready: false,
+      revision: null,
+      diagnostics: [{ severity: 'warning', path: '/project.yaml', message: 'New warning' }],
+    });
+    await vi.waitFor(() =>
+      expect(useCandidateRepairStore.getState().entries.current?.loading).toBe(false),
+    );
+    let entry = useCandidateRepairStore.getState().entries.current!;
+    expect(entry.diagnosticsNeedRefresh).toBe(false);
+    expect(entry.diagnostics).toMatchObject([{ message: 'New warning' }]);
+
+    // Later external source updates are independently validated. A matching
+    // native status and source read must not discard the newly checked errors.
+    read.mockResolvedValue({
+      ...initial,
+      text: 'newer malformed source',
+      revision: `sha256:${'c'.repeat(64)}`,
+    });
+    store.applyStatus({
+      id: 'current',
+      generation: 3,
+      ready: false,
+      revision: null,
+      diagnostics: [{ severity: 'error', path: '/project.yaml', message: 'New parse error' }],
+    });
+    await vi.waitFor(() =>
+      expect(useCandidateRepairStore.getState().entries.current?.source?.revision).toBe(
+        `sha256:${'c'.repeat(64)}`,
+      ),
+    );
+    entry = useCandidateRepairStore.getState().entries.current!;
+    expect(entry.diagnostics).toMatchObject([{ message: 'New parse error' }]);
+    expect(entry.diagnosticsNeedRefresh).toBe(false);
+  });
+
   it('refreshes physical diagnostics without replacing unsaved source or promoting Projects', async () => {
     const read = vi.spyOn(window.noveltea, 'readRepairCandidate').mockResolvedValue(initial);
     const open = vi.spyOn(window.noveltea, 'openProject');

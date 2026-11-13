@@ -1,4 +1,23 @@
 {
+  "repairPrompt": {
+    "title": "Reparar arquivos do Projeto",
+    "description": "Revise e edite o prompt antes de copiá-lo para sua ferramenta de IA. Copiar não altera arquivos nem executa reparos.",
+    "promptLabel": "Prompt de reparo editável",
+    "fix": "Corrigir",
+    "fixAll": "Corrigir tudo",
+    "fixAllErrors": "Corrigir todos os erros",
+    "copy": "Copiar prompt",
+    "close": "Fechar",
+    "copied": "Prompt copiado. Nenhum arquivo do Projeto foi alterado.",
+    "failed": "Não foi possível copiar. Selecione e copie o texto manualmente.",
+    "outdated": "Os arquivos ou diagnósticos mudaram. Suas edições foram preservadas, mas é necessário selecionar um escopo atual antes de copiar.",
+    "candidateRefresh": "O código-fonte do Projeto Candidato mudou ou contém edições não salvas. Aguarde a validação atualizar os diagnósticos ou releia o arquivo do disco antes de gerar outro prompt de reparo.",
+    "unknownFormat": "A versão do esquema do Projeto Candidato não foi verificada. Copiar é seguro; a execução de um reparo por IA exige confirmar primeiro o formato do Projeto.",
+    "regenerate": "Gerar novamente com os diagnósticos atuais",
+    "weakConsent": "Este diretório possui evidências fracas de um Projeto. Autorizo explicitamente modificações por IA após escolher Executar.",
+    "olderConsent": "Este Projeto utiliza um esquema antigo. Autorizo explicitamente a conversão quando escolher Executar.",
+    "newerConsent": "Possível perda de dados: este Projeto usa um esquema mais recente do que o editor/CLI instalado. Autorizo explicitamente modificações por IA quando escolher Executar."
+  },
   "candidateRepair": {
     "errors": {
       "stale": "O manifesto mudou no disco. Suas alterações foram preservadas. Inspecione a versão em disco antes de resolver o conflito.",

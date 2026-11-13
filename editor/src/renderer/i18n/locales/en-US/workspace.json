@@ -1,4 +1,23 @@
 {
+  "repairPrompt": {
+    "title": "Repair Project source",
+    "description": "Review and edit the scoped prompt before copying it to your own AI tool. Copying does not modify Project files or run a repair.",
+    "promptLabel": "Editable repair prompt",
+    "fix": "Fix",
+    "fixAll": "Fix All",
+    "fixAllErrors": "Fix All Errors",
+    "copy": "Copy prompt",
+    "close": "Close",
+    "copied": "Prompt copied. No Project files were changed.",
+    "failed": "Could not copy. Select and copy the prompt text manually.",
+    "outdated": "Project source or diagnostics changed after this prompt was generated. Your edits are preserved, but the prompt cannot be copied until you choose a current scope.",
+    "candidateRefresh": "Candidate source has changed or has unsaved edits. Wait for validation to refresh its diagnostics, or read the disk source before generating another repair prompt.",
+    "unknownFormat": "The candidate's schema version has not been verified. Copying is safe; running an AI repair requires confirming the Project format first.",
+    "regenerate": "Regenerate from current diagnostics",
+    "weakConsent": "This directory has only weak Project evidence. I explicitly authorize an AI tool to modify this candidate after I choose Run.",
+    "olderConsent": "This Project uses an older schema version. I explicitly authorize conversion when I choose Run; normal opening will not migrate it.",
+    "newerConsent": "Potential data loss: this Project declares a newer schema than the installed NovelTea editor/CLI understands. I explicitly authorize an AI tool to modify this version when I choose Run."
+  },
   "candidateRepair": {
     "errors": {
       "stale": "The manifest changed on disk. Your edits are preserved. Inspect the disk version before resolving the conflict.",

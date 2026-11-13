@@ -29,6 +29,36 @@ export function parseJsonPointer(path: string | null | undefined): string[] {
   return path.slice(1).split('/').map(decodePointerSegment);
 }
 
+/** Prefer a verified structured owner for semantic defects. Parser failures and
+ * unrecognized owners must never pretend that their normalized fields exist. */
+export function resolveRepairDiagnosticTarget(
+  project: AuthoringProject,
+  diagnostic: ToolDiagnostic,
+  sourceFiles: readonly ProjectSourceFile[] = [],
+): WorkbenchNavigationRequest | null {
+  const unsafe =
+    /(?:syntax|parse|malformed|invalid.source|source.invalid|invalid.yaml|yaml.invalid)/iu.test(
+      `${diagnostic.code ?? ''} ${diagnostic.category ?? ''}`,
+    );
+  // Native admission deliberately exposes malformed/unnormalizable tracked
+  // YAML in Files without duplicating valid structured record owners.
+  const nativeInvalidSource = sourceFiles.some(
+    (file) => file.kind === 'yaml' && file.projectRelativePath === diagnostic.sourcePath,
+  );
+  if (!unsafe && !nativeInvalidSource) {
+    const structured = resolveProjectDiagnosticTarget(project, diagnostic.path);
+    if (structured) return structured;
+  }
+  const fallback = resolveProjectDiagnosticTarget(project, diagnostic, sourceFiles);
+  // Do not quietly route an unsafe source diagnostic into a normalized field
+  // editor if no physical source editor has been admitted for that path.
+  return unsafe || nativeInvalidSource
+    ? fallback?.tab.editorType === 'source-file'
+      ? fallback
+      : null
+    : fallback;
+}
+
 function recordLabel(project: AuthoringProject, collection: keyof AuthoringProject, id: string) {
   const records = project[collection];
   if (typeof records !== 'object' || records === null || Array.isArray(records)) return id;

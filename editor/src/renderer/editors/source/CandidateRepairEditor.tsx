@@ -7,6 +7,8 @@ import {
   type SourceEditorDiagnostic,
 } from '@/components/source/SourceEditor';
 import { useCandidateRepairStore } from '@/project/candidate-repair-store';
+import { useRepairPromptStore } from '@/project/repair-prompt-store';
+import { repairDiagnosticKey } from '@/project/repair-prompt';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { dispatchWorkspaceToolbarCommand } from '@/workspace/workspace-toolbar-events';
 import { registerWorkbenchTargetHandler } from '@/workbench/workbench-navigation';
@@ -20,9 +22,11 @@ export function CandidateRepairEditor({ tab }: WorkbenchEditorProps) {
   const save = useCandidateRepairStore((state) => state.save);
   const setBuffer = useCandidateRepairStore((state) => state.setBuffer);
   const applyDiskSource = useCandidateRepairStore((state) => state.useDisk);
+  const requestPrompt = useRepairPromptStore((state) => state.request);
   const setTabDirty = useWorkbenchStore((state) => state.setTabDirty);
   const sourceEditor = useRef<SourceEditorHandle>(null);
   const dirty = Boolean(entry?.source && entry.buffer !== entry.source.text);
+  const diagnosticsCurrent = !entry?.diagnosticsNeedRefresh && !dirty;
 
   useEffect(() => {
     if (id) void load(id);
@@ -129,6 +133,53 @@ export function CandidateRepairEditor({ tab }: WorkbenchEditorProps) {
         </Button>
       </div>
       <p className="text-xs text-muted-foreground">{t('candidateRepair.description')}</p>
+      {entry.diagnosticsNeedRefresh || dirty ? (
+        <p className="text-xs text-muted-foreground" role="status">
+          {t('repairPrompt.candidateRefresh')}
+        </p>
+      ) : null}
+      {diagnosticsCurrent &&
+      entry.diagnostics.some((diagnostic) => diagnostic.severity !== 'info') ? (
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => requestPrompt({ kind: 'candidate', id, scope: 'all' })}
+          >
+            {t('repairPrompt.fixAll')}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!entry.diagnostics.some((diagnostic) => diagnostic.severity === 'error')}
+            onClick={() => requestPrompt({ kind: 'candidate', id, scope: 'errors' })}
+          >
+            {t('repairPrompt.fixAllErrors')}
+          </Button>
+          {entry.diagnostics
+            .filter((diagnostic) => diagnostic.severity !== 'info')
+            .map((diagnostic, index) => (
+              <Button
+                key={`${repairDiagnosticKey(diagnostic)}:${index}`}
+                size="sm"
+                variant="outline"
+                title={diagnostic.message}
+                onClick={() => {
+                  if (diagnostic.sourcePath === 'project.yaml' && diagnostic.line)
+                    sourceEditor.current?.revealLine(diagnostic.line, diagnostic.column);
+                  requestPrompt({
+                    kind: 'candidate',
+                    id,
+                    scope: 'one',
+                    selectedKey: repairDiagnosticKey(diagnostic),
+                  });
+                }}
+              >
+                {t('repairPrompt.fix')} · {index + 1}
+              </Button>
+            ))}
+        </div>
+      ) : null}
       {entry.recognition === 'weak' ? (
         <p className="text-xs text-amber-600">{t('candidateRepair.weak')}</p>
       ) : null}

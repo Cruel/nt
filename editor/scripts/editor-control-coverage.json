@@ -472,7 +472,7 @@
     },
     "source/CandidateRepairEditor.tsx": {
       "onChange": 1,
-      "onClick": 4
+      "onClick": 7
     },
     "source/EngineShaderSourceEditor.tsx": {
       "onClick": 1

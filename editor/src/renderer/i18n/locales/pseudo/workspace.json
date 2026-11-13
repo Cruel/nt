@@ -1,4 +1,23 @@
 {
+  "repairPrompt": {
+    "title": "[Rëpäïr Pröjëct söürcë]",
+    "description": "[Rëvïëw änd ëdït thë prömpt bëförë cöpyïng. Cöpy dëës nöt mödïfy fïlës ör rün ä rëpäïr.]",
+    "promptLabel": "[Ëdïtäblë rëpäïr prömpt]",
+    "fix": "[Fïx]",
+    "fixAll": "[Fïx Äll]",
+    "fixAllErrors": "[Fïx Äll Ërrörs]",
+    "copy": "[Cöpy prömpt]",
+    "close": "[Clösë]",
+    "copied": "[Prömpt cöpïëd. Nö fïlës chängëd.]",
+    "failed": "[Cöpy fäïlëd. Cöpy thë tëxt mänüälly.]",
+    "outdated": "[Söürcë ör dïägnöstïcs chängëd. Ëdïts prësërvëd; rëgënërätë bëförë cöpyïng.]",
+    "candidateRefresh": "[Cändïdätë söürcë chängëd ör häs ünsävëd ëdïts. Wäït för välïdätïön ör rëäd dïsk söürcë bëförë rëprömptïng.]",
+    "unknownFormat": "[Cändïdätë schëmä vërsïön ünknöwn. Cöpy ïs säfë; Rün rëqüïrës vërïfïëd förmät.]",
+    "regenerate": "[Rëgënërätë fröm cürrënt dïägnöstïcs]",
+    "weakConsent": "[Wëäk Pröjëct ëvïdëncë. Ï äüthörïzë ÄÏ mödïfïcätïöns äftër Rün.]",
+    "olderConsent": "[Öldër schëmä. Ï äüthörïzë cönvërsïön äftër Rün.]",
+    "newerConsent": "[Pötëntïäl dätä löss! Nëwër schëmä. Ï äüthörïzë ÄÏ mödïfïcätïöns äftër Rün.]"
+  },
   "candidateRepair": {
     "errors": {
       "stale": "[Mâñïfëšt çhâñgëd ôñ dïšk. Ëdïtš prëšërvëd. Ïñšpëçt dïšk bëfôrë rëšôlvïñg.]",

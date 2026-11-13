@@ -11,6 +11,8 @@ import { consumeWorkbenchRevealTarget } from '@/workbench/workbench-navigation';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { useToolingActivityStore } from '@/workbench/tooling-activity-store';
 import { useProjectStore } from '@/project/project-store';
+import { useCandidateRepairStore } from '@/project/candidate-repair-store';
+import { useRepairPromptStore } from '@/project/repair-prompt-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { usePreferencesStore } from '@/stores/preferences-store';
 import { usePreviewManagerStore } from '@/preview/preview-manager-store';
@@ -35,6 +37,8 @@ beforeEach(() => {
     projectFilePath: '/mock/project/game.json',
   });
   useWorkspaceStore.getState().setDiagnostics([]);
+  useCandidateRepairStore.setState({ entries: {} });
+  useRepairPromptStore.setState({ draft: null, visible: false });
   useWorkspaceStore.getState().clearRuntimeEvents();
   useWorkspaceStore.getState().clearRuntimeTrace();
   useWorkspaceStore.getState().setRuntimeConsoleClearHandler(null);
@@ -516,6 +520,7 @@ describe('BottomPanel', () => {
     render(<BottomPanel />);
 
     expect(screen.getByText('O hotspot não tem alvo e não será interativo.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Fix' })).not.toBeInTheDocument();
     expect(
       screen.queryByText('Hotspot has no target and will not be interactive.'),
     ).not.toBeInTheDocument();
@@ -582,5 +587,47 @@ describe('BottomPanel', () => {
       payload: { placementId: 'key-placement' },
       flash: true,
     });
+  });
+
+  it('opens distinct active-Project Fix, Fix All, and Fix All Errors prompt scopes', () => {
+    useWorkspaceStore.getState().setDiagnostics([
+      { severity: 'error', path: '/characters/dfs/data/preview', message: 'Broken preview' },
+      { severity: 'warning', path: '/settings', message: 'Optional warning' },
+    ]);
+    render(<BottomPanel />);
+    fireEvent.click(screen.getByRole('button', { name: 'Fix All Errors' }));
+    expect(useRepairPromptStore.getState().draft?.scope).toBe('errors');
+    expect(useRepairPromptStore.getState().draft?.text).not.toContain('Optional warning');
+    fireEvent.click(screen.getByRole('button', { name: 'Fix All' }));
+    expect(useRepairPromptStore.getState().draft?.text).toContain('Optional warning');
+    fireEvent.click(screen.getAllByRole('button', { name: 'Fix' })[0]!);
+    expect(useRepairPromptStore.getState().draft).toMatchObject({
+      kind: 'active',
+      scope: 'one',
+      root: '/mock/project',
+    });
+    expect(useRepairPromptStore.getState().draft?.text).not.toContain('Optional warning');
+  });
+
+  it('keeps the incumbent Project identity when fixing an unopened candidate', () => {
+    useCandidateRepairStore.getState().register('candidate-a', '/broken/candidate', 'strong', [
+      {
+        severity: 'error',
+        path: '/project.yaml',
+        sourcePath: 'project.yaml',
+        line: 2,
+        message: 'Malformed manifest',
+      },
+    ]);
+    render(<BottomPanel />);
+    const projectBefore = useProjectStore.getState().projectInstanceId;
+    fireEvent.click(screen.getByRole('button', { name: 'Fix All Errors' }));
+    expect(useRepairPromptStore.getState().draft).toMatchObject({
+      kind: 'candidate',
+      id: 'candidate-a',
+      root: '/broken/candidate',
+    });
+    expect(useProjectStore.getState().projectInstanceId).toBe(projectBefore);
+    expect(useProjectStore.getState().projectPath).toBe('/mock/project');
   });
 });

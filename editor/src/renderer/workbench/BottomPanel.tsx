@@ -5,9 +5,14 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useCommandStore } from '@/commands/command-store';
 import { DiagnosticList } from '@/diagnostics/DiagnosticList';
-import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
+import {
+  resolveProjectDiagnosticTarget,
+  resolveRepairDiagnosticTarget,
+} from '@/diagnostics/diagnostic-navigation';
 import { useProjectStore } from '@/project/project-store';
 import { useCandidateRepairStore } from '@/project/candidate-repair-store';
+import { useRepairPromptStore } from '@/project/repair-prompt-store';
+import { repairDiagnosticKey } from '@/project/repair-prompt';
 import { useProjectSourceStore } from '@/project/project-source-store';
 import { useEntityUsagesStore } from '@/project/entity-usages-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
@@ -52,12 +57,62 @@ function ProblemsPanel() {
       })),
     [diagnostics, project, sourceFiles],
   );
+  const projectSessionId = useProjectStore(
+    (state) => state.projectSessionId ?? state.projectInstanceId,
+  );
+  const requestPrompt = useRepairPromptStore((state) => state.request);
+  const errors = diagnostics.some((item) => item.severity === 'error');
+  const actionable = diagnostics.some((item) => item.severity !== 'info');
   if (diagnostics.length === 0 && candidates.length === 0) {
     return <p className="p-3 text-xs text-muted-foreground">{t('bottomPanel.empty.problems')}</p>;
   }
   return (
     <div className="space-y-3 p-3 text-xs">
-      <DiagnosticList items={diagnosticItems} showPath={developerMode} compact />
+      {projectSessionId && actionable ? (
+        <div className="flex flex-wrap gap-1">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => requestPrompt({ kind: 'active', id: projectSessionId, scope: 'all' })}
+          >
+            {t('repairPrompt.fixAll')}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!errors}
+            onClick={() => requestPrompt({ kind: 'active', id: projectSessionId, scope: 'errors' })}
+          >
+            {t('repairPrompt.fixAllErrors')}
+          </Button>
+        </div>
+      ) : null}
+      <DiagnosticList
+        items={diagnosticItems}
+        showPath={developerMode}
+        compact
+        fixLabel={t('repairPrompt.fix')}
+        onFix={
+          projectSessionId
+            ? (_item, index) => {
+                const diagnostic = diagnostics[index]!;
+                if (
+                  !requestPrompt({
+                    kind: 'active',
+                    id: projectSessionId,
+                    scope: 'one',
+                    selectedKey: repairDiagnosticKey(diagnostic),
+                  })
+                )
+                  return;
+                if (project) {
+                  const target = resolveRepairDiagnosticTarget(project, diagnostic, sourceFiles);
+                  if (target) navigateToWorkbenchTarget(target);
+                }
+              }
+            : undefined
+        }
+      />
       {candidates.map((candidate) => {
         const tab = buildCandidateRepairTab(candidate.id, candidate.root);
         return (
@@ -75,6 +130,31 @@ function ProblemsPanel() {
                 {t('candidateRepair.fixIt')}
               </Button>
             </div>
+            {!candidate.diagnosticsNeedRefresh &&
+            (!candidate.source || candidate.buffer === candidate.source.text) &&
+            candidate.diagnostics.some((d) => d.severity !== 'info') ? (
+              <div className="flex flex-wrap gap-1">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    requestPrompt({ kind: 'candidate', id: candidate.id, scope: 'all' })
+                  }
+                >
+                  {t('repairPrompt.fixAll')}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={!candidate.diagnostics.some((d) => d.severity === 'error')}
+                  onClick={() =>
+                    requestPrompt({ kind: 'candidate', id: candidate.id, scope: 'errors' })
+                  }
+                >
+                  {t('repairPrompt.fixAllErrors')}
+                </Button>
+              </div>
+            ) : null}
             <DiagnosticList
               items={candidate.diagnostics.map((item) => ({
                 ...item,
@@ -91,6 +171,38 @@ function ProblemsPanel() {
               }))}
               compact
               showPath={developerMode}
+              fixLabel={t('repairPrompt.fix')}
+              onFix={
+                candidate.diagnosticsNeedRefresh ||
+                (candidate.source && candidate.buffer !== candidate.source.text)
+                  ? undefined
+                  : (_item, index) => {
+                      const diagnostic = candidate.diagnostics[index]!;
+                      if (
+                        !requestPrompt({
+                          kind: 'candidate',
+                          id: candidate.id,
+                          scope: 'one',
+                          selectedKey: repairDiagnosticKey(diagnostic),
+                        })
+                      )
+                        return;
+                      navigateToWorkbenchTarget({
+                        tab,
+                        ...(diagnostic.sourcePath === 'project.yaml'
+                          ? {
+                              target: {
+                                id: 'source.line',
+                                payload: {
+                                  line: diagnostic.line ?? 1,
+                                  column: diagnostic.column ?? 1,
+                                },
+                              },
+                            }
+                          : {}),
+                      });
+                    }
+              }
             />
           </div>
         );

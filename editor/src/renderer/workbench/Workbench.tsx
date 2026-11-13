@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { useCandidateRepairStore } from '@/project/candidate-repair-store';
+import { RepairPromptDialog } from '@/project/RepairPromptDialog';
 import { Group, Panel } from 'react-resizable-panels';
 import { PanelResizeSeparator } from '@/components/resize-separator';
 import { AuthoringWebGlGroupProvider } from '@/authoring-renderer/authoring-webgl-provider';
@@ -190,6 +191,7 @@ export function Workbench() {
         </WorkbenchGroupServicesProvider>
       </MaterialPreviewProjectProvider>
       <DirtyCloseDialog />
+      <RepairPromptDialog />
     </div>
   );
 }

@@ -10,6 +10,7 @@ export interface CandidateRepairEntry {
   root: string;
   recognition: 'strong' | 'weak';
   diagnostics: ToolDiagnostic[];
+  diagnosticsNeedRefresh?: boolean;
   source?: CandidateRepairSource;
   buffer?: string;
   diskText?: string;
@@ -31,7 +32,7 @@ interface CandidateRepairStore {
     recognition: 'strong' | 'weak',
     diagnostics: ToolDiagnostic[],
   ) => void;
-  load: (id: string, refresh?: boolean) => Promise<void>;
+  load: (id: string, refresh?: boolean, validatedGeneration?: number) => Promise<void>;
   observe: (id: string) => Promise<void>;
   applyStatus: (status: CandidateRepairStatus) => void;
   setBuffer: (id: string, text: string) => void;
@@ -68,6 +69,7 @@ export const useCandidateRepairStore = create<CandidateRepairStore>()((set, get)
           root,
           recognition,
           diagnostics,
+          diagnosticsNeedRefresh: false,
           admitted: false,
           status: undefined,
         },
@@ -96,14 +98,21 @@ export const useCandidateRepairStore = create<CandidateRepairStore>()((set, get)
         ? {
             entries: {
               ...state.entries,
-              [status.id]: { ...current, status, diagnostics: status.diagnostics },
+              [status.id]: {
+                ...current,
+                status,
+                diagnostics: status.diagnostics,
+                // A completed native check supersedes the diagnostics made
+                // stale by a preceding source Save or external change.
+                diagnosticsNeedRefresh: false,
+              },
             },
           }
         : state;
     });
-    void get().load(status.id, true);
+    void get().load(status.id, true, status.generation);
   },
-  load: async (id, refresh = false) => {
+  load: async (id, refresh = false, validatedGeneration?: number) => {
     const prior = get().entries[id];
     if (!prior || prior.admitted || prior.loading || (prior.source && !refresh)) return;
     set((state) => ({ entries: { ...state.entries, [id]: { ...prior, loading: true } } }));
@@ -113,6 +122,11 @@ export const useCandidateRepairStore = create<CandidateRepairStore>()((set, get)
         const entry = state.entries[id];
         if (!entry || entry.admitted) return state;
         const dirty = entry.source && entry.buffer !== entry.source.text;
+        const changed = Boolean(entry.source && entry.source.revision !== source.revision);
+        // A source refresh initiated by this exact native validation can keep
+        // its freshly checked diagnostics. Manual or older refreshes cannot.
+        const validated =
+          validatedGeneration !== undefined && entry.status?.generation === validatedGeneration;
         return {
           entries: {
             ...state.entries,
@@ -120,6 +134,8 @@ export const useCandidateRepairStore = create<CandidateRepairStore>()((set, get)
               ...entry,
               source: dirty ? entry.source : source,
               buffer: dirty ? entry.buffer : source.text,
+              diagnostics: changed && !validated ? [] : entry.diagnostics,
+              diagnosticsNeedRefresh: changed && !validated ? true : entry.diagnosticsNeedRefresh,
               diskSource: dirty && entry.source?.revision !== source.revision ? source : undefined,
               diskText:
                 dirty && entry.source?.revision !== source.revision ? source.text : undefined,
@@ -162,6 +178,8 @@ export const useCandidateRepairStore = create<CandidateRepairStore>()((set, get)
             ...entry,
             source: entry.diskSource,
             buffer: entry.diskSource.text,
+            diagnostics: [],
+            diagnosticsNeedRefresh: true,
             diskSource: undefined,
             diskText: undefined,
             error: undefined,
@@ -198,6 +216,8 @@ export const useCandidateRepairStore = create<CandidateRepairStore>()((set, get)
                 [id]: {
                   ...latest,
                   source,
+                  diagnostics: [],
+                  diagnosticsNeedRefresh: true,
                   saving: false,
                   error: undefined,
                   diskText: undefined,

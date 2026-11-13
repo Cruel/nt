@@ -1,6 +1,7 @@
 import { Badge } from '@/components/ui/badge';
 import { visualForEditorType } from '@/workspace/collection-visuals';
 import { useTranslation } from 'react-i18next';
+import { Button } from '@/components/ui/button';
 import {
   navigateToWorkbenchTarget,
   type WorkbenchNavigationRequest,
@@ -24,6 +25,8 @@ interface DiagnosticListProps {
   emptyMessage?: string;
   showPath?: boolean;
   compact?: boolean;
+  onFix?: (item: EditorDiagnosticItem, index: number) => void;
+  fixLabel?: string;
 }
 
 function severityVariant(severity: EditorDiagnosticItem['severity']) {
@@ -42,10 +45,14 @@ export function DiagnosticCard({
   item,
   showPath = true,
   compact = false,
+  onFix,
+  fixLabel,
 }: {
   item: EditorDiagnosticItem;
   showPath?: boolean;
   compact?: boolean;
+  onFix?: () => void;
+  fixLabel?: string;
 }) {
   const { t } = useTranslation('workspace');
   const message = localizedDiagnosticMessage(item, t);
@@ -87,12 +94,13 @@ export function DiagnosticCard({
         ) : null}
       </div>
     );
-    const className = `col-span-full grid w-full grid-cols-subgrid border-l-2 px-1.5 py-0.5 text-left text-xs leading-5 ${compactSeverityBorder(
+    const className = `col-span-full grid w-full ${onFix ? (showPath ? 'grid-cols-[minmax(0,9rem)_minmax(0,1fr)_minmax(0,14rem)]' : 'grid-cols-[minmax(0,9rem)_minmax(0,1fr)]') : 'grid-cols-subgrid'} border-l-2 px-1.5 py-0.5 text-left text-xs leading-5 ${compactSeverityBorder(
       item.severity,
     )}`;
 
-    if (!item.target) return <div className={className}>{content}</div>;
-    return (
+    const diagnostic = !item.target ? (
+      <div className={className}>{content}</div>
+    ) : (
       <button
         type="button"
         className={`${className} cursor-pointer transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30`}
@@ -100,6 +108,16 @@ export function DiagnosticCard({
       >
         {content}
       </button>
+    );
+    return onFix ? (
+      <div className="col-span-full flex min-w-0 items-center gap-1">
+        <div className="min-w-0 flex-1">{diagnostic}</div>
+        <Button className="h-7 shrink-0" size="sm" variant="outline" onClick={onFix}>
+          {fixLabel}
+        </Button>
+      </div>
+    ) : (
+      diagnostic
     );
   }
 
@@ -139,6 +157,8 @@ export function DiagnosticList({
   emptyMessage,
   showPath = true,
   compact = false,
+  onFix,
+  fixLabel,
 }: DiagnosticListProps) {
   if (items.length === 0) {
     return emptyMessage ? <p className="text-muted-foreground">{emptyMessage}</p> : null;
@@ -159,6 +179,8 @@ export function DiagnosticList({
           item={item}
           showPath={showPath}
           compact={compact}
+          onFix={onFix && item.severity !== 'info' ? () => onFix(item, index) : undefined}
+          fixLabel={fixLabel}
         />
       ))}
     </div>

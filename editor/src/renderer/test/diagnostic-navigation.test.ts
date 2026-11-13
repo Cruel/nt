@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vite-plus/test';
 import {
   parseJsonPointer,
   resolveProjectDiagnosticTarget,
+  resolveRepairDiagnosticTarget,
 } from '@/diagnostics/diagnostic-navigation';
 import {
   createAuthoringProject,
@@ -379,5 +380,79 @@ describe('diagnostic navigation', () => {
     });
     expect(resolveProjectDiagnosticTarget(project, '/characters/missing/data/preview')).toBeNull();
     expect(resolveProjectDiagnosticTarget(project, 'not/a/pointer')).toBeNull();
+  });
+
+  it('prefers a safe structured field, but uses exact physical source anchors for invalid YAML', () => {
+    const project = projectWithRecords();
+    const sourceFiles = [
+      {
+        id: 'scripts/room-source.lua',
+        displayPath: 'scripts/room-source.lua',
+        projectRelativePath: 'scripts/room-source.lua',
+        kind: 'lua' as const,
+        text: true,
+      },
+    ];
+    expect(
+      resolveRepairDiagnosticTarget(
+        project,
+        {
+          code: 'room.invalid-data',
+          severity: 'error',
+          path: '/rooms/foyer/data',
+          sourcePath: 'scripts/room-source.lua',
+          line: 8,
+          column: 11,
+          message: 'Invalid Room field',
+        },
+        sourceFiles,
+      )?.tab.editorType,
+    ).toBe('room-detail');
+    expect(
+      resolveRepairDiagnosticTarget(
+        project,
+        {
+          code: 'native.source.invalid',
+          severity: 'error',
+          path: '/rooms/foyer/data',
+          sourcePath: 'scripts/room-source.lua',
+          line: 8,
+          column: 11,
+          message: 'Malformed YAML source',
+        },
+        sourceFiles,
+      ),
+    ).toMatchObject({
+      tab: { editorType: 'source-file' },
+      target: { id: 'source.line', payload: { line: 8, column: 11 } },
+    });
+
+    expect(
+      resolveRepairDiagnosticTarget(
+        project,
+        {
+          code: 'record.normalization.failed',
+          severity: 'error',
+          path: '/rooms/foyer/data',
+          sourcePath: 'records/rooms/foyer.yaml',
+          line: 14,
+          column: 2,
+          message: 'Unsupported record shape',
+        },
+        [
+          ...sourceFiles,
+          {
+            id: 'records/rooms/foyer.yaml',
+            displayPath: 'records/rooms/foyer.yaml',
+            projectRelativePath: 'records/rooms/foyer.yaml',
+            kind: 'yaml',
+            text: true,
+          },
+        ],
+      ),
+    ).toMatchObject({
+      tab: { editorType: 'source-file' },
+      target: { id: 'source.line', payload: { line: 14, column: 2 } },
+    });
   });
 });

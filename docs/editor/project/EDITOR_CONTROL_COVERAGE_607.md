@@ -15,6 +15,13 @@ module. It uses an explicit source buffer and candidate-specific physical CAS
 instead of an admitted Project Save unit. Its regression evidence is
 `project-candidate-repair.test.ts`.
 
+The #619 Fix/All/All Errors controls in that candidate editor are **O**:
+they select a diagnostic scope and open an editable, copyable draft, with no
+Project filesystem mutation. Their three callbacks are classified separately
+from the four existing read/open/save/source-resolution controls. Source Save
+remains **F**, subject to main-owned candidate CAS; prompt-copy regression
+coverage is in `repair-prompt.test.ts` and `repair-prompt-dialog.test.tsx`.
+
 The gate is run by `pnpm -C editor exec vp run check:editor-control-coverage` and by
 `pnpm -C editor run check` (through `check:types`). It fails for a new or removed
 editor module, an added/renamed route-to-component binding, and any changed

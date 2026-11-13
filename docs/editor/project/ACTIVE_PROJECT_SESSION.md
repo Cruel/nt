@@ -27,6 +27,17 @@ The handoff rechecks native admission
 before replacing the incumbent. Closing or superseding a candidate revokes its
 watcher and readiness token, without granting active-Project authority.
 
+The shared Problems/Project Candidate Fix prompt selects one current diagnostic,
+all current errors and warnings, or errors only. Active Projects derive
+inspect-only dependency context from the current native graph; candidates use
+only known physical source locations, without inventing graph data or a normal
+session. Prompt generation and clipboard copying are renderer-only and do not
+modify files, prepare Agent Kit files, or launch a harness. The draft remains
+editable, but a source or diagnostic change makes it stale until the author
+explicitly regenerates against a current scope. Weak candidates and older/newer
+schema versions require separate, explicit authorizations for the later Run
+boundary; newer formats carry a data-loss warning. Run is implemented separately.
+
 ## Purpose
 
 The Electron main process owns the authority for the active Project. Renderer state receives only an
