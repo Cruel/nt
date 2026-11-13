@@ -69,6 +69,7 @@ import {
   openProjectArgumentsSchema,
   observeRepairCandidateArgumentsSchema,
   readRepairCandidateArgumentsSchema,
+  repairHarnessLaunchArgumentsSchema,
   saveRepairCandidateArgumentsSchema,
   closeRepairCandidateArgumentsSchema,
   openProjectAttachmentFileArgumentsSchema,
@@ -216,6 +217,11 @@ import {
 } from './main/services/template-registry-service';
 import { TerminalNotificationService } from './main/services/terminal-notification-service';
 import {
+  installedRepairHarnessCommand,
+  prepareRepairAgentKit,
+  probeRepairHarnesses,
+} from './main/services/repair-harness-service';
+import {
   createNodePtyAdapter,
   resolveDefaultTerminalShell,
   TerminalService,
@@ -251,6 +257,7 @@ import type {
 } from './shared/project-source-files';
 import type { ReadProjectTextSourcesRequest } from './shared/project-text-sources';
 import { normalizeTerminalPreferences } from './shared/terminal-preferences';
+import { candidateFormatRisk } from './shared/repair-format-risk';
 
 configureSharpPlatformImageService();
 
@@ -1188,6 +1195,68 @@ void app.whenReady().then(async () => {
     IPC_CHANNELS.TERMINAL_CREATE_SESSION,
     (arguments_) => noArgumentsSchema.parse(arguments_),
     () => terminalService.createSession(),
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.REPAIR_HARNESS_PROBE,
+    (arguments_) => noArgumentsSchema.parse(arguments_),
+    () => probeRepairHarnesses(),
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.REPAIR_HARNESS_LAUNCH,
+    (arguments_) => repairHarnessLaunchArgumentsSchema.parse(arguments_),
+    async (request) => {
+      if (request.kind === 'active' && request.candidateRevision !== undefined)
+        throw new Error('An active Project cannot use a candidate source revision.');
+      if (request.kind === 'candidate' && request.candidateRevision === undefined)
+        throw new Error('The candidate source must be inspected before Run.');
+      const candidate =
+        request.kind === 'candidate'
+          ? await projectCandidateRepairs.authorizeRun(request.id)
+          : null;
+      const root = candidate?.root ?? activeProjectSessions.requireActiveProjectRoot(request.id);
+      if (candidate) {
+        if (candidate.recognition === 'weak' && !request.authorizeWeak)
+          throw new Error('This candidate requires explicit authorization before AI repair.');
+        const source = await projectCandidateRepairs.read(request.id);
+        if (source.revision !== request.candidateRevision)
+          throw new Error(
+            'The candidate manifest changed since the repair prompt was prepared. Regenerate the prompt before Run.',
+          );
+        const risk = source.revision === 'absent' ? 'current' : candidateFormatRisk(source.text);
+        if (risk === 'unknown')
+          throw new Error(
+            'The candidate schema version cannot be verified. Inspect the source before Run.',
+          );
+        if (risk === 'older' && !request.authorizeOlder)
+          throw new Error('Explicit authorization is required to convert an older Project.');
+        if (risk === 'newer' && !request.authorizeNewer)
+          throw new Error('Explicit authorization is required for a newer Project format.');
+      }
+      const command = await installedRepairHarnessCommand(request.harness, request.prompt);
+      await prepareRepairAgentKit(root, candidate?.recognition === 'weak');
+      // Reauthenticate after async preparation: closing a candidate or
+      // switching the active Project must not grant a delayed launch.
+      if (candidate) {
+        const current = await projectCandidateRepairs.authorizeRun(request.id);
+        if (current.root !== root) throw new Error('Project Candidate changed before Run.');
+        const source = await projectCandidateRepairs.read(request.id);
+        if (source.revision !== request.candidateRevision)
+          throw new Error(
+            'The candidate manifest changed during Agent Kit preparation. Regenerate the prompt before Run.',
+          );
+      } else if (activeProjectSessions.requireActiveProjectRoot(request.id) !== root) {
+        throw new Error('The active Project changed before Run.');
+      }
+      return terminalService.createRepairSession(
+        root,
+        candidate
+          ? { id: request.id, name: `Project Candidate: ${path.basename(root)}` }
+          : activeProjectSessions.currentProjectIdentity(),
+        command,
+      );
+    },
   );
 
   guardedIpc.handle(

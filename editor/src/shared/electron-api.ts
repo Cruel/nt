@@ -47,6 +47,10 @@ interface NovelTeaElectronApiContract {
   setNativeWindowFrame(nativeFrame: boolean): Promise<AppInfo>;
   ensureTerminalState(): Promise<import('./terminal').TerminalHostSnapshot>;
   createTerminalSession(): Promise<import('./terminal').TerminalHostSnapshot>;
+  probeRepairHarnesses(): Promise<import('./repair-harness').RepairHarness[]>;
+  launchRepairHarness(
+    request: import('./repair-harness').RepairHarnessLaunchRequest,
+  ): Promise<import('./terminal').TerminalHostSnapshot>;
   selectTerminalSession(sessionId: string): Promise<import('./terminal').TerminalHostSnapshot>;
   closeTerminalSession(
     request: import('./terminal').TerminalCloseRequest,

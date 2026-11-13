@@ -887,6 +887,25 @@ export const cancelImageThumbnailPrewarmArgumentsSchema = z.tuple([
 
 const terminalSessionIdSchema = z.string().uuid().max(TERMINAL_LIMITS.sessionIdLength);
 export const terminalSessionArgumentsSchema = z.tuple([terminalSessionIdSchema]);
+export const repairHarnessLaunchArgumentsSchema = z.tuple([
+  z
+    .object({
+      kind: z.enum(['active', 'candidate']),
+      id: z.string().min(1).max(128),
+      candidateRevision: z
+        .union([z.literal('absent'), z.string().regex(/^sha256:[0-9a-f]{64}$/u)])
+        .optional(),
+      harness: z.enum(['claude', 'codex', 'opencode']),
+      prompt: z
+        .string()
+        .min(1)
+        .refine((value) => utf8ByteLength(value) <= 128 * 1024 && !value.includes('\0')),
+      authorizeWeak: z.boolean(),
+      authorizeOlder: z.boolean(),
+      authorizeNewer: z.boolean(),
+    })
+    .strict(),
+]);
 export const terminalCloseArgumentsSchema = z.tuple([
   z.object({ sessionId: terminalSessionIdSchema, force: z.boolean() }).strict(),
 ]);

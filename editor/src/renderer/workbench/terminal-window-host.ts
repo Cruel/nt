@@ -62,6 +62,15 @@ export async function createWindowTerminalSession(): Promise<TerminalHostSnapsho
   return snapshot;
 }
 
+export async function launchWindowRepairTerminal(
+  request: import('../../shared/repair-harness').RepairHarnessLaunchRequest,
+): Promise<TerminalHostSnapshot> {
+  ensureRuntime();
+  const snapshot = await window.noveltea.launchRepairHarness(request);
+  applySnapshot(snapshot);
+  return snapshot;
+}
+
 export async function selectWindowTerminalSession(
   sessionId: string,
 ): Promise<TerminalHostSnapshot> {

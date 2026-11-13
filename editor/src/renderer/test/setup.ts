@@ -146,6 +146,8 @@ Object.defineProperty(window, 'noveltea', {
       selectedSessionId: '00000000-0000-4000-8000-000000000001',
     }),
     createTerminalSession: vi.fn(),
+    probeRepairHarnesses: vi.fn(),
+    launchRepairHarness: vi.fn(),
     selectTerminalSession: vi.fn(),
     closeTerminalSession: vi.fn(),
     relaunchTerminalSession: vi.fn(),

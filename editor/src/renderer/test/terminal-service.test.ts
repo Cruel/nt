@@ -63,6 +63,65 @@ function serviceOptions(spawn: TerminalPtyAdapter['spawn']) {
 }
 
 describe('TerminalService', () => {
+  it('launches a direct headless process in a separate immutable candidate session', async () => {
+    const ordinary = fakeProcess();
+    const agent = fakeProcess();
+    const spawn = vi
+      .fn<(options: SpawnOptions) => TerminalPtyProcess>()
+      .mockReturnValueOnce(ordinary.process)
+      .mockReturnValueOnce(agent.process);
+    const service = new TerminalService({
+      ...serviceOptions(spawn),
+      resolveProjectRoot: () => '/active',
+      resolveProjectOrigin: () => ({ id: 'active', name: 'Active' }),
+    });
+    const first = await service.createSession();
+    const command = {
+      executable: '/usr/bin/codex',
+      args: ['exec', '--', "line 1\n' && $(touch /tmp/no)"],
+    };
+    const launched = await service.createRepairSession(
+      '/candidate',
+      { id: 'candidate', name: 'Candidate' },
+      command,
+    );
+    expect(launched.sessions).toHaveLength(2);
+    expect(launched.sessions[0]).toMatchObject({
+      id: first.selectedSessionId,
+      initialCwd: '/active',
+      originProject: { id: 'active' },
+    });
+    expect(launched.sessions[1]).toMatchObject({
+      initialCwd: '/candidate',
+      originProject: { id: 'candidate' },
+      commandState: 'running',
+    });
+    expect(spawn).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        shell: '/usr/bin/codex',
+        cwd: '/candidate',
+        args: command.args,
+      }),
+    );
+    expect(
+      (await service.closeSession(launched.selectedSessionId, false)).requiresConfirmation,
+    ).toBe(true);
+    agent.emitData('repair output');
+    agent.emitExit(0);
+    expect((await service.ensureState()).sessions[1]).toMatchObject({
+      status: 'exited',
+      exitCode: 0,
+    });
+    await service.relaunchSession(launched.selectedSessionId);
+    expect(spawn).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        shell: '/usr/bin/codex',
+        cwd: '/candidate',
+        args: command.args,
+      }),
+    );
+    service.dispose();
+  });
   it('creates the first terminal lazily with immutable trusted creation metadata and routes PTY I/O', async () => {
     const pty = fakeProcess();
     const spawn = vi.fn((_options: SpawnOptions) => pty.process);

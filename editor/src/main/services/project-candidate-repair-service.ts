@@ -519,6 +519,16 @@ export class ProjectCandidateRepairService {
     return session.root;
   }
 
+  async authorizeRun(id: string): Promise<{ root: string; recognition: 'strong' | 'weak' }> {
+    const session = this.require(id);
+    if (session.openingCount > 0)
+      throw new Error('Project Candidate admission is in progress. Try again after it finishes.');
+    await this.assertRoot(session);
+    if (this.sessions.get(id) !== session)
+      throw new Error('Project Candidate repair permission expired. Reopen the candidate.');
+    return { root: session.root, recognition: session.recognition };
+  }
+
   private require(id: string): CandidateSession {
     const session = this.sessions.get(id);
     if (!session)

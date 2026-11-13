@@ -23,6 +23,8 @@ export const IPC_CHANNELS = {
   SET_NATIVE_WINDOW_FRAME: 'noveltea:set-native-window-frame',
   TERMINAL_ENSURE_STATE: 'noveltea:terminal-ensure-state',
   TERMINAL_CREATE_SESSION: 'noveltea:terminal-create-session',
+  REPAIR_HARNESS_PROBE: 'noveltea:repair-harness-probe',
+  REPAIR_HARNESS_LAUNCH: 'noveltea:repair-harness-launch',
   TERMINAL_SELECT_SESSION: 'noveltea:terminal-select-session',
   TERMINAL_CLOSE_SESSION: 'noveltea:terminal-close-session',
   TERMINAL_RELAUNCH_SESSION: 'noveltea:terminal-relaunch-session',

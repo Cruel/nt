@@ -43,6 +43,7 @@ interface TerminalSession {
   lastKnownCwd: string | null;
   createdAt: string;
   originProject: TerminalProjectOrigin | null;
+  launchCommand: { executable: string; args: string[] } | null;
   status: 'running' | 'exited' | 'error';
   commandState: TerminalCommandState;
   currentCommandStartedAt: string | null;
@@ -89,6 +90,23 @@ export class TerminalService {
   async createSession(): Promise<TerminalHostSnapshot> {
     this.used = true;
     const session = await this.createNewSession(this.lifecycleGeneration);
+    this.selectedSessionId = session.id;
+    return this.snapshotState();
+  }
+
+  /** Called only after main has authenticated a specific Project repair root.
+   * Unlike interactive shell creation, the executable/argv never come from IPC. */
+  async createRepairSession(
+    cwd: string,
+    originProject: TerminalProjectOrigin | null,
+    command: { executable: string; args: string[] },
+  ): Promise<TerminalHostSnapshot> {
+    this.used = true;
+    const session = await this.createNewSession(this.lifecycleGeneration, {
+      cwd,
+      originProject,
+      command,
+    });
     this.selectedSessionId = session.id;
     return this.snapshotState();
   }
@@ -187,9 +205,16 @@ export class TerminalService {
     return session;
   }
 
-  private async createNewSession(generation: number): Promise<TerminalSession> {
+  private async createNewSession(
+    generation: number,
+    repair?: {
+      cwd: string;
+      originProject: TerminalProjectOrigin | null;
+      command: { executable: string; args: string[] };
+    },
+  ): Promise<TerminalSession> {
     const sequence = this.nextSequence++;
-    const creationContext = await this.resolveNewSessionContext();
+    const creationContext = repair ?? (await this.resolveNewSessionContext());
     const session: TerminalSession = {
       id: randomSessionId(this.options.sessionId),
       label: `Terminal ${sequence}`,
@@ -198,6 +223,7 @@ export class TerminalService {
       lastKnownCwd: creationContext.cwd,
       createdAt: (this.options.now?.() ?? new Date()).toISOString(),
       originProject: creationContext.originProject,
+      launchCommand: repair ? { ...repair.command, args: [...repair.command.args] } : null,
       status: 'running',
       commandState: 'unknown',
       currentCommandStartedAt: null,
@@ -239,17 +265,17 @@ export class TerminalService {
 
   private async spawnIntoSession(session: TerminalSession, cwd: string): Promise<void> {
     session.status = 'running';
-    session.commandState = 'unknown';
-    session.currentCommandStartedAt = null;
+    session.commandState = session.launchCommand ? 'running' : 'unknown';
+    session.currentCommandStartedAt = session.launchCommand ? this.nowIso() : null;
     session.error = null;
     session.exitCode = null;
     session.lastKnownCwd = cwd;
     try {
-      const shell = this.options.resolveShell();
-      const preparedShell = prepareTerminalShell(
-        shell,
-        normalizedEnvironment(this.options.env ?? processEnv()),
-      );
+      const shell = session.launchCommand?.executable ?? this.options.resolveShell();
+      const env = normalizedEnvironment(this.options.env ?? processEnv());
+      const preparedShell = session.launchCommand
+        ? { args: session.launchCommand.args, env, integrationExpected: false, dispose() {} }
+        : prepareTerminalShell(shell, env);
       session.preparedShell = preparedShell;
       session.parser = new TerminalOutputParser(preparedShell.integrationExpected, {
         onPrompt: () => this.handlePrompt(session),
@@ -274,6 +300,7 @@ export class TerminalService {
           this.options.emit({ kind: 'output', sessionId: session.id, data: visibleData });
         }),
         process.onExit(({ exitCode }) => {
+          if (session.launchCommand) this.handleCommandComplete(session, exitCode);
           session.status = 'exited';
           session.commandState = 'idle';
           session.currentCommandStartedAt = null;
@@ -286,6 +313,7 @@ export class TerminalService {
           this.options.emit({ kind: 'exit', sessionId: session.id, exitCode: session.exitCode });
         }),
       );
+      if (session.launchCommand) this.emitMetadata(session);
     } catch (error) {
       session.preparedShell?.dispose();
       session.preparedShell = null;

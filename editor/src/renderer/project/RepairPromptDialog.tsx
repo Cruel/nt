@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import {
@@ -12,7 +12,14 @@ import {
 import { useCandidateRepairStore } from './candidate-repair-store';
 import { useProjectStore } from './project-store';
 import { useWorkspaceStore } from '../stores/workspace-store';
-import { useRepairPromptStore, repairPromptIsCurrent } from './repair-prompt-store';
+import { useBottomPanelStore } from '../workbench/bottom-panel-store';
+import { launchWindowRepairTerminal } from '../workbench/terminal-window-host';
+import type { RepairHarness } from '../../shared/repair-harness';
+import {
+  useRepairPromptStore,
+  repairPromptIsCurrent,
+  repairPromptRunAuthorized,
+} from './repair-prompt-store';
 
 export function RepairPromptDialog() {
   const { t } = useTranslation('workspace');
@@ -29,7 +36,65 @@ export function RepairPromptDialog() {
   useProjectStore((state) => state.projectSessionId);
   useCandidateRepairStore((state) => state.entries);
   const [copyMessage, setCopyMessage] = useState<'copied' | 'failed' | null>(null);
+  const [harnesses, setHarnesses] = useState<RepairHarness[]>([]);
+  const [harness, setHarness] = useState<RepairHarness | ''>('');
+  const [probing, setProbing] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [runError, setRunError] = useState<string | null>(null);
   const current = draft ? repairPromptIsCurrent(draft) : false;
+
+  useEffect(() => {
+    if (!visible) return;
+    let active = true;
+    setProbing(true);
+    setRunError(null);
+    void window.noveltea
+      .probeRepairHarnesses()
+      .then((installed) => {
+        if (!active) return;
+        setHarnesses(installed);
+        setHarness((previous) =>
+          installed.includes(previous as RepairHarness) ? previous : (installed[0] ?? ''),
+        );
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        setHarnesses([]);
+        setHarness('');
+        setRunError(error instanceof Error ? error.message : t('repairPrompt.probeFailed'));
+      })
+      .finally(() => {
+        if (active) setProbing(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [visible, t]);
+
+  async function run() {
+    if (!draft || !harness || running || !draft.text.trim() || !repairPromptRunAuthorized(draft))
+      return;
+    setRunning(true);
+    setRunError(null);
+    try {
+      await launchWindowRepairTerminal({
+        kind: draft.kind,
+        id: draft.id,
+        candidateRevision: draft.candidateRevision,
+        harness,
+        prompt: draft.text,
+        authorizeWeak: draft.authorizeWeak,
+        authorizeOlder: draft.authorizeOlder,
+        authorizeNewer: draft.authorizeNewer,
+      });
+      useBottomPanelStore.getState().setActivePanelId('terminal');
+      close();
+    } catch (error) {
+      setRunError(error instanceof Error ? error.message : t('repairPrompt.runFailed'));
+    } finally {
+      setRunning(false);
+    }
+  }
 
   async function copy() {
     if (!draft || !current) return;
@@ -124,6 +189,14 @@ export function RepairPromptDialog() {
             </label>
           </>
         ) : null}
+        {runError ? (
+          <p
+            role="alert"
+            className="max-h-24 overflow-auto whitespace-pre-wrap break-words text-xs text-destructive"
+          >
+            {runError}
+          </p>
+        ) : null}
         <DialogFooter className="items-center">
           {copyMessage ? (
             <span role="status" className="text-xs text-muted-foreground">
@@ -136,6 +209,41 @@ export function RepairPromptDialog() {
           <Button disabled={!draft || !current || !draft.text.trim()} onClick={() => void copy()}>
             {t('repairPrompt.copy')}
           </Button>
+          <select
+            className="h-8 max-w-32 rounded border bg-background px-2 text-xs"
+            aria-label={t('repairPrompt.harnessLabel')}
+            value={harness}
+            disabled={probing || running || harnesses.length === 0}
+            onChange={(event) => setHarness(event.target.value as RepairHarness)}
+          >
+            {harnesses.length === 0 ? (
+              <option value="">{t('repairPrompt.noHarness')}</option>
+            ) : null}
+            {harnesses.map((available) => (
+              <option key={available} value={available}>
+                {available === 'claude'
+                  ? 'Claude Code'
+                  : available === 'codex'
+                    ? 'Codex'
+                    : 'OpenCode'}
+              </option>
+            ))}
+          </select>
+          <span title={harnesses.length === 0 ? t('repairPrompt.noHarnessTooltip') : undefined}>
+            <Button
+              disabled={
+                !draft ||
+                !harness ||
+                probing ||
+                running ||
+                !draft.text.trim() ||
+                !repairPromptRunAuthorized(draft)
+              }
+              onClick={() => void run()}
+            >
+              {running ? t('repairPrompt.preparing') : t('repairPrompt.run')}
+            </Button>
+          </span>
         </DialogFooter>
       </DialogContent>
     </Dialog>

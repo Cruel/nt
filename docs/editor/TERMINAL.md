@@ -27,6 +27,28 @@ in this order:
    directory; and
 3. NovelTea's effective default Project directory (`Documents/NovelTea` by built-in default).
 
+The repair prompt's **Run** action is a separate guarded creation path. A quick native-host probe
+offers only detected local Claude Code, Codex or OpenCode executables; without any installed tool,
+Run stays disabled and Copy prompt still works. The renderer sends only an active Project session
+capability or Project Candidate repair capability, a known harness identifier, authorization flags,
+and the user's editable prompt. Main authenticates the capability against its current active Project
+or registered candidate root, checks candidate version/consent, invokes the standalone native
+`noveltea repair project` preparation, and reauthenticates after preparation before creating a session.
+Preparation preserves authored source and custom AGENTS instructions; native diagnostics (including
+invalid managed markers) block launch and remain visible in the repair prompt. No renderer-selected
+cwd, executable path, shell command, or process arguments become available through IPC.
+
+Repair sessions use the existing PTY host with a directly spawned headless tool process rather than
+typing an interpolated command into a shell: `claude --print -- <prompt>`,
+`codex exec -- <prompt>`, or `opencode run -- <prompt>`. Default tool model, authentication,
+permission prompts, provider configuration, and sandbox policy remain untouched. Windows package
+manager PowerShell shims are invoked through a fixed encoded bridge, not through `cmd.exe` with
+untrusted prompt text. Run creates and selects a new independent Terminal session; it never retargets
+an existing session. The process's stdout, exit/error state, Retry, cancellation and close
+confirmation follow the ordinary Terminal lifecycle. Working directory is not a write sandbox:
+the user's harness permissions govern modifications. Normal Project observation/reconciliation
+handles external AI edits; there is no separate agent-job or review system.
+
 Existing sessions keep their original cwd when Project context changes. The Terminal surface presents
 session tabs as a vertical rail on the right side of the terminal viewport so session chrome does not
 consume terminal height; the rail scrolls independently when many sessions are open. Each session

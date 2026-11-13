@@ -25,6 +25,7 @@ export interface RepairPromptDraft extends RepairPromptRequest {
   text: string;
   diagnosticFingerprint: string;
   sourceFingerprint: string;
+  candidateRevision?: string;
   recognition?: 'strong' | 'weak';
   formatRisk: CandidateFormatRisk;
   manifestAbsent: boolean;
@@ -102,6 +103,12 @@ function makeDraft(request: RepairPromptRequest): RepairPromptDraft | null {
   return {
     ...request,
     root: current.input.root,
+    ...(request.kind === 'candidate'
+      ? {
+          candidateRevision:
+            useCandidateRepairStore.getState().entries[request.id]?.source?.revision,
+        }
+      : {}),
     recognition: current.input.recognition,
     formatRisk: candidateFormatRisk(current.input.manifest),
     manifestAbsent:
