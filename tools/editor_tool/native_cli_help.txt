@@ -9,6 +9,7 @@ Commands:
   project export --output <bundle.ntproject>
   project import <bundle.ntproject> <destination-directory>
   agent sync [--fix]
+  repair project [<directory>] [--confirm-weak]
   comfyui status [--server <url>]
   comfyui workflows [--all]
   comfyui workflows <id>

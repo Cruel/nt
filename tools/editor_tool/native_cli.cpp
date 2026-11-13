@@ -2864,6 +2864,133 @@ int run(const std::vector<std::string>& argv)
                             args.json, error.what());
             }
         }
+        if (family == "repair" && operation == "project") {
+            // This is an explicitly authorized candidate-preparation path, not
+            // an alternate workspace preflight or normal Project admission.
+            std::string selected;
+            bool confirm_weak = false;
+            for (std::size_t i = 2; i < args.command.size(); ++i) {
+                const auto& option = args.command[i];
+                if (option == "--confirm-weak" && !confirm_weak)
+                    confirm_weak = true;
+                else if (!option.starts_with("--") && selected.empty())
+                    selected = option;
+                else
+                    return usage(args.json, "Usage: noveltea repair project [<directory>] "
+                                            "[--confirm-weak]");
+            }
+            if (!selected.empty() && !args.project.empty())
+                return usage(args.json, "Choose either --project or a repair project directory.");
+            const bool explicit_root = !selected.empty() || !args.project.empty();
+            namespace fs = std::filesystem;
+            auto resolve = [](const fs::path& path) {
+                std::error_code error;
+                const auto canonical = fs::canonical(path, error);
+                if (error || !fs::is_directory(canonical))
+                    return fs::path{};
+                return canonical;
+            };
+            fs::path root;
+            RepairCandidateEvidence evidence;
+            try {
+                if (explicit_root) {
+                    root =
+                        resolve(native_path_from_utf8(selected.empty() ? args.project : selected));
+                    if (!root.empty())
+                        evidence = inspect_repair_candidate(root);
+                } else {
+                    auto current = resolve(fs::current_path());
+                    while (!current.empty()) {
+                        auto candidate = inspect_repair_candidate(current);
+                        if (candidate.recognition == "strong") {
+                            root = current;
+                            evidence = std::move(candidate);
+                            break;
+                        }
+                        if (current.parent_path() == current)
+                            break;
+                        current = current.parent_path();
+                    }
+                }
+            } catch (const std::exception& error) {
+                return failure(
+                    args.json, 3, "REPAIR_CANDIDATE_INSPECTION_FAILED", "/", error.what(),
+                    "Cannot safely inspect Project Candidate: " + std::string(error.what()));
+            }
+            if (root.empty() || evidence.recognition == "none")
+                return failure(args.json, 3, "REPAIR_CANDIDATE_NOT_RECOGNIZED", "/",
+                               "Select an existing NovelTea Project Candidate with --project or "
+                               "a directory. A manifest discriminator, authentic managed bootstrap "
+                               "or two recognizable canonical sources are required.",
+                               "No recognizable NovelTea Project Candidate was found.");
+            const auto root_text = path_text(root);
+            if (evidence.recognition == "weak" && (!explicit_root || !confirm_weak))
+                return emit({{"success", false},
+                             {"exitCode", 4},
+                             {"diagnostics",
+                              Json::array({diagnostic(
+                                  "REPAIR_CANDIDATE_CONFIRMATION_REQUIRED", "/project.yaml",
+                                  "Only an unrecognized project.yaml identifies this candidate. "
+                                  "Inspect it first, then explicitly authorize preparation using "
+                                  "--project <directory> repair project --confirm-weak.")})},
+                             {"projectRoot", root_text},
+                             {"candidateRecognition", evidence.recognition},
+                             {"candidateEvidence", evidence.sources},
+                             {"requiresConfirmation", true}},
+                            args.json,
+                            "Explicit authorization is required for this weak candidate.");
+            try {
+                const auto synced = sync_native_agent_kit(root, true);
+                Json diagnostics = Json::array();
+                if (evidence.newer_workspace_version) {
+                    auto warning = diagnostic(
+                        "REPAIR_NEWER_WORKSPACE_VERSION", "/project.yaml",
+                        "This Project uses a newer workspace version than the installed CLI. "
+                        "Agent Kit guidance is current-only; inspect source before AI changes and "
+                        "do not assume `noveltea validate` can read it.");
+                    warning["severity"] = "warning";
+                    diagnostics.push_back(std::move(warning));
+                }
+                if (synced.gitignore_status == "missing-rule") {
+                    auto warning = diagnostic("AGENT_LOCAL_STATE_NOT_IGNORED", "/.gitignore",
+                                              "Add the missing `/.noveltea/` and/or `/dist/` "
+                                              "ignore rules to the existing .gitignore file.");
+                    warning["severity"] = "warning";
+                    diagnostics.push_back(std::move(warning));
+                }
+                return emit({{"success", true},
+                             {"exitCode", 0},
+                             {"diagnostics", diagnostics},
+                             {"projectRoot", root_text},
+                             {"candidateRecognition", evidence.recognition},
+                             {"candidateEvidence", evidence.sources},
+                             {"requiresConfirmation", false},
+                             {"agentKitChanged", synced.changed},
+                             {"agentBootstrapStatus", "current"},
+                             {"agentBootstrapChanged", synced.bootstrap_changed},
+                             {"agentGitignoreStatus", synced.gitignore_status},
+                             {"agentGitignoreCreated", synced.gitignore_status == "created"},
+                             {"agentGuidePath", path_text(synced.guide)},
+                             {"agentManifestPath", path_text(synced.manifest)}},
+                            args.json, "NovelTea Project Candidate prepared for manual/AI repair.");
+            } catch (const std::exception& error) {
+                const bool markers =
+                    std::string_view(error.what())
+                        .starts_with("NovelTea managed AGENTS.md markers are malformed");
+                return emit(
+                    {{"success", false},
+                     {"exitCode", 5},
+                     {"diagnostics",
+                      Json::array({diagnostic(markers ? "AGENT_BOOTSTRAP_MANUAL_REPAIR_REQUIRED"
+                                                      : "REPAIR_PREPARATION_FAILED",
+                                              markers ? "/AGENTS.md" : "/", error.what())})},
+                     {"projectRoot", root_text},
+                     {"candidateRecognition", evidence.recognition},
+                     {"candidateEvidence", evidence.sources},
+                     {"agentBootstrapChanged", false}},
+                    args.json, error.what());
+            }
+        }
         if (family == "daemon") {
             if (!args.project.empty())
                 return usage(args.json, "The 'daemon' command does not accept --project.");

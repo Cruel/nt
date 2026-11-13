@@ -62,6 +62,16 @@ New projects contain a root `AGENTS.md` with a clearly marked NovelTea-managed b
 
 Sync creates the canonical root `.gitignore` when it is absent. When an existing regular file contains both `.noveltea` and `dist` anywhere, NovelTea assumes the required rules are handled; when either is missing, sync succeeds with `AGENT_LOCAL_STATE_NOT_IGNORED` and leaves the file untouched. `--fix` does not modify an existing `.gitignore`. A non-file `AGENTS.md` or `.gitignore` is an error.
 
+`noveltea repair project` uses the **same** embedded payload and sync writer as
+`agent sync --fix`, but first recognizes a Project Candidate without normal
+manifest admission. It supports damaged/missing manifests with independently
+recognizable NovelTea evidence, and requires `--confirm-weak` plus an explicit
+directory for a lone unrecognized manifest. It preserves every authored Project
+source byte; the only allowed outputs are `.noveltea/agent/`, a managed
+`AGENTS.md` block, and a missing `.gitignore`. Target-path checks are scoped to
+these NovelTea-owned outputs, not unrelated source symlinks. See [CLI](CLI.md)
+for the selection, consent, diagnostics and newer-workspace warning contract.
+
 The generated kit tells agents to edit tracked YAML/Lua/RML/RCSS source directly, complete coherent multi-record authoring edits before treating validation as final, optionally run `noveltea fmt` (`--strip-defaults` only on explicit request), inspect expanded records with `noveltea entity inspect`, run read-only `noveltea validate`, and reserve semantic CLI commands for operations requiring canonical initialization, whole-project knowledge, transactions, external tooling, or execution. `GUIDE.md` explicitly routes the normal reasoning path through shared `concepts/` first, generated `reference/` second, initialized/existing records third, and raw `schemas/` only as an exhaustive fallback. `workflows/AUTHORING.md` contains the small agent-only operating procedure. `technical/` contains only authoring-language/runtime material the Project schema cannot express. `.noveltea/` is never a compilation input or authoring source.
 
 ## Editor coexistence
@@ -70,4 +80,4 @@ The project watcher ignores `.noveltea/`, so running `noveltea agent sync` while
 
 ## Certification
 
-CLI differential certification covers composition of byte-exact shared concepts and agent-only sources, generated compact references/raw schemas, provenance inclusion, byte-exact built-in system Layout/baseline references, system-role mapping, baseline cascade metadata, bootstrap inspection/repair, Agent Kit version/hash verification, stale-layout replacement, repeated idempotent sync, rollback on injected swap failure, project creation, and Node/ScriptC byte equivalence. Distribution verification additionally certifies standalone relocation and that production packages contain no prohibited first-party source maps or external runtime dependencies.
+Native CLI certification covers composition of byte-exact shared concepts and agent-only sources, generated compact references/raw schemas, provenance inclusion, byte-exact built-in system Layout/baseline references, system-role mapping, baseline cascade metadata, bootstrap inspection/repair, Agent Kit version/hash verification, stale-layout replacement, repeated idempotent sync, rollback on injected swap failure, and independent candidate recognition/consent without workspace admission. Installed distribution verification also exercises standalone relocation, candidate preparation, and the absence of prohibited first-party source maps or external runtime dependencies.

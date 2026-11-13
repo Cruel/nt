@@ -26,6 +26,7 @@ const witnesses = {
   'project export': 'certify-native-cli-project-routing.mjs',
   'project import': 'certify-native-project-command-differential.mjs',
   'agent sync': 'certify-native-cli-public-contracts.mjs',
+  'repair project': 'certify-native-cli-public-contracts.mjs',
   'comfyui status': 'certify-native-cli-comfyui-contracts.mjs',
   'comfyui workflows': 'certify-native-cli-comfyui-contracts.mjs',
   'comfyui verify': 'certify-native-cli-comfyui-contracts.mjs',

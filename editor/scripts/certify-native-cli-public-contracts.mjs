@@ -146,6 +146,17 @@ try {
     0,
     `Installed narrative coverage acceptance failed: ${coverageAcceptance.stdout}\n${coverageAcceptance.stderr}`,
   );
+  const repairAcceptance = spawnSync(
+    process.env.PYTHON ?? (process.platform === 'win32' ? 'python' : 'python3'),
+    [path.resolve(import.meta.dirname, '../../tests/native_cli/repair_project.py'), cli],
+    { env: environment, encoding: 'utf8', timeout: 180_000 },
+  );
+  assert.ifError(repairAcceptance.error);
+  assert.equal(
+    repairAcceptance.status,
+    0,
+    `Installed repair project certification failed: ${repairAcceptance.stdout}\n${repairAcceptance.stderr}`,
+  );
   error(json(['--not-a-global-option'], { projectRoot: null }), 2, 'CLI_USAGE', '/');
   error(json(['validate', '--invalid'], { projectRoot: null }), 2, 'CLI_USAGE', '/');
 

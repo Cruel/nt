@@ -1,17 +1,21 @@
 #include "native_cli_agent.hpp"
 #include "native_agent_kit_generated.hpp"
+#include "../project_authoring/yaml_codec.hpp"
 
 #include <noveltea/core/player_bootstrap.hpp>
 #include <miniz.h>
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <cstdlib>
 #include <optional>
 #include <random>
 #include <span>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -104,6 +108,134 @@ fs::file_status safe_status(const fs::path& path)
 }
 
 bool is_file(const fs::path& path) { return fs::is_regular_file(safe_status(path)); }
+
+void require_regular_or_missing(const fs::path& path)
+{
+    const auto type = safe_status(path).type();
+    if (type != fs::file_type::not_found && type != fs::file_type::regular)
+        throw std::runtime_error(path.filename().string() + " must be a regular file.");
+}
+
+bool matches_source_record(const fs::path& file)
+{
+    if (!is_file(file) || file.extension() != ".yaml")
+        return false;
+    const auto decoded = authoring::open_yaml_source(read_file(file));
+    if (!decoded.accepted)
+        return false;
+    const auto value = Json::parse(decoded.source_json, nullptr, false);
+    if (!value.is_object() || value.value("id", Json()) != file.stem().string() ||
+        !value.value("label", Json()).is_string() || !value.value("data", Json()).is_object())
+        return false;
+    const auto id = file.stem().string();
+    if (id.empty() || !std::all_of(id.begin(), id.end(), [](unsigned char ch) {
+            return (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '-';
+        }))
+        return false;
+    // Generic id/label/data alone also occur in unrelated YAML catalogs.
+    // Require a collection-specific authoring shape before counting evidence.
+    const auto& data = value.at("data");
+    const auto family = file.parent_path().filename().string();
+    const std::array<std::pair<std::string_view, std::string_view>, 15> signatures{{
+        {"animations", "motions"},
+        {"archetypes", "instanceKind"},
+        {"assets", "source"},
+        {"characters", "profiles"},
+        {"dialogues", "blocks"},
+        {"interactables", "presentation"},
+        {"interactions", "rules"},
+        {"layouts", "source"},
+        {"materials", "base"},
+        {"rooms", "presentationSpace"},
+        {"scenes", "events"},
+        {"scripts", "source"},
+        {"tests", "steps"},
+        {"variables", "type"},
+        {"verbs", "slots"},
+    }};
+    for (const auto& [collection, signature] : signatures)
+        if (collection == family)
+            return data.contains(std::string(signature));
+    return false;
+}
+
+bool matches_context_source(const fs::path& file, std::string_view kind)
+{
+    if (!is_file(file))
+        return false;
+    const auto decoded = authoring::open_yaml_source(read_file(file));
+    if (!decoded.accepted)
+        return false;
+    const auto value = Json::parse(decoded.source_json, nullptr, false);
+    if (!value.is_object())
+        return false;
+    if (kind == "i18n")
+        return value.value("sourceLocale", Json()).is_string() &&
+               value.value("defaultLocale", Json()).is_string() &&
+               value.value("locales", Json()).is_object();
+    if (kind == "editor")
+        return value.value("chapters", Json()).is_object() &&
+               value.value("tags", Json()).is_object() &&
+               value.value("recordMetadata", Json()).is_object();
+    if (kind == "traits") {
+        if (value.empty())
+            return false;
+        for (const auto& [id, trait] : value.items())
+            if (trait.is_object() && trait.value("id", Json()) == id &&
+                trait.value("ownerKinds", Json()).is_array() &&
+                trait.value("properties", Json()).is_array())
+                return true;
+    }
+    return false;
+}
+
+bool recognizable_manifest(const std::string& content, bool& newer)
+{
+    const auto parsed = authoring::open_yaml_source(content);
+    if (parsed.accepted) {
+        const auto value = Json::parse(parsed.source_json, nullptr, false);
+        if (!value.is_object() || value.value("schema", Json()) != "noveltea.project.workspace")
+            return false;
+        if (value.contains("schemaVersion") && value["schemaVersion"].is_number_integer())
+            newer = value["schemaVersion"].get<std::int64_t>() > 1;
+        return true;
+    }
+    // A damaged document may still have an unambiguous top-level discriminator.
+    // Do not interpret the rest of the manifest or default any schema version.
+    std::istringstream lines(content.starts_with("\xef\xbb\xbf") ? content.substr(3) : content);
+    std::string line;
+    bool recognized = false;
+    std::size_t schema_keys = 0;
+    while (std::getline(lines, line)) {
+        if (!line.empty() && line.back() == '\r')
+            line.pop_back();
+        const auto comment = line.find(" #");
+        if (comment != std::string::npos)
+            line.erase(comment);
+        const auto end = line.find_last_not_of(" \t");
+        if (end != std::string::npos)
+            line.erase(end + 1);
+        if (line.starts_with("schema:"))
+            ++schema_keys;
+        if (line == "schema: noveltea.project.workspace" ||
+            line == "schema: 'noveltea.project.workspace'" ||
+            line == "schema: \"noveltea.project.workspace\"")
+            recognized = true;
+        if (line.starts_with("schemaVersion: ")) {
+            const auto version = line.substr(std::string_view("schemaVersion: ").size());
+            if (!version.empty() &&
+                std::all_of(version.begin(), version.end(),
+                            [](unsigned char c) { return c >= '0' && c <= '9'; })) {
+                try {
+                    newer = std::stoll(version) > 1;
+                } catch (const std::out_of_range&) {
+                    newer = true;
+                }
+            }
+        }
+    }
+    return recognized && schema_keys == 1;
+}
 
 std::string normal_lf(std::string text)
 {
@@ -265,6 +397,12 @@ void replace_kit(const fs::path& local, const Json& payload)
             fs::rename(live, backup);
             backed_up = true;
         }
+        if (const char* certify = std::getenv("NOVELTEA_CLI_CERTIFICATION");
+            certify && std::string_view(certify) == "1") {
+            if (const char* fail = std::getenv("NOVELTEA_AGENT_CERTIFY_SWAP_FAILURE");
+                fail && std::string_view(fail) == "1")
+                throw std::runtime_error("Injected Agent Kit swap failure.");
+        }
         fs::rename(stage, live);
         activated = true;
         if (!kit_matches(live, payload))
@@ -282,40 +420,114 @@ void replace_kit(const fs::path& local, const Json& payload)
 }
 } // namespace
 
+RepairCandidateEvidence inspect_repair_candidate(const fs::path& root)
+{
+    RepairCandidateEvidence evidence;
+    const auto manifest = root / "project.yaml";
+    const bool has_manifest = is_file(manifest);
+    if (has_manifest &&
+        recognizable_manifest(read_file(manifest), evidence.newer_workspace_version))
+        evidence.sources.push_back("project.yaml");
+
+    const auto agents = root / "AGENTS.md";
+    if (is_file(agents)) {
+        const auto content = read_file(agents);
+        const auto status = inspect_bootstrap(&content);
+        const auto start = content.find(marker_start);
+        const auto end = content.find(marker_end);
+        const auto managed = start == std::string::npos || end == std::string::npos
+                                 ? std::string{}
+                                 : content.substr(start, end - start);
+        if ((status == "current" || status == "outdated") &&
+            (managed.find("noveltea agent sync") != std::string::npos ||
+             managed.find(".noveltea/agent/GUIDE.md") != std::string::npos))
+            evidence.sources.push_back("AGENTS.md");
+    }
+    if (!evidence.sources.empty()) {
+        evidence.recognition = "strong";
+        return evidence;
+    }
+
+    // Source recognition requires parsed, canonical content, not the presence
+    // of a directory, filename, or an unrelated Project's symlink target.
+    for (const auto& [relative, kind] :
+         std::array<std::pair<const char*, const char*>, 3>{{{"i18n/project.yaml", "i18n"},
+                                                             {"editor.yaml", "editor"},
+                                                             {"traits.yaml", "traits"}}}) {
+        if (std::string_view(kind) == "i18n" && !fs::is_directory(safe_status(root / "i18n")))
+            continue;
+        if (matches_context_source(root / relative, kind))
+            evidence.sources.emplace_back(relative);
+    }
+    if (evidence.sources.size() >= 2) {
+        evidence.recognition = "strong";
+        return evidence;
+    }
+    const auto records = root / "records";
+    if (fs::is_directory(safe_status(records))) {
+        for (const auto* collection :
+             {"animations", "archetypes", "assets", "characters", "dialogues", "interactables",
+              "interactions", "layouts", "materials", "rooms", "scenes", "scripts", "tests",
+              "variables", "verbs"}) {
+            const auto folder = records / collection;
+            if (!fs::is_directory(safe_status(folder)))
+                continue;
+            std::vector<fs::path> candidates;
+            for (const auto& entry : fs::directory_iterator(folder))
+                if (entry.path().extension() == ".yaml" && is_file(entry.path()))
+                    candidates.push_back(entry.path());
+            std::sort(candidates.begin(), candidates.end());
+            for (const auto& path : candidates) {
+                if (matches_source_record(path))
+                    evidence.sources.push_back(path.lexically_relative(root).generic_string());
+                if (evidence.sources.size() >= 2)
+                    break;
+            }
+            if (evidence.sources.size() >= 2)
+                break;
+        }
+    }
+    evidence.recognition = evidence.sources.size() >= 2 ? "strong" : has_manifest ? "weak" : "none";
+    return evidence;
+}
+
 AgentSyncResult sync_native_agent_kit(const fs::path& root, bool fix)
 {
     AgentSyncResult result;
     const auto agents_path = root / "AGENTS.md";
-    if (fs::is_directory(safe_status(agents_path)) || fs::is_symlink(safe_status(agents_path)))
-        throw std::runtime_error("AGENTS.md must be a regular file.");
+    const auto local = root / ".noveltea";
+    const auto live = local / "agent";
+    const auto ignore = root / ".gitignore";
+    // Inspect every owned target before the first write. Other Project source
+    // symlinks are irrelevant to Agent Kit preparation and are not traversed.
+    require_regular_or_missing(agents_path);
+    require_regular_or_missing(ignore);
+    if (fs::is_symlink(safe_status(local)) ||
+        (fs::exists(safe_status(local)) && !fs::is_directory(safe_status(local))))
+        throw std::runtime_error(".noveltea must be a real directory.");
+    const auto live_type = safe_status(live).type();
+    if (live_type != fs::file_type::not_found && live_type != fs::file_type::directory)
+        throw std::runtime_error(".noveltea/agent must be a real directory.");
     const auto agents =
         is_file(agents_path) ? std::optional(read_file(agents_path)) : std::optional<std::string>{};
     result.bootstrap_status = inspect_bootstrap(agents ? &*agents : nullptr);
     if (fix && result.bootstrap_status == "malformed")
         throw std::runtime_error(
             "NovelTea managed AGENTS.md markers are malformed and require manual repair.");
-    if (fix) {
-        const auto revised = repair_bootstrap(agents ? &*agents : nullptr, result.bootstrap_status);
-        if (!agents || *agents != revised) {
-            write_file_atomic(agents_path, revised);
-            result.bootstrap_changed = true;
-        }
-    }
+    const auto revised =
+        fix ? repair_bootstrap(agents ? &*agents : nullptr, result.bootstrap_status)
+            : std::string{};
     const auto payload = embedded_payload();
-    const auto local = root / ".noveltea";
-    if (fs::is_symlink(safe_status(local)) ||
-        (fs::exists(safe_status(local)) && !fs::is_directory(safe_status(local))))
-        throw std::runtime_error(".noveltea must be a real directory.");
     fs::create_directories(local);
-    const auto live = local / "agent";
     result.changed = !kit_matches(live, payload);
     if (result.changed)
         replace_kit(local, payload);
+    if (fix && (!agents || *agents != revised)) {
+        write_file_atomic(agents_path, revised);
+        result.bootstrap_changed = true;
+    }
     result.guide = live / "GUIDE.md";
     result.manifest = live / "manifest.json";
-    const auto ignore = root / ".gitignore";
-    if (fs::is_symlink(safe_status(ignore)) || fs::is_directory(safe_status(ignore)))
-        throw std::runtime_error(".gitignore must be a regular file.");
     if (!is_file(ignore)) {
         write_file_atomic(ignore, "/.noveltea/\n/dist/\n");
         result.gitignore_status = "created";

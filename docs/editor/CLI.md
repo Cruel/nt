@@ -31,7 +31,7 @@ is a development-only forwarder to an installed, authenticated C++ binary.
 Neither the public CLI nor resident workers require Node at runtime.
 Editor-only native tooling calls use the same installed executable through
 the private `__editor-native <operation>` entry point: bounded JSON stdin,
-native operation dispatch and JSON stdout. This is not part of the 42-path
+native operation dispatch and JSON stdout. This is not part of the 44-path
 public CLI inventory and does not start a ScriptC host or JavaScript runtime.
 
 ## Completed migration history
@@ -40,7 +40,7 @@ The pre-#551 direct-C++ candidate, partial compiler parity, native mutation tria
 ScriptC/QuickJS cutover gates, and dated certification notes are preserved in the
 [Native CLI cutover archive](../archive/reports/NATIVE_CLI_CUTOVER_HISTORY.md).
 Those candidate-only switches and historical acceptance states are not supported
-production operation. The current 42-path public command contract is verified by
+production operation. The current 44-path public command contract is verified by
 `node editor/scripts/certify-native-cli-inventory.mjs`, sourcing the canonical C++ help
 contract at `tools/editor_tool/native_cli_help.txt`. The obsolete `editor/src/cli`
 TypeScript command engine and its differential CI oracle are retired; Electron
@@ -132,7 +132,35 @@ noveltea entity create <collection> <id> [--dry-run]
 noveltea entity rename <collection> <old-id> <new-id> [--dry-run] [--allow-possible-source-references]
 noveltea entity delete <collection> <id> [--dry-run] [--force] [--allow-possible-source-references]
 noveltea agent sync [--fix]
+noveltea repair project [<directory>] [--confirm-weak]
 ```
+
+`repair project` is an explicit **Project Candidate** preparation command, not
+normal Project admission or migration. Select a candidate with `--project
+<directory>` or the positional `<directory>`; without either, the CLI walks up
+from the current directory until it finds *strong* NovelTea evidence. It does
+not run workspace preflight and can prepare a missing, malformed or unsupported
+`project.yaml`. Evidence is strong when a recognizable workspace-schema
+discriminator, an authentic managed `AGENTS.md` bootstrap, or two independently
+recognizable canonical source files are present. A lone unrecognizable
+`project.yaml` is weak evidence: choose the directory explicitly and supply
+`--confirm-weak` after inspecting the candidate; otherwise preparation exits 4
+without writing. A directory without evidence cannot be prepared, even with
+the flag. The JSON envelope reports `candidateRecognition`,
+`candidateEvidence`, and (on weak authorization failure) `requiresConfirmation`.
+
+Preparation refreshes the exact embedded `.noveltea/agent/` content, updates
+only NovelTea's managed `AGENTS.md` block, and creates `.gitignore` only if
+absent. It never creates or changes authored Project manifests or other sources.
+Existing custom agent instructions are preserved; malformed/duplicate managed
+markers require manual repair. Unexpected non-file targets, including symlinks
+at NovelTea-owned output paths, fail instead of following them. Other symlinks
+elsewhere in a candidate do not prevent preparation. Existing custom
+`.gitignore` files are never rewritten (missing rules produce a warning).
+For a newer-than-supported workspace version, preparation emits a warning:
+generated guidance describes the installed current format, and `validate` may
+not work until the user repairs/migrates the source. Neither `agent sync` nor
+`validate` acquires this relaxed candidate admission behavior.
 
 `project create` accepts a new destination path that does not exist, including paths containing spaces, and rejects every existing file, directory, or symlink. It assembles and validates the complete initial workspace in a sibling staging directory before atomic activation. The editor uses the same creation service and project defaults. Creation does not generate `.noveltea/agent/`; run `agent sync` afterward.
 
