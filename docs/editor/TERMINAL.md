@@ -38,16 +38,25 @@ Preparation preserves authored source and custom AGENTS instructions; native dia
 invalid managed markers) block launch and remain visible in the repair prompt. No renderer-selected
 cwd, executable path, shell command, or process arguments become available through IPC.
 
-Repair sessions use the existing PTY host with a directly spawned headless tool process rather than
-typing an interpolated command into a shell: `claude --print -- <prompt>`,
-`codex exec -- <prompt>`, or `opencode run -- <prompt>`. Default tool model, authentication,
-permission prompts, provider configuration, and sandbox policy remain untouched. Windows package
-manager PowerShell shims are invoked through a fixed encoded bridge, not through `cmd.exe` with
-untrusted prompt text. Run creates and selects a new independent Terminal session; it never retargets
-an existing session. The process's stdout, exit/error state, Retry, cancellation and close
-confirmation follow the ordinary Terminal lifecycle. Working directory is not a write sandbox:
-the user's harness permissions govern modifications. Normal Project observation/reconciliation
-handles external AI edits; there is no separate agent-job or review system.
+Repair sessions always launch the **interactive TUI** of the selected tool in the existing
+PTY host, with the full initial prompt passed as a single literal argv argument. No headless
+repair launch is available: `claude -- <prompt>`, `codex -- <prompt>`, or
+`opencode --prompt <prompt>`. OpenCode v2 no longer accepts `--model` in its full-screen TUI,
+so an explicit OpenCode model override uses the equally interactive
+`opencode mini --model <id> --prompt <prompt>` interface instead. Default starts
+the full-screen OpenCode TUI with its configured model. These processes retain
+their normal authentication, permissions, provider configuration and sandbox policy;
+users can inspect activity, answer prompts, interrupt, and continue the conversation
+inside the Terminal. The editor neither synthesizes shell commands from prompt text
+nor bypasses tool permission prompts. Windows package manager PowerShell shims
+continue to use the fixed encoded argv bridge rather than `cmd.exe`.
+
+Run creates and selects a new independent Terminal session; it never retargets
+an existing session. The live PTY receives keyboard input, emits screen updates,
+and retains the existing exit/error, Retry, cancellation and close-confirmation
+lifecycle. Working directory is not a write sandbox: the user's harness permissions
+govern modifications. Normal Project observation/reconciliation handles external
+AI edits; there is no separate agent-job or review system.
 
 The Run selector also offers **Default** or a per-harness explicit model override, with optional
 manual model ID entry. Default passes no model flag and preserves the harness's configured model.

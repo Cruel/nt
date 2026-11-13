@@ -187,15 +187,18 @@ export function repairHarnessCommand(
     throw new Error('Repair prompt must be nonempty, valid text of at most 128 KiB.');
   if (model !== '' && !validRepairModelId(model))
     throw new Error('The selected model ID is invalid. Choose Default or enter a valid model ID.');
-  // Direct argv, never an interpolated shell line. Defaults remain entirely
-  // owned by the selected tool (model, authorization, sandbox, profiles).
+  // Launch only interactive TUIs into the existing PTY. The prompt is a
+  // literal argv value, never an interpolated shell line. Keep each harness's
+  // configured permissions, sandbox, authentication and model as defaults.
   const modelArgs = model ? ['--model', model] : [];
+  // OpenCode v2's full-screen command accepts --prompt but not --model.
+  // Its "mini" TUI is also interactive and permits an explicit model.
   const args =
-    harness === 'claude'
-      ? ['--print', ...modelArgs, '--', prompt]
-      : harness === 'codex'
-        ? ['exec', ...modelArgs, '--', prompt]
-        : ['run', ...modelArgs, '--', prompt];
+    harness === 'opencode'
+      ? model
+        ? ['mini', ...modelArgs, '--prompt', prompt]
+        : ['--prompt', prompt]
+      : [...modelArgs, '--', prompt];
   return repairHarnessProcessCommand(executable, args, platform);
 }
 

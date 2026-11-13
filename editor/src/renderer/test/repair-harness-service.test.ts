@@ -74,17 +74,20 @@ describe('repair harness host boundary', () => {
   });
 
   it.each([
-    ['claude', ['--print', '--']],
-    ['codex', ['exec', '--']],
-    ['opencode', ['run', '--']],
+    ['claude', ['--']],
+    ['codex', ['--']],
+    ['opencode', ['--prompt']],
   ] as const)(
-    '%s preserves all unsafe prompt characters as one argv value, no permission override',
+    '%s launches an interactive TUI with the initial prompt as one literal argv value',
     (harness, prefix) => {
       const prompt =
         '--dangerously-bypass-approvals && \'$(touch /tmp/bad)\'\r\nsecond line\n"; rm -rf /"';
       const command = repairHarnessCommand(harness, '/opt/bin/' + harness, prompt, 'linux');
       expect(command.executable).toBe('/opt/bin/' + harness);
       expect(command.args).toEqual([...prefix, prompt]);
+      expect(command.args).not.toContain('--print');
+      expect(command.args).not.toContain('exec');
+      expect(command.args).not.toContain('run');
       expect(command.args).not.toContain('--auto');
       expect(command.args).not.toContain('--dangerously-skip-permissions');
       expect(command.args).not.toContain('--dangerously-bypass-approvals-and-sandbox');
@@ -93,19 +96,20 @@ describe('repair harness host boundary', () => {
     },
   );
 
-  it.each(['claude', 'codex', 'opencode'] as const)(
-    '%s appends only a valid explicit model override, omitting it for Default',
-    (harness) => {
+  it.each([
+    ['claude', ['--model', 'provider/model#high', '--', 'hello']],
+    ['codex', ['--model', 'provider/model#high', '--', 'hello']],
+    // OpenCode v2 removed --model from its full TUI; mini is interactive
+    // and supports both --model and --prompt without headless run.
+    ['opencode', ['mini', '--model', 'provider/model#high', '--prompt', 'hello']],
+  ] as const)(
+    '%s preserves interactive behavior with a valid explicit model override',
+    (harness, expected) => {
       const base = repairHarnessCommand(harness, '/tool', 'hello', 'linux').args;
       expect(base).not.toContain('--model');
-      const args = repairHarnessCommand(
-        harness,
-        '/tool',
-        'hello',
-        'linux',
-        'provider/model#high',
-      ).args;
-      expect(args).toEqual([...base.slice(0, -2), '--model', 'provider/model#high', '--', 'hello']);
+      expect(
+        repairHarnessCommand(harness, '/tool', 'hello', 'linux', 'provider/model#high').args,
+      ).toEqual(expected);
       expect(() =>
         repairHarnessCommand(harness, '/tool', 'hello', 'linux', '--dangerous'),
       ).toThrow();

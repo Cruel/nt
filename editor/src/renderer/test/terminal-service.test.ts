@@ -64,7 +64,7 @@ function serviceOptions(spawn: TerminalPtyAdapter['spawn']) {
 }
 
 describe('TerminalService', () => {
-  it('launches a direct headless process in a separate immutable candidate session', async () => {
+  it('launches an interactive TUI with a prompt in an isolated, reusable PTY session', async () => {
     const ordinary = fakeProcess();
     const agent = fakeProcess();
     const spawn = vi
@@ -105,10 +105,16 @@ describe('TerminalService', () => {
       expect.objectContaining({
         shell: '/usr/bin/codex',
         cwd: '/candidate',
-        args: ['exec', '--model', 'gpt-6', '--', "line 1\n' && $(touch /tmp/no)"],
+        args: ['--model', 'gpt-6', '--', "line 1\n' && $(touch /tmp/no)"],
         env: expect.objectContaining({ PATH: '/custom/shell-path:/usr/bin' }),
       }),
     );
+    // A launched agent remains attached to the PTY, so follow-up messages,
+    // approvals and terminal resize work just like an ordinary TUI session.
+    service.write(launched.selectedSessionId, 'continue\r');
+    expect(agent.write).toHaveBeenCalledWith('continue\r');
+    service.resize(launched.selectedSessionId, 120, 36);
+    expect(agent.resize).toHaveBeenCalledWith(120, 36);
     expect(
       (await service.closeSession(launched.selectedSessionId, false)).requiresConfirmation,
     ).toBe(true);
