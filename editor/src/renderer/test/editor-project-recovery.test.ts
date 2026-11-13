@@ -99,11 +99,30 @@ describe('project recovery reconstruction', () => {
       toJsonValue(nativeWorking),
       {},
       {
-        'rooms/director-completion-demo': [
-          { operation: 'remove', path: '/data/description/source/text' },
-          { operation: 'replace', path: '/data/description/source/kind', value: 'localized' },
-          { operation: 'add', path: '/data/description/source/key', value: '' },
-        ],
+        'rooms/director-completion-demo': {
+          ...room,
+          data: {
+            ...room.data,
+            description: {
+              source: { kind: 'localized', key: '' },
+              markup: 'plain',
+            },
+          },
+        },
+        // The native normalized baseline supplies markup="plain", although
+        // the original YAML omitted markup altogether. Native's B→L "add"
+        // patch for markup must never be reapplied against that baseline.
+        'rooms/properties-and-traits': {
+          ...saved.rooms['properties-and-traits'],
+          data: {
+            ...saved.rooms['properties-and-traits']!.data,
+            displayName: 'Properties & Traits 2',
+            description: {
+              source: { kind: 'localized', key: '' },
+              markup: 'active-text',
+            },
+          },
+        },
       },
     );
     const restored = recovered.workingDocument as typeof saved;
@@ -112,6 +131,10 @@ describe('project recovery reconstruction', () => {
       markup: 'plain',
     });
     expect(restored.rooms['properties-and-traits']?.data.displayName).toBe('Properties & Traits 2');
+    expect(restored.rooms['properties-and-traits']?.data.description).toEqual({
+      source: { kind: 'localized', key: '' },
+      markup: 'active-text',
+    });
     expect(
       (recovered.savedDocument as typeof saved).rooms['director-completion-demo']?.data.description,
     ).toEqual({

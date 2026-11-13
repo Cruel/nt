@@ -166,7 +166,7 @@ export class NativeEditorSessionController {
         !record.valid &&
         record.normalized === null &&
         record.normalizedBaseline != null
-          ? [[owner, record.dirtyPatches.map((patch) => ({ ...patch }))]]
+          ? [[owner, structuredClone(record.source)]]
           : [],
       ),
     );

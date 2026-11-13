@@ -39,8 +39,9 @@ import {
   nativeProjectValidateArgumentsSchema,
 } from '../../main/editor-ipc-trust-boundary';
 import { toJsonValue } from '../project/json-value';
+import { applyJsonPatch } from '../project/json-patch';
 import { createInitialCommandBusState, executeCommand } from '../commands/command-bus';
-import { confirmNativeCommand } from '../commands/native-command-execution';
+import { assertNativeProjection, confirmNativeCommand } from '../commands/native-command-execution';
 import {
   adoptNativeRecoveredProject,
   reconstructEditorProject,
@@ -1314,6 +1315,25 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
         },
         {
           op: 'replace',
+          path: '/rooms/properties-and-traits/data/description/source/kind',
+          value: 'localized',
+        },
+        {
+          op: 'remove',
+          path: '/rooms/properties-and-traits/data/description/source/text',
+        },
+        {
+          op: 'add',
+          path: '/rooms/properties-and-traits/data/description/source/key',
+          value: '',
+        },
+        {
+          op: 'add',
+          path: '/rooms/properties-and-traits/data/description/markup',
+          value: 'active-text',
+        },
+        {
+          op: 'replace',
           path: '/rooms/director-completion-demo/data/description/source/kind',
           value: 'localized',
         },
@@ -1343,14 +1363,10 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
         controller,
       );
       expect(opened.success, opened.error).toBe(true);
-      expect(opened.nativeRecoveredInvalidDrafts?.['rooms/director-completion-demo']).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            operation: 'add',
-            path: '/data/description/source/key',
-            value: '',
-          }),
-        ]),
+      expect(opened.nativeRecoveredInvalidDrafts?.['rooms/director-completion-demo']).toMatchObject(
+        {
+          data: { description: { source: { kind: 'localized', key: '' } } },
+        },
       );
       // Exercise the exact main Open payload consumed by WorkspacePage. An
       // invalid native Room must be visible in the edit view, not only retained
@@ -1375,9 +1391,13 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
         source: { kind: 'localized', key: '' },
       });
       expect(visibleRooms['properties-and-traits']?.data.displayName).toBe('Properties & Traits 2');
-      expect(
-        controller.recoveredContentProject()?.rooms['properties-and-traits']?.data.displayName,
-      ).toBe('Properties & Traits 2');
+      expect(visibleRooms['properties-and-traits']?.data.description).toMatchObject({
+        source: { kind: 'localized', key: '' },
+        markup: 'active-text',
+      });
+      expect(opened.nativeRecoveredInvalidDrafts?.['rooms/properties-and-traits']).toMatchObject({
+        data: { description: { source: { kind: 'localized', key: '' }, markup: 'active-text' } },
+      });
       expect(
         opened.diagnostics.some(
           (diagnostic) => diagnostic.sourcePath === 'records/rooms/director-completion-demo.yaml',
@@ -1423,6 +1443,33 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
           }
         ).rooms['director-completion-demo']?.data.description,
       ).toMatchObject({ source: { kind: 'localized', key: '' } });
+      expect(
+        (
+          twiceRecovered.workingDocument as {
+            rooms: Record<string, { data: { description: unknown } }>;
+          }
+        ).rooms['properties-and-traits']?.data.description,
+      ).toMatchObject({ source: { kind: 'localized', key: '' }, markup: 'active-text' });
+      // Repair must still be accepted by native and agree with the renderer
+      // view after the invalid source was restored without normalization.
+      const correction = [
+        {
+          op: 'replace' as const,
+          path: '/rooms/properties-and-traits/data/description/source/key',
+          value: 'feature-lab.description',
+        },
+      ];
+      const fixed = await controller.applyRevisionedPatches(
+        reopened.projectSessionId!,
+        reopened.nativeWorkingRevision!,
+        correction,
+      );
+      expect(fixed.accepted, fixed.error).toBe(true);
+      assertNativeProjection(
+        applyJsonPatch(toJsonValue(twiceRecovered.workingDocument), correction).document,
+        correction,
+        fixed,
+      );
       for (let index = 0; index < rooms.length; index++)
         expect(await readFile(path.join(root, 'records/rooms', rooms[index]! + '.yaml'))).toEqual(
           sources[index],

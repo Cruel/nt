@@ -175,11 +175,12 @@ Native editor projection now retains an invalid dirty Room in the native
 journal without publishing an unvalidated record as typed editor content.
 The initial fix incorrectly left the invalid draft invisible, showing only
 the last valid saved Room instead. The corrected editor projection now includes
-the saved valid Room as a typed baseline and overlays its **native-authored
-B→L recovery patches** into the renderer's editable view, including a
-zero-length localized description key. Native working snapshots and the
-checkpoint remain the sole mutable authority. The renderer never uses this
-invalid view for native validation, Save, runtime Tests or export.
+the saved valid Room as a typed baseline, then displays its exact **native
+working source** for schema-invalid dirty owners, including zero-length
+localization keys. The renderer does not replay native raw-source deltas onto
+normalized defaults. Native working snapshots and the checkpoint remain the
+sole mutable authority. The renderer never uses this invalid view for native
+validation, Save, runtime Tests or export.
 
 On Open, main publishes **replayed** validation diagnostics rather than stale
 saved-source diagnostics. The regression reproduces the exact two-owner
@@ -224,6 +225,39 @@ intermittence, not a passing full-suite certification. Editor
 format-check target was attempted but the developer machine lacks `uv`,
 required by the repository's clang-format 18.1.8 runner. This does not certify
 formatter success. Do not close #622 on these automated results alone.
+
+### Repeated-open regression: defaulted fields and Recent Projects
+
+A later actual Feature Lab checkpoint contained four dirty native batches, not
+just the original two-owner example. A Room description had an `add` operation
+for `markup: active-text` because the authored YAML omitted that field, whereas
+the native baseline projection had already supplied a default `markup`.
+Applying the raw-source `add` against that normalized baseline threw
+`Object key already exists for add operation` and prevented Open again.
+
+The integration now transports **the complete native working source** for
+invalid dirty owners, instead of attempting a second interpretation of native
+patches in the renderer. The affected record is replaced only in the editable
+projection, not in saved disk state, native validation, or the durable checkpoint.
+A disposable copy of the user's **exact Feature Lab files and four-batch
+checkpoint**, with only the checkpoint Project root rewritten to the copied
+root, passed real native Open and renderer reconstruction: three empty
+localized keys and the `active-text` selection were visible; all four recovery
+batches remained; physical Room YAML bytes were unchanged. The temporary copy
+was destroyed after certification, without editing the original Project.
+The regression also checks native acknowledgement of a subsequent valid
+localization-key correction.
+
+Renderer/recovery Open failures no longer automatically remove the Project
+from Recent Projects. A failed Open does not establish that a Project was
+deleted; entries remain for retry until the user explicitly removes them.
+Tests cover both missing paths and a renderer exception during recovery.
+
+Follow-up verification: editor check (format, lint, typecheck and schema policy)
+passed; complete editor suite **2,371 passed / 200 skipped** (no failures);
+real native-addon checkpoint and post-reopen correction tests passed.
+A human GUI pass remains required for #622. A successfully repaired Project
+is added back to Recent Projects on a subsequent successful Open.
 
 ## Feature Lab and documentation
 

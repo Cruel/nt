@@ -328,7 +328,6 @@ export function WorkspacePage() {
   const setStatusMessage = useWorkspaceStore((state) => state.setStatusMessage);
   const addTimelineEntry = useWorkspaceStore((state) => state.addTimelineEntry);
   const addRecentProject = useRecentProjectsStore((state) => state.addRecentProject);
-  const removeRecentProject = useRecentProjectsStore((state) => state.removeRecentProject);
   const restoreLastProjectOnStart = usePreferencesStore((state) => state.restoreLastProjectOnStart);
   const lastProjectPath = usePreferencesStore((state) => state.lastProjectPath);
   const defaultProjectDirectory = usePreferencesStore((state) => state.defaultProjectDirectory);
@@ -974,10 +973,12 @@ export function WorkspacePage() {
       } else if (readyCandidate) {
         setAlert({ title: 'Project Candidate changed', message });
       } else if (projectPathOverride) {
-        removeRecentProject(projectPathOverride);
+        // An Open failure may be caused by local recovery or renderer projection,
+        // not a missing Project. Recent entries are removed only by the user's
+        // explicit Remove action; never erase the retry path on failure.
         setAlert({
           title: 'Unable to open project',
-          message: `The recent project could not be opened and was removed from Recent Projects.\n\n${message}`,
+          message: `The Project could not be opened. It remains in Recent Projects.\n\n${message}`,
         });
       }
       setStatusMessage(message);

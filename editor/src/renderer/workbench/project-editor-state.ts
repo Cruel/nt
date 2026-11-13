@@ -280,35 +280,35 @@ export function adoptNativeRecoveredProject(
   invalidDrafts: NativeRecoveredInvalidDrafts = {},
 ): ReconstructedEditorProject {
   const saved = reconstructed.savedDocument;
-  // The native editor projection omits schema-invalid dirty owners to keep
-  // runtime/preview inputs strictly valid. For the *editing view only*, replay
-  // the native-calculated B->L patches over the last valid projected record.
-  // Do not revalidate, normalize or write these values: native remains the
-  // authority for validation, Save and the durable recovery journal.
+  // A saved/normalized baseline can have defaults that are absent from the
+  // native source (e.g. Room description.markup). Replaying source-diff 'add'
+  // commands onto that baseline is unsafe: it can fail on existing defaults or
+  // silently change the user's draft. The native working snapshot already has
+  // the exact effective source. Publish it only to the editable renderer view;
+  // native authority still owns every Save, validation and recovery checkpoint.
   let visibleContent = nativeContent;
-  for (const [owner, patches] of Object.entries(invalidDrafts)) {
+  for (const [owner, source] of Object.entries(invalidDrafts)) {
     const [collection, id, extra] = owner.split('/');
     if (
       extra ||
       !collection ||
       !id ||
       !isAuthoringCollectionKey(collection) ||
-      !/^[A-Za-z0-9_-]+$/u.test(id)
+      !/^[A-Za-z0-9_-]+$/u.test(id) ||
+      !source ||
+      typeof source !== 'object' ||
+      Array.isArray(source)
     )
-      throw new Error('Native recovery contains an unsupported invalid draft owner.');
-    const prefix = `/${collection}/${id}`;
-    for (const patch of patches) {
-      if (!patch.path.startsWith('/') || patch.path.includes('..'))
-        throw new Error('Native recovery contains an invalid draft patch path.');
-      const absolutePath = patch.path === '/' ? prefix : prefix + patch.path;
-      if (patch.operation !== 'remove' && patch.value === undefined)
-        throw new Error('Native recovery contains a draft patch without its value.');
-      const command: JsonPatchOperation =
-        patch.operation === 'remove'
-          ? { op: 'remove', path: absolutePath }
-          : { op: patch.operation, path: absolutePath, value: toJsonValue(patch.value) };
-      visibleContent = applyJsonPatch(visibleContent, [command]).document;
-    }
+      // An unrenderable invalid source stays safely in the native journal;
+      // never turn its projection into a second Project admission failure.
+      continue;
+    const ownerPath = `/${collection}/${id}`;
+    const operation: JsonPatchOperation = {
+      op: hasJsonAtPointer(visibleContent, ownerPath) ? 'replace' : 'add',
+      path: ownerPath,
+      value: toJsonValue(source),
+    };
+    visibleContent = applyJsonPatch(visibleContent, [operation]).document;
   }
   const nativeTracked = parseEditorProjectState(
     isObject(visibleContent) ? visibleContent.editor : undefined,

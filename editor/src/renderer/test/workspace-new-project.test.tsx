@@ -1232,7 +1232,7 @@ describe('WorkspacePage new project modal', () => {
     ).toBeInTheDocument();
   });
 
-  it('notifies the user when a missing recent project is removed', async () => {
+  it('keeps a missing recent Project available for explicit retry or removal', async () => {
     useRecentProjectsStore.setState({
       recentProjects: [
         {
@@ -1255,11 +1255,35 @@ describe('WorkspacePage new project modal', () => {
       await screen.findByRole('heading', { name: 'Unable to open project' }),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(
-        /The recent project could not be opened and was removed from Recent Projects\./,
-      ),
+      screen.getByText(/The Project could not be opened\. It remains in Recent Projects\./),
     ).toBeInTheDocument();
-    expect(useRecentProjectsStore.getState().recentProjects).toEqual([]);
+    expect(useRecentProjectsStore.getState().recentProjects).toEqual([
+      expect.objectContaining({ projectPath: '/home/test/missing-project' }),
+    ]);
+  });
+
+  it('keeps a recent Project when rendering restored recovery fails unexpectedly', async () => {
+    useRecentProjectsStore.setState({
+      recentProjects: [
+        { projectPath: '/home/test/valid-project', label: 'Valid Project', openedAt: 1 },
+      ],
+    });
+    vi.mocked(window.noveltea.openProject).mockRejectedValueOnce(
+      new Error(
+        'Object key already exists for add operation: /rooms/example/data/description/markup',
+      ),
+    );
+    render(<WorkspacePage />);
+    dispatchOpenProject('/home/test/valid-project');
+    expect(
+      await screen.findByRole('heading', { name: 'Unable to open project' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('dialog')).toHaveTextContent(
+      /Object key already exists for add operation:/,
+    );
+    expect(useRecentProjectsStore.getState().recentProjects).toEqual([
+      expect.objectContaining({ projectPath: '/home/test/valid-project' }),
+    ]);
   });
 
   it('handles an editor shortcut forwarded from a focused preview iframe', async () => {
