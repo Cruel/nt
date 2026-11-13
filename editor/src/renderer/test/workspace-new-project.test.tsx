@@ -20,7 +20,11 @@ import { usePreferencesStore } from '@/stores/preferences-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
 import { useDraftDirtyStore } from '@/workbench/draft-dirty-store';
-import { setLoadedEditorProjectState } from '@/workbench/project-editor-state';
+import {
+  mergeEditorProjectState,
+  setLoadedEditorProjectState,
+} from '@/workbench/project-editor-state';
+import { toJsonValue } from '@/project/json-value';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { buildProjectSettingsTab } from '@/workbench/editor-registry';
 import { useRecentProjectsStore } from '@/workspace/recent-projects-store';
@@ -181,6 +185,84 @@ beforeEach(() => {
 });
 
 describe('WorkspacePage new project modal', () => {
+  it('continues editing with a conflict intact, then reopens the decision on the next Save', async () => {
+    const disk = createAuthoringProject({ id: 'deferred-conflict', name: 'External name' });
+    const local = createAuthoringProject({ id: 'deferred-conflict', name: 'Updated local name' });
+    const editorState = emptyEditorProjectState();
+    editorState.recovery.saveUnitsById['project:settings'] = {
+      sequence: 1,
+      patches: [{ op: 'replace', path: '/project/name', value: 'Updated local name' }],
+      affectedPaths: ['/project/name'],
+      pendingRawInputByPath: {},
+      atomicTransactionGroupIds: [],
+      externalConflict: {
+        baseValueByPath: { '/project/name': { exists: true, value: 'Original name' } },
+        localValueByPath: { '/project/name': { exists: true, value: 'Updated local name' } },
+        externalValueByPath: { '/project/name': { exists: true, value: 'External name' } },
+        conflictingPaths: ['/project/name'],
+        externalFileRevisions: { 'project.yaml': `xxh3-128:${'a'.repeat(32)}` },
+      },
+    };
+    const saved = mergeEditorProjectState(toJsonValue(disk), editorState);
+    const working = mergeEditorProjectState(toJsonValue(local), editorState);
+    expect(
+      useProjectStore.getState().loadProjectDocument({
+        document: working,
+        savedDocument: saved,
+        projectPath: '/mock/project',
+        projectFilePath: '/mock/project/project.yaml',
+        projectSessionId: 'opened-project-session',
+      }),
+    ).toBe(true);
+    setLoadedEditorProjectState(editorState);
+    useWorkspaceStore.setState({
+      project: working as typeof disk,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.yaml',
+    });
+    useWorkbenchStore.getState().openTab(buildProjectSettingsTab());
+
+    render(<WorkspacePage />);
+    const decision = () =>
+      screen.getByRole('dialog', { name: 'External changes conflict with unsaved edits' });
+    expect(decision()).toBeInTheDocument();
+    fireEvent.click(within(decision()).getByRole('button', { name: 'Continue Editing' }));
+    expect(
+      screen.queryByRole('dialog', { name: 'External changes conflict with unsaved edits' }),
+    ).toBeNull();
+    expect(useProjectStore.getState().document).toMatchObject({
+      project: { name: 'Updated local name' },
+    });
+    expect(useProjectStore.getState().savedDocument).toMatchObject({
+      project: { name: 'External name' },
+    });
+    // Dismissing the review does not freeze the conflicted field. A subsequent
+    // ordinary Save must still request a decision on the revised local value.
+    const revised = mergeEditorProjectState(
+      toJsonValue(
+        createAuthoringProject({ id: 'deferred-conflict', name: 'Revised after continuing' }),
+      ),
+      editorState,
+    );
+    act(() => {
+      expect(
+        useProjectStore
+          .getState()
+          .replaceDocumentFromCommand(revised, useProjectStore.getState().projectRevision),
+      ).toBe(true);
+    });
+    expect(useProjectStore.getState().document).toMatchObject({
+      project: { name: 'Revised after continuing' },
+    });
+    fireEvent.keyDown(document.body, { key: 's', ctrlKey: true });
+    expect(
+      await screen.findByRole('dialog', { name: 'External changes conflict with unsaved edits' }),
+    ).toBeInTheDocument();
+    expect(useProjectStore.getState().document).toMatchObject({
+      project: { name: 'Revised after continuing' },
+    });
+  });
+
   it('offers one dismissible media batch, preserves manual discovery, and notifies on new revisions', async () => {
     const project = createAuthoringProject({ id: 'my-story', name: 'My Story' });
     const projectFilePath = '/mock/project/project.yaml';

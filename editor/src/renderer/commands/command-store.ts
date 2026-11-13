@@ -934,6 +934,9 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
         if (!result.accepted) throw new Error(result.error || 'Native Use Disk rejected.');
         if (result.snapshot.workingRevision < revision)
           throw new Error('Native Use Disk returned an older working revision.');
+        const conflictingPaths =
+          buildEditorProjectStateSnapshot().recovery.saveUnitsById[saveUnitId]?.externalConflict
+            ?.conflictingPaths ?? [];
         try {
           onAcknowledged(result);
         } catch (error) {
@@ -945,10 +948,23 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
         // and its renderer projection have both been acknowledged. Calling the
         // legacy discardSaveUnitHistory() here deliberately freezes native edits.
         const history = get().history;
+        const invalidated = (entry: CommandHistoryEntry) =>
+          conflictingPaths.length
+            ? [...entry.patches, ...entry.inversePatches].some((patch) =>
+                conflictingPaths.some(
+                  (path) =>
+                    patch.path === path ||
+                    patch.path.startsWith(`${path}/`) ||
+                    path.startsWith(`${patch.path}/`) ||
+                    path === '/' ||
+                    patch.path === '/',
+                ),
+              )
+            : entry.originSaveUnitId === saveUnitId;
         const removedApplied = history.entries
           .slice(0, history.cursor + 1)
-          .filter((entry) => entry.originSaveUnitId === saveUnitId).length;
-        const entries = history.entries.filter((entry) => entry.originSaveUnitId !== saveUnitId);
+          .filter(invalidated).length;
+        const entries = history.entries.filter((entry) => !invalidated(entry));
         const cursor = Math.max(-1, history.cursor - removedApplied);
         useProjectStore.getState().setHistoryCursor(cursor);
         set({

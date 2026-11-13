@@ -112,7 +112,7 @@ export function patchOwner(path: string): string {
 }
 
 function overlaps(a: string, b: string): boolean {
-  return a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
+  return a === b || a === '/' || b === '/' || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
 }
 
 function ownerPath(owner: string, relative: string): string {
@@ -622,7 +622,10 @@ export class NativeAuthoringWorkingProject {
     return this.saveUnits([saveUnitId], options, expectedRevision);
   }
 
-  async useDiskUnit(saveUnitId: string): Promise<PatchResult> {
+  async useDiskUnit(
+    saveUnitId: string,
+    options: { conflictsOnly?: boolean } = {},
+  ): Promise<PatchResult> {
     const pathsByOwner = await this.resolveSaveUnits([saveUnitId]);
     for (const owner of Object.keys(pathsByOwner))
       if (
@@ -636,17 +639,33 @@ export class NativeAuthoringWorkingProject {
       }
     return this.serial(async () => {
       if (!this.view) throw new Error('Native working Project has not opened.');
+      // The native snapshots own the conflict paths. Restrict the explicit
+      // conflict action to those paths, even when the Save unit also contains
+      // independent dirty fields or other owners in tracked editor metadata.
+      const selectedPaths = options.conflictsOnly
+        ? Object.fromEntries(
+            Object.entries(pathsByOwner).flatMap(([owner, fields]) => {
+              const source = owner === 'project' ? this.view : this.view!.recordSnapshots?.[owner];
+              const conflicts = (source?.conflictingPaths ?? []).filter((path) =>
+                fields.some((field) => overlaps(field, path)),
+              );
+              return conflicts.length ? [[owner, conflicts]] : [];
+            }),
+          )
+        : pathsByOwner;
+      if (!Object.keys(selectedPaths).length)
+        throw new Error('Selected Save unit has no unresolved native conflicts.');
       const result = await this.bridge.request({
         operation: 'useDiskOwners',
         expectedRevision: this.view.workingRevision,
-        pathsByOwner,
+        pathsByOwner: selectedPaths,
       });
       if (!result || !('accepted' in result))
         throw new Error('Native Project did not return a logical Use Disk result.');
       if (result.accepted) {
         this.view = this.mergeSnapshot(result.snapshot, result.affectedRecords);
         for (const owner of result.affectedRecords) this.pendingDeletedOwners.delete(owner);
-        const paths = Object.entries(pathsByOwner).flatMap(([owner, fields]) =>
+        const paths = Object.entries(selectedPaths).flatMap(([owner, fields]) =>
           fields.map((field) => ownerPath(owner, field)),
         );
         this.invalidateHistoryPaths(paths);

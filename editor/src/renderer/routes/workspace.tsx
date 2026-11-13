@@ -1630,10 +1630,25 @@ export function WorkspacePage() {
         const result = await useCommandStore
           .getState()
           .useNativeDiskUnitAsync(externalConflict.saveUnitId, (acknowledged) => {
-            usePendingInputStore
-              .getState()
-              .clearPendingInputsForSaveUnit(externalConflict.saveUnitId);
             publishNativeExternalResult(acknowledged);
+            // Use Disk invalidates pending raw values only for paths it adopted.
+            // Other invalid or incomplete fields in the same Save unit remain
+            // recoverable and must still block their own ordinary Save.
+            const pending =
+              usePendingInputStore.getState().entriesBySaveUnitId[externalConflict.saveUnitId] ??
+              {};
+            for (const path of Object.keys(pending))
+              if (
+                externalConflict.conflict.conflictingPaths.some(
+                  (conflicted) =>
+                    path === conflicted ||
+                    path.startsWith(`${conflicted}/`) ||
+                    conflicted.startsWith(`${path}/`),
+                )
+              )
+                usePendingInputStore
+                  .getState()
+                  .clearPendingInput(externalConflict.saveUnitId, path);
           });
         if (!result.ok) {
           setStatusMessage(result.diagnostics[0]?.message ?? 'Native Use Disk failed');
@@ -2651,7 +2666,7 @@ export function WorkspacePage() {
         busy={externalConflictBusy}
         onUseDisk={() => void handleUseDiskExternalConflict()}
         onKeepMine={() => void keepMineForExternalConflict()}
-        onCancel={() => setDismissedExternalConflict(externalConflictIdentity)}
+        onContinueEditing={() => setDismissedExternalConflict(externalConflictIdentity)}
       />
       <Dialog
         open={alert !== null}

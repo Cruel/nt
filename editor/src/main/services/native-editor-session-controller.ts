@@ -762,8 +762,8 @@ export class NativeEditorSessionController {
     return result;
   }
 
-  /** Discard the selected logical owner's local changes only after a native
-   * revision check. Native handles the multi-file baseline and conflict state. */
+  /** Adopt only conflicting native logical paths, preserving other dirty
+   * fields in the selected Save unit after exact disk revision verification. */
   async useDiskUnit(projectSessionId: string, expectedRevision: number, saveUnitId: string) {
     if (!this.isAdmitted(projectSessionId))
       throw new Error('Native Project is not admitted for this editor session.');
@@ -771,7 +771,7 @@ export class NativeEditorSessionController {
     this.authority.requireActiveProjectRoot(projectSessionId);
     if (this.working.snapshot()?.workingRevision !== expectedRevision)
       throw new Error('Stale native Use Disk revision.');
-    const result = await this.working.useDiskUnit(saveUnitId);
+    const result = await this.working.useDiskUnit(saveUnitId, { conflictsOnly: true });
     if (generation !== this.generation || !this.isAdmitted(projectSessionId))
       throw new Error('Native Use Disk completed for a superseded Project.');
     if (result.accepted) await this.persistAcknowledged(projectSessionId, generation);

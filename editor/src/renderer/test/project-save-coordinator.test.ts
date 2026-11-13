@@ -1330,6 +1330,73 @@ describe('project save coordinator', () => {
     Reflect.deleteProperty(window.noveltea, 'nativeProjectSaveUnit');
   });
 
+  it('Save All commits an independent Room while preserving a conflicting Room and reporting its blocked owner', async () => {
+    const saved = projectWithRooms();
+    saved.rooms.foyer!.label = 'External Foyer';
+    const working = projectWithRooms();
+    working.rooms.foyer!.label = 'Conflicted local Foyer';
+    working.rooms.kitchen!.label = 'Independent Kitchen';
+    loadProject(
+      saved,
+      working,
+      recoveryState({
+        'record:rooms:foyer': {
+          sequence: 1,
+          patches: [{ op: 'replace', path: '/rooms/foyer/label', value: 'Conflicted local Foyer' }],
+          affectedPaths: ['/rooms/foyer/label'],
+          pendingRawInputByPath: {},
+          atomicTransactionGroupIds: [],
+          externalConflict: {
+            baseValueByPath: { '/rooms/foyer/label': { exists: true, value: 'Foyer' } },
+            localValueByPath: {
+              '/rooms/foyer/label': { exists: true, value: 'Conflicted local Foyer' },
+            },
+            externalValueByPath: {
+              '/rooms/foyer/label': { exists: true, value: 'External Foyer' },
+            },
+            conflictingPaths: ['/rooms/foyer/label'],
+            externalFileRevisions: { 'records/rooms/foyer.yaml': roomFileRevision },
+          },
+        },
+        'record:rooms:kitchen': {
+          sequence: 2,
+          patches: [{ op: 'replace', path: '/rooms/kitchen/label', value: 'Independent Kitchen' }],
+          affectedPaths: ['/rooms/kitchen/label'],
+          pendingRawInputByPath: {},
+          atomicTransactionGroupIds: [],
+        },
+      }),
+    );
+    const nativeSave = admitNativeSaveWithoutExternalChanges();
+
+    const result = await saveAllSaveUnits();
+
+    expect(result).toMatchObject({
+      success: true,
+      status: 'partially-saved',
+      savedSaveUnitIds: ['record:rooms:kitchen'],
+      remainingDirtySaveUnitIds: ['record:rooms:foyer'],
+    });
+    expect(result.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'editor.external-change.conflict' }),
+      ]),
+    );
+    expect(nativeSave).toHaveBeenCalledWith('test-project-session', 0, 'record:rooms:kitchen', {
+      comments: 'keep',
+    });
+    expect((useProjectStore.getState().savedDocument as typeof saved).rooms.foyer?.label).toBe(
+      'External Foyer',
+    );
+    expect((useProjectStore.getState().document as typeof working).rooms.foyer?.label).toBe(
+      'Conflicted local Foyer',
+    );
+    expect((useProjectStore.getState().savedDocument as typeof saved).rooms.kitchen?.label).toBe(
+      'Independent Kitchen',
+    );
+    Reflect.deleteProperty(window.noveltea, 'nativeProjectSaveUnit');
+  });
+
   it('keeps the unit conflicted when Keep Mine loses its expected-revision race', async () => {
     const saved = projectWithRooms();
     saved.rooms.foyer!.label = 'Disk Foyer';

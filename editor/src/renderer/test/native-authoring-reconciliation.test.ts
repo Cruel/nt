@@ -1171,7 +1171,7 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
     const dirty = `${original}\n<!-- Native unsaved RML -->\n`;
     expect(await working.stageTextSource('scripts/not-admitted.lua', 'return true')).toMatchObject({
       accepted: false,
-      error: expect.stringContaining('admitted canonical'),
+      error: expect.stringContaining('an admitted source'),
     });
     expect(working.snapshot()).not.toBeNull();
     expect(
@@ -1796,6 +1796,119 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
     const saved = await working.saveOwners([owner], { keepMine: true });
     expect(saved).toMatchObject({ accepted: true, snapshot: { dirty: false } });
     expect(await readFile(roomPath, 'utf8')).toContain('label: Mine');
+  }, 45_000);
+
+  it('Use Disk resolves only native conflicting paths and preserves other unsaved fields in the same Room', async () => {
+    const { root, roomPath, bridge, working } = await testProject();
+    cleanups.push(async () => {
+      await bridge.closeAndWait();
+      await rm(root, { recursive: true, force: true });
+    });
+    const original = await readFile(roomPath, 'utf8');
+    const changed = await working.applyAction(
+      [
+        { op: 'replace', path: labelPath, value: 'Local conflicting label' },
+        { op: 'replace', path: descriptionPath, value: 'Independent unsaved description' },
+      ],
+      [],
+    );
+    expect(changed.accepted, changed.error).toBe(true);
+    await writeFile(roomPath, original.replace('label: Lifecycle Round Trip', 'label: Disk label'));
+    const reconciled = await working.reconcile(owner);
+    expect(reconciled.accepted, reconciled.error).toBe(true);
+    expect(working.snapshot()?.recordSnapshots?.[owner]?.conflictingPaths).toEqual(['/label']);
+    const deferredEdit = await working.applyAction(
+      [{ op: 'replace', path: labelPath, value: 'Locally revised after deferral' }],
+      [],
+    );
+    expect(deferredEdit.accepted, deferredEdit.error).toBe(true);
+    expect((await working.saveUnit(`record:rooms:${roomId}`)).accepted).toBe(false);
+    const resolved = await working.useDiskUnit(`record:rooms:${roomId}`, {
+      conflictsOnly: true,
+    });
+    expect(resolved.accepted, resolved.error).toBe(true);
+    expect(resolved.snapshot.recordSnapshots?.[owner]).toMatchObject({
+      dirty: true,
+      conflictingPaths: [],
+      source: { label: 'Disk label' },
+    });
+    expect(JSON.stringify(resolved.snapshot.recordSnapshots?.[owner]?.source)).toContain(
+      'Independent unsaved description',
+    );
+    const saved = await working.saveUnit(`record:rooms:${roomId}`);
+    expect(saved.accepted, saved.error).toBe(true);
+    expect(await readFile(roomPath, 'utf8')).toContain('label: Disk label');
+    expect(await readFile(roomPath, 'utf8')).toContain('Independent unsaved description');
+  }, 45_000);
+
+  it('Use Disk preserves unrelated tracked editor metadata in the same Room Save unit', async () => {
+    const { root, roomPath, bridge, working } = await testProject();
+    cleanups.push(async () => {
+      await bridge.closeAndWait();
+      await rm(root, { recursive: true, force: true });
+    });
+    expect((await working.inspectRecord('editor')).accepted).toBe(true);
+    const changed = await working.applyAction(
+      [
+        { op: 'replace', path: labelPath, value: 'Overlapping Room edit' },
+        {
+          op: 'add',
+          path: '/editor/recordMetadata/rooms',
+          value: { [roomId]: { tags: [] } },
+        },
+      ],
+      [],
+    );
+    expect(changed.accepted, changed.error).toBe(true);
+    const original = await readFile(roomPath, 'utf8');
+    await writeFile(roomPath, original.replace('label: Lifecycle Round Trip', 'label: Disk label'));
+    const reviewed = await working.reconcile(owner);
+    expect(reviewed.accepted, reviewed.error).toBe(true);
+    const resolved = await working.useDiskUnit(`record:rooms:${roomId}`, {
+      conflictsOnly: true,
+    });
+    expect(resolved.accepted, resolved.error).toBe(true);
+    expect(resolved.snapshot.recordSnapshots?.[owner]?.conflictingPaths).toEqual([]);
+    expect(resolved.snapshot.recordSnapshots?.editor?.dirty).toBe(true);
+    const saved = await working.saveUnit(`record:rooms:${roomId}`);
+    expect(saved.accepted, saved.error).toBe(true);
+    expect(await readFile(roomPath, 'utf8')).toContain('label: Disk label');
+    expect(await readFile(path.join(root, 'editor.yaml'), 'utf8')).toContain(roomId);
+  }, 45_000);
+
+  it('Use Disk resolves only the conflicting Project Settings field and retains other settings edits', async () => {
+    const { root, bridge, working } = await testProject();
+    cleanups.push(async () => {
+      await bridge.closeAndWait();
+      await rm(root, { recursive: true, force: true });
+    });
+    const manifestPath = path.join(root, 'project.yaml');
+    const original = await readFile(manifestPath, 'utf8');
+    const edited = await working.applyAction(
+      [
+        { op: 'replace', path: '/project/name', value: 'Local conflict' },
+        { op: 'replace', path: '/project/description', value: 'Independent local description' },
+      ],
+      [],
+    );
+    expect(edited.accepted, edited.error).toBe(true);
+    await writeFile(manifestPath, original.replace('name: Feature Lab', 'name: External Project'));
+    const reviewed = await working.reconcile('project');
+    expect(reviewed.accepted, reviewed.error).toBe(true);
+    expect(working.snapshot()?.conflictingPaths).toEqual(['/project/name']);
+    const resolved = await working.useDiskUnit('project:settings', { conflictsOnly: true });
+    expect(resolved.accepted, resolved.error).toBe(true);
+    expect(resolved.snapshot).toMatchObject({
+      dirty: true,
+      conflictingPaths: [],
+      source: {
+        project: { name: 'External Project', description: 'Independent local description' },
+      },
+    });
+    const committed = await working.saveUnit('project:settings');
+    expect(committed.accepted, committed.error).toBe(true);
+    expect(await readFile(manifestPath, 'utf8')).toContain('name: External Project');
+    expect(await readFile(manifestPath, 'utf8')).toContain('Independent local description');
   }, 45_000);
 
   it('conservatively conflicts structural arrays and supports Use Disk and tracked editor metadata', async () => {

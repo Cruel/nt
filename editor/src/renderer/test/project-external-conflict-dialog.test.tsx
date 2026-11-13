@@ -8,7 +8,7 @@ describe('ProjectExternalConflictDialog', () => {
   it('shows the conflicted paths and exposes only explicit resolution actions', () => {
     const onUseDisk = vi.fn();
     const onKeepMine = vi.fn();
-    const onCancel = vi.fn();
+    const onContinueEditing = vi.fn();
     render(
       <ProjectExternalConflictDialog
         saveUnitId="record:rooms:hall"
@@ -21,16 +21,16 @@ describe('ProjectExternalConflictDialog', () => {
         }}
         onUseDisk={onUseDisk}
         onKeepMine={onKeepMine}
-        onCancel={onCancel}
+        onContinueEditing={onContinueEditing}
       />,
     );
 
     expect(screen.getByText('/rooms/hall/label')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Use Disk' }));
     fireEvent.click(screen.getByRole('button', { name: 'Keep Mine' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue Editing' }));
     expect(onUseDisk).toHaveBeenCalledOnce();
     expect(onKeepMine).toHaveBeenCalledOnce();
-    expect(onCancel).toHaveBeenCalledOnce();
+    expect(onContinueEditing).toHaveBeenCalledOnce();
   });
 });

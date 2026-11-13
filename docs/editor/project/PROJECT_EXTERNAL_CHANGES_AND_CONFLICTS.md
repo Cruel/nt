@@ -81,11 +81,16 @@ Unresolved conflicts do not block unrelated Save units or trigger an implicit
 disk write during admission. This native recovery rule supersedes the historical
 TypeScript checkpoint behavior described below.
 
-In an admitted session, **Use Disk** invokes native save-unit discard before the
-renderer adopts native snapshots. **Keep Mine** sends an explicit native Save
-override and remains subject to exact physical revision checks; **Cancel** closes
-the conflict dialog without discarding either side. Ordinary Save still refuses
-unresolved native conflicts, and the dialog can be reopened on the next Save.
+In an admitted session, **Use Disk** selects only the native session's unresolved
+conflicting paths within the chosen logical Save unit. The native partial-path
+resolution adopts the verified disk values before the renderer publishes the
+acknowledged snapshots; other dirty fields in the same Room, Project Settings,
+or tracked `editor.yaml` metadata remain dirty and Saveable. Native command
+history and buffered input invalidation are restricted to overlapping paths.
+**Keep Mine** sends an explicit native Save override and remains subject to
+exact physical revision checks; **Continue Editing** closes the dialog without
+discarding either side or resolving the conflict. Ordinary Save still refuses
+unresolved native conflicts and reopens the dialog on the next attempt.
 Conflicts and reconciliation errors do not cause an automatic legacy reload.
 An external deletion of a clean optional YAML owner removes the renderer's
 admitted record; a dirty owner instead retains its local value and publishes a
@@ -99,9 +104,9 @@ Remove Comments approval is allowed to enter the revision-checked transaction.
 
 Overlapping changes preserve `B`, `L`, and `E` in ignored editor recovery state and block ordinary Save for that save unit. The conflict dialog identifies the affected unit and logical paths and offers:
 
-- **Use Disk**: discard only that unit's local conflicting delta, adopt `E` as working state and baseline, and preserve unrelated dirty units.
+- **Use Disk**: adopt `E` only at the native conflicting logical paths and preserve independent dirty fields even within the same Save unit, as well as other dirty units.
 - **Keep Mine**: explicitly commit the selected local result against the current external file revisions. If disk changes again before the commit, nothing is overwritten; the editor re-reads and keeps the unit conflicted against the new external state.
-- **Cancel**: retain the conflict and local work unchanged.
+- **Continue Editing**: retain the conflict, its verified disk baseline, and local work unchanged; the user can revise the field and retry Save later.
 
 Conflict recovery is save-unit state, not a global dirty flag. Each dirty recovery save unit in `.noveltea/editor/state.json` records only the exact physical baseline revisions it depends on. There is no root `workspaceRevision` in the local-state format. On reopen, NovelTea checks those recovery-dependent files only. If one changed while the editor was closed, recovered local values remain visible but that affected recovery unit reopens as an explicit conflict requiring **Use Disk** or **Keep Mine**; unrelated source changes do not invalidate it. When one successful save changes a physical file shared by another dirty logical owner (for example `editor.yaml`), the remaining unit's persisted baseline revision advances to the newly committed physical revision. NovelTea does not persist historical three-way base snapshots or guess a base after restart. The local-state format is an internal hard cutover; unsupported local state is discarded rather than migrated into tracked source.
 

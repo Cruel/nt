@@ -412,6 +412,69 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
     }
   }, 120_000);
 
+  it('resolves a live Room conflict through the main controller without losing a second dirty field on restart', async () => {
+    const root = await disposableProject();
+    const sessions = new ActiveProjectSessionService();
+    let controller = nativeHarness(sessions);
+    try {
+      const { id, revision } = await admit(root, sessions, controller);
+      const original = await roomBytes(root, roomA);
+      const edited = await controller.applyRevisionedPatches(id, revision, [
+        { op: 'replace', path: `/rooms/${roomA}/data/displayName`, value: 'Conflicting local' },
+        { op: 'replace', path: `/rooms/${roomA}/label`, value: 'Unrelated local label' },
+      ]);
+      expect(edited.accepted, edited.error).toBe(true);
+      const external = original.replace('displayName: Active Text', 'displayName: External winner');
+      await writeFile(path.join(root, `records/rooms/${roomA}.yaml`), external);
+      const reviewed = await controller.reconcile(
+        id,
+        controller.currentRevision(id),
+        `rooms/${roomA}`,
+      );
+      expect(reviewed.accepted, reviewed.error).toBe(true);
+      expect(reviewed.snapshot.recordSnapshots?.[`rooms/${roomA}`]?.conflictingPaths).toEqual([
+        '/data/displayName',
+      ]);
+      expect(
+        (await controller.saveUnit(id, controller.currentRevision(id), `record:rooms:${roomA}`, {}))
+          .accepted,
+      ).toBe(false);
+      const adopted = await controller.useDiskUnit(
+        id,
+        controller.currentRevision(id),
+        `record:rooms:${roomA}`,
+      );
+      expect(adopted.accepted, adopted.error).toBe(true);
+      expect(adopted.snapshot.recordSnapshots?.[`rooms/${roomA}`]).toMatchObject({
+        dirty: true,
+        conflictingPaths: [],
+      });
+      const working = await controller.currentWorkingProject(id);
+      expect(working.rooms[roomA]?.data.displayName).toBe('External winner');
+      expect(working.rooms[roomA]?.label).toBe('Unrelated local label');
+      controller.dispose();
+      sessions.closeActiveProject();
+      controller = nativeHarness(sessions);
+      const reopened = await admit(root, sessions, controller);
+      expect((await controller.currentWorkingProject(reopened.id)).rooms[roomA]?.label).toBe(
+        'Unrelated local label',
+      );
+      const saved = await controller.saveUnit(
+        reopened.id,
+        reopened.revision,
+        `record:rooms:${roomA}`,
+        {},
+      );
+      expect(saved.accepted, saved.error).toBe(true);
+      expect(await roomBytes(root, roomA)).toContain('displayName: External winner');
+      expect(await roomBytes(root, roomA)).toContain('label: "Unrelated local label"');
+    } finally {
+      controller.dispose();
+      sessions.dispose();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 120_000);
+
   it('rebases a disjoint external YAML change while retaining a dirty local field and saves both', async () => {
     const root = await disposableProject();
     const sessions = new ActiveProjectSessionService();
@@ -477,6 +540,17 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
       );
       expect(reconciled.accepted, reconciled.error).toBe(true);
 
+      // Continue Editing may revise L after the first conflict review. Keep
+      // Mine must commit this newer value, not the value displayed initially.
+      const revised = await controller.applyRevisionedPatches(id, controller.currentRevision(id), [
+        {
+          op: 'replace',
+          path: `/rooms/${roomA}/data/displayName`,
+          value: 'My latest local value',
+        },
+      ]);
+      expect(revised.accepted, revised.error).toBe(true);
+
       // The review applied to First external only. A second disk writer must
       // invalidate the Keep Mine precondition instead of being overwritten.
       const secondExternal = firstExternal.replace(
@@ -493,7 +567,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
       expect(staleSave.accepted).toBe(false);
       expect(await roomBytes(root, roomA)).toBe(secondExternal);
       expect((await controller.currentWorkingProject(id)).rooms[roomA]?.data.displayName).toBe(
-        'My reviewed value',
+        'My latest local value',
       );
 
       const reviewedAgain = await controller.reconcile(
@@ -509,14 +583,14 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
         { keepMine: true },
       );
       expect(committed.accepted, committed.error).toBe(true);
-      expect(await roomBytes(root, roomA)).toContain('My reviewed value');
+      expect(await roomBytes(root, roomA)).toContain('My latest local value');
       controller.dispose();
       sessions.closeActiveProject();
       controller = nativeHarness(sessions);
       const reopened = await admit(root, sessions, controller);
       expect(
         (await controller.currentWorkingProject(reopened.id)).rooms[roomA]?.data.displayName,
-      ).toBe('My reviewed value');
+      ).toBe('My latest local value');
     } finally {
       controller.dispose();
       sessions.dispose();

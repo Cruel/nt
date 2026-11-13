@@ -435,10 +435,10 @@
   },
   "externalConflict": {
     "title": "External changes conflict with unsaved edits",
-    "description": "Disk and the editor both changed {{saveUnitId}}. Ordinary Save is blocked until you choose which version wins for this save unit.",
+    "description": "Disk and the editor both changed {{saveUnitId}}. Continue editing without resolving now, or choose which version wins for the conflicting fields. Saving this item will ask again.",
     "useDisk": "Use Disk",
     "keepMine": "Keep Mine",
-    "cancel": "Cancel"
+    "continueEditing": "Continue Editing"
   },
   "localizationEditor": {
     "title": "Localization",

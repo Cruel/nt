@@ -474,7 +474,9 @@ describe('native admission at the editor main Project lifecycle', () => {
     await expect(test.controller.useDiskUnit('one', 0, 'record:rooms:hall')).resolves.toMatchObject(
       { accepted: true },
     );
-    expect(test.useDiskUnit).toHaveBeenCalledWith('record:rooms:hall');
+    expect(test.useDiskUnit).toHaveBeenCalledWith('record:rooms:hall', {
+      conflictsOnly: true,
+    });
     test.setActive('other');
     await expect(test.controller.useDiskUnit('one', 0, 'record:rooms:hall')).rejects.toThrow(
       'not admitted',
