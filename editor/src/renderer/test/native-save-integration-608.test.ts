@@ -58,6 +58,11 @@ async function roomBytes(root: string, id: string) {
   return readFile(path.join(root, `records/rooms/${id}.yaml`), 'utf8');
 }
 
+async function removeDisposableProject(root: string) {
+  // Cache publication can outlive worker disposal by one filesystem rename.
+  await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+}
+
 describe.skipIf(!addonPath)('#608 real native Save and recovery integration', () => {
   it('admits, edits, persists and reopens an invalid record through the actual native editor', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'noveltea-repair-record-615-'));
@@ -159,7 +164,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
     } finally {
       controller.dispose();
       sessions.dispose();
-      await rm(root, { recursive: true, force: true });
+      await removeDisposableProject(root);
     }
   });
 
@@ -216,7 +221,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
     } finally {
       controller.dispose();
       sessions.dispose();
-      await rm(root, { recursive: true, force: true });
+      await removeDisposableProject(root);
     }
   }, 120_000);
 
@@ -275,7 +280,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
     } finally {
       controller.dispose();
       sessions.dispose();
-      await rm(root, { recursive: true, force: true });
+      await removeDisposableProject(root);
     }
   }, 120_000);
 
@@ -340,7 +345,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
     } finally {
       controller.dispose();
       sessions.dispose();
-      await rm(root, { recursive: true, force: true });
+      await removeDisposableProject(root);
     }
   }, 120_000);
 
@@ -408,7 +413,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
     } finally {
       controller.dispose();
       sessions.dispose();
-      await rm(root, { recursive: true, force: true });
+      await removeDisposableProject(root);
     }
   }, 120_000);
 
@@ -471,7 +476,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
     } finally {
       controller.dispose();
       sessions.dispose();
-      await rm(root, { recursive: true, force: true });
+      await removeDisposableProject(root);
     }
   }, 120_000);
 
@@ -512,7 +517,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
     } finally {
       controller.dispose();
       sessions.dispose();
-      await rm(root, { recursive: true, force: true });
+      await removeDisposableProject(root);
     }
   }, 120_000);
 
@@ -594,7 +599,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
     } finally {
       controller.dispose();
       sessions.dispose();
-      await rm(root, { recursive: true, force: true });
+      await removeDisposableProject(root);
     }
   }, 120_000);
 
@@ -632,7 +637,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
     } finally {
       controller.dispose();
       sessions.dispose();
-      await rm(root, { recursive: true, force: true });
+      await removeDisposableProject(root);
     }
   }, 120_000);
 
@@ -676,7 +681,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
     } finally {
       controller.dispose();
       sessions.dispose();
-      await rm(root, { recursive: true, force: true });
+      await removeDisposableProject(root);
     }
   }, 120_000);
 
@@ -740,7 +745,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
     } finally {
       controller.dispose();
       sessions.dispose();
-      await rm(root, { recursive: true, force: true });
+      await removeDisposableProject(root);
     }
   }, 120_000);
 
@@ -784,7 +789,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
     } finally {
       controller.dispose();
       sessions.dispose();
-      await rm(root, { recursive: true, force: true });
+      await removeDisposableProject(root);
     }
   }, 120_000);
 
@@ -846,7 +851,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
     } finally {
       controller.dispose();
       sessions.dispose();
-      await rm(root, { recursive: true, force: true });
+      await removeDisposableProject(root);
     }
   }, 120_000);
 
@@ -953,7 +958,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
     } finally {
       controller.dispose();
       sessions.dispose();
-      await rm(root, { recursive: true, force: true });
+      await removeDisposableProject(root);
     }
   }, 120_000);
 
@@ -1015,7 +1020,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
     } finally {
       controller.dispose();
       sessions.dispose();
-      await rm(root, { recursive: true, force: true });
+      await removeDisposableProject(root);
     }
   }, 120_000);
 
@@ -1191,7 +1196,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
     } finally {
       controller.dispose();
       sessions.dispose();
-      await rm(root, { recursive: true, force: true });
+      await removeDisposableProject(root);
     }
   }, 120_000);
 

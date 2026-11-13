@@ -2,7 +2,11 @@
 
 Implementation specification: [#610](https://github.com/Cruel/nt/issues/610).
 
-Status: design decisions accepted; implementation and certification pending. The agreed design covers invalid-source editing, pre-admission candidate repair, CLI/AI assistance, conflict and recovery handling, safe editor-owned writes, and format migration.
+Status: design decisions accepted; implementation slices #611–#621 landed; final
+cross-boundary and interactive certification tracked in [#622](https://github.com/Cruel/nt/issues/622)
+and [the acceptance ledger](../editor/project/PROJECT_REPAIR_ACCEPTANCE.md). The agreed design
+covers invalid-source editing, pre-admission candidate repair, CLI/AI assistance, conflict and
+recovery handling, safe editor-owned writes, and format migration.
 
 The editor distinguishes **editable Project source** from **runtime-valid Project content**. An invalid or malformed individual record is not grounds to reject the entire Project: its original source remains available for repair, its diagnostics identify the affected owner, and unrelated authoring and focused previews remain available when their dependencies are valid. The editor does not manufacture canonical replacement values.
 
@@ -24,13 +28,35 @@ A malformed Room or other individual YAML source may be saved as exact raw sourc
 
 AI repair runs do not require a dedicated post-run diff/reviewer UI. **Run** is only a convenience launcher: start the installed Claude, Codex, or OpenCode executable in the candidate/active Project root with its usual user-configured defaults, using the harness's headless prompt mode and an optional explicitly selected model override. NovelTea does not implement an additional agent-specific sandbox, permissions layer, or provider integration and does not imply that setting `cwd` restricts all writes to the Project. Native main must still authenticate the Project directory passed to the terminal launcher so the renderer cannot select an arbitrary path. File changes flow through existing observation, diagnostics and reconciliation. Users configure any stronger agent protections in their chosen harness.
 
-External saved edits to the same fields as unsaved editor changes currently retain local working values, record a conflict, and require explicit **Use Disk** or **Keep Mine**. Disjoint field changes can merge automatically. The same contract should hold when the external file was changed while the editor was closed: on re-open, compare the checkpoint's original source revisions with current disk revisions, merge independent edits, and present overlapping changes through the existing conflict dialog while retaining both versions. This is **not yet implemented correctly** for native first-open recovery: `NativeAuthoringWorkingProject.replayDirtyCheckpoint()` replays commands with prior `diskPreconditions`, while native `ProjectSession::patch()` rejects differing current source hashes as `Recovery source conflict for <owner>`. `NativeEditorSessionController.admitInternal()` then throws, so Open fails rather than showing conflict resolution. Existing restart-conflict tests only prove persistence of conflicts reconciled **before** shutdown, not first discovery of offline changes. Add regression cases for offline disjoint edits, offline overlapping edits, record deletion, and source-text overlays. Keep ordinary Save blocked only for conflicting owners.
+External saved edits to the same fields as unsaved editor changes retain local working values,
+record a conflict, and require explicit **Use Disk** or **Keep Mine**. Disjoint field changes
+merge automatically. #611 and #612 extended native first-open recovery to discover external
+changes made *while the editor was closed*: replay supplies the saved base, local working state,
+and current disk state to the resident reconciler, retaining both sides of overlaps and
+reconciling independent paths. The renderer receives recovered conflicts on Open, rather than
+treating them as a fatal Project admission failure. Affected owners remain blocked for ordinary
+Save until resolved, while unrelated owners stay writable. This is the implementation contract;
+see [external changes and conflicts](../editor/project/PROJECT_EXTERNAL_CHANGES_AND_CONFLICTS.md)
+for the current authoritative mechanics and #622 for certification evidence.
 
 ### Conflict resolution UX (accepted)
 
-The current dialog's **Cancel** merely dismisses the prompt without resolving the conflict, while ordinary Save stays blocked for the affected save unit. It does not discard local edits. The native and renderer Use Disk command currently targets the whole save unit; for a Room, this may discard unrelated local changes even though the conflict is limited to one field. Native `RoomSession::use_disk_paths()` already supports more granular reconciliation but the standard dialog does not expose it.
+Before #614, the dialog's **Cancel** merely dismissed the unresolved prompt and **Use Disk**
+discarded the whole save unit, even when only one Room field conflicted. This was replaced with
+**Continue Editing** and path-scoped native **Use Disk**. The native per-path reconciliation
+authority remains the same; no parallel conflict engine is introduced.
 
-Replace **Cancel** with **Continue Editing**. It dismisses the dialog but leaves local working edits and the conflict recorded, allowing further field edits. Before an ordinary Save would overwrite overlapping external content, the user is asked to resolve the conflict explicitly; reopening or later saves must not erase or silently discard their work. **Use Disk** applies only to actual conflicting paths and must preserve unrelated dirty fields within the same save unit. **Keep Mine** authorizes committing the user's current locally edited result against a freshly verified disk revision; if disk changes again, ask for a new decision. Unaffected save units remain editable and savable. The native per-path Use Disk support should be reused rather than introducing a second conflict engine. Certify edit-after-deferral, save-time resolution, per-path preservation, and cross-restart persistence.
+**Continue Editing** dismisses the dialog but leaves local working edits and
+the conflict recorded, allowing further field edits. Ordinary Save requires
+explicit resolution before overwriting overlapping external content; reopening
+or later saves must not silently discard local work. **Use Disk** applies only
+to conflicting paths and preserves unrelated dirty fields within the same
+save unit. **Keep Mine** authorizes committing the user's current locally
+edited result against a freshly verified disk revision; a subsequent disk
+change requires a new decision. Unaffected save units remain editable and
+savable. The native per-path Use Disk support is reused rather than introducing
+a second conflict engine. #622 certifies edit-after-deferral, save-time
+resolution, per-path preservation, and cross-restart persistence.
 
 Both older and newer unsupported workspace versions can enter AI-assisted migration/repair. An older version may be migrated when the necessary source format can be established. A newer-than-supported version requires a prominent explicit warning before AI modification, because the installed editor/CLI schemas may not represent its data and `noveltea validate` may be unavailable until compatibility is restored. Do not silently reinterpret newer Project data as the current format or automatically downgrade its schema. Normal editor admission remains version-gated pending successful migration.
 

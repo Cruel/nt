@@ -13,6 +13,7 @@ import http from 'node:http';
 import path from 'node:path';
 import sharp from 'sharp';
 import type { CreateRaw } from 'sharp';
+import { parse as parseYaml } from 'yaml';
 import { NOVELTEA_VERSION } from '../shared/product-version';
 import type { EnginePreviewServer } from './engine-preview-server';
 import { checkMediaTools, prepareMedia } from './services/native-runtime-tool-service';
@@ -312,6 +313,197 @@ async function characterizeProductionThumbnailProtocol(
   }
 }
 
+// Exercise the installed CLI and the actual packaged renderer -> guarded IPC
+// -> native Project admission handoff. Unit tests cannot prove that a failed
+// candidate leaves an incumbent session usable in the shipped Electron host.
+async function characterizePackagedCandidateRepair(
+  window: BrowserWindowType,
+  cliPath: string,
+): Promise<boolean> {
+  const root = await fs.promises.mkdtemp(path.join(app.getPath('temp'), 'noveltea-repair-smoke-'));
+  try {
+    const roots = [path.join(root, 'incumbent'), path.join(root, 'candidate')];
+    for (const projectRoot of roots) {
+      const created = await createNativeEditorProject({
+        projectName: 'Repair Smoke',
+        projectDirectory: projectRoot,
+      });
+      if (!created.success || !created.projectFilePath) return false;
+      await promisify(execFile)(
+        cliPath,
+        ['--no-daemon', '--project', projectRoot, 'entity', 'create', 'rooms', 'start'],
+        { windowsHide: true },
+      );
+      await fs.promises.appendFile(
+        created.projectFilePath,
+        '\nentrypoint:\n  kind: room\n  id: start\n',
+      );
+    }
+    const manifest = path.join(roots[1]!, 'project.yaml');
+    const original = await fs.promises.readFile(manifest, 'utf8');
+    const room = path.join(roots[1]!, 'records', 'rooms', 'start.yaml');
+    const originalRoom = await fs.promises.readFile(room);
+    const damaged = `${original}invalid: [\n`;
+    await fs.promises.writeFile(manifest, damaged);
+
+    const proof = (await window.webContents.executeJavaScript(
+      `(async () => {
+        const first = await window.noveltea.openProject(${JSON.stringify(roots[0])});
+        if (!first.success || !first.projectSessionId) return { first: false };
+        const failed = await window.noveltea.openProject(${JSON.stringify(roots[1])});
+        if (failed.success || !failed.repairCandidateId) return { first: true, failed: false };
+        const id = failed.repairCandidateId;
+        const source = await window.noveltea.readRepairCandidate(id);
+        const notReady = await window.noveltea.observeRepairCandidate(id);
+        const unchanged = await window.noveltea.nativeProjectValidate(first.projectSessionId, first.nativeWorkingRevision, false);
+        const saved = await window.noveltea.saveRepairCandidate(id, source.revision, ${JSON.stringify(original)});
+        const ready = await window.noveltea.observeRepairCandidate(id);
+        const activeUntilExplicitOpen = await window.noveltea.nativeProjectValidate(first.projectSessionId, first.nativeWorkingRevision, false);
+        const opened = ready?.ready && ready.revision
+          ? await window.noveltea.openProject({ repairCandidateId: id, readyRevision: ready.revision })
+          : null;
+        return {
+          first: true,
+          failed: true,
+          originalSource: source.text === ${JSON.stringify(damaged)},
+          notReady: notReady?.ready === false,
+          incumbentUsable: !!unchanged && !!activeUntilExplicitOpen,
+          saved: saved.text === ${JSON.stringify(original)},
+          ready: ready?.ready === true,
+          explicitlyOpened: opened?.success === true && opened.projectSessionId !== first.projectSessionId,
+        };
+      })()`,
+      true,
+    )) as Record<string, boolean>;
+    if (Object.values(proof).some((passed) => !passed))
+      console.error('[package-smoke:repair] Renderer candidate handoff failed:', proof);
+    return (
+      Object.values(proof).every(Boolean) &&
+      (await fs.promises.readFile(manifest, 'utf8')) === original &&
+      (await fs.promises.readFile(room)).equals(originalRoom)
+    );
+  } catch (error) {
+    console.error('[package-smoke:repair] Candidate repair handoff failed:', error);
+    return false;
+  } finally {
+    await window.webContents
+      .executeJavaScript('window.noveltea.closeActiveProject()', true)
+      .catch(() => undefined);
+    await fs.promises.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+}
+
+// The same production IPC host must recover an overlap first discovered after
+// Close, reject ordinary Save, and apply Use Disk to only the conflicting path.
+async function characterizePackagedOfflineRecovery(
+  window: BrowserWindowType,
+  cliPath: string,
+): Promise<boolean> {
+  const parent = await fs.promises.mkdtemp(
+    path.join(app.getPath('temp'), 'noveltea-offline-smoke-'),
+  );
+  const root = path.join(parent, 'project');
+  try {
+    const created = await createNativeEditorProject({
+      projectName: 'Offline Recovery Smoke',
+      projectDirectory: root,
+    });
+    if (!created.success || !created.projectFilePath) {
+      console.error('[package-smoke:offline-recovery] Create failed:', created);
+      return false;
+    }
+    await promisify(execFile)(
+      cliPath,
+      ['--no-daemon', '--project', root, 'entity', 'create', 'rooms', 'start'],
+      { windowsHide: true },
+    );
+    await fs.promises.appendFile(
+      created.projectFilePath,
+      '\nentrypoint:\n  kind: room\n  id: start\n',
+    );
+    const room = path.join(root, 'records', 'rooms', 'start.yaml');
+    const original = await fs.promises.readFile(room, 'utf8');
+    if (!original.includes('label: Room start')) {
+      console.error('[package-smoke:offline-recovery] CLI Room label unexpected.');
+      return false;
+    }
+    const staged = (await window.webContents.executeJavaScript(
+      `(async () => {
+        const opened = await window.noveltea.openProject(${JSON.stringify(root)});
+        if (!opened.success) return { opened: false, error: opened.error };
+        const patch = await window.noveltea.nativeProjectPatch(opened.projectSessionId, opened.nativeWorkingRevision, [
+          { op: 'replace', path: '/rooms/start/label', value: 'My offline label' },
+          { op: 'replace', path: '/rooms/start/data/displayName', value: 'Unrelated local display' },
+        ]);
+        await window.noveltea.closeActiveProject();
+        return { opened: true, patched: patch.accepted === true, error: patch.error };
+      })()`,
+      true,
+    )) as { opened: boolean; patched?: boolean; error?: string };
+    const diskUnmodified = (await fs.promises.readFile(room, 'utf8')) === original;
+    if (!staged.opened || !staged.patched || !diskUnmodified) {
+      console.error('[package-smoke:offline-recovery] Dirty stage failed:', staged, {
+        diskUnmodified,
+      });
+      return false;
+    }
+    await fs.promises.writeFile(
+      room,
+      original.replace('label: Room start', 'label: Disk offline label'),
+    );
+    const proof = (await window.webContents.executeJavaScript(
+      `(async () => {
+        const reopened = await window.noveltea.openProject(${JSON.stringify(root)});
+        if (!reopened.success) return { reopened: false };
+        const conflict = reopened.nativeRecoveredConflicts?.['rooms/start'];
+        const ordinary = await window.noveltea.nativeProjectSaveUnit(
+          reopened.projectSessionId, reopened.nativeWorkingRevision, 'record:rooms:start', {}
+        );
+        const adopted = await window.noveltea.nativeProjectUseDiskUnit(
+          reopened.projectSessionId, reopened.nativeWorkingRevision, 'record:rooms:start'
+        );
+        const saved = adopted.accepted
+          ? await window.noveltea.nativeProjectSaveUnit(
+              reopened.projectSessionId, adopted.snapshot.workingRevision, 'record:rooms:start', {}
+            )
+          : null;
+        return {
+          reopened: true,
+          reportedConflict: conflict?.paths?.includes('/label') === true,
+          ordinarySaveRefused: ordinary.accepted === false,
+          useDiskAccepted: adopted.accepted === true,
+          independentSaved: saved?.accepted === true,
+        };
+      })()`,
+      true,
+    )) as Record<string, boolean>;
+    if (Object.values(proof).some((passed) => !passed))
+      console.error('[package-smoke:offline-recovery] Native IPC reconciliation failed:', proof);
+    const finalRoom = await fs.promises.readFile(room, 'utf8');
+    const persisted = parseYaml(finalRoom) as {
+      label?: unknown;
+      data?: { displayName?: unknown };
+    };
+    const diskLabelPreserved = persisted.label === 'Disk offline label';
+    const otherFieldSaved = persisted.data?.displayName === 'Unrelated local display';
+    if (!diskLabelPreserved || !otherFieldSaved)
+      console.error('[package-smoke:offline-recovery] Native YAML readback failed:', {
+        diskLabelPreserved,
+        otherFieldSaved,
+        finalRoom,
+      });
+    return Object.values(proof).every(Boolean) && diskLabelPreserved && otherFieldSaved;
+  } catch (error) {
+    console.error('[package-smoke:offline-recovery] Failed:', error);
+    return false;
+  } finally {
+    await window.webContents
+      .executeJavaScript('window.noveltea.closeActiveProject()', true)
+      .catch(() => undefined);
+    await fs.promises.rm(parent, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+}
+
 async function characterizeSharpFormats(): Promise<Record<string, boolean>> {
   const opaque = sharp({
     create: { width: 3, height: 2, channels: 3, background: { r: 20, g: 40, b: 60 } },
@@ -532,6 +724,11 @@ export async function runPackageSmoke(
       await characterizeThumbnailProtocolFromDevelopmentOrigin();
     stage('thumbnail-production-protocol');
     checks.thumbnailProductionProtocol = await characterizeProductionThumbnailProtocol(window);
+
+    stage('candidate-repair');
+    checks.candidateRepair = await characterizePackagedCandidateRepair(window, cliPath);
+    stage('offline-recovery');
+    checks.offlineRecovery = await characterizePackagedOfflineRecovery(window, cliPath);
 
     stage('complete');
     const success = Object.values(checks).every(Boolean);

@@ -98,6 +98,9 @@ Direct image-asset thumbnails are not rendered-preview sessions. See
   ownership paths, boundary classification, target scope, and permitted fallbacks.
 - `docs/editor/project/PROJECT_VALIDATION_AND_SAVING_CERTIFICATION.md` — save/validation cutover audit,
   automated certification results, environment notes, and the remaining manual acceptance checklist.
+- `docs/editor/project/PROJECT_REPAIR_ACCEPTANCE.md` — #610/#622 end-to-end repaired-Project,
+  offline recovery, CLI/harness and packaged-editor certification matrix; separates automated
+  evidence from required interactive acceptance.
 - `docs/engine/OVERVIEW.md` — component docs for individual project entity editors such as rooms, characters, dialogue, scenes, layouts, shaders, materials, variables, assets, and tests.
 
 Scene editing follows `docs/engine/SCENE.md`: the current Scene record owns one Stage and one ordered
