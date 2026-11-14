@@ -467,7 +467,12 @@ describe('dirty tab close guard', () => {
     act(() => useCloseGuardStore.getState().requestCloseTab(ROOT_GROUP_ID, tab.id));
     await user.click(await screen.findByText("Don't Save"));
     await waitFor(() => expect(useWorkbenchStore.getState().tabsById[tab.id]).toBeUndefined());
-    expect(native.useDisk).toHaveBeenCalledWith('test-project-session', 1, 'record:rooms:foyer');
+    expect(native.useDisk).toHaveBeenCalledWith(
+      'test-project-session',
+      1,
+      'record:rooms:foyer',
+      'discard',
+    );
     expect(useCommandStore.getState().nativeMutationFailure).toBeNull();
     expect(useProjectStore.getState().document).toMatchObject({
       rooms: { foyer: { label: 'Foyer' } },
@@ -508,6 +513,70 @@ describe('dirty tab close guard', () => {
       interactableInstances: { key: { localProperties: [] } },
     });
     expect(useWorkbenchStore.getState().tabsById[tab.id]).toBeUndefined();
+  });
+
+  it('shows the Save failure in the close dialog without closing or losing the dirty Room', async () => {
+    const user = userEvent.setup();
+    const native = await nativeDirtyRooms('Unsaved Foyer');
+    native.save.mockRejectedValueOnce(
+      new Error('Room description key is invalid; correct the field before saving.'),
+    );
+    openTestTab();
+    render(<DirtyCloseDialog />);
+
+    act(() => useCloseGuardStore.getState().requestCloseTab(ROOT_GROUP_ID, tab.id));
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Room description key is invalid');
+    expect(useWorkbenchStore.getState().tabsById[tab.id]).toBeDefined();
+    expect(useProjectStore.getState().document).toMatchObject({
+      rooms: { foyer: { label: 'Unsaved Foyer' } },
+    });
+
+    await user.click(screen.getByRole('button', { name: "Don't Save" }));
+    await waitFor(() => expect(useWorkbenchStore.getState().tabsById[tab.id]).toBeUndefined());
+    expect(useProjectStore.getState().document).toMatchObject({
+      rooms: { foyer: { label: 'Foyer' } },
+    });
+  });
+
+  it('uses native logical discard when the invalid Room cannot accept a restore patch', async () => {
+    const user = userEvent.setup();
+    const native = await nativeDirtyRooms('Unsaved Foyer', 'Unrelated Kitchen');
+    native.patch.mockRejectedValueOnce(
+      new Error('Native structured Room patch cannot be applied to invalid working source.'),
+    );
+    openTestTab();
+    render(<DirtyCloseDialog />);
+
+    act(() => useCloseGuardStore.getState().requestCloseTab(ROOT_GROUP_ID, tab.id));
+    await user.click(screen.getByRole('button', { name: "Don't Save" }));
+    await waitFor(() => expect(useWorkbenchStore.getState().tabsById[tab.id]).toBeUndefined());
+    expect(native.useDisk).toHaveBeenCalledWith(
+      'test-project-session',
+      2,
+      'record:rooms:foyer',
+      'discard',
+    );
+    expect(useProjectStore.getState().document).toMatchObject({
+      rooms: {
+        foyer: { label: 'Foyer' },
+        kitchen: { label: 'Unrelated Kitchen' },
+      },
+    });
+  });
+
+  it('keeps the dialog open and reports an unsuccessful native discard', async () => {
+    const user = userEvent.setup();
+    const native = await nativeDirtyRooms('Unsaved Foyer');
+    useCommandStore.setState({ nativeMutationFailure: 'Recovery latch requires native discard.' });
+    native.useDisk.mockRejectedValueOnce(new Error('The native Room revision changed.'));
+    openTestTab();
+    render(<DirtyCloseDialog />);
+
+    act(() => useCloseGuardStore.getState().requestCloseTab(ROOT_GROUP_ID, tab.id));
+    await user.click(screen.getByRole('button', { name: "Don't Save" }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('The native Room revision changed.');
+    expect(useWorkbenchStore.getState().tabsById[tab.id]).toBeDefined();
   });
 
   it('saves dirty record changes before closing', async () => {
@@ -564,7 +633,7 @@ describe('dirty tab close guard', () => {
     expect(useWorkbenchStore.getState().tabsById[tab.id]).toBeUndefined();
   });
 
-  it('returns to the editor when a draft cannot be applied', async () => {
+  it('explains an unapplied draft without dismissing the close dialog or losing the draft', async () => {
     const user = userEvent.setup();
     useProjectStore.getState().loadProjectDocument({
       document: { rooms: { foyer: { id: 'foyer', label: 'Foyer' } } },
@@ -584,7 +653,10 @@ describe('dirty tab close guard', () => {
     act(() => useCloseGuardStore.getState().requestCloseTab(ROOT_GROUP_ID, tab.id));
     await user.click(await screen.findByText('Save'));
 
-    await waitFor(() => expect(screen.queryByText('Unsaved Changes')).not.toBeInTheDocument());
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Apply the local draft before saving',
+    );
+    expect(useCloseGuardStore.getState().pendingClose).not.toBeNull();
     expect(window.noveltea.saveProjectContent).not.toHaveBeenCalled();
     expect(useWorkbenchStore.getState().tabsById[tab.id]).toBeDefined();
   });

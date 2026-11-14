@@ -77,6 +77,7 @@ interface CommandStoreState {
     onAcknowledged: (
       result: import('../../main/services/native-authoring-worker-contract').NativeAuthoringPatchResult,
     ) => void,
+    mode?: 'conflicts' | 'discard',
   ) => Promise<CommandExecutionResult>;
   enableNativeCommandMode: (workingRevision: number) => void;
   executeCommandAsync: (
@@ -979,7 +980,7 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
       }
     });
   },
-  useNativeDiskUnitAsync: async (saveUnitId, onAcknowledged) => {
+  useNativeDiskUnitAsync: async (saveUnitId, onAcknowledged, mode = 'conflicts') => {
     if (get().nativeWorkingRevision === null) return nativeOnlyResult('Not a native Project.');
     return queueNativeCommand(async () => {
       const project = useProjectStore.getState();
@@ -1004,6 +1005,7 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
           session,
           revision,
           saveUnitId,
+          mode,
         );
         if (
           useProjectStore.getState().projectInstanceId !== instance ||
@@ -1015,8 +1017,10 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
         if (result.snapshot.workingRevision < revision)
           throw new Error('Native Use Disk returned an older working revision.');
         const conflictingPaths =
-          buildEditorProjectStateSnapshot().recovery.saveUnitsById[saveUnitId]?.externalConflict
-            ?.conflictingPaths ?? [];
+          mode === 'conflicts'
+            ? (buildEditorProjectStateSnapshot().recovery.saveUnitsById[saveUnitId]
+                ?.externalConflict?.conflictingPaths ?? [])
+            : [];
         try {
           onAcknowledged(result);
         } catch (error) {

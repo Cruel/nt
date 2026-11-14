@@ -520,6 +520,60 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
     }
   }, 120_000);
 
+  it('discards an invalid unsaved Room without external conflict or saving another dirty Room', async () => {
+    const root = await disposableProject();
+    const sessions = new ActiveProjectSessionService();
+    const controller = nativeHarness(sessions);
+    try {
+      const first = await admit(root, sessions, controller);
+      const savedA = await roomBytes(root, roomA);
+      const savedB = await roomBytes(root, roomB);
+      const broken = await controller.applyRevisionedPatches(first.id, first.revision, [
+        {
+          op: 'replace',
+          path: `/rooms/${roomA}/data/background/asset`,
+          value: 'missing-invalid-asset',
+        },
+      ]);
+      expect(broken.accepted, broken.error).toBe(true);
+      const other = await controller.applyRevisionedPatches(
+        first.id,
+        broken.snapshot.workingRevision,
+        [{ op: 'replace', path: `/rooms/${roomB}/data/displayName`, value: 'Keep this draft' }],
+      );
+      expect(other.accepted, other.error).toBe(true);
+      const before = await controller.validate(first.id, other.snapshot.workingRevision);
+      expect(before.diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ message: expect.stringContaining('missing-invalid-asset') }),
+        ]),
+      );
+
+      // Use Disk is intentionally conflict-only; Don't Save needs explicit
+      // full logical discard even when the invalid Room has no disk conflict.
+      await expect(
+        controller.useDiskUnit(first.id, other.snapshot.workingRevision, `record:rooms:${roomA}`),
+      ).rejects.toThrow('no unresolved native conflicts');
+      const discarded = await controller.useDiskUnit(
+        first.id,
+        other.snapshot.workingRevision,
+        `record:rooms:${roomA}`,
+        true,
+      );
+      expect(discarded.accepted, discarded.error).toBe(true);
+      const working = await controller.currentWorkingProject(first.id);
+      expect(working.rooms[roomA]?.data.background.asset).not.toBe('missing-invalid-asset');
+      expect(working.rooms[roomB]?.data.displayName).toBe('Keep this draft');
+      expect(await roomBytes(root, roomA)).toBe(savedA);
+      expect(await roomBytes(root, roomB)).toBe(savedB);
+    } finally {
+      controller.dispose();
+      await controller.waitForPublicationDrain();
+      sessions.dispose();
+      await removeDisposableProject(root);
+    }
+  }, 120_000);
+
   it('reopens an unchanged working projection without inventing an agent conflict', async () => {
     const root = await disposableProject();
     const sessions = new ActiveProjectSessionService();

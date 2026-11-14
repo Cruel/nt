@@ -1603,10 +1603,15 @@ void app.whenReady().then(async () => {
   guardedIpc.handle(
     IPC_CHANNELS.NATIVE_PROJECT_USE_DISK_UNIT,
     (arguments_) => nativeProjectUseDiskUnitArgumentsSchema.parse(arguments_),
-    (projectSessionId, expectedRevision, saveUnitId) => {
+    (...[projectSessionId, expectedRevision, saveUnitId, mode]) => {
       if (!nativeEditorAdmission)
         throw new Error('Native Project Use Disk is not enabled for this editor.');
-      return nativeEditorAdmission.useDiskUnit(projectSessionId, expectedRevision, saveUnitId);
+      return nativeEditorAdmission.useDiskUnit(
+        projectSessionId,
+        expectedRevision,
+        saveUnitId,
+        mode === 'discard',
+      );
     },
   );
 

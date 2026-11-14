@@ -1101,14 +1101,19 @@ export class NativeEditorSessionController {
 
   /** Adopt only conflicting native logical paths, preserving other dirty
    * fields in the selected Save unit after exact disk revision verification. */
-  async useDiskUnit(projectSessionId: string, expectedRevision: number, saveUnitId: string) {
+  async useDiskUnit(
+    projectSessionId: string,
+    expectedRevision: number,
+    saveUnitId: string,
+    discardAll = false,
+  ) {
     if (!this.isAdmitted(projectSessionId))
       throw new Error('Native Project is not admitted for this editor session.');
     const generation = this.generation;
     this.authority.requireActiveProjectRoot(projectSessionId);
     if (this.working.snapshot()?.workingRevision !== expectedRevision)
       throw new Error('Stale native Use Disk revision.');
-    const result = await this.working.useDiskUnit(saveUnitId, { conflictsOnly: true });
+    const result = await this.working.useDiskUnit(saveUnitId, { conflictsOnly: !discardAll });
     if (generation !== this.generation || !this.isAdmitted(projectSessionId))
       throw new Error('Native Use Disk completed for a superseded Project.');
     if (result.accepted) await this.persistAcknowledged(projectSessionId, generation);

@@ -158,12 +158,13 @@ const api: NovelTeaElectronApi = {
       projectSessionId,
       expectedRevision,
     ),
-  nativeProjectUseDiskUnit: (projectSessionId, expectedRevision, saveUnitId) =>
+  nativeProjectUseDiskUnit: (projectSessionId, expectedRevision, saveUnitId, mode) =>
     invokeGuarded(
       IPC_CHANNELS.NATIVE_PROJECT_USE_DISK_UNIT,
       projectSessionId,
       expectedRevision,
       saveUnitId,
+      mode,
     ),
   nativeProjectPrepareRuntime: (
     projectSessionId,

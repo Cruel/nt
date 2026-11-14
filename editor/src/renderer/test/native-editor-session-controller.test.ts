@@ -466,6 +466,14 @@ describe('native admission at the editor main Project lifecycle', () => {
     expect(
       nativeProjectUseDiskUnitArgumentsSchema.safeParse([id, 0, 'record:rooms:hall']).success,
     ).toBe(true);
+    expect(
+      nativeProjectUseDiskUnitArgumentsSchema.safeParse([id, 0, 'record:rooms:hall', 'discard'])
+        .success,
+    ).toBe(true);
+    expect(
+      nativeProjectUseDiskUnitArgumentsSchema.safeParse([id, 0, 'record:rooms:hall', 'overwrite'])
+        .success,
+    ).toBe(false);
     for (const unit of ['../hall', 'record:rooms:../hall', '/tmp/file', ''])
       expect(nativeProjectUseDiskUnitArgumentsSchema.safeParse([id, 0, unit]).success).toBe(false);
     const test = fixture();
@@ -481,6 +489,12 @@ describe('native admission at the editor main Project lifecycle', () => {
     );
     expect(test.useDiskUnit).toHaveBeenCalledWith('record:rooms:hall', {
       conflictsOnly: true,
+    });
+    await expect(
+      test.controller.useDiskUnit('one', 0, 'record:rooms:hall', true),
+    ).resolves.toMatchObject({ accepted: true });
+    expect(test.useDiskUnit).toHaveBeenLastCalledWith('record:rooms:hall', {
+      conflictsOnly: false,
     });
     test.setActive('other');
     await expect(test.controller.useDiskUnit('one', 0, 'record:rooms:hall')).rejects.toThrow(

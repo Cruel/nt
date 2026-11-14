@@ -176,6 +176,7 @@ interface NovelTeaElectronApiContract {
     projectSessionId: string,
     expectedRevision: number,
     saveUnitId: string,
+    mode?: 'conflicts' | 'discard',
   ): Promise<
     import('../main/services/native-authoring-worker-contract').NativeAuthoringPatchResult
   >;

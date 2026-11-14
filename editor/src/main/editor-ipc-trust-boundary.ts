@@ -852,6 +852,7 @@ export const nativeProjectUseDiskUnitArgumentsSchema = z.tuple([
     .min(3)
     .max(256)
     .regex(/^[a-z][a-z0-9-]*(?::[a-z][a-z0-9-]*){1,2}$/u),
+  z.enum(['conflicts', 'discard']).optional(),
 ]);
 export const nativeProjectPrepareRuntimeArgumentsSchema = z.tuple([
   projectSessionIdSchema,

@@ -6,7 +6,7 @@ import {
   unresolvedNativeFieldOwners,
   discardRecoveredNativeFieldsForOwner,
 } from '@/commands/native-field-drafts';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogDescription, DialogPopup, DialogTitle } from '@/components/ui/dialog';
@@ -42,7 +42,9 @@ import { selectPendingSaveUnitIds, usePendingInputStore } from './pending-input-
 export function DirtyCloseDialog() {
   const { t } = useTranslation('workspace');
   const [saving, setSaving] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const pendingClose = useCloseGuardStore((state) => state.pendingClose);
+  useEffect(() => setActionError(null), [pendingClose]);
   const clearPendingClose = useCloseGuardStore((state) => state.clearPendingClose);
   const confirmPendingClose = useCloseGuardStore((state) => state.confirmPendingClose);
   const tabsById = useWorkbenchStore((state) => state.tabsById);
@@ -111,9 +113,14 @@ export function DirtyCloseDialog() {
     if (!pendingClose) return;
     confirmPendingClose();
   };
+  const reportFailure = (message: string) => {
+    setActionError(message);
+    setStatusMessage(message);
+  };
 
   const saveAndClose = async () => {
     if (!pendingClose || pendingTabs.length === 0) return;
+    setActionError(null);
     setSaving(true);
     setProjectSaving(true);
     try {
@@ -121,7 +128,7 @@ export function DirtyCloseDialog() {
         if (dirtyTab.editorType !== 'candidate-repair') continue;
         const id = dirtyTab.resource?.sourceId;
         if (!id || !(await useCandidateRepairStore.getState().save(id))) {
-          setStatusMessage(t('candidateRepair.saveFailed'));
+          reportFailure(t('candidateRepair.saveFailed'));
           return;
         }
         useWorkbenchStore.getState().setTabDirty(dirtyTab.id, false);
@@ -137,10 +144,9 @@ export function DirtyCloseDialog() {
             'apply',
           );
           if (!applied) {
-            clearPendingClose();
             const message = t('dirtyClose.applyDraftBeforeSave');
             setProjectSaveError(message);
-            setStatusMessage(message);
+            reportFailure(message);
             return;
           }
         }
@@ -157,9 +163,12 @@ export function DirtyCloseDialog() {
         const result = await saveActiveSaveUnit(saveUnitId);
         if (!result.success && result.status !== 'nothing-to-save') {
           const message =
-            result.response?.error ?? result.diagnostics[0]?.message ?? t('dirtyClose.saveFailed');
+            result.diagnostics.find((diagnostic) => diagnostic.severity === 'error')?.message ??
+            result.response?.error ??
+            result.diagnostics[0]?.message ??
+            t('dirtyClose.saveFailed');
           setProjectSaveError(message);
-          setStatusMessage(message);
+          reportFailure(message);
           setDiagnostics(result.diagnostics);
           addTimelineEntry({ source: 'command', message, detail: result });
           return;
@@ -167,7 +176,7 @@ export function DirtyCloseDialog() {
         if (result.remainingDirtySaveUnitIds.includes(saveUnitId)) {
           const message = t('dirtyClose.changedDuringSave');
           setProjectSaveError(message);
-          setStatusMessage(message);
+          reportFailure(message);
           addTimelineEntry({ source: 'command', message, detail: result });
           return;
         }
@@ -182,7 +191,7 @@ export function DirtyCloseDialog() {
     } catch (error) {
       const message = error instanceof Error ? error.message : t('dirtyClose.saveFailed');
       setProjectSaveError(message);
-      setStatusMessage(message);
+      reportFailure(message);
       addTimelineEntry({ source: 'command', message, detail: error });
     } finally {
       setSaving(false);
@@ -192,6 +201,7 @@ export function DirtyCloseDialog() {
 
   const discardAndClose = async () => {
     if (!pendingClose || pendingTabs.length === 0 || saving) return;
+    setActionError(null);
     setSaving(true);
     try {
       for (const { tab: dirtyTab } of dirtyTabStates) {
@@ -222,7 +232,7 @@ export function DirtyCloseDialog() {
         )
           continue;
         if (!(await flushNativeField(fieldKey)) && !(await discardNativeField(fieldKey))) {
-          setStatusMessage(t('projectField.discardPending'));
+          reportFailure(t('projectField.discardPending'));
           return;
         }
       }
@@ -246,9 +256,9 @@ export function DirtyCloseDialog() {
       });
       const discardUsingNativeDisk = async (): Promise<boolean> => {
         for (const saveUnitId of restoredSaveUnitIds) {
-          const result = await useCommandStore
-            .getState()
-            .useNativeDiskUnitAsync(saveUnitId, (acknowledged) => {
+          const result = await useCommandStore.getState().useNativeDiskUnitAsync(
+            saveUnitId,
+            (acknowledged) => {
               const state = useProjectStore.getState();
               if (!state.document || !state.savedDocument)
                 throw new Error('Cannot discard without an admitted native Project.');
@@ -288,9 +298,11 @@ export function DirtyCloseDialog() {
               )
                 throw new Error('Native Discard could not publish the authoritative Project.');
               setLoadedEditorProjectState(workingEditorState);
-            });
+            },
+            'discard',
+          );
           if (!result.ok) {
-            setStatusMessage(result.diagnostics[0]?.message ?? 'Native Discard failed.');
+            reportFailure(result.diagnostics[0]?.message ?? t('dirtyClose.discardFailed'));
             return false;
           }
         }
@@ -326,9 +338,9 @@ export function DirtyCloseDialog() {
             // Native owner acknowledged the discard; proceed with tab-local
             // draft and recovery cleanup below.
           } else {
-            setStatusMessage(
+            reportFailure(
               result.diagnostics.find((diagnostic) => diagnostic.severity === 'error')?.message ??
-                'Discard failed.',
+                t('dirtyClose.discardFailed'),
             );
             return;
           }
@@ -336,7 +348,7 @@ export function DirtyCloseDialog() {
       }
       for (const owner of ownerIds) {
         if (!discardRecoveredNativeFieldsForOwner(owner)) {
-          setStatusMessage(t('projectField.discardPending'));
+          reportFailure(t('projectField.discardPending'));
           return;
         }
       }
@@ -350,7 +362,7 @@ export function DirtyCloseDialog() {
           'discard',
         );
         if (!discarded) {
-          setStatusMessage('Failed to discard a local editor draft.');
+          reportFailure(t('dirtyClose.discardDraftFailed'));
           return;
         }
         clearDraftDirtyForTab(dirtyTab.id);
@@ -358,15 +370,15 @@ export function DirtyCloseDialog() {
       for (const { tab: dirtyTab } of dirtyTabStates) {
         if (dirtyTab.resource?.kind === 'source' && dirtyTab.resource.sourceId) {
           if (!(await useProjectSourceStore.getState().discard(dirtyTab.resource.sourceId))) {
-            setStatusMessage(
-              useProjectSourceStore.getState().error ?? 'Native source discard failed.',
-            );
+            reportFailure(useProjectSourceStore.getState().error ?? t('dirtyClose.discardFailed'));
             return;
           }
         }
       }
       discardLoadedRecoverySaveUnits(restoredSaveUnitIds);
       closeApprovedTabs();
+    } catch (error) {
+      reportFailure(error instanceof Error ? error.message : t('dirtyClose.discardFailed'));
     } finally {
       setSaving(false);
     }
@@ -410,6 +422,11 @@ export function DirtyCloseDialog() {
       <DialogPopup>
         <DialogTitle>{title}</DialogTitle>
         <DialogDescription>{description}</DialogDescription>
+        {actionError && (
+          <p role="alert" className="mt-3 text-sm text-destructive">
+            {actionError}
+          </p>
+        )}
         <div className="mt-4 flex flex-wrap justify-end gap-2">
           <Button size="sm" variant="ghost" onClick={clearPendingClose} disabled={saving}>
             {t('dirtyClose.cancel')}
