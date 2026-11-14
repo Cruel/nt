@@ -121,6 +121,8 @@ export default defineConfig({
       'src/renderer/routeTree.gen.ts',
       'src/renderer/test/fixtures/compiled-project-golden/**',
       'src/renderer/test/fixtures/compiled-project-runtime/**',
+      // Deliberately malformed and byte-exact unsaved source must not be reformatted.
+      'src/renderer/test/fixtures/working-source-projection/**',
     ],
     printWidth: 100,
     semi: true,

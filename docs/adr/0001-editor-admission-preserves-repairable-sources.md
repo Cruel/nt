@@ -2,6 +2,11 @@
 
 Implementation specification: [#610](https://github.com/Cruel/nt/issues/610).
 
+The follow-on working-source projection decision is documented in
+[ADR 0002](0002-agent-editable-working-sources.md). It supersedes any implication
+that agents should modify native recovery JSON or that a headless harness is
+necessary to repair unsaved Project edits.
+
 Status: design decisions accepted; implementation slices #611–#621 landed; final
 cross-boundary and interactive certification tracked in [#622](https://github.com/Cruel/nt/issues/622)
 and [the acceptance ledger](../editor/project/PROJECT_REPAIR_ACCEPTANCE.md). The agreed design

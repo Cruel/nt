@@ -1,0 +1,40 @@
+{
+  "schema": "noveltea.editor.working-sources",
+  "projectId": "example-project",
+  "projectRoot": "/example/project",
+  "publication": 7,
+  "entries": {
+    "records/rooms/hall.yaml": {
+      "representation": "file",
+      "publishedRevision": "sha256:44dab4113c90e20995e4f1aaade4c152025023cbf05b94c570a098805ed5e407",
+      "pendingRevision": "sha256:2b3880e9d9f7923aa719c555a7554a6e29931264bafd4c180831798b6901b1ef",
+      "diskRevision": "xxh3-128:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "checkpointRevision": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "localStateRevision": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
+    "records/rooms/trouble.yaml": {
+      "representation": "file",
+      "publishedRevision": "sha256:a38e9bc95f327b55996814945396ae636f747960c7c170fe48a12f497283830c",
+      "pendingRevision": null,
+      "diskRevision": "xxh3-128:dddddddddddddddddddddddddddddddd",
+      "checkpointRevision": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "localStateRevision": null
+    },
+    "scripts/helper.lua": {
+      "representation": "file",
+      "publishedRevision": "sha256:ceb0cac6f1134e3c31d0d6ba4d780d1479fbf7b80779c8e309830d952abdfb43",
+      "pendingRevision": null,
+      "diskRevision": "absent",
+      "checkpointRevision": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "localStateRevision": null
+    },
+    "records/rooms/old.yaml": {
+      "representation": "deleted",
+      "publishedRevision": "sha256:8c48100db7dec8852753618c5e8264714c9e180116ec7a04ca877b5ce8e9d4bb",
+      "pendingRevision": null,
+      "diskRevision": "xxh3-128:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "checkpointRevision": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "localStateRevision": null
+    }
+  }
+}

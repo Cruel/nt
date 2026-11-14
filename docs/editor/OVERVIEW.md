@@ -81,6 +81,9 @@ Direct image-asset thumbnails are not rendered-preview sessions. See
 - `docs/editor/project/PROJECT_SETTINGS.md` — project settings behavior, stored data, built-in fallbacks, validation, and the compact ComfyUI workflow summary.
 - `docs/editor/project/PROJECT_SAVE_UNITS_AND_RECOVERY.md` — authoritative save-unit ownership,
   active Save, Save All, Save As, dirty recovery, duplicate views, and metadata-only close behavior.
+- `docs/editor/project/PROJECT_WORKING_SOURCE_PROJECTION.md` — #624 contract for the
+  agent-editable dirty-source projection, revision baselines, offline/live reconciliation and
+  crash-safe publication to be implemented by #625–#629.
 - `docs/editor/project/PROJECT_STRUCTURAL_COMMAND_PERSISTENCE.md` — classified Explorer/workflow
   auto-commit commands, persistence targets, filesystem coordination, and unsafe-rebase policies.
 - `docs/editor/project/PROJECT_WORKSPACE_FORMAT.md` — current segmented workspace-v1 tracked source,

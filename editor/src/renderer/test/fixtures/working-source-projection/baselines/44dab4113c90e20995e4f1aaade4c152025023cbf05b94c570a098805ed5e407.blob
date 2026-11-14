@@ -1,0 +1,4 @@
+id: hall
+label: "Unfinished" # retain this comment
+data:
+  kind: room
