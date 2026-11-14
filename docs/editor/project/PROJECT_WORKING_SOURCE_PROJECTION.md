@@ -197,6 +197,12 @@ publication blocks Copy/Run until regeneration. Problems differentiates
 native working-state validation, disk observations and external working-file
 observations, with an independent unsaved-owner indicator.
 
+Generated prompts separate numbered diagnostic evidence in a fenced text block
+from numbered repair targets and instructions. Saved-source issues use ordinary
+`noveltea validate`; represented unsaved issues use `noveltea validate --working`,
+run from the Project root without a redundant `--project .`. Agents must not
+modify recovery, manifest or baseline internals.
+
 **Save/Save All:** first reconcile observed external working edits. Save only
 requested safe logical Save units using native source CAS; let independent units
 commit while conflicted ones remain dirty. Advance or remove their working

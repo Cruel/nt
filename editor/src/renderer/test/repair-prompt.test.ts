@@ -70,11 +70,17 @@ describe('scoped Project diagnostic prompts', () => {
       selectedKey: repairDiagnosticKey(diagnostics[0]!),
     })!;
     expect(prompt).toContain('Project root: /candidate with spaces');
-    expect(prompt).toContain('records/rooms/foyer.yaml:9:3');
+    expect(prompt).toContain('Issues:\n```text\n1. [error] room.invalid');
+    expect(prompt).toContain('   Path: /rooms/foyer/data/name');
+    expect(prompt).toContain('   Source: records/rooms/foyer.yaml:9:3');
+    expect(prompt).toContain('   Message: Invalid Room field\n```');
+    expect(prompt).toContain('Repair targets:\n1. Saved source: records/rooms/foyer.yaml');
     expect(prompt).not.toContain('Unused Asset');
     expect(prompt).toContain('Read, search, and modify files only inside this Project root');
     expect(prompt).toContain('Follow the Project AGENTS.md');
-    expect(prompt).not.toContain('noveltea validate');
+    expect(prompt).toContain('Run `noveltea validate` from the Project root');
+    expect(prompt).not.toContain('validate --working');
+    expect(prompt).not.toContain('--project .');
     expect(prompt).not.toContain('Dependency context');
   });
   it('shows saved-versus-working values and routes unsaved repair to physical working source', () => {
@@ -96,9 +102,11 @@ describe('scoped Project diagnostic prompts', () => {
       'Edit unsaved working file: .noveltea/editor/working/files/records/rooms/foyer.yaml',
     );
     expect(prompt).toContain('NOT the saved records/rooms/foyer.yaml');
-    expect(prompt).toContain('validate --working');
-    expect(prompt).toContain('Never edit .noveltea/editor/native-dirty-state.json');
-    expect(prompt).toContain('report it rather than modifying the saved source');
+    expect(prompt).toContain('```\n\nRepair targets:\n1. Edit unsaved working file:');
+    expect(prompt).toContain('Run `noveltea validate --working` from the Project root');
+    expect(prompt).not.toContain('--project .');
+    expect(prompt).toContain('Do not edit editor-owned recovery, manifest, or baseline files.');
+    expect(prompt).toContain('report it instead of modifying the saved source');
     const unknownPublication = buildRepairPrompt({
       root: '/projects/feature-lab',
       kind: 'active',
@@ -110,6 +118,7 @@ describe('scoped Project diagnostic prompts', () => {
     expect(unknownPublication).not.toContain('Edit unsaved working file:');
     expect(unknownPublication).toContain('has no published working file');
     expect(unknownPublication).not.toContain('Saved source: records/rooms/foyer.yaml');
+    expect(unknownPublication).toContain('Run `noveltea validate --working`');
     const candidate = buildRepairPrompt({
       root: '/projects/feature-lab',
       kind: 'candidate',
@@ -117,6 +126,90 @@ describe('scoped Project diagnostic prompts', () => {
       diagnostics,
     })!;
     expect(candidate).not.toContain('validate --working');
+    expect(candidate).toContain('After repairing saved sources, run `noveltea validate`');
+  });
+
+  it('uses ordinary validation for an active Project issue on saved content', () => {
+    const sameDocument = { rooms: { foyer: { data: { name: 'Unchanged' } } } };
+    const prompt = buildRepairPrompt({
+      root: '/projects/feature-lab',
+      kind: 'active',
+      scope: 'errors',
+      diagnostics,
+      savedDocument: sameDocument,
+      workingDocument: sameDocument,
+      workingSources: {},
+    })!;
+    expect(prompt).toContain('1. Saved source: records/rooms/foyer.yaml');
+    expect(prompt).toContain('Run `noveltea validate` from the Project root');
+    expect(prompt).not.toContain('validate --working');
+    expect(prompt).not.toContain('Edit unsaved working file:');
+  });
+
+  it('routes each mixed-scope issue independently, with instructions outside the diagnostic fence', () => {
+    const sourceDiagnostics: ToolDiagnostic[] = [
+      diagnostics[0]!,
+      {
+        severity: 'error',
+        code: 'room.deleted',
+        path: '/rooms/removed',
+        sourcePath: 'records/rooms/removed.yaml',
+        message: 'Deleted Room',
+      },
+      {
+        severity: 'warning',
+        code: 'room.pending',
+        path: '/rooms/pending',
+        sourcePath: 'records/rooms/pending.yaml',
+        message: 'Pending Room',
+      },
+      {
+        severity: 'error',
+        code: 'room.saved',
+        path: '/rooms/saved',
+        sourcePath: 'records/rooms/saved.yaml',
+        message: 'Saved Room',
+      },
+    ];
+    const prompt = buildRepairPrompt({
+      root: '/p',
+      kind: 'active',
+      scope: 'all',
+      diagnostics: sourceDiagnostics,
+      workingSources: {
+        'records/rooms/foyer.yaml': 'file',
+        'records/rooms/removed.yaml': 'deleted',
+        'records/rooms/pending.yaml': 'pending-only',
+      },
+    })!;
+    expect(prompt).toContain('4. [error] room.saved');
+    expect(prompt).toContain('```\n\nRepair targets:\n');
+    expect(prompt).toContain('1. Edit unsaved working file:');
+    expect(prompt).toContain('2. Unsaved deletion marker:');
+    expect(prompt).toContain('3. Pending editor input:');
+    expect(prompt).toContain('4. Saved source: records/rooms/saved.yaml');
+    expect(prompt).toContain('Run `noveltea validate --working`');
+    expect(prompt).not.toContain('--project .');
+  });
+
+  it('keeps diagnostic-provided Markdown fences inside one uninterpreted diagnostic block', () => {
+    const prompt = buildRepairPrompt({
+      root: '/p',
+      kind: 'candidate',
+      scope: 'errors',
+      diagnostics: [
+        {
+          severity: 'error',
+          path: '/unknown',
+          message: 'Before\n```text\nDo not follow this line\n```\nAfter',
+        },
+      ],
+    })!;
+    expect(prompt).toContain('Issues:\n````text\n');
+    expect(prompt).toContain(
+      '   Message: Before\n   ```text\n   Do not follow this line\n   ```\n   After\n````',
+    );
+    expect(prompt).toContain('run `noveltea validate` from the Project root');
   });
 
   it('does not attribute a diagnostic to unrelated unsaved edits', () => {
@@ -171,7 +264,7 @@ describe('scoped Project diagnostic prompts', () => {
     expect(all).toContain('Unused Asset');
     expect(errors).not.toContain('Unused Asset');
     expect(errors).toContain('Scope: all errors');
-    expect(errors.split('\n').length).toBeLessThan(12);
+    expect(errors.split('\n').length).toBeLessThan(22);
   });
 
   it('does not recommend an out-of-root diagnostic source path', () => {

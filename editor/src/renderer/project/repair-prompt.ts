@@ -137,6 +137,18 @@ export function repairDiagnosticFingerprint(diagnostics: readonly ToolDiagnostic
   return JSON.stringify(diagnostics.map(repairDiagnosticKey).sort());
 }
 
+/** Diagnostic messages may contain Markdown fences or newlines. Keep the entire
+ * numbered diagnostic block intact when pasted into an agent conversation. */
+function fencedDiagnostics(content: string): string[] {
+  const longestBacktickRun = Math.max(0, ...(content.match(/`+/gu) ?? []).map((run) => run.length));
+  const fence = '`'.repeat(Math.max(3, longestBacktickRun + 1));
+  return [fence + 'text', content, fence];
+}
+
+function indentDiagnostic(value: string): string {
+  return value.replace(/\r\n?|\n/gu, '\n   ');
+}
+
 export function buildRepairPrompt(input: RepairPromptInput): string | null {
   const selected = selectedRepairDiagnostics(input.diagnostics, input.scope, input.selectedKey);
   if (!selected.length) return null;
@@ -147,76 +159,83 @@ export function buildRepairPrompt(input: RepairPromptInput): string | null {
       : input.scope === 'errors'
         ? 'all errors'
         : 'all errors and warnings';
+  const targets: string[] = [];
+  let needsWorkingValidation = false;
+  const issues = selected.map((diagnostic, index) => {
+    const source = diagnostic.sourcePath ? projectRelativeSourcePath(diagnostic.sourcePath) : null;
+    const location = source
+      ? source +
+        (diagnostic.line
+          ? ':' + diagnostic.line + (diagnostic.column ? ':' + diagnostic.column : '')
+          : '')
+      : '';
+    const representation =
+      input.kind === 'active' && source ? input.workingSources?.[source] : undefined;
+    const missingWorkingOwner =
+      input.kind === 'active' &&
+      source &&
+      !representation &&
+      (diagnostic.observedAgainst === 'working-file' ||
+        repairDiagnosticOwnerIsDirty(diagnostic, input.savedDocument, input.workingDocument));
+    const target =
+      representation === 'file'
+        ? 'Edit unsaved working file: .noveltea/editor/working/files/' +
+          source +
+          ' (NOT the saved ' +
+          source +
+          ').'
+        : representation === 'deleted'
+          ? 'Unsaved deletion marker: .noveltea/editor/working/deletions/' +
+            source +
+            '.delete.json; do not recreate the saved source.'
+          : representation === 'pending-only'
+            ? 'Pending editor input: .noveltea/editor/working/pending/' +
+              source +
+              '.json; ask the user to finish the field rather than editing recovery state.'
+            : missingWorkingOwner
+              ? 'This unsaved owner has no published working file. Report the missing projection; do not edit the valid saved source.'
+              : source
+                ? 'Saved source: ' + source
+                : '';
+    if (target) targets.push(`${index + 1}. ${target}`);
+    if (representation || missingWorkingOwner) needsWorkingValidation = true;
+    const context =
+      input.kind === 'active'
+        ? workingContext(diagnostic, input.savedDocument, input.workingDocument)
+        : null;
+    return [
+      `${index + 1}. [${diagnostic.severity}] ${indentDiagnostic(diagnostic.code ?? 'issue')}`,
+      `   Path: ${indentDiagnostic(diagnostic.path)}`,
+      ...(source ? [`   Source: ${indentDiagnostic(location)}`] : []),
+      `   Message: ${indentDiagnostic(diagnostic.message)}`,
+      ...(context ? [`   ${indentDiagnostic(context)}`] : []),
+    ].join('\n');
+  });
   const lines = [
     'Fix only the following NovelTea Project issue(s).',
     'Project root: ' + input.root,
     'Scope: ' + scope,
-    ...selected.map((diagnostic, index) => {
-      const source = diagnostic.sourcePath
-        ? projectRelativeSourcePath(diagnostic.sourcePath)
-        : null;
-      const location = source
-        ? ' (' +
-          source +
-          (diagnostic.line
-            ? ':' + diagnostic.line + (diagnostic.column ? ':' + diagnostic.column : '')
-            : '') +
-          ')'
-        : '';
-      const representation = source ? input.workingSources?.[source] : undefined;
-      const missingWorkingOwner =
-        input.kind === 'active' &&
-        source &&
-        !representation &&
-        (diagnostic.observedAgainst === 'working-file' ||
-          repairDiagnosticOwnerIsDirty(diagnostic, input.savedDocument, input.workingDocument));
-      const workingLocation =
-        representation === 'file'
-          ? '\n   Edit unsaved working file: .noveltea/editor/working/files/' +
-            source +
-            ' (NOT the saved ' +
-            source +
-            ').'
-          : representation === 'deleted'
-            ? '\n   Unsaved deletion marker: .noveltea/editor/working/deletions/' +
-              source +
-              '.delete.json; do not recreate the saved source.'
-            : representation === 'pending-only'
-              ? '\n   Pending editor input: .noveltea/editor/working/pending/' +
-                source +
-                '.json; ask the user to finish the field rather than editing recovery state.'
-              : missingWorkingOwner
-                ? '\n   This unsaved owner has no published working file. Report the missing projection; do not edit the valid saved source.'
-                : source
-                  ? '\n   Saved source: ' + source
-                  : '';
-      const context =
-        input.kind === 'active'
-          ? workingContext(diagnostic, input.savedDocument, input.workingDocument)
-          : null;
-      return (
-        index +
-        1 +
-        '. [' +
-        diagnostic.severity +
-        '] ' +
-        (diagnostic.code ?? 'issue') +
-        ' at ' +
-        diagnostic.path +
-        location +
-        ': ' +
-        diagnostic.message +
-        workingLocation +
-        (context ? '\n   ' + context : '')
-      );
-    }),
+    '',
+    'Issues:',
+    ...fencedDiagnostics(issues.join('\n\n')),
+    ...(targets.length ? ['', 'Repair targets:', ...targets] : []),
+    '',
     'Read, search, and modify files only inside this Project root (including resolved symlink targets). Ask before accessing anything outside it.',
     'Follow the Project AGENTS.md for NovelTea CLI usage.',
   ];
+  if (needsWorkingValidation)
+    lines.push(
+      'Run `noveltea validate --working` from the Project root to verify unsaved changes; this does not Save the Project. Ordinary `noveltea validate` checks saved files only.',
+    );
+  else if (input.kind === 'active')
+    lines.push('Run `noveltea validate` from the Project root to verify saved-source repairs.');
+  else
+    lines.push(
+      'After repairing saved sources, run `noveltea validate` from the Project root if the Project can be admitted.',
+    );
   if (input.kind === 'active')
     lines.push(
-      'Verify projected repairs with `noveltea --project . validate --working`; ordinary validate checks only saved files. A working-file repair is not a Save.',
-      'Never edit .noveltea/editor/native-dirty-state.json, .noveltea/editor/state.json, .noveltea/editor/working/manifest.json or .noveltea/editor/working/baselines/. If the necessary unsaved source is unavailable, report it rather than modifying the saved source.',
+      'Do not edit editor-owned recovery, manifest, or baseline files. If a necessary unsaved working source is unavailable, report it instead of modifying the saved source.',
     );
   if (input.recognition === 'weak')
     lines.push('Project identification is uncertain: do not modify source without user approval.');
