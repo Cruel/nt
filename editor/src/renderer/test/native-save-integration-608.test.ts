@@ -289,6 +289,237 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
     }
   }, 120_000);
 
+  it('imports an external working Room while admitted without saving the tracked YAML', async () => {
+    const root = await disposableProject();
+    const sessions = new ActiveProjectSessionService();
+    const controller = nativeHarness(sessions);
+    const source = path.join(root, `records/rooms/${roomA}.yaml`);
+    const proposed = path.join(root, `.noveltea/editor/working/files/records/rooms/${roomA}.yaml`);
+    try {
+      const opened = await admit(root, sessions, controller);
+      const original = await readFile(source, 'utf8');
+      const dirty = await controller.applyRevisionedPatches(opened.id, opened.revision, [
+        {
+          op: 'replace',
+          path: `/rooms/${roomA}/data/displayName`,
+          value: 'Unsaved editor',
+        },
+      ]);
+      expect(dirty.accepted, dirty.error).toBe(true);
+      await controller.flushWorkingSources(opened.id);
+      await writeFile(
+        proposed,
+        (await readFile(proposed, 'utf8')).replace(
+          'label: Active Text',
+          'label: Agent live repair',
+        ),
+      );
+      const imported = await controller.importLiveWorkingSources(
+        opened.id,
+        dirty.snapshot.workingRevision,
+      );
+      expect(imported.warnings).toEqual([]);
+      expect(imported.result.affectedRecords).toContain(`rooms/${roomA}`);
+      expect(imported.result.snapshot.recordSnapshots?.[`rooms/${roomA}`]?.source).toMatchObject({
+        label: 'Agent live repair',
+        data: { displayName: 'Unsaved editor' },
+      });
+      expect(await readFile(source, 'utf8')).toBe(original);
+      await controller.flushWorkingSources(opened.id);
+      expect(await readFile(proposed, 'utf8')).toContain('Agent live repair');
+      // A source-publisher self-event is a no-op; it cannot bump the native revision.
+      const redundant = await controller.importLiveWorkingSources(
+        opened.id,
+        imported.result.snapshot.workingRevision,
+      );
+      expect(redundant.result.affectedRecords).toEqual([]);
+      expect(redundant.result.snapshot.workingRevision).toBe(
+        imported.result.snapshot.workingRevision,
+      );
+      await expect(
+        controller.importLiveWorkingSources(opened.id, dirty.snapshot.workingRevision),
+      ).rejects.toThrow(/Stale working-source import revision/);
+      const save = await controller.saveUnit(
+        opened.id,
+        imported.result.snapshot.workingRevision,
+        `record:rooms:${roomA}`,
+        {},
+      );
+      expect(save.accepted, save.error).toBe(true);
+      expect(await readFile(source, 'utf8')).toContain('Agent live repair');
+      expect(await readFile(source, 'utf8')).toContain('Unsaved editor');
+    } finally {
+      controller.dispose();
+      sessions.dispose();
+      await removeDisposableProject(root);
+    }
+  }, 120_000);
+
+  it('keeps a live overlapping agent edit as a conflict and preserves independent dirty owners', async () => {
+    const root = await disposableProject();
+    const sessions = new ActiveProjectSessionService();
+    const controller = nativeHarness(sessions);
+    const proposed = path.join(root, `.noveltea/editor/working/files/records/rooms/${roomA}.yaml`);
+    const source = path.join(root, `records/rooms/${roomA}.yaml`);
+    try {
+      const opened = await admit(root, sessions, controller);
+      const original = await readFile(source, 'utf8');
+      const dirty = await controller.applyRevisionedPatches(opened.id, opened.revision, [
+        {
+          op: 'replace',
+          path: `/rooms/${roomA}/data/displayName`,
+          value: 'First draft',
+        },
+        {
+          op: 'replace',
+          path: `/rooms/${roomB}/data/displayName`,
+          value: 'Independent dirty',
+        },
+      ]);
+      expect(dirty.accepted, dirty.error).toBe(true);
+      await controller.flushWorkingSources(opened.id);
+      const updated = await controller.applyRevisionedPatches(
+        opened.id,
+        dirty.snapshot.workingRevision,
+        [
+          {
+            op: 'replace',
+            path: `/rooms/${roomA}/data/displayName`,
+            value: 'Newer editor typing',
+          },
+        ],
+      );
+      expect(updated.accepted, updated.error).toBe(true);
+      const agentBytes = (await readFile(proposed, 'utf8')).replace(
+        'displayName: First draft',
+        'displayName: Agent conflicting draft',
+      );
+      await writeFile(proposed, agentBytes);
+      const imported = await controller.importLiveWorkingSources(
+        opened.id,
+        updated.snapshot.workingRevision,
+      );
+      expect(imported.warnings).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ sourcePath: `records/rooms/${roomA}.yaml` }),
+        ]),
+      );
+      expect(
+        imported.result.snapshot.recordSnapshots?.[`rooms/${roomA}`]?.conflictingPaths,
+      ).toContain('/data/displayName');
+      expect(imported.result.snapshot.recordSnapshots?.[`rooms/${roomB}`]?.source).toMatchObject({
+        data: { displayName: 'Independent dirty' },
+      });
+      expect(await readFile(proposed, 'utf8')).toBe(agentBytes);
+      expect(await readFile(source, 'utf8')).toBe(original);
+      const savedIndependent = await controller.saveUnit(
+        opened.id,
+        imported.result.snapshot.workingRevision,
+        `record:rooms:${roomB}`,
+        {},
+      );
+      expect(savedIndependent.accepted, savedIndependent.error).toBe(true);
+      expect(await readFile(source, 'utf8')).toBe(original);
+    } finally {
+      controller.dispose();
+      sessions.dispose();
+      await removeDisposableProject(root);
+    }
+  }, 120_000);
+
+  it('stages an agent-edited Lua working file live and returns the exact visible source buffer', async () => {
+    const root = await disposableProject();
+    const sessions = new ActiveProjectSessionService();
+    const controller = nativeHarness(sessions);
+    const relative = 'scripts/notice-board.lua';
+    const savedPath = path.join(root, relative);
+    const proposed = path.join(root, `.noveltea/editor/working/files/${relative}`);
+    try {
+      const initial = await admit(root, sessions, controller);
+      const disk = await readFile(savedPath, 'utf8');
+      const originalRevision = controller.sourceRevisionFor()!(Buffer.from(disk));
+      const staged = await controller.stageText(
+        initial.id,
+        initial.revision,
+        relative,
+        originalRevision,
+        `${disk}\n-- native draft\n`,
+      );
+      expect(staged.accepted, staged.error).toBe(true);
+      await controller.flushWorkingSources(initial.id);
+      const agentText = `${disk}\n-- live agent repair\n`;
+      await writeFile(proposed, agentText);
+      const imported = await controller.importLiveWorkingSources(
+        initial.id,
+        staged.snapshot.workingRevision,
+      );
+      expect(imported.warnings).toEqual([]);
+      expect(imported.textSources[relative]).toEqual({
+        text: agentText,
+        diskRevision: originalRevision,
+      });
+      expect(imported.result.snapshot.workingRevision).toBeGreaterThan(
+        staged.snapshot.workingRevision,
+      );
+      expect(await readFile(savedPath, 'utf8')).toBe(disk);
+      await controller.flushWorkingSources(initial.id);
+      expect(await readFile(proposed, 'utf8')).toBe(agentText);
+    } finally {
+      controller.dispose();
+      sessions.dispose();
+      await removeDisposableProject(root);
+    }
+  }, 120_000);
+
+  it('corrects an invalid unsaved native Room through a live agent working-file repair', async () => {
+    const root = await disposableProject();
+    const sessions = new ActiveProjectSessionService();
+    const controller = nativeHarness(sessions);
+    const saved = path.join(root, `records/rooms/${roomA}.yaml`);
+    const proposed = path.join(root, `.noveltea/editor/working/files/records/rooms/${roomA}.yaml`);
+    try {
+      const first = await admit(root, sessions, controller);
+      const disk = await readFile(saved, 'utf8');
+      const broken = await controller.applyRevisionedPatches(first.id, first.revision, [
+        {
+          op: 'replace',
+          path: `/rooms/${roomA}/data/background/asset`,
+          value: 'missing-live-asset',
+        },
+      ]);
+      expect(broken.accepted, broken.error).toBe(true);
+      const before = await controller.validate(first.id, broken.snapshot.workingRevision);
+      expect(before.diagnostics.length).toBeGreaterThan(0);
+      await controller.flushWorkingSources(first.id);
+      await writeFile(
+        proposed,
+        (await readFile(proposed, 'utf8')).replace(
+          'asset: missing-live-asset',
+          'asset: pilot-room-backdrop',
+        ),
+      );
+      const repaired = await controller.importLiveWorkingSources(
+        first.id,
+        broken.snapshot.workingRevision,
+      );
+      expect(repaired.warnings).toEqual([]);
+      expect(repaired.result.snapshot.recordSnapshots?.[`rooms/${roomA}`]?.source).toMatchObject({
+        data: { background: { asset: 'pilot-room-backdrop' } },
+      });
+      const after = await controller.validate(first.id, repaired.result.snapshot.workingRevision);
+      expect(after.diagnostics).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ message: expect.stringContaining('missing-live-asset') }),
+        ]),
+      );
+      expect(await readFile(saved, 'utf8')).toBe(disk);
+    } finally {
+      controller.dispose();
+      sessions.dispose();
+      await removeDisposableProject(root);
+    }
+  }, 120_000);
+
   it('reopens an unchanged working projection without inventing an agent conflict', async () => {
     const root = await disposableProject();
     const sessions = new ActiveProjectSessionService();

@@ -24,6 +24,9 @@ export interface ProjectWorkspaceWatchEvent {
   readonly authoringChangedPaths: readonly string[];
   readonly assetChangedPaths: readonly string[];
   readonly sourceChangedPaths?: readonly string[];
+  /** Narrow Project-local ignored working-source observation hint. The renderer
+   * must use the native revisioned import IPC, never interpret the file itself. */
+  readonly workingSourceChanged?: boolean;
   readonly sourceDiagnostics?: readonly ProjectValidationDiagnostic[];
   readonly assetFileRevisions?: Readonly<Record<string, ProjectSourceExpectedRevision>>;
   readonly assetDiagnostics?: readonly ProjectValidationDiagnostic[];

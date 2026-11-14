@@ -145,7 +145,7 @@ function applyAtPath(document: JsonValue, root: string, source: unknown): JsonVa
   return applyJsonPatch(document, [operation]).document;
 }
 
-function unitForPath(path: string): string {
+export function nativeSaveUnitForPath(path: string): string {
   const segments = path.split('/');
   if (segments[1] === 'editor') {
     if (segments[2] === 'chapters') return 'project:chapters';
@@ -218,7 +218,7 @@ export function projectNativeExternalResult(input: {
             path === affected || path.startsWith(`${affected}/`) || affected.startsWith(`${path}/`),
         ),
       );
-      const unit = matching?.[0] ?? unitForPath(path);
+      const unit = matching?.[0] ?? nativeSaveUnitForPath(path);
       const previous = conflicts.get(unit) ?? saveUnitsById[unit]?.externalConflict;
       const baseValueByPath = {
         ...previous?.baseValueByPath,

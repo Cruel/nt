@@ -152,6 +152,12 @@ const api: NovelTeaElectronApi = {
     invokeGuarded(IPC_CHANNELS.NATIVE_PROJECT_SEMANTIC_GRAPH, projectSessionId, expectedRevision),
   nativeProjectReconcile: (projectSessionId, expectedRevision, owner) =>
     invokeGuarded(IPC_CHANNELS.NATIVE_PROJECT_RECONCILE, projectSessionId, expectedRevision, owner),
+  nativeProjectImportWorkingSources: (projectSessionId, expectedRevision) =>
+    invokeGuarded(
+      IPC_CHANNELS.NATIVE_PROJECT_IMPORT_WORKING_SOURCES,
+      projectSessionId,
+      expectedRevision,
+    ),
   nativeProjectUseDiskUnit: (projectSessionId, expectedRevision, saveUnitId) =>
     invokeGuarded(
       IPC_CHANNELS.NATIVE_PROJECT_USE_DISK_UNIT,

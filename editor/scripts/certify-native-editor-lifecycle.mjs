@@ -3,7 +3,7 @@
  * Usage: node editor/scripts/certify-native-editor-lifecycle.mjs
  */
 import { spawn } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -144,8 +144,9 @@ try {
       true,
     );
     const sources = await api.listProjectSourceFiles({ projectSessionId: opened.projectSessionId });
-    await api.closeActiveProject();
     return {
+      projectSessionId: opened.projectSessionId,
+      workingRevision: opened.nativeWorkingRevision,
       rendered,
       nativeSession: Boolean(opened.nativeWorkingRevision !== undefined),
       validated: Boolean(validation),
@@ -161,6 +162,61 @@ try {
     !result.sourceInventory
   )
     throw new Error(`Incomplete Electron candidate smoke: ${JSON.stringify(result)}`);
+  // Exercise the actual Electron working-source watcher and native admission
+  // with an external tool that only writes Project-local files (no editor IPC).
+  const staged = await evaluate(`(async () => {
+    const api = window.noveltea;
+    window.__novelteaWorkingObserved = 0;
+    window.__novelteaWorkingUnsubscribe = api.onProjectWorkspaceChanged((event) => {
+      if (event.projectSessionId === ${JSON.stringify(result.projectSessionId)} &&
+          event.workingSourceChanged) window.__novelteaWorkingObserved++;
+    });
+    const watcher = await api.startProjectWorkspaceWatcher(${JSON.stringify(result.projectSessionId)});
+    if (!watcher.success) throw new Error('Host working-file watcher rejected: ' + watcher.error);
+    const result = await api.nativeProjectPatch(
+      ${JSON.stringify(result.projectSessionId)},
+      ${result.workingRevision},
+      [{ op: 'replace', path: '/project/name', value: 'Uncommitted Host Editor' }],
+    );
+    if (!result.accepted) throw new Error('Host native patch rejected: ' + result.error);
+    await api.nativeProjectFlushWorkingSources(${JSON.stringify(result.projectSessionId)});
+    return { revision: result.snapshot.workingRevision };
+  })()`);
+  const savedProjectPath = path.join(project, 'project.yaml');
+  const workingProjectPath = path.join(project, '.noveltea/editor/working/files/project.yaml');
+  const savedBefore = await readFile(savedProjectPath, 'utf8');
+  const priorWorking = await readFile(workingProjectPath, 'utf8');
+  if (!priorWorking.includes('Uncommitted Host Editor'))
+    throw new Error('Electron host did not publish unsaved working Project bytes.');
+  await pause(350); // Let chokidar register before external replacement.
+  await writeFile(
+    workingProjectPath,
+    priorWorking.replace('Uncommitted Host Editor', 'Agent Host Repair'),
+  );
+  let observed = false;
+  for (let attempt = 0; attempt < 35; attempt++) {
+    observed = await evaluate('window.__novelteaWorkingObserved > 0');
+    if (observed) break;
+    await pause(200);
+  }
+  if (!observed) throw new Error('Electron host missed the external working-source change.');
+  const admittedWorking = await evaluate(`(async () => {
+    const api = window.noveltea;
+    const admitted = await api.nativeProjectImportWorkingSources(
+      ${JSON.stringify(result.projectSessionId)}, ${staged.revision});
+    if (!admitted.result.accepted || admitted.warnings.length ||
+        admitted.result.snapshot.source?.project?.name !== 'Agent Host Repair')
+      throw new Error('Host agent-file import failed: ' + JSON.stringify(admitted));
+    await api.stopProjectWorkspaceWatcher(${JSON.stringify(result.projectSessionId)});
+    window.__novelteaWorkingUnsubscribe?.();
+    await api.closeActiveProject();
+    return { imported: true, workingRevision: admitted.result.snapshot.workingRevision };
+  })()`);
+  if (!admittedWorking.imported || (await readFile(savedProjectPath, 'utf8')) !== savedBefore)
+    throw new Error('Host working-file import incorrectly saved Project YAML.');
+  result.liveWorkingFileObserved = observed;
+  result.liveWorkingFileImported = admittedWorking.imported;
+  result.liveWorkingFileUnsaved = true;
   // Exercise the React workspace's *own* New Project command as well as the
   // preload boundary above: this must admit the native Project into the
   // renderer's inspector, Explorer and command state, not just into main.

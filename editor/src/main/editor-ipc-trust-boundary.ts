@@ -840,6 +840,10 @@ export const nativeProjectReconcileArgumentsSchema = z.tuple([
       ),
   ]),
 ]);
+export const nativeProjectWorkingSourceImportArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  z.number().int().nonnegative(),
+]);
 export const nativeProjectUseDiskUnitArgumentsSchema = z.tuple([
   projectSessionIdSchema,
   z.number().int().nonnegative(),

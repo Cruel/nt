@@ -56,6 +56,7 @@ import {
   nativeProjectPrepareExportArgumentsSchema,
   nativeProjectPrepareRuntimeArgumentsSchema,
   nativeProjectReconcileArgumentsSchema,
+  nativeProjectWorkingSourceImportArgumentsSchema,
   nativeProjectRunSuiteArgumentsSchema,
   nativeProjectRunTestArgumentsSchema,
   nativeProjectSaveTextArgumentsSchema,
@@ -410,10 +411,15 @@ function createNativeEditorController(): NativeEditorSessionController {
   );
   nativeEditorObservers.set(
     controller,
-    new NativeEditorObserverWatchService(bridge, activeProjectSessions, (event) => {
-      if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed())
-        mainWindow.webContents.send(IPC_CHANNELS.PROJECT_WORKSPACE_WATCH_EVENT, event);
-    }),
+    new NativeEditorObserverWatchService(
+      bridge,
+      activeProjectSessions,
+      (event) => {
+        if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed())
+          mainWindow.webContents.send(IPC_CHANNELS.PROJECT_WORKSPACE_WATCH_EVENT, event);
+      },
+      (sessionId) => activeProjectSessions.requireActiveProjectRoot(sessionId),
+    ),
   );
   return controller;
 }
@@ -1539,6 +1545,15 @@ void app.whenReady().then(async () => {
       if (!nativeEditorAdmission)
         throw new Error('Native Project reconciliation is not enabled for this editor.');
       return nativeEditorAdmission.reconcile(projectSessionId, expectedRevision, owner);
+    },
+  );
+  guardedIpc.handle(
+    IPC_CHANNELS.NATIVE_PROJECT_IMPORT_WORKING_SOURCES,
+    (arguments_) => nativeProjectWorkingSourceImportArgumentsSchema.parse(arguments_),
+    (projectSessionId, expectedRevision) => {
+      if (!nativeEditorAdmission)
+        throw new Error('Working-source import requires an active native Project.');
+      return nativeEditorAdmission.importLiveWorkingSources(projectSessionId, expectedRevision);
     },
   );
 

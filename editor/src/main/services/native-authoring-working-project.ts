@@ -356,9 +356,15 @@ export class NativeAuthoringWorkingProject {
     text: string,
     diskPrecondition?: string,
     keepMine = false,
+    expectedWorkingRevision?: number,
   ): Promise<PatchResult> {
     return this.serial(async () => {
       if (!this.view) throw new Error('Native working Project has not opened.');
+      if (
+        expectedWorkingRevision !== undefined &&
+        this.view.workingRevision !== expectedWorkingRevision
+      )
+        throw new Error('Native working text was superseded before external admission.');
       if (keepMine && !diskPrecondition)
         throw new Error('Keep Mine requires the exact current physical source revision.');
       // An empty local draft is still a real overlay when its physical source
@@ -477,9 +483,15 @@ export class NativeAuthoringWorkingProject {
   async markExternalWorkingConflicts(
     owner: string,
     paths: readonly string[],
+    expectedWorkingRevision?: number,
   ): Promise<PatchResult> {
     return this.serial(async () => {
       if (!this.view) throw new Error('Native working Project has not opened.');
+      if (
+        expectedWorkingRevision !== undefined &&
+        this.view.workingRevision !== expectedWorkingRevision
+      )
+        throw new Error('Native working conflict admission was superseded.');
       const source = owner === 'project' ? this.view : this.view.recordSnapshots?.[owner];
       if (!source?.dirty || !paths.length)
         throw new Error(`No dirty native owner to retain working conflict: ${owner}`);

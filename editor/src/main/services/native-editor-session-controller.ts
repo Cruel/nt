@@ -35,6 +35,7 @@ import { nativeAssetContentHashes, verifyNativeSourceBytes } from './native-auth
 import { classifyProjectValidationDiagnostics } from '../../shared/project-schema/project-diagnostic-projection';
 import { validateNativeWorkingStages } from './native-working-stage-validation';
 import { NativeWorkingSourcePublisher } from './native-working-source-publisher';
+import type { NativeAuthoringPatchResult } from './native-authoring-worker-contract';
 import {
   planOfflineWorkingSourceImport,
   workingSourceRevision,
@@ -182,10 +183,14 @@ export class NativeEditorSessionController {
     projectSessionId: string,
     generation: number,
     checkpoint: NativeDirtyCheckpoint | null,
+    expectedRevision?: number,
   ): Promise<{
     warnings: { code: string; severity: 'warning'; path: string; message: string }[];
     blocked: boolean;
     changed: boolean;
+    affectedOwners: string[];
+    textOwners: string[];
+    pendingFields: Record<string, string | null>;
   }> {
     const current = this.working.snapshot();
     if (!current) throw new Error('Native recovery lacks a working snapshot.');
@@ -204,46 +209,67 @@ export class NativeEditorSessionController {
     }));
     let blocked = plan.obstructed;
     let acknowledged = false;
+    const affectedOwners = new Set<string>();
+    const textOwners = new Set<string>();
+    const pendingFields: Record<string, string | null> = {};
+    let revision = expectedRevision;
+    if (plan.obstructed || plan.changes.length) this.workingSourcePublisher.cancel();
     for (const change of plan.changes) {
       if (generation !== this.generation || !this.authority.isCurrent(projectSessionId))
         throw new Error('Offline working-source admission was superseded.');
       try {
+        if (revision !== undefined && this.working.snapshot()?.workingRevision !== revision)
+          throw new Error(
+            'Native working revision changed during import; retry against the new revision.',
+          );
         const path = change.sourcePath;
         const artifact =
           change.sourceChanged || change.text ? `files/${path}` : `pending/${path}.json`;
         const expected = artifact.startsWith('pending/') ? change.pendingObserved : change.observed;
         if ((await workingSourceRevision(root, artifact)) !== expected)
           throw new Error('Agent changed working source during admission.');
+        if (revision !== undefined && this.working.snapshot()?.workingRevision !== revision)
+          throw new Error('Native editor advanced while working-file bytes were inspected.');
         if (change.patches.length) {
-          const revision = this.working.snapshot()?.workingRevision;
-          if (revision === undefined) throw new Error('Native Project revision is unavailable.');
-          const result = await this.working.applyRevisionedPatches(revision, change.patches);
+          const currentRevision = revision ?? this.working.snapshot()?.workingRevision;
+          if (currentRevision === undefined)
+            throw new Error('Native Project revision is unavailable.');
+          const result = await this.working.applyRevisionedPatches(currentRevision, change.patches);
           if (!result.accepted) throw new Error(result.error);
           acknowledged = true;
+          affectedOwners.add(change.owner);
         }
         if (change.text) {
           const result = await this.working.stageTextSource(
             path,
             change.text.value,
             change.text.diskRevision,
+            false,
+            revision,
           );
           if (!result.accepted) throw new Error(result.error);
           acknowledged = true;
+          textOwners.add(change.owner);
         }
         if (change.pending) {
-          for (const [field, text] of Object.entries(change.pending))
+          for (const [field, text] of Object.entries(change.pending)) {
             this.working.setPendingFieldText(field, text);
+            pendingFields[field] = text;
+          }
           acknowledged = true;
         }
         if (change.conflicts.length) {
           const result = await this.working.markExternalWorkingConflicts(
             change.owner,
             change.conflicts,
+            revision,
           );
           if (!result.accepted) throw new Error(result.error);
           blocked = true;
           acknowledged = true;
+          affectedOwners.add(change.owner);
         }
+        if (revision !== undefined) revision = this.working.snapshot()?.workingRevision;
         if ((await workingSourceRevision(root, artifact)) !== expected)
           throw new Error('Agent edited the working file again during admission.');
         if (!change.conflicts.length) {
@@ -268,8 +294,87 @@ export class NativeEditorSessionController {
       // This is the only promotion boundary: native acknowledgment is durable
       // before any new working-file publication can run.
       await this.checkpoints.write(root, projectId, this.working.dirtyCheckpoint());
+      if (!blocked) {
+        const latest = this.working.snapshot();
+        if (latest)
+          this.workingSourcePublisher.schedule(
+            root,
+            projectId,
+            latest,
+            this.working.dirtyCheckpoint(),
+          );
+      }
     }
-    return { warnings, blocked, changed: acknowledged };
+    return {
+      warnings,
+      blocked,
+      changed: acknowledged,
+      affectedOwners: [...affectedOwners],
+      textOwners: [...textOwners],
+      pendingFields,
+    };
+  }
+
+  /** Live counterpart of cold-open import. Called inside the renderer's native
+   * command queue, so it cannot publish a stale UI revision while typing. */
+  async importLiveWorkingSources(
+    projectSessionId: string,
+    expectedRevision: number,
+  ): Promise<{
+    result: NativeAuthoringPatchResult;
+    warnings: { sourcePath: string; message: string }[];
+    textSources: Record<string, { text: string; diskRevision: string }>;
+    pendingFields: Record<string, string | null>;
+  }> {
+    if (!this.isAdmitted(projectSessionId))
+      throw new Error('Working-source import requires the current native Project.');
+    const generation = this.generation;
+    const snapshot = this.working.snapshot();
+    if (!snapshot || snapshot.workingRevision !== expectedRevision)
+      throw new Error('Stale working-source import revision; retry after current editor edit.');
+    await this.checkpointWrites;
+    if (generation !== this.generation || !this.isAdmitted(projectSessionId))
+      throw new Error('Working-source import was superseded.');
+    const root = this.authority.requireActiveProjectRoot(projectSessionId);
+    if (!this.projectIdentity) throw new Error('Working-source import lacks Project identity.');
+    const imported = await this.importOfflineWorkingSources(
+      root,
+      this.projectIdentity,
+      projectSessionId,
+      generation,
+      this.working.dirtyCheckpoint(),
+      expectedRevision,
+    );
+    if (generation !== this.generation || !this.isAdmitted(projectSessionId))
+      throw new Error('Working-source import completed for a superseded Project.');
+    const latest = this.working.snapshot();
+    if (!latest) throw new Error('Native Project snapshot disappeared during import.');
+    return {
+      result: {
+        accepted: true,
+        error: '',
+        snapshot: latest,
+        affectedRecords: imported.affectedOwners,
+        diagnosticsAdded: [],
+        diagnosticsRemoved: [],
+      },
+      warnings: imported.warnings.map(({ path, message }) => ({
+        sourcePath: path.slice(1),
+        message,
+      })),
+      textSources: Object.fromEntries(
+        Object.entries(this.working.dirtyCheckpoint().textSources)
+          .filter(([owner]) => imported.textOwners.includes(owner))
+          .map(([owner, source]) => [
+            owner,
+            {
+              text: source.text,
+              diskRevision: source.diskRevision,
+            },
+          ]),
+      ),
+      pendingFields: imported.pendingFields,
+    };
   }
 
   recoveredContentProject(): AuthoringProject | null {

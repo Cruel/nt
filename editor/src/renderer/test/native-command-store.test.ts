@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { useProjectStore } from '../project/project-store';
+import { useProjectSourceStore } from '../project/project-source-store';
+import { usePendingInputStore } from '../workbench/pending-input-store';
 import { toJsonValue, type JsonValue } from '../project/json-value';
 import { applyJsonPatch } from '../project/json-patch';
 import { getJsonAtPointer, hasJsonAtPointer } from '../project/json-pointer';
@@ -67,6 +69,143 @@ function nativeAck(name: string, revision: number, accepted = true) {
 }
 
 describe('native-backed renderer commands', () => {
+  it('adopts a native-acknowledged live Lua working-source repair into the visible source buffer', async () => {
+    setProject();
+    useCommandStore.getState().enableNativeCommandMode(0);
+    const sourceId = 'scripts/game.lua';
+    const diskRevision = `xxh3-128:${'a'.repeat(32)}` as const;
+    useProjectSourceStore.setState({
+      projectSessionId: sessionId,
+      files: [
+        {
+          id: sourceId,
+          displayPath: sourceId,
+          projectRelativePath: sourceId,
+          kind: 'lua',
+          text: true,
+          contentHash: diskRevision,
+        },
+      ],
+      buffersById: {
+        [sourceId]: {
+          text: 'return "saved"\n',
+          baseText: 'return "saved"\n',
+          baseContentHash: diskRevision,
+          dirty: false,
+          conflict: null,
+        },
+      },
+    });
+    const importWorking = vi.fn().mockResolvedValue({
+      result: {
+        ...nativeAck('Saved Project', 1),
+        affectedRecords: [],
+      },
+      warnings: [],
+      textSources: { [sourceId]: { text: 'return "agent repaired"\n', diskRevision } },
+    });
+    window.noveltea.nativeProjectImportWorkingSources = importWorking;
+    const projectBefore = useProjectStore.getState().document;
+    const projected = vi.fn();
+    const imported = await useCommandStore.getState().importNativeWorkingSourcesAsync(projected);
+    expect(imported.ok, JSON.stringify(imported.diagnostics)).toBe(true);
+    expect(imported.projectChanged).toBe(true);
+    expect(importWorking).toHaveBeenCalledWith(sessionId, 0);
+    expect(projected).not.toHaveBeenCalled();
+    expect(useProjectSourceStore.getState().buffersById[sourceId]).toMatchObject({
+      text: 'return "agent repaired"\n',
+      dirty: true,
+      baseText: 'return "saved"\n',
+      baseContentHash: diskRevision,
+    });
+    expect(useProjectStore.getState().document).toBe(projectBefore);
+    expect(useCommandStore.getState().nativeWorkingRevision).toBe(1);
+  });
+
+  it('preserves concurrent source typing and exposes the agent text as a reviewable conflict', async () => {
+    setProject();
+    useCommandStore.getState().enableNativeCommandMode(0);
+    const sourceId = 'scripts/concurrent.lua';
+    const diskRevision = `xxh3-128:${'b'.repeat(32)}` as const;
+    const original = {
+      text: 'return 1',
+      baseText: 'return 1',
+      baseContentHash: diskRevision,
+      dirty: false,
+      conflict: null,
+    };
+    useProjectSourceStore.setState({
+      projectSessionId: sessionId,
+      buffersById: { [sourceId]: original },
+      files: [
+        {
+          id: sourceId,
+          displayPath: sourceId,
+          projectRelativePath: sourceId,
+          kind: 'lua',
+          text: true,
+          contentHash: diskRevision,
+        },
+      ],
+    });
+    let release!: (value: unknown) => void;
+    window.noveltea.nativeProjectImportWorkingSources = vi.fn().mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+    const pending = useCommandStore.getState().importNativeWorkingSourcesAsync(vi.fn());
+    await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+    useProjectSourceStore.setState({
+      buffersById: { [sourceId]: { ...original, text: 'return 3', dirty: true } },
+    });
+    release({
+      result: { ...nativeAck('Saved Project', 1), affectedRecords: [] },
+      warnings: [],
+      pendingFields: {},
+      textSources: { [sourceId]: { text: 'return 2', diskRevision } },
+    });
+    expect((await pending).ok).toBe(true);
+    expect(useProjectSourceStore.getState().buffersById[sourceId]).toMatchObject({
+      text: 'return 3',
+      dirty: true,
+      conflict: { externalText: 'return 2', externalContentHash: diskRevision },
+    });
+  });
+
+  it('adopts and clears live working pending-field drafts without saving tracked YAML', async () => {
+    setProject();
+    useCommandStore.getState().enableNativeCommandMode(0);
+    const field = '/rooms/hall/data/width';
+    const unit = 'record:rooms:hall';
+    const nativeImport = vi
+      .fn()
+      .mockResolvedValueOnce({
+        result: { ...nativeAck('Saved Project', 0), affectedRecords: [] },
+        warnings: [],
+        textSources: {},
+        pendingFields: { [field]: '-' },
+      })
+      .mockResolvedValueOnce({
+        result: { ...nativeAck('Saved Project', 0), affectedRecords: [] },
+        warnings: [],
+        textSources: {},
+        pendingFields: { [field]: null },
+      });
+    window.noveltea.nativeProjectImportWorkingSources = nativeImport;
+    const saved = useProjectStore.getState().savedDocument;
+    const first = await useCommandStore.getState().importNativeWorkingSourcesAsync(vi.fn());
+    expect(first.ok).toBe(true);
+    expect(usePendingInputStore.getState().entriesBySaveUnitId[unit]?.[field]).toMatchObject({
+      value: '-',
+    });
+    expect(useProjectStore.getState().savedDocument).toBe(saved);
+    expect((await useCommandStore.getState().importNativeWorkingSourcesAsync(vi.fn())).ok).toBe(
+      true,
+    );
+    expect(usePendingInputStore.getState().entriesBySaveUnitId[unit]?.[field]).toBeUndefined();
+  });
   it('expands a whole translation collection into one batch of per-locale source patches', () => {
     const previous = { localization: { translations: { fr: { a: { text: 'Old' } }, de: {} } } };
     const proposed = { localization: { translations: { fr: { a: { text: 'New' } }, es: {} } } };
@@ -772,6 +911,7 @@ describe('native-backed renderer commands', () => {
     Reflect.deleteProperty(window.noveltea, 'nativeProjectSaveText');
     Reflect.deleteProperty(window.noveltea, 'nativeProjectStageText');
     Reflect.deleteProperty(window.noveltea, 'nativeProjectUseDiskUnit');
+    Reflect.deleteProperty(window.noveltea, 'nativeProjectImportWorkingSources');
     useProjectStore.getState().clearProject();
     useCommandStore.getState().resetCommandHistory();
   });
@@ -817,6 +957,31 @@ describe('native-backed renderer commands', () => {
     expect(projectName()).toBe('Concurrent');
     expect(useCommandStore.getState().history.cursor).toBe(1);
     expect(useCommandStore.getState().nativeWorkingRevision).toBe(4);
+  });
+
+  it('queues live working-file import behind editor typing and uses its acknowledged revision', async () => {
+    let release!: (value: ReturnType<typeof nativeAck>) => void;
+    vi.spyOn(window.noveltea, 'nativeProjectPatch').mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+    const nativeImport = vi.fn().mockResolvedValue({
+      result: { ...nativeAck('Typed', 1), affectedRecords: [] },
+      warnings: [],
+      textSources: {},
+    });
+    window.noveltea.nativeProjectImportWorkingSources = nativeImport;
+    const typing = useCommandStore.getState().executeCommandAsync(request('Typed'));
+    await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+    const importQueued = useCommandStore.getState().importNativeWorkingSourcesAsync(vi.fn());
+    expect(nativeImport).not.toHaveBeenCalled();
+    release(nativeAck('Typed', 1));
+    expect((await typing).ok).toBe(true);
+    expect((await importQueued).ok).toBe(true);
+    expect(nativeImport).toHaveBeenCalledWith(sessionId, 1);
+    expect(projectName()).toBe('Typed');
   });
 
   it('publishes native Project Settings commands and Undo/Redo with legacy admission poisoned', async () => {

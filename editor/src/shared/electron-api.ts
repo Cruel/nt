@@ -161,6 +161,15 @@ interface NovelTeaElectronApiContract {
   ): Promise<
     import('../main/services/native-authoring-worker-contract').NativeAuthoringPatchResult
   >;
+  nativeProjectImportWorkingSources(
+    projectSessionId: string,
+    expectedRevision: number,
+  ): Promise<{
+    result: import('../main/services/native-authoring-worker-contract').NativeAuthoringPatchResult;
+    warnings: { sourcePath: string; message: string }[];
+    textSources: Record<string, { text: string; diskRevision: string }>;
+    pendingFields: Record<string, string | null>;
+  }>;
   nativeProjectUseDiskUnit(
     projectSessionId: string,
     expectedRevision: number,

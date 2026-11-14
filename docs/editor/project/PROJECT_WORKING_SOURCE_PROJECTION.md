@@ -1,9 +1,9 @@
 # Agent-editable working sources (#624)
 
 **Status:** contract fixed by #624; source publication is implemented by #625,
-and cold-Project admission of external working files by #626. Live observation,
-standalone validation and prompt integration remain separately tracked in
-#627–#629. [ADR 0002](../../adr/0002-agent-editable-working-sources.md)
+cold-Project admission by #626, and live working-file observation by #627.
+Standalone validation and prompt integration are tracked in #628–#629.
+[ADR 0002](../../adr/0002-agent-editable-working-sources.md)
 records why the interface is file-backed.
 
 ## Authority and layout
@@ -222,8 +222,36 @@ The real-native cold restart regression cases live in
 `native-save-integration-608.test.ts` (dirty Room, overlapping later native
 checkpoint, disjoint/overlapping physical disk edits, malformed YAML and
 Lua text). The publisher/import tests cover missing, stale, corrupt and
-cross-Project evidence. The `.noveltea/` watcher exception belongs to #627,
-not to this cold-open admission path.
+cross-Project evidence.
+
+Live observation (#627) extends the existing main-owned
+`NativeEditorObserverWatchService` with a *narrow* watcher for only
+`.noveltea/editor/working/files`, `pending` and `deletions`. It does not
+watch the authored YAML a second time. The watcher ignores publisher-owned
+manifest and baseline files and settles in-place writes before sending a
+session-fenced hint. A periodic recheck permits recovery when notifications
+are unavailable or the working tree did not exist at Watch start.
+The renderer serializes `nativeProjectImportWorkingSources` behind ordinary
+native commands and text stages; main rechecks the exact native revision,
+manifest identity and working-file hashes before admitting the edit through
+the same #626 native patch/merge/conflict and checkpoint path. Imported
+Record changes are published through the existing native external-result
+projection; Lua/text changes update dirty source buffers and pending raw
+fields use the existing pending-input Save-unit mapping without saving
+tracked source files. Simultaneous local typing is retained as a source
+conflict rather than being overwritten by the agent import.
+Invalid or unattributed proposals remain in the
+working tree and are reported in Problems until corrected. A publisher
+self-event with unchanged bytes produces no native mutation or revision bump.
+The existing Stop, Project switch and worker-revocation paths fence stale
+watch events and IPC results. Real-native coverage is in
+`native-save-integration-608.test.ts`, with watch/renderer/queue tests in
+`native-editor-observer-watch-service.test.ts`, `workspace-new-project.test.tsx`
+and `native-command-store.test.ts`. `scripts/certify-native-editor-lifecycle.mjs`
+exercises the built Electron renderer/preload/main/native path through Xvfb:
+with a Project open, an external filesystem writer changes its working YAML,
+the watcher reports it, native import adopts the new working value, and the
+tracked physical Project file remains unchanged.
 
 `editor/src/renderer/test/fixtures/working-source-projection/` pins the
 physical layout, SHA-256 base blobs, an unsaved commented Room, malformed raw

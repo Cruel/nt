@@ -1,4 +1,6 @@
 import path from 'node:path';
+import chokidar, { type FSWatcher } from 'chokidar';
+import { WORKING_SOURCE_ROOT } from '../../shared/project-workspace/working-source-contract';
 import type { ProjectWorkspaceWatchEvent } from '../../shared/project-watch-events';
 import type { ProjectValidationDiagnostic } from '../../shared/project-schema/project-diagnostic-projection';
 import type { ActiveProjectSessionService } from './active-project-session-service';
@@ -135,15 +137,72 @@ export function watchEventFromNativeObservation(
 
 export class NativeEditorObserverWatchService {
   private unsubscribe: (() => void)[] = [];
+  private workingWatcher: FSWatcher | null = null;
+  private workingTimer: ReturnType<typeof setTimeout> | null = null;
+  private workingRecheck: ReturnType<typeof setInterval> | null = null;
+  private workingGeneration = 0;
 
   constructor(
     private readonly bridge: NativeBridge,
     private readonly authority: Authority,
     private readonly publish: (event: ProjectWorkspaceWatchEvent) => void,
+    private readonly workingRoot?: (projectSessionId: string) => string,
   ) {}
+
+  private notifyWorking(projectSessionId: string, generation: number): void {
+    if (generation !== this.workingGeneration || !this.authority.isCurrent(projectSessionId))
+      return;
+    if (this.workingTimer) clearTimeout(this.workingTimer);
+    this.workingTimer = setTimeout(() => {
+      this.workingTimer = null;
+      if (generation !== this.workingGeneration || !this.authority.isCurrent(projectSessionId))
+        return;
+      // Only a hint; native import verifies exact bytes and active revision.
+      this.publish({
+        projectSessionId,
+        changedPaths: [],
+        authoringChangedPaths: [],
+        assetChangedPaths: [],
+        workingSourceChanged: true,
+      });
+    }, 200);
+  }
 
   start(projectSessionId: string): void {
     this.close();
+    const generation = this.workingGeneration;
+    if (this.workingRoot) {
+      // Deliberately *not* a second observer of tracked YAML: only the ignored
+      // working proposal tree is watched here. Polling is a portable fallback
+      // for a missing initial directory or dropped platform notifications.
+      const working = path.join(this.workingRoot(projectSessionId), WORKING_SOURCE_ROOT);
+      this.workingWatcher = chokidar.watch(working, {
+        ignoreInitial: true,
+        followSymlinks: false,
+        awaitWriteFinish: { stabilityThreshold: 250, pollInterval: 50 },
+        ignored: (filename) => {
+          const relative = path.relative(working, filename).split(path.sep).join('/');
+          return (
+            relative === 'manifest.json' ||
+            relative === 'baselines' ||
+            relative.startsWith('baselines/')
+          );
+        },
+      });
+      this.workingWatcher.on('all', (_kind, filename) => {
+        const relative = path.relative(working, filename).split(path.sep).join('/');
+        if (/^(files|pending|deletions)\//.test(relative))
+          this.notifyWorking(projectSessionId, generation);
+      });
+      // A failed native OS watch is not permission to drop future external
+      // edits. The bounded snapshot import can still recheck periodically.
+      this.workingWatcher.on('error', () => this.notifyWorking(projectSessionId, generation));
+      this.workingRecheck = setInterval(
+        () => this.notifyWorking(projectSessionId, generation),
+        5000,
+      );
+      this.workingRecheck.unref?.();
+    }
     this.unsubscribe.push(
       this.bridge.subscribe((delta) => {
         if (!this.authority.isCurrent(projectSessionId) || delta.sessionId !== projectSessionId)
@@ -167,6 +226,14 @@ export class NativeEditorObserverWatchService {
   }
 
   close(): void {
+    ++this.workingGeneration;
+    if (this.workingTimer) clearTimeout(this.workingTimer);
+    if (this.workingRecheck) clearInterval(this.workingRecheck);
+    this.workingTimer = null;
+    this.workingRecheck = null;
+    const watcher = this.workingWatcher;
+    this.workingWatcher = null;
+    if (watcher) void watcher.close();
     for (const release of this.unsubscribe.splice(0)) release();
   }
 }

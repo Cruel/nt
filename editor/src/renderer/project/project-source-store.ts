@@ -37,6 +37,10 @@ interface ProjectSourceStoreState {
   refresh: (projectSessionId: string) => Promise<boolean>;
   reconcileExternal: (projectSessionId: string) => Promise<void>;
   restoreRecovery: (entries: Readonly<Record<string, EditorSourceRecoveryEntry>>) => void;
+  adoptNativeWorkingText: (
+    sources: Readonly<Record<string, { text: string; diskRevision: string }>>,
+    expectedBuffers: Readonly<Record<string, ProjectSourceBuffer>>,
+  ) => void;
   setText: (sourceId: string, text: string) => void;
   flushNativeStages: () => Promise<boolean>;
   save: (sourceId: string, acceptExternalBase?: boolean) => Promise<boolean>;
@@ -180,6 +184,60 @@ export const useProjectSourceStore = create<ProjectSourceStoreState>()((set, get
   buffersById: {},
   loading: false,
   error: null,
+  adoptNativeWorkingText: (sources, expectedBuffers) => {
+    set((state) => {
+      const buffersById = { ...state.buffersById };
+      const files = [...state.files];
+      for (const [sourceId, source] of Object.entries(sources)) {
+        const prior = buffersById[sourceId];
+        const revision = source.diskRevision as ProjectSourceExpectedRevision;
+        if (prior !== expectedBuffers[sourceId]) {
+          // Local input advanced during asynchronous agent admission. Present
+          // both versions for explicit resolution instead of choosing one.
+          cancelSourceStage(sourceId);
+          touchedNativeSources.delete(sourceId);
+          if (prior)
+            buffersById[sourceId] = {
+              ...prior,
+              conflict: {
+                externalExists: true,
+                externalText: source.text,
+                externalContentHash: revision,
+              },
+            };
+          continue;
+        }
+        // A completed native import supersedes any previously scheduled stage
+        // of the exact same local buffer. Do not replay stale text over it.
+        cancelSourceStage(sourceId);
+        touchedNativeSources.delete(sourceId);
+        buffersById[sourceId] = {
+          text: source.text,
+          baseText: prior?.baseText ?? '',
+          baseContentHash: prior?.baseContentHash ?? revision,
+          dirty: true,
+          conflict: null,
+        };
+        if (!files.some((file) => file.id === sourceId)) {
+          files.push({
+            id: sourceId,
+            displayPath: sourceId,
+            projectRelativePath: sourceId,
+            kind: sourceId.endsWith('.lua') ? 'lua' : 'shader',
+            text: true,
+            contentHash: revision,
+          });
+        }
+      }
+      return {
+        buffersById,
+        files: files.sort((a, b) => a.displayPath.localeCompare(b.displayPath)),
+        textById: Object.fromEntries(
+          Object.entries(buffersById).map(([id, value]) => [id, value.text]),
+        ),
+      };
+    });
+  },
   clear: () => {
     for (const sourceId of sourceStageTimers.keys()) cancelSourceStage(sourceId);
     touchedNativeSources.clear();

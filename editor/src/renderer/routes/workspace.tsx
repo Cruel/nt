@@ -1159,6 +1159,81 @@ export function WorkspacePage() {
         )
           return;
         const authoring = event.authoring;
+        if (
+          event.workingSourceChanged &&
+          useCommandStore.getState().nativeWorkingRevision !== null
+        ) {
+          void useProjectSourceStore
+            .getState()
+            .flushNativeStages()
+            .then((flushed) => {
+              if (!flushed)
+                return {
+                  ok: false,
+                  projectChanged: false,
+                  diagnostics: [
+                    { severity: 'error' as const, message: 'Native text source staging failed.' },
+                  ],
+                  warnings: [] as { sourcePath: string; message: string }[],
+                };
+              return useCommandStore.getState().importNativeWorkingSourcesAsync((result) => {
+                if (useProjectStore.getState().projectSessionId !== latestProjectSessionId)
+                  throw new Error('Working-source import completed for a superseded Project.');
+                publishNativeExternalResult(result);
+              });
+            })
+            .then((imported) => {
+              if (useProjectStore.getState().projectSessionId !== latestProjectSessionId) return;
+              if (!imported.ok || imported.warnings?.length) {
+                externalSourceDiagnosticsRef.current = imported.warnings?.length
+                  ? imported.warnings.map(({ sourcePath, message }) =>
+                      createProjectValidationDiagnostic({
+                        code: 'editor.working-source.reconciliation-required',
+                        severity: 'error',
+                        category: 'External working source',
+                        path:
+                          nativeExternalOwnerPath(
+                            nativeOwnersForChangedSources([sourcePath])[0] ?? 'project',
+                          ) || '/',
+                        message,
+                        boundaries: ['authoring'],
+                      }),
+                    )
+                  : [
+                      createProjectValidationDiagnostic({
+                        code: 'editor.working-source.import-failed',
+                        severity: 'error',
+                        category: 'External working source',
+                        path: '/',
+                        message:
+                          imported.diagnostics[0]?.message ?? 'Working-source import failed.',
+                        boundaries: ['authoring'],
+                      }),
+                    ];
+              } else {
+                externalSourceDiagnosticsRef.current = [];
+              }
+              const current = useProjectStore.getState().document;
+              if (current)
+                setDiagnostics(
+                  collectWorkspaceProjectDiagnostics(current, [
+                    ...persistentRecoveryDiagnosticsRef.current,
+                    ...externalSourceDiagnosticsRef.current,
+                    ...externalPhysicalSourceDiagnosticsRef.current,
+                    ...externalAssetDiagnosticsRef.current,
+                    ...Object.entries(buildEditorProjectStateSnapshot().recovery.saveUnitsById)
+                      .filter(([, entry]) => entry.externalConflict)
+                      .map(([id, entry]) =>
+                        externalConflictDiagnostic(id, entry.externalConflict!),
+                      ),
+                  ]),
+                );
+              if (!imported.ok || imported.warnings?.length)
+                setStatusMessage('External working-source changes require attention');
+              else if (imported.projectChanged)
+                setStatusMessage('Imported external working-source changes');
+            });
+        }
         if (useCommandStore.getState().nativeWorkingRevision !== null) {
           if ((event.sourceChangedPaths?.length ?? 0) > 0 || event.assetChangedPaths.length > 0)
             void useProjectSourceStore.getState().reconcileExternal(latestProjectSessionId);

@@ -15,6 +15,8 @@ import type { JsonValue } from '@/project/json-value';
 import { jsonValuesEqual } from '@/project/json-value';
 import { confirmProjectComments } from '@/project/project-comment-confirmation';
 import { useProjectStore } from '@/project/project-store';
+import { useProjectSourceStore } from '@/project/project-source-store';
+import { nativeSaveUnitForPath } from '@/project/native-external-projection';
 import { remapRecoveryForAutoCommit } from '@/project/structural-command-persistence';
 import {
   buildEditorProjectStateSnapshot,
@@ -61,6 +63,15 @@ interface CommandStoreState {
       result: import('../../main/services/native-authoring-worker-contract').NativeAuthoringPatchResult,
     ) => void,
   ) => Promise<CommandExecutionResult>;
+  importNativeWorkingSourcesAsync: (
+    onAcknowledged: (
+      result: import('../../main/services/native-authoring-worker-contract').NativeAuthoringPatchResult,
+    ) => void,
+  ) => Promise<
+    CommandExecutionResult & {
+      warnings?: { sourcePath: string; message: string }[];
+    }
+  >;
   useNativeDiskUnitAsync: (
     saveUnitId: string,
     onAcknowledged: (
@@ -897,6 +908,74 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
             { severity: 'error', message, ...(failedOwner ? { path: failedOwner } : {}) },
           ],
         };
+      }
+    });
+  },
+  importNativeWorkingSourcesAsync: async (onAcknowledged) => {
+    if (get().nativeWorkingRevision === null) return nativeOnlyResult('Not a native Project.');
+    return queueNativeCommand(async () => {
+      const project = useProjectStore.getState();
+      const session = project.projectSessionId;
+      const instance = project.projectInstanceId;
+      const revision = get().nativeWorkingRevision;
+      if (
+        !session ||
+        !instance ||
+        revision === null ||
+        get().nativeProjectSessionId !== session ||
+        get().nativeProjectionRevision !== project.projectRevision ||
+        get().nativeMutationFailure
+      )
+        return nativeOnlyResult('Native working-source import has a stale editor projection.');
+      set({ nativeMutationPending: true });
+      try {
+        const textBuffersBeforeImport = useProjectSourceStore.getState().buffersById;
+        const { result, warnings, textSources, pendingFields } =
+          await window.noveltea.nativeProjectImportWorkingSources(session, revision);
+        if (
+          useProjectStore.getState().projectInstanceId !== instance ||
+          useProjectStore.getState().projectRevision !== project.projectRevision ||
+          get().nativeWorkingRevision !== revision
+        )
+          throw new Error('Working-source import was superseded by an editor command or Project.');
+        if (!result.accepted || result.snapshot.workingRevision < revision)
+          throw new Error(result.error || 'Native working-source import rejected.');
+        set({ nativeWorkingRevision: result.snapshot.workingRevision });
+        if (result.affectedRecords.length) {
+          try {
+            onAcknowledged(result);
+          } catch (error) {
+            set({ nativeMutationFailure: 'Working-source import lost editor projection parity.' });
+            throw error;
+          }
+        }
+        if (Object.keys(textSources).length)
+          useProjectSourceStore
+            .getState()
+            .adoptNativeWorkingText(textSources, textBuffersBeforeImport);
+        for (const [path, value] of Object.entries(pendingFields ?? {})) {
+          const saveUnit = nativeSaveUnitForPath(path);
+          if (value === null) usePendingInputStore.getState().clearPendingInput(saveUnit, path);
+          else usePendingInputStore.getState().setPendingInput(saveUnit, path, { value });
+        }
+        set({
+          nativeMutationPending: false,
+          nativeProjectionRevision: useProjectStore.getState().projectRevision,
+          lastDiagnostics: [],
+        });
+        return {
+          ok: true,
+          projectChanged:
+            result.affectedRecords.length > 0 ||
+            Object.keys(textSources).length > 0 ||
+            Object.keys(pendingFields ?? {}).length > 0,
+          diagnostics: [],
+          warnings,
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Working-source import failed.';
+        set({ nativeMutationPending: false, lastDiagnostics: [{ severity: 'error', message }] });
+        return nativeOnlyResult(message);
       }
     });
   },

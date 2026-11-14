@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from 'vite-plus/test';
+import { mkdtemp, mkdir, rm, writeFile, rename } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import type { NativeAuthoringEvent } from '../../main/services/native-authoring-worker-contract';
 import {
   NativeEditorObserverWatchService,
@@ -40,6 +43,89 @@ function event(overrides: Partial<Delta['observation']> = {}): Delta {
 }
 
 describe('native observer as sole physical Project watcher', () => {
+  it('observes only ignored working proposals, suppresses manifest/baseline events and fences close', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'noveltea-live-watch-'));
+    const working = path.join(root, '.noveltea/editor/working');
+    await mkdir(path.join(working, 'files/records/rooms'), { recursive: true });
+    await mkdir(path.join(working, 'baselines'), { recursive: true });
+    let current = true;
+    const publish = vi.fn();
+    const watcher = new NativeEditorObserverWatchService(
+      { subscribe: () => () => {}, onFailure: () => () => {} },
+      { isCurrent: (session) => current && session === 'project-1' },
+      publish,
+      () => root,
+    );
+    try {
+      watcher.start('project-1');
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await writeFile(path.join(working, 'manifest.json'), '{}');
+      await writeFile(path.join(working, 'baselines/a.blob'), 'base');
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      expect(publish).not.toHaveBeenCalled();
+      const temp = path.join(working, 'files/records/rooms/agent.tmp');
+      await writeFile(temp, 'id: hall\nlabel: External\n');
+      await rename(temp, path.join(working, 'files/records/rooms/hall.yaml'));
+      await vi.waitFor(
+        () =>
+          expect(publish).toHaveBeenCalledWith(
+            expect.objectContaining({
+              projectSessionId: 'project-1',
+              workingSourceChanged: true,
+              authoringChangedPaths: [],
+            }),
+          ),
+        { timeout: 3500 },
+      );
+      publish.mockClear();
+      current = false;
+      await writeFile(path.join(working, 'files/records/rooms/hall.yaml'), 'changed again');
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      expect(publish).not.toHaveBeenCalled();
+      watcher.close();
+    } finally {
+      watcher.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 12_000);
+
+  it('settles two in-place writes and observes deleted working paths without watching authored YAML', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'noveltea-live-watch-settle-'));
+    const working = path.join(root, '.noveltea/editor/working');
+    await mkdir(path.join(working, 'files/records/rooms'), { recursive: true });
+    const published = vi.fn();
+    const watcher = new NativeEditorObserverWatchService(
+      { subscribe: () => () => {}, onFailure: () => () => {} },
+      { isCurrent: () => true },
+      published,
+      () => root,
+    );
+    const target = path.join(working, 'files/records/rooms/hall.yaml');
+    try {
+      await writeFile(target, 'id: hall\nlabel: old\n');
+      watcher.start('one');
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await writeFile(target, 'id: hall\nlabel: first pass\n');
+      await new Promise((resolve) => setTimeout(resolve, 70));
+      await writeFile(target, 'id: hall\nlabel: final pass\n');
+      await vi.waitFor(() => expect(published).toHaveBeenCalledTimes(1), { timeout: 3500 });
+      published.mockClear();
+      await rm(target);
+      await vi.waitFor(
+        () =>
+          expect(published).toHaveBeenCalledWith(
+            expect.objectContaining({
+              projectSessionId: 'one',
+              workingSourceChanged: true,
+            }),
+          ),
+        { timeout: 3500 },
+      );
+    } finally {
+      watcher.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 12_000);
   it('publishes native verified YAML, source and Asset paths without TS workspace reopening', () => {
     const result = watchEventFromNativeObservation('project-1', event());
     expect(result?.authoringChangedPaths).toEqual(['records/rooms/foyer.yaml']);

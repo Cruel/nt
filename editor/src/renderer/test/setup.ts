@@ -358,6 +358,19 @@ Object.defineProperty(window, 'noveltea', {
       .fn()
       .mockResolvedValue({ ok: true, success: true, diagnostics: [] }),
     onProjectWorkspaceChanged: vi.fn().mockReturnValue(() => {}),
+    nativeProjectImportWorkingSources: vi.fn().mockResolvedValue({
+      result: {
+        accepted: true,
+        error: '',
+        snapshot: { workingRevision: 0 },
+        affectedRecords: [],
+        diagnosticsAdded: [],
+        diagnosticsRemoved: [],
+      },
+      warnings: [],
+      textSources: {},
+      pendingFields: {},
+    }),
     observeRepairCandidate: vi.fn().mockResolvedValue(null),
     onRepairCandidateStatus: vi.fn().mockReturnValue(() => {}),
     resolveProjectOriginalAssetUrl: vi.fn().mockResolvedValue({

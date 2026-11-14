@@ -868,6 +868,162 @@ describe('WorkspacePage new project modal', () => {
     );
   });
 
+  it('projects a live native working-file repair through the serialized command queue', async () => {
+    const project = createAuthoringProject({ id: 'native-working-watch', name: 'Live Repair' });
+    project.rooms.hall = { id: 'hall', label: 'Hall', data: defaultRoomData('Hall') };
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      savedDocument: project,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.yaml',
+      projectSessionId: 'opened-project-session',
+    });
+    useWorkspaceStore.setState({
+      project,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.yaml',
+    });
+    useCommandStore.getState().enableNativeCommandMode(0);
+    const repaired = { ...project.rooms.hall!, label: 'Agent live repair' };
+    const importWorking = vi.fn().mockResolvedValue({
+      result: {
+        accepted: true,
+        error: '',
+        affectedRecords: ['rooms/hall'],
+        diagnosticsAdded: [],
+        diagnosticsRemoved: [],
+        snapshot: {
+          workingRevision: 1,
+          source: {},
+          baseline: {},
+          diskSourceRevision: `xxh3-128:${'a'.repeat(32)}`,
+          normalized: null,
+          dirtyPatches: [],
+          dirty: false,
+          valid: true,
+          diagnostics: [],
+          recordSnapshots: {
+            'rooms/hall': {
+              workingRevision: 1,
+              diskSourceRevision: `xxh3-128:${'d'.repeat(32)}`,
+              source: repaired,
+              baseline: project.rooms.hall,
+              normalized: repaired,
+              normalizedBaseline: project.rooms.hall,
+              dirtyPatches: [{ operation: 'replace', path: '/label', value: 'Agent live repair' }],
+              dirty: true,
+              valid: true,
+              diagnostics: [],
+              conflictingPaths: [],
+            },
+          },
+        },
+      },
+      warnings: [],
+      textSources: {},
+    });
+    window.noveltea.nativeProjectImportWorkingSources = importWorking;
+    render(<WorkspacePage />);
+    await waitFor(() => expect(window.noveltea.startProjectWorkspaceWatcher).toHaveBeenCalled());
+    const callback = vi.mocked(window.noveltea.onProjectWorkspaceChanged).mock.calls.at(-1)?.[0];
+    act(() =>
+      callback?.({
+        projectSessionId: 'opened-project-session',
+        changedPaths: [],
+        authoringChangedPaths: [],
+        assetChangedPaths: [],
+        workingSourceChanged: true,
+      }),
+    );
+    await waitFor(() => expect(importWorking).toHaveBeenCalledWith('opened-project-session', 0));
+    await waitFor(() => expect(useCommandStore.getState().nativeWorkingRevision).toBe(1));
+    expect((useProjectStore.getState().document as typeof project).rooms.hall?.label).toBe(
+      'Agent live repair',
+    );
+    expect((useProjectStore.getState().savedDocument as typeof project).rooms.hall?.label).toBe(
+      'Hall',
+    );
+    expect(useCommandStore.getState().nativeProjectionRevision).toBe(
+      useProjectStore.getState().projectRevision,
+    );
+    expect(useWorkspaceStore.getState().statusMessage).toBe(
+      'Imported external working-source changes',
+    );
+  });
+
+  it('reports damaged external working files and clears their Problems warning after repair', async () => {
+    const project = createAuthoringProject({
+      id: 'native-working-invalid',
+      name: 'Unfinished Repair',
+    });
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      savedDocument: project,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.yaml',
+      projectSessionId: 'opened-project-session',
+    });
+    useWorkspaceStore.setState({
+      project,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.yaml',
+    });
+    useCommandStore.getState().enableNativeCommandMode(0);
+    const result = {
+      accepted: true,
+      error: '',
+      snapshot: { workingRevision: 0 },
+      affectedRecords: [],
+      diagnosticsAdded: [],
+      diagnosticsRemoved: [],
+    };
+    const importWorking = vi
+      .fn()
+      .mockResolvedValueOnce({
+        result,
+        warnings: [
+          {
+            sourcePath: 'records/rooms/broken.yaml',
+            message: 'Agent working YAML is incomplete.',
+          },
+        ],
+        textSources: {},
+      })
+      .mockResolvedValue({ result, warnings: [], textSources: {} });
+    window.noveltea.nativeProjectImportWorkingSources = importWorking;
+    render(<WorkspacePage />);
+    const callback = vi.mocked(window.noveltea.onProjectWorkspaceChanged).mock.calls.at(-1)?.[0];
+    const workingEvent = {
+      projectSessionId: 'opened-project-session',
+      changedPaths: [],
+      authoringChangedPaths: [],
+      assetChangedPaths: [],
+      workingSourceChanged: true,
+    };
+    act(() => callback?.(workingEvent));
+    await waitFor(() =>
+      expect(useWorkspaceStore.getState().diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            code: 'editor.working-source.reconciliation-required',
+            message: 'Agent working YAML is incomplete.',
+          }),
+        ]),
+      ),
+    );
+    act(() => callback?.(workingEvent));
+    await waitFor(() => expect(importWorking).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(
+        useWorkspaceStore
+          .getState()
+          .diagnostics.some(
+            (diagnostic) => diagnostic.code === 'editor.working-source.reconciliation-required',
+          ),
+      ).toBe(false),
+    );
+  });
+
   it('shows Loading immediately for a recent Project until its Open completes', async () => {
     const project = stripEditorProjectState(
       createAuthoringProject({ id: 'large-story', name: 'Large Story' }),
