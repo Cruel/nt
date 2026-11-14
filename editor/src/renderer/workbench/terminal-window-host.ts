@@ -1,5 +1,6 @@
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
+import { WebglAddon } from '@xterm/addon-webgl';
 import { Terminal } from '@xterm/xterm';
 import { usePreferencesStore } from '@/stores/preferences-store';
 import type {
@@ -15,6 +16,8 @@ interface TerminalView {
   readonly terminal: Terminal;
   readonly fitAddon: FitAddon;
   readonly disposeInput: { dispose(): void };
+  webglAttempted: boolean;
+  webglStarting: Promise<void> | null;
   lastColumns: number;
   lastRows: number;
 }
@@ -115,6 +118,7 @@ export function attachTerminalSessionView(sessionId: string, host: HTMLElement):
   const view = requireView(sessionId);
   host.replaceChildren(view.container);
   fitAndResize(view);
+  enableWebglRenderer(view);
   view.terminal.focus();
   return () => {
     if (view.container.parentElement === host) view.container.remove();
@@ -221,6 +225,7 @@ function ensureView(sessionId: string): TerminalView {
   const preferences = usePreferencesStore.getState().terminal;
   const terminal = new Terminal({
     cursorBlink: true,
+    customGlyphs: true,
     fontFamily: preferences.fontFamily,
     fontSize: preferences.fontSize,
     lineHeight: preferences.lineHeight,
@@ -247,6 +252,8 @@ function ensureView(sessionId: string): TerminalView {
     terminal,
     fitAddon,
     disposeInput,
+    webglAttempted: false,
+    webglStarting: null,
     lastColumns: 0,
     lastRows: 0,
   };
@@ -254,6 +261,45 @@ function ensureView(sessionId: string): TerminalView {
   for (const chunk of pendingOutput.get(sessionId) ?? []) terminal.write(chunk);
   pendingOutput.delete(sessionId);
   return view;
+}
+
+/** WebGL draws supported box/block glyphs while the configured font continues
+ * to render ordinary text. Do not allocate contexts for hidden sessions or
+ * rebuild them on every tab switch (Chromium limits live contexts).
+ * An unavailable/lost WebGL context leaves xterm's DOM renderer in place. */
+function enableWebglRenderer(view: TerminalView): void {
+  if (view.webglAttempted || view.webglStarting) return;
+  const initialize = async () => {
+    const preferences = usePreferencesStore.getState().terminal;
+    try {
+      // JetBrains Mono is bundled as a web font. Wait for it (or a user's
+      // configured font) before measuring cells and constructing the atlas.
+      await document.fonts?.load(`${preferences.fontSize}px ${preferences.fontFamily}`);
+    } catch {
+      // Font loading failure must not prevent terminal output or DOM fallback.
+    }
+    if (views.get(view.sessionId) !== view || !view.container.isConnected) return;
+    fitAndResize(view);
+    view.webglAttempted = true;
+    let addon: WebglAddon | undefined;
+    let contextLoss: { dispose(): void } | undefined;
+    try {
+      addon = new WebglAddon();
+      contextLoss = addon.onContextLoss(() => {
+        contextLoss?.dispose();
+        addon?.dispose(); // xterm restores the DOM renderer.
+      });
+      view.terminal.loadAddon(addon);
+    } catch {
+      contextLoss?.dispose();
+      addon?.dispose();
+      // WebGL2 may be unsupported, disabled or unavailable after context loss.
+      // The existing terminal and PTY continue using the DOM renderer.
+    }
+  };
+  view.webglStarting = initialize().finally(() => {
+    view.webglStarting = null;
+  });
 }
 
 function handleKeyEvent(terminal: Terminal, event: KeyboardEvent): boolean {

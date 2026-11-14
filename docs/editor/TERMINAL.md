@@ -17,6 +17,21 @@ active bottom-panel identity. Once Terminal has been used, closing the final ses
 a fresh replacement using the current new-terminal creation rules so the host never becomes empty during
 that window lifetime.
 
+## Rendering and font fallback
+
+The renderer uses the xterm.js WebGL addon when a terminal session's viewport is attached and the
+configured font has loaded. The xterm emulator and PTY remain persistent when a terminal tab or
+bottom-panel surface is hidden. Hidden sessions do not allocate WebGL contexts before their first
+display; returning to a previously displayed session reuses its renderer. If WebGL initialization
+fails or its context is lost, disposing the addon restores xterm.js's DOM renderer without
+restarting the shell.
+
+Regular text uses the user's selected terminal font. xterm's custom-glyph drawing handles the
+box, block, and other terminal graphics supported by the installed xterm.js version; characters
+outside that coverage use Chromium's platform font fallback. NovelTea does not override the user's
+font stack with a bundled symbol-only face. The bundled JetBrains Mono font remains the default
+for ordinary text, but symbol availability varies with system-installed fonts.
+
 ## Creation authority
 
 Terminal creation IPC has no renderer-provided shell or cwd arguments. Main resolves a new session cwd

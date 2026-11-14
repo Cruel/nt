@@ -15,6 +15,14 @@ import type {
 
 const clipboardWriteText = vi.fn().mockResolvedValue(undefined);
 
+const webglMock = vi.hoisted(() => ({
+  attempts: 0,
+  disposals: 0,
+  options: [] as Array<boolean | undefined>,
+  contextLoss: null as (() => void) | null,
+  failActivation: false,
+}));
+
 const terminalMock = vi.hoisted(() => ({
   onData: null as ((data: string) => void) | null,
   keyHandler: null as ((event: KeyboardEvent) => boolean) | null,
@@ -39,7 +47,15 @@ vi.mock('@xterm/xterm', () => ({
       this.options = { ...options };
       terminalMock.options = this.options;
     }
-    loadAddon() {}
+    loadAddon(addon: unknown) {
+      if (
+        webglMock.failActivation &&
+        addon &&
+        typeof addon === 'object' &&
+        'testWebglAddon' in addon
+      )
+        throw new Error('WebGL2 unavailable');
+    }
     open() {}
     write(data: string) {
       terminalMock.writes.push(data);
@@ -81,6 +97,23 @@ vi.mock('@xterm/addon-fit', () => ({
 }));
 
 vi.mock('@xterm/addon-web-links', () => ({ WebLinksAddon: class {} }));
+
+vi.mock('@xterm/addon-webgl', () => ({
+  WebglAddon: class {
+    readonly testWebglAddon = true;
+    constructor(preserveDrawingBuffer?: boolean) {
+      webglMock.attempts++;
+      webglMock.options.push(preserveDrawingBuffer);
+    }
+    onContextLoss(callback: () => void) {
+      webglMock.contextLoss = callback;
+      return { dispose() {} };
+    }
+    dispose() {
+      webglMock.disposals++;
+    }
+  },
+}));
 
 function session(
   sequence: number,
@@ -126,6 +159,11 @@ beforeEach(() => {
   terminalMock.fitCount = 0;
   terminalMock.constructCount = 0;
   terminalMock.disposeCount = 0;
+  webglMock.attempts = 0;
+  webglMock.disposals = 0;
+  webglMock.options = [];
+  webglMock.contextLoss = null;
+  webglMock.failActivation = false;
   useProjectStore.getState().clearProject();
   usePreferencesStore.getState().resetToDefaults();
   useTerminalAttentionStore.getState().reset();
@@ -418,6 +456,156 @@ describe('Terminal bottom panel', () => {
     expect(useTerminalAttentionStore.getState().attentionBySession[terminal2.id]?.state).toBe(
       'fading',
     );
+  });
+
+  it('enables WebGL glyph drawing without replacing the configured font', async () => {
+    const listeners = new Set<(event: TerminalEvent) => void>();
+    vi.mocked(window.noveltea.onTerminalEvent).mockImplementation((callback) => {
+      listeners.add(callback);
+      return () => listeners.delete(callback);
+    });
+    useBottomPanelStore.getState().setActivePanelId('terminal');
+    render(<BottomPanel />);
+    await screen.findByText('Terminal 1');
+    await waitFor(() => expect(webglMock.attempts).toBe(1));
+    expect(webglMock.options).toEqual([undefined]);
+    expect(terminalMock.options).toMatchObject({
+      customGlyphs: true,
+      fontFamily: 'JetBrains Mono, monospace',
+    });
+
+    act(() =>
+      usePreferencesStore.getState().setTerminalPreferences({
+        fontFamily: 'Fira Code, monospace',
+        fontSize: 18,
+        lineHeight: 1.5,
+      }),
+    );
+    expect(terminalMock.options).toMatchObject({
+      fontFamily: 'Fira Code, monospace',
+      fontSize: 18,
+      lineHeight: 1.5,
+    });
+    expect(webglMock.attempts).toBe(1);
+    // Output still reaches xterm unchanged, including U+1FBE7. The stable
+    // WebGL addon handles common custom glyphs but not this Unicode 16 octant.
+    const octant = '\u{1FBE7}';
+    act(() => {
+      for (const listener of listeners)
+        listener({ kind: 'output', sessionId: terminal1.id, data: octant });
+    });
+    expect(terminalMock.writes).toContain(octant);
+  });
+
+  it('creates WebGL contexts only for displayed sessions and reuses them on tab switches', async () => {
+    const terminal2 = session(2);
+    const twoSessions = { sessions: [terminal1, terminal2], selectedSessionId: terminal1.id };
+    vi.mocked(window.noveltea.ensureTerminalState).mockResolvedValue(twoSessions);
+    vi.mocked(window.noveltea.selectTerminalSession).mockImplementation(async (sessionId) => ({
+      sessions: twoSessions.sessions,
+      selectedSessionId: sessionId,
+    }));
+    useBottomPanelStore.getState().setActivePanelId('terminal');
+    render(<BottomPanel />);
+    await screen.findByText('Terminal 2');
+    await waitFor(() => expect(webglMock.attempts).toBe(1));
+    expect(terminalMock.constructCount).toBe(2); // Hidden terminal exists but uses no GPU.
+
+    fireEvent.click(screen.getByRole('button', { name: 'Activity' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Terminal' }));
+    await waitFor(() => expect(webglMock.attempts).toBe(1));
+
+    fireEvent.click(screen.getByText('Terminal 2'));
+    await waitFor(() => expect(webglMock.attempts).toBe(2));
+    fireEvent.click(screen.getByText('Terminal 1'));
+    await waitFor(() => expect(webglMock.attempts).toBe(2));
+  });
+
+  it('waits for the bundled font before activating WebGL, without delaying terminal input', async () => {
+    let finishFont!: () => void;
+    const loading = new Promise<FontFace[]>((resolve) => {
+      finishFont = () => resolve([]);
+    });
+    const fontLoad = vi.fn(() => loading);
+    const previousFonts = Object.getOwnPropertyDescriptor(document, 'fonts');
+    Object.defineProperty(document, 'fonts', { configurable: true, value: { load: fontLoad } });
+    try {
+      useBottomPanelStore.getState().setActivePanelId('terminal');
+      render(<BottomPanel />);
+      await screen.findByText('Terminal 1');
+      expect(fontLoad).toHaveBeenCalledWith('13px JetBrains Mono, monospace');
+      expect(webglMock.attempts).toBe(0);
+      expect(terminalMock.onData).not.toBeNull();
+      act(() => terminalMock.onData?.('echo during font load\r'));
+      expect(window.noveltea.writeTerminal).toHaveBeenCalledWith(
+        terminal1.id,
+        'echo during font load\r',
+      );
+      await act(async () => finishFont());
+      await waitFor(() => expect(webglMock.attempts).toBe(1));
+    } finally {
+      if (previousFonts) Object.defineProperty(document, 'fonts', previousFonts);
+      else Reflect.deleteProperty(document, 'fonts');
+    }
+  });
+
+  it('defers WebGL activation when font loading finishes while the panel is hidden', async () => {
+    let resolveFont!: () => void;
+    const loading = new Promise<FontFace[]>((resolve) => {
+      resolveFont = () => resolve([]);
+    });
+    const previousFonts = Object.getOwnPropertyDescriptor(document, 'fonts');
+    Object.defineProperty(document, 'fonts', {
+      configurable: true,
+      value: { load: () => loading },
+    });
+    try {
+      useBottomPanelStore.getState().setActivePanelId('terminal');
+      render(<BottomPanel />);
+      await screen.findByText('Terminal 1');
+      fireEvent.click(screen.getByRole('button', { name: 'Activity' }));
+      await act(async () => resolveFont());
+      expect(webglMock.attempts).toBe(0);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Terminal' }));
+      await waitFor(() => expect(webglMock.attempts).toBe(1));
+      expect(terminalMock.constructCount).toBe(1);
+    } finally {
+      if (previousFonts) Object.defineProperty(document, 'fonts', previousFonts);
+      else Reflect.deleteProperty(document, 'fonts');
+    }
+  });
+
+  it('keeps DOM rendering and terminal output when WebGL initialization fails', async () => {
+    webglMock.failActivation = true;
+    const listeners = new Set<(event: TerminalEvent) => void>();
+    vi.mocked(window.noveltea.onTerminalEvent).mockImplementation((callback) => {
+      listeners.add(callback);
+      return () => listeners.delete(callback);
+    });
+    useBottomPanelStore.getState().setActivePanelId('terminal');
+    render(<BottomPanel />);
+    await screen.findByText('Terminal 1');
+    await waitFor(() => expect(webglMock.attempts).toBe(1));
+    expect(webglMock.disposals).toBe(1);
+    act(() => {
+      for (const listener of listeners) {
+        listener({ kind: 'output', sessionId: terminal1.id, data: 'DOM fallback\r\n' });
+      }
+    });
+    expect(terminalMock.writes).toContain('DOM fallback\r\n');
+    expect(window.noveltea.resizeTerminal).toHaveBeenCalled();
+  });
+
+  it('falls back after WebGL context loss without reopening the PTY', async () => {
+    useBottomPanelStore.getState().setActivePanelId('terminal');
+    render(<BottomPanel />);
+    await screen.findByText('Terminal 1');
+    await waitFor(() => expect(webglMock.contextLoss).toBeTypeOf('function'));
+    act(() => webglMock.contextLoss?.());
+    expect(webglMock.disposals).toBe(1);
+    expect(webglMock.attempts).toBe(1);
+    expect(window.noveltea.ensureTerminalState).toHaveBeenCalledOnce();
   });
 
   it('routes selected xterm input/output and fitted dimensions through terminal IPC', async () => {
