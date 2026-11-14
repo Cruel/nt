@@ -171,7 +171,7 @@ describe.skipIf(!process.env.NOVELTEA_AUTHORING_NODE_ADDON)(
           expect(externalEdit.status).toBe('blocked');
         }
       } finally {
-        handoff.close();
+        await handoff.close();
         sessions.dispose();
         await rm(parent, { recursive: true, force: true });
       }

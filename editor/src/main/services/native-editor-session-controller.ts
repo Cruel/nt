@@ -61,6 +61,7 @@ export interface NativeCleanExportAdmission {
  * but production entrypoints must consume admitFromNative instead.
  */
 export class NativeEditorSessionController {
+  private publicationDrain: Promise<void> = Promise.resolve();
   private activeId: string | null = null;
   private generation = 0;
   private readonly unsubscribeFailure: () => void;
@@ -240,7 +241,7 @@ export class NativeEditorSessionController {
     const textOwners = new Set<string>();
     const pendingFields: Record<string, string | null> = {};
     let revision = expectedRevision;
-    if (plan.obstructed || plan.changes.length) this.workingSourcePublisher.cancel();
+    if (plan.obstructed || plan.changes.length) await this.workingSourcePublisher.cancel();
     for (const change of plan.changes) {
       if (generation !== this.generation || !this.authority.isCurrent(projectSessionId))
         throw new Error('Offline working-source admission was superseded.');
@@ -446,9 +447,11 @@ export class NativeEditorSessionController {
     return this.recoveryFailure;
   }
 
-  /** Revoke the native session on replacement, explicit close or failure. */
+  /** Revoke authority immediately, but keep the native worker until any
+   * already-started publication settles. Teardown owners must await
+   * waitForPublicationDrain() before removing/reusing Project files. */
   close(): void {
-    this.workingSourcePublisher.cancel();
+    const drainPublication = this.workingSourcePublisher.cancel();
     this.assetStaging?.close();
     this.assetStaging = null;
     this.generation++;
@@ -456,10 +459,16 @@ export class NativeEditorSessionController {
     this.projectIdentity = null;
     this.recoveredProject = null;
     this.recoveryFailure = null;
-    this.bridge.close();
-    void this.runtimeCache.clear().catch((error) => {
-      console.error('Failed to release native Project runtime cache:', error);
+    this.publicationDrain = Promise.all([this.publicationDrain, drainPublication]).then(() => {
+      this.bridge.close();
+      void this.runtimeCache.clear().catch((error) => {
+        console.error('Failed to release native Project runtime cache:', error);
+      });
     });
+  }
+
+  waitForPublicationDrain(): Promise<void> {
+    return this.publicationDrain;
   }
 
   /** Open only through native Project authority and recover against the native
@@ -491,6 +500,7 @@ export class NativeEditorSessionController {
     // Project session is rechecked before and after asynchronous admission.
     this.authority.requireActiveProjectRoot(projectSessionId);
     this.close();
+    await this.waitForPublicationDrain();
     const generation = this.generation;
     try {
       await this.checkpointWrites;
@@ -622,7 +632,10 @@ export class NativeEditorSessionController {
         ],
       };
     } catch (error) {
-      if (generation === this.generation) this.close();
+      if (generation === this.generation) {
+        this.close();
+        await this.waitForPublicationDrain();
+      }
       throw error;
     }
   }

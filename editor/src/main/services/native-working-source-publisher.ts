@@ -552,12 +552,16 @@ export class NativeWorkingSourcePublisher {
     }
   }
 
-  cancel() {
+  /** Revoke any queued publication and return a barrier for a write that has
+   * already begun. Callers closing or replacing a Project must await the
+   * barrier before releasing its source worker or deleting its filesystem. */
+  cancel(): Promise<void> {
     this.requested = null;
     this.adopted.clear();
     this.adoptedPending.clear();
     if (this.pending) clearTimeout(this.pending);
     this.pending = undefined;
+    return this.inFlight;
   }
 
   private async publish(request: NonNullable<NativeWorkingSourcePublisher['requested']>) {

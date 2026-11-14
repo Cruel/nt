@@ -11,7 +11,9 @@ type NativeController = Pick<
   | 'recoveredTextSources'
   | 'close'
   | 'dispose'
->;
+> & {
+  waitForPublicationDrain?(): Promise<void>;
+};
 
 /**
  * The incumbent's native worker must not be reopened to admit the next
@@ -51,21 +53,31 @@ export class NativeEditorProjectHandoff<T extends NativeController> {
         this.active = candidate;
         // Promotion revokes the incumbent's authority before its worker is
         // disposed. No callback can rescue an old session after the switch.
-        if (incumbent) incumbent.dispose();
+        if (incumbent) {
+          incumbent.dispose();
+          await incumbent.waitForPublicationDrain?.();
+        }
       }
       return result;
     } finally {
       this.candidates.delete(candidate);
-      if (this.active !== candidate) candidate.dispose();
+      if (this.active !== candidate) {
+        candidate.dispose();
+        await candidate.waitForPublicationDrain?.();
+      }
     }
   }
 
-  close(): void {
+  async close(): Promise<void> {
     this.sessions.closeActiveProject();
     const old = this.active;
     this.active = null;
-    old?.dispose();
-    for (const candidate of this.candidates) candidate.dispose();
+    const controllers = [...this.candidates];
     this.candidates.clear();
+    const remaining = [old, ...controllers].filter((item): item is T => item !== null);
+    for (const controller of remaining) controller.dispose();
+    await Promise.all(
+      remaining.map((controller) => controller.waitForPublicationDrain?.() ?? Promise.resolve()),
+    );
   }
 }

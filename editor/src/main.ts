@@ -269,6 +269,15 @@ configureSharpPlatformImageService();
 const USER_DATA_DIRECTORY_NAME = 'noveltea-editor';
 
 function configureApplicationPaths() {
+  if (process.argv.includes(PACKAGE_SMOKE_FLAG)) {
+    const scratchProfile = process.env.NOVELTEA_EDITOR_PACKAGE_SMOKE_PROFILE_ROOT;
+    if (!scratchProfile || !path.isAbsolute(scratchProfile))
+      throw new Error('Packaged smoke requires an isolated profile directory.');
+    const isolatedData = path.join(scratchProfile, USER_DATA_DIRECTORY_NAME);
+    fs.mkdirSync(isolatedData, { recursive: true });
+    app.setPath('userData', isolatedData);
+    return;
+  }
   if (process.argv.includes(FIELD_BENCHMARK_FLAG)) {
     const scratchProfile = process.env.NOVELTEA_FIELD_BENCHMARK_PROFILE;
     if (!scratchProfile || !path.isAbsolute(scratchProfile))
@@ -442,10 +451,10 @@ const nativeTestCatalogArgumentsSchema = {
     return [null];
   },
 };
-function closeNativeEditorHandoff(): void {
+async function closeNativeEditorHandoff(): Promise<void> {
   const controller = nativeEditorHandoff?.current();
   if (controller) nativeEditorObservers.get(controller)?.close();
-  nativeEditorHandoff?.close();
+  await nativeEditorHandoff?.close();
 }
 const workingSourceExit = createNativeWorkingSourceExitGuard(
   async () => {
@@ -914,7 +923,9 @@ function createWindow(): BrowserWindow {
   mainWindow.on('closed', () => {
     terminalService.dispose();
     void projectCandidateRepairs.revokeAll().catch(() => undefined);
-    closeNativeEditorHandoff();
+    void closeNativeEditorHandoff().catch((error) => {
+      console.error('Failed to drain native Project shutdown:', error);
+    });
     activeProjectSessions.dispose();
     if (mainWindow === sessionOwner) mainWindow = null;
   });
@@ -1478,7 +1489,7 @@ void app.whenReady().then(async () => {
     (arguments_) => noArgumentsSchema.parse(arguments_),
     async () => {
       await nativeEditorHandoff.current()?.flushWorkingSources();
-      closeNativeEditorHandoff();
+      await closeNativeEditorHandoff();
       nativeEditorAdmission = null;
       return;
     },
@@ -2519,7 +2530,9 @@ app.on('before-quit', (event) => {
     return;
   }
   void projectCandidateRepairs.revokeAll().catch(() => undefined);
-  closeNativeEditorHandoff();
+  void closeNativeEditorHandoff().catch((error) => {
+    console.error('Failed to drain native Project shutdown:', error);
+  });
   activeProjectSessions.dispose();
   void enginePreviewServer.stop();
 });

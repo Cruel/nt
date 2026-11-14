@@ -606,6 +606,10 @@ export async function runPackageSmoke(
     checks.mainProcess = true;
     checks.applicationName = app.getName() === 'NovelTea Editor';
     checks.userDataNamespace = path.basename(app.getPath('userData')) === 'noveltea-editor';
+    checks.userDataIsolation =
+      Boolean(process.env.NOVELTEA_EDITOR_PACKAGE_SMOKE_PROFILE_ROOT) &&
+      app.getPath('userData') ===
+        path.join(process.env.NOVELTEA_EDITOR_PACKAGE_SMOKE_PROFILE_ROOT!, 'noveltea-editor');
     checks.renderer = renderer.hasRoot && renderer.title.length > 0;
     checks.preload = renderer.hasPreloadApi;
     checks.packagedProtocol = renderer.url.startsWith('noveltea-editor://');

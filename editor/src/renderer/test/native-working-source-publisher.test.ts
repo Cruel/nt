@@ -62,6 +62,60 @@ const workingPath = (root: string, relative: string) =>
   path.join(root, '.noveltea/editor/working', relative);
 
 describe('native working-source publisher (#625)', () => {
+  it('drains an already-started working-file exchange before cancellation completes', async () => {
+    const { root, revision } = await fixture();
+    let releaseExchange: () => void = () => {};
+    const blockedExchange = new Promise<void>((resolve) => {
+      releaseExchange = resolve;
+    });
+    let exchangeStarted: () => void = () => {};
+    const enteredExchange = new Promise<void>((resolve) => {
+      exchangeStarted = resolve;
+    });
+    let block = false;
+    const publisher = new NativeWorkingSourcePublisher(200, hash, async (...args) => {
+      if (block && args[1].endsWith('records/rooms/hall.yaml')) {
+        exchangeStarted();
+        await blockedExchange;
+      }
+      return exchange(...args);
+    });
+    try {
+      publisher.schedule(
+        root,
+        'project-1',
+        snapshot(state('Working', 'Saved', revision)),
+        emptyCheckpoint(),
+      );
+      await publisher.flush();
+      block = true;
+      publisher.schedule(
+        root,
+        'project-1',
+        snapshot(state('Next', 'Saved', revision)),
+        emptyCheckpoint(),
+      );
+      const publishing = publisher.flush();
+      await enteredExchange;
+      let cancellationFinished = false;
+      const cancellation = publisher.cancel().then(() => {
+        cancellationFinished = true;
+      });
+      await Promise.resolve();
+      expect(cancellationFinished).toBe(false);
+      releaseExchange();
+      await Promise.all([publishing, cancellation]);
+      expect(cancellationFinished).toBe(true);
+      expect(await readFile(workingPath(root, 'files/records/rooms/hall.yaml'), 'utf8')).toContain(
+        'label: Next',
+      );
+    } finally {
+      releaseExchange();
+      await publisher.cancel();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('plans only genuine agent changes against verified published bytes and checkpoint evidence', async () => {
     const { root, revision } = await fixture();
     try {

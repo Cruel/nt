@@ -130,7 +130,7 @@ describe.skipIf(!process.env.NOVELTEA_AUTHORING_NODE_ADDON)(
         });
         expect('requireActiveWorkspace' in sessions).toBe(false);
       } finally {
-        handoff.close();
+        await handoff.close();
         sessions.dispose();
         await rm(parent, { recursive: true, force: true });
       }
@@ -204,7 +204,7 @@ describe.skipIf(!process.env.NOVELTEA_AUTHORING_NODE_ADDON)(
         expect((await importNativeDesktopProject(input)).success).toBe(false);
         expect(await readFile(path.join(destination, 'project.yaml'), 'utf8')).toBe(manifest);
       } finally {
-        handoff.close();
+        await handoff.close();
         sessions.dispose();
         await rm(root, { recursive: true, force: true });
       }

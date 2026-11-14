@@ -5,7 +5,7 @@ integration gate: [#622](https://github.com/Cruel/nt/issues/622).
 
 ## Certification boundary
 
-The #611–#621 vertical slices are closed. This ledger records the cross-boundary
+The #611–#621 and #624–#629 vertical slices are closed. This ledger records the cross-boundary
 checks for the **shipped native CLI and Electron editor**, and keeps interactive
 requirements separate from automated evidence. It does not add a second source,
 checkpoint, watcher, or Project authority. An automated service or packaged IPC
@@ -35,7 +35,7 @@ it does not test click placement, dialogs, editor focus, or text usability.
 | Incumbent/terminal/buffers survive failed candidate, late changes cannot activate it | Packaged `candidateRepair` smoke, `project-candidate-revalidation.test.ts`, `candidate-repair-store.test.ts` | **Pending**: active tabs, two candidates, late watch/agent output, Terminal session identity |
 | Standalone relocated `repair project`, strong/weak evidence, atomic Agent Kit, custom AGENTS and ignore preservation, malformed markers, symlinks, rollback | `tests/native_cli/repair_project.py`, `certify-native-cli-public-contracts.mjs` | CLI automation sufficient for this sub-contract; inspect generated files on disposable copy if needed |
 | Scoped Fix/All/All Errors prompt, copy without agent, diagnostic source navigation | `repair-prompt.test.ts`, `repair-prompt-dialog.test.tsx` | **Pending**: visible scopes, editable prompt, Copy when no agent |
-| File-backed unsaved Room repair, no-editor Copy/validation, stale source publication, Problems origin and live external warning | `repair-prompt.test.ts`, `repair-prompt-dialog.test.tsx`, `native-project-diagnostics.test.tsx`, `working-source-contract.test.ts`, `native-working-source-publisher.test.ts`, relocated `certify-native-cli-working.mjs`, `workspace-new-project.test.tsx` | **Pending**: open editor, damage only unsaved Room, Copy exact working path, close editor, external repair, run `validate --working`, reopen; repeat while editor open to verify live observation/conflict |
+| File-backed unsaved Room repair, no-editor Copy/validation, stale source publication, Problems origin and live external warning | `repair-prompt.test.ts`, `repair-prompt-dialog.test.tsx`, `native-project-diagnostics.test.tsx`, `working-source-contract.test.ts`, `native-working-source-publisher.test.ts`, relocated `certify-native-cli-working.mjs`, Electron/Xvfb `certify-native-editor-lifecycle.mjs`, `workspace-new-project.test.tsx` | **Pending**: open editor, damage only unsaved Room, Copy exact working path, close editor, external repair, run `validate --working`, reopen; repeat while editor open to verify live observation/conflict |
 | Installed Claude/Codex/OpenCode launch, authenticated cwd, defaults/model override, exit/retry/cancel | `repair-harness-service.test.ts`, `repair-model-catalog-service.test.ts`, `terminal-service.test.ts`, `terminal-package-smoke.test.ts` | **Pending**: actual installed authenticated harness invocation and output/cancel in real Terminal |
 | Dirty YAML offline disjoint merge, overlap, deletion, independent Save, strict CAS and field-scoped Use Disk | Packaged `offlineRecovery` smoke, `native-authoring-reconciliation.test.ts`, `native-save-integration-608.test.ts`, `native-editor-session-controller.test.ts`, `project-external-conflict-dialog.test.tsx` | **Pending**: close application, external edit, reopen; Continue Editing, Use Disk, stale Keep Mine |
 | Freeform source overlays, deletion and repeated restart without fatal replay | `native-dirty-recovery.test.ts`, `editor-project-recovery.test.ts` | **Pending**: real source editor, repeated close/reopen and Save |
@@ -273,24 +273,97 @@ A difference in a record does not by itself establish which revision caused
 a diagnostic. Untrusted out-of-root source paths are not advertised as places
 to inspect.
 
-Until #622 provides an authenticated editor-working-state mutation interface,
-the prompt tells the agent to report that limitation immediately rather than
-searching for undocumented APIs, changing physical YAML as a substitute,
-or editing the recovery journal. Instructions are not a filesystem sandbox;
-enforcement needs harness permissions independent of prompt text.
+The file-backed repair design from #624–#629 supersedes the earlier proposal
+for an editor-connected mutation interface. The native editor publishes a
+verified, Project-local working-source projection at
+`.noveltea/editor/working/files/<physical-source-path>`. An agent can edit this
+ordinary YAML/text using **Copy prompt** even when the editor is closed.
+When the editor is open, a separate working-source observation path imports
+external changes into the current native working revision; offline changes
+are reconciled during Project admission. The saved Project YAML remains
+unchanged until explicit Save. The prompt uses main-confirmed working-source
+representations, avoids claiming that an unsaved edit caused the diagnostic,
+and does not direct the agent to browse undocumented editor APIs.
+Instructions are not a filesystem sandbox; enforcement still depends on
+harness permissions independent of prompt text.
 
 **Storage boundary:** `.noveltea/editor/native-dirty-state.json` is a single
 atomic, native-owned per-Project checkpoint of acknowledged unsaved mutations,
 source evidence, conflicts and pending fields. Renderer drafts and UI recovery
 metadata are persisted separately in `.noveltea/editor/state.json`.
-The native source observer excludes `.noveltea/`; external changes to these
-files are not a live mutation API. The correct future agent integration should
-submit revision-checked native operations through the editor and let the editor
-persist its checkpoint rather than splitting or directly watching writable
-recovery files.
+The ordinary native *authored-source* observer still excludes `.noveltea/`.
+The narrowly scoped working-source observer watches the published projection
+without exposing the private recovery JSON files as an agent API.
+Revision-checked imports and safe atomic publication preserve the native
+checkpoint's authority; agents must never edit either internal JSON file.
 
-Updated focused repair prompt and dialog tests (20) and editor checks pass.
-AI working-state mutation and interactive acceptance remain open for #622.
+The earlier focused repair prompt and dialog tests (20) and editor checks passed.
+File-backed projection, offline/live import, standalone validation and prompt
+integration have since landed in #624–#629. Their end-to-end **desktop
+acceptance**, not an editor socket or MCP mutation API, remains open for #622.
+## November 14 UTC file-backed repair integration verification
+
+Starting checkout: `82c098ee` on local `master`, initially clean. Host:
+Linux x64 with an Xvfb display but **no physical interactive desktop**.
+Toolchain: Node 24.18.0, existing native authoring addon and configured
+`VCPKG_ROOT`. Only disposable Projects were mutated; the canonical
+Feature Lab authored source was not changed.
+
+- `pnpm -C editor run check`: **pass**, including post-fix format, lint
+  (zero warnings), TypeScript and schema-policy checks.
+- `pnpm -C editor run noveltea:build`: **pass**, fresh native CLI and relocated
+  smoke; `node editor/scripts/certify-native-cli-working.mjs
+  build/cli/linux/noveltea`: **pass**, relocated standalone `validate --working`
+  for valid/invalid working YAML, external repairs, baseline/identity, pending
+  field and unsafe source cases.
+- `python3 tests/native_cli/repair_project.py build/cli/linux/noveltea`:
+  **pass** (repair preparation, Agent Kit, consent, atomic rollback);
+  `node editor/scripts/certify-native-cli-public-contracts.mjs
+  build/cli/linux/noveltea --production`: **pass** (27 public JSON commands).
+- Rebuilt `noveltea-project-session-certify` and
+  `ctest --test-dir build/native-authoring-host --output-on-failure`:
+  **pass**, all 45 native CTests.
+- `pnpm -C editor run test` with the real native addon: initial two runs
+  **failed 1 test each** (2,527 passing / 95 skipped), first in a native
+  Project Explorer source transaction and second in temporary Project teardown
+  with `ENOTEMPTY` under `.noveltea/editor/working`. The isolated controller
+  suite passed 43/43. Investigation identified a race: closing a native
+  Project canceled queued working-source publication but did not wait for
+  an **already-running** atomic publication before releasing the worker or
+  deleting test directories. The publisher now exposes a cancellation-drain
+  barrier; Project close, candidate promotion and offline imports await it
+  without changing existing synchronous controller close/dispose APIs.
+  Added deterministic publisher/handoff drain regressions and awaited drain
+  in real-native controller teardown.
+- Post-fix focused real-native tests: **pass**, 73/73 in seven files.
+  Post-fix complete real-addon editor suite: **pass**, 324 files /
+  **2,530 tests passed**, nine files / 95 tests skipped, zero failures.
+  The earlier failed runs remain recorded above.
+- `pnpm -C editor run package && pnpm -C editor run package:smoke`:
+  **pass** against the post-fix Linux x64 packaged editor (development identity
+  `1.0.0-dev.82c098eebf92`, built from locally modified sources).
+  Candidate repair, offline recovery, bundled native CLI, preload/renderer,
+  Terminal node-pty and media/package checks passed. The package smoke now
+  proves `userDataIsolation` against its explicit temporary profile rather
+  than reusing the developer's normal Electron preferences.
+- `node editor/scripts/certify-native-editor-lifecycle.mjs`:
+  real Electron/Xvfb host certification for native Project creation/open,
+  working-file observation, agent-style external edit, native import without
+  physical YAML Save and React project creation. The harness now isolates
+  XDG config/cache and refuses a spurious successful result if the renderer
+  reports a Project Open failure from an old recent-project preference.
+
+**Still not run:** a human-operated normal desktop pass exercising the
+Project Candidate repair dialog, actual terminal-hosted authenticated
+Codex/OpenCode/Claude sessions and approval/cancellation, Copy prompt with
+the editor closed, live focus/field refresh and conflict dialogs, and Windows
+or macOS packaged GUI behavior. Codex CLI 0.167.2 and OpenCode 1.18.35 were
+detected; Claude Code was not installed. No provider authentication or
+completed interactive harness turn was established in this verification.
+The Xvfb/IPC smoke is useful automated evidence, **not** a substitute for
+human focus, dialog and TUI acceptance. Keep #622 **open** until those
+specified checks are recorded.
+
 ## Feature Lab and documentation
 
 Feature Lab: **already covered as a valid authored reference**; use only a

@@ -988,6 +988,7 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
       expect(await readFile(physical, 'utf8')).toContain('Acknowledged but not saved');
     } finally {
       controller.dispose();
+      await controller.waitForPublicationDrain();
       sessions.dispose();
       await rm(parent, { recursive: true, force: true });
     }
@@ -1093,6 +1094,7 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
           'Saved after recovery quarantine',
         );
         controller.dispose();
+        await controller.waitForPublicationDrain();
         sessions.closeActiveProject();
         controller = makeController();
         const reopened = await openNativeEditorProject(
@@ -1112,6 +1114,7 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
         ).toHaveLength(1);
       } finally {
         controller.dispose();
+        await controller.waitForPublicationDrain();
         sessions.dispose();
         await rm(parent, { recursive: true, force: true });
       }
@@ -1151,6 +1154,7 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
       ]);
       expect(patched.accepted, patched.error).toBe(true);
       controller.dispose();
+      await controller.waitForPublicationDrain();
       sessions.closeActiveProject();
       const location = path.join(root, '.noveltea/editor/native-dirty-state.json');
       const original = JSON.parse(await readFile(location, 'utf8'));
@@ -1202,6 +1206,7 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
       // certification. Its original bytes remain archived and cannot leave a
       // new permanent Project Open/Save barrier.
       controller.dispose();
+      await controller.waitForPublicationDrain();
       sessions.closeActiveProject();
       const clean = JSON.parse(await readFile(location, 'utf8'));
       const unsafeReplay = Buffer.from(
@@ -1266,6 +1271,7 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
       ).toBe(true);
     } finally {
       controller.dispose();
+      await controller.waitForPublicationDrain();
       sessions.dispose();
       await rm(parent, { recursive: true, force: true });
     }
@@ -1337,6 +1343,7 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
       expect(await readFile(shaderPath, 'utf8')).toBe('THIS IS NOT VALID SHADER CODE\n');
     } finally {
       controller.dispose();
+      await controller.waitForPublicationDrain();
       sessions.dispose();
       await rm(root, { recursive: true, force: true });
     }
@@ -1416,6 +1423,7 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
         valid: false,
       });
       controller.dispose();
+      await controller.waitForPublicationDrain();
       sessions.closeActiveProject();
       controller = makeController();
 
@@ -1479,6 +1487,7 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
       // A second close/reopen must not silently discard the same invalid draft
       // merely because the editor projection used a valid saved fallback.
       controller.dispose();
+      await controller.waitForPublicationDrain();
       sessions.closeActiveProject();
       controller = makeController();
       const reopened = await openNativeEditorProject(
@@ -1539,6 +1548,7 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
         );
     } finally {
       controller.dispose();
+      await controller.waitForPublicationDrain();
       sessions.dispose();
       await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     }
@@ -1592,6 +1602,7 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
         ),
       ).toBe(true);
       controller.dispose();
+      await controller.waitForPublicationDrain();
       sessions.closeActiveProject();
       controller = makeController();
       const { admitted } = await admitNativeSession(sessions, controller, root);
@@ -1602,6 +1613,7 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
       ).not.toContain('missing-review-asset');
     } finally {
       controller.dispose();
+      await controller.waitForPublicationDrain();
       sessions.dispose();
       await rm(root, { recursive: true, force: true });
     }
@@ -1646,6 +1658,7 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
       ).toBe(true);
     } finally {
       controller.dispose();
+      await controller.waitForPublicationDrain();
       sessions.dispose();
       await rm(root, { recursive: true, force: true });
     }
@@ -1763,6 +1776,7 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
       expect(projected.rooms).toBe((raw.completeProject as typeof projected).rooms);
     } finally {
       controller.dispose();
+      await controller.waitForPublicationDrain();
       sessions.dispose();
       await rm(root, { recursive: true, force: true });
     }
@@ -1798,6 +1812,7 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
       expect(await controller.currentWorkingProject(sessionId)).toEqual(admitted.savedProject);
     } finally {
       controller.dispose();
+      await controller.waitForPublicationDrain();
       sessions.dispose();
       await rm(root, { recursive: true, force: true });
     }
@@ -1939,6 +1954,7 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
       );
     } finally {
       controller.dispose();
+      await controller.waitForPublicationDrain();
       sessions.dispose();
       await rm(root, { recursive: true, force: true });
     }
@@ -2007,10 +2023,12 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
       ).rejects.toThrow('Stale native Project mutation revision');
       expect(await readFile(path.join(fixture, 'project.yaml'), 'utf8')).toBe(before);
       controller.close();
+      await controller.waitForPublicationDrain();
       expect(controller.isAdmitted(id)).toBe(false);
       await expect(controller.admitFromNative('stale-id')).rejects.toThrow('stale');
     } finally {
       controller.dispose();
+      await controller.waitForPublicationDrain();
       sessions.dispose();
       await rm(fixture, { recursive: true, force: true });
     }
@@ -2047,6 +2065,7 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
         'Recovered across restart',
       );
       controller.dispose();
+      await controller.waitForPublicationDrain();
       sessions.closeActiveProject();
       controller = makeController();
       const { admitted } = await admitNativeSession(sessions, controller, root);
@@ -2065,6 +2084,7 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
       );
     } finally {
       controller.dispose();
+      await controller.waitForPublicationDrain();
       sessions.dispose();
       await rm(root, { recursive: true, force: true });
     }
@@ -2102,6 +2122,7 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
       ]);
       expect(patched.accepted, patched.error).toBe(true);
       controller.dispose();
+      await controller.waitForPublicationDrain();
       sessions.closeActiveProject();
       await writeFile(file, original.replace('label: Active Text', 'label: Disk offline label'));
       controller = makeController();
@@ -2117,6 +2138,7 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
       expect(await readFile(file, 'utf8')).toContain('Disk offline label');
     } finally {
       controller.dispose();
+      await controller.waitForPublicationDrain();
       sessions.dispose();
       await rm(root, { recursive: true, force: true });
     }

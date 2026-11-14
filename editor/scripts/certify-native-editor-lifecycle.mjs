@@ -32,6 +32,11 @@ const command = spawn(
     detached: true,
     env: {
       ...process.env,
+      // Main deliberately overrides Electron's --user-data-dir with the
+      // appData-derived NovelTea profile. XDG_CONFIG_HOME therefore supplies
+      // the isolated profile on this Linux/Xvfb certification host.
+      XDG_CONFIG_HOME: path.join(temp, 'config'),
+      XDG_CACHE_HOME: path.join(temp, 'cache'),
       NOVELTEA_AUTHORING_NODE_ADDON: addon,
       ELECTRON_DISABLE_SECURITY_WARNINGS: '1',
     },
@@ -274,6 +279,8 @@ try {
   }
   if (!uiRouted) throw new Error('The renderer did not present its newly opened native Project.');
   const uiText = await evaluate(`document.body.innerText.slice(0, 700)`);
+  if (uiText.includes('Unable to open Project'))
+    throw new Error(`The GUI smoke displayed an unexpected Project Open failure: ${uiText}`);
   process.stdout.write(
     `Native editor Electron/Xvfb smoke passed: ${JSON.stringify({
       ...result,

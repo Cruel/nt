@@ -45,6 +45,37 @@ function controller(identity: string) {
 }
 
 describe('native-only Project handoff keeps independent workers', () => {
+  it('waits for an in-flight working-source drain when closing an admitted Project', async () => {
+    const root = await projectRoot();
+    const sessions = new ActiveProjectSessionService();
+    const first = controller('draining');
+    let releaseDrain: () => void = () => {};
+    const drain = new Promise<void>((resolve) => {
+      releaseDrain = resolve;
+    });
+    const draining = Object.assign(first, { waitForPublicationDrain: vi.fn(() => drain) });
+    const handoff = new NativeEditorProjectHandoff(sessions, () => draining);
+    try {
+      expect((await handoff.open(root)).success).toBe(true);
+      const closing = handoff.close();
+      let finished = false;
+      void closing.then(() => {
+        finished = true;
+      });
+      expect(first.dispose).toHaveBeenCalledOnce();
+      await Promise.resolve();
+      expect(finished).toBe(false);
+      releaseDrain();
+      await closing;
+      expect(finished).toBe(true);
+    } finally {
+      releaseDrain();
+      await handoff.close();
+      sessions.dispose();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('preserves the incumbent worker and Project when the candidate is invalid', async () => {
     const roots = [await projectRoot(), await projectRoot()];
     const sessions = new ActiveProjectSessionService();
@@ -66,7 +97,7 @@ describe('native-only Project handoff keeps independent workers', () => {
       expect(rejected.close).toHaveBeenCalledOnce();
       expect(rejected.dispose).toHaveBeenCalledOnce();
     } finally {
-      handoff.close();
+      await handoff.close();
       await Promise.all(roots.map((root) => rm(root, { recursive: true, force: true })));
     }
   });
@@ -92,7 +123,7 @@ describe('native-only Project handoff keeps independent workers', () => {
       expect(next.dispose).not.toHaveBeenCalled();
       expect(sessions.isCurrent(incumbent.projectSessionId!)).toBe(false);
     } finally {
-      handoff.close();
+      await handoff.close();
       await Promise.all(roots.map((root) => rm(root, { recursive: true, force: true })));
     }
   });
@@ -139,7 +170,7 @@ describe('native-only Project handoff keeps independent workers', () => {
       expect(sessions.currentSessionId()).toBe(openedLast.projectSessionId);
       expect(stale.dispose).toHaveBeenCalledOnce();
     } finally {
-      handoff.close();
+      await handoff.close();
       await Promise.all(roots.map((root) => rm(root, { recursive: true, force: true })));
     }
   });
@@ -164,7 +195,7 @@ describe('native-only Project handoff keeps independent workers', () => {
     try {
       const opening = handoff.open(root);
       await started;
-      handoff.close();
+      await handoff.close();
       expect(sessions.currentSessionId()).toBeNull();
       expect(pending.dispose).toHaveBeenCalledOnce();
       complete({
@@ -178,7 +209,7 @@ describe('native-only Project handoff keeps independent workers', () => {
       expect(handoff.current()).toBeNull();
       expect(sessions.currentSessionId()).toBeNull();
     } finally {
-      handoff.close();
+      await handoff.close();
       sessions.dispose();
       await rm(root, { recursive: true, force: true });
     }
@@ -211,7 +242,7 @@ describe('native-only Project handoff keeps independent workers', () => {
       expect(reopened.projectSessionId).not.toBe(opened.projectSessionId);
       expect(first.dispose).toHaveBeenCalledOnce();
     } finally {
-      handoff.close();
+      await handoff.close();
       await rm(root, { recursive: true, force: true });
     }
   });
@@ -277,7 +308,7 @@ describe.skipIf(!nativeAddon)('native editor lifecycle with real addon workers',
       );
       expect(await readFile(manifestPath, 'utf8')).toBe(canonicalManifest);
     } finally {
-      handoff.close();
+      await handoff.close();
       await rm(root, { recursive: true, force: true });
     }
   });
@@ -388,7 +419,7 @@ describe.skipIf(!nativeAddon)('native editor lifecycle with real addon workers',
       );
     } finally {
       for (const observer of observers.values()) observer.close();
-      handoff.close();
+      await handoff.close();
       sessions.dispose();
       releaseNativeAuthorityGuard();
       await Promise.all(

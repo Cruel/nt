@@ -54,7 +54,7 @@ const argumentsList = [
   // CI's virtual X11 display has no hardware GPU. Match the already-certified
   // native editor GUI smoke instead of initializing Electron's GPU process.
   ...(process.platform === 'linux' ? ['--disable-gpu', '--ozone-platform=x11'] : []),
-  `--user-data-dir=${path.join(temporaryRoot, 'user-data')}`,
+  `--user-data-dir=${path.join(temporaryRoot, 'user-data', 'noveltea-editor')}`,
   '--no-sandbox',
 ];
 // Electron's GLib/GTK stack expects a usable session bus. GitHub's headless
@@ -72,6 +72,7 @@ const child = spawn(command, commandArguments, {
     ...(process.platform === 'linux' ? { GDK_BACKEND: 'x11' } : {}),
     NOVELTEA_FFMPEG: undefined,
     NOVELTEA_EDITOR_PACKAGE_SMOKE_CACHE_ROOT: path.join(temporaryRoot, 'editor-cache'),
+    NOVELTEA_EDITOR_PACKAGE_SMOKE_PROFILE_ROOT: path.join(temporaryRoot, 'user-data'),
   },
   stdio: ['ignore', 'pipe', 'pipe'],
   detached: process.platform !== 'win32',

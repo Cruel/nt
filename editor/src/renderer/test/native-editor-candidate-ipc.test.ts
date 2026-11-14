@@ -139,9 +139,7 @@ describe.skipIf(!process.env.NOVELTEA_AUTHORING_NODE_ADDON)(
       registrar.handle(
         IPC_CHANNELS.CLOSE_ACTIVE_PROJECT,
         (args) => noArgumentsSchema.parse(args),
-        () => {
-          handoff.close();
-        },
+        () => handoff.close(),
       );
       try {
         await expect(ipc.invoke(IPC_CHANNELS.OPEN_PROJECT, untrusted, root)).rejects.toThrow();
@@ -305,7 +303,7 @@ describe.skipIf(!process.env.NOVELTEA_AUTHORING_NODE_ADDON)(
         await ipc.invoke(IPC_CHANNELS.CLOSE_ACTIVE_PROJECT, trusted);
         expect(sessions.currentSessionId()).toBeNull();
       } finally {
-        handoff.close();
+        await handoff.close();
         sessions.dispose();
         releaseNativeAuthorityGuard();
         await rm(root, { recursive: true, force: true });

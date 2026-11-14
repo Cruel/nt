@@ -80,7 +80,7 @@ describe.skipIf(!process.env.NOVELTEA_AUTHORING_NODE_ADDON)(
         await repairs.revokeRoot(roots[1]!);
         await expect(repairs.read(candidate!.id)).rejects.toThrow(/expired/u);
       } finally {
-        handoff.close();
+        await handoff.close();
         sessions.dispose();
         releaseGuard();
         // The native worker can be finishing its cache write as the handoff
