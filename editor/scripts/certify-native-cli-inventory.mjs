@@ -128,6 +128,8 @@ const ipc = [...ipcText.matchAll(/^\s+(NATIVE_PROJECT_[A-Z_]+):/gm)]
   .sort(comparePaths);
 const ipcWitnesses = {
   NATIVE_PROJECT_PATCH: 'native-editor-session-controller.test.ts',
+  NATIVE_PROJECT_FLUSH_WORKING_SOURCES: 'native-editor-session-controller.test.ts',
+  NATIVE_PROJECT_IMPORT_WORKING_SOURCES: 'native-command-store.test.ts',
   NATIVE_PROJECT_SAVE_UNIT: 'project-save-coordinator.test.ts',
   NATIVE_PROJECT_SAVE_TEXT: 'native-project-source-transactions.test.ts',
   NATIVE_PROJECT_STAGE_TEXT: 'native-project-source-transactions.test.ts',

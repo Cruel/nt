@@ -43,6 +43,10 @@ list(APPEND approved_header_paths
     "tools/editor_tool/native_cli_platform.hpp"
     "tools/editor_tool/native_cli_platform_stage.hpp"
     "tools/editor_tool/native_cli_test_catalog.hpp"
+    # validate --working decodes the editor's external publication manifest and
+    # recovery checkpoint into a disposable CLI-only validation view. This is
+    # a host-only JSON input boundary, never a player/runtime dependency.
+    "tools/editor_tool/native_cli_working_view.hpp"
     "tools/narrative/catalog.hpp"
     "tools/narrative/catalog_internal.hpp")
 set(approved_source_paths
