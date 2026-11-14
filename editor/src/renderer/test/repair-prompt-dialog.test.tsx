@@ -76,7 +76,7 @@ describe('RepairPromptDialog', () => {
     render(<RepairPromptDialog />);
     showPrompt();
     const textarea = await screen.findByRole('textbox', { name: 'Editable repair prompt' });
-    expect((textarea as HTMLTextAreaElement).value).toContain('Project Candidate: /candidate');
+    expect((textarea as HTMLTextAreaElement).value).toContain('Project root: /candidate');
     fireEvent.change(textarea, { target: { value: 'user-modified prompt\nline 2' } });
     fireEvent.click(screen.getByRole('button', { name: 'Copy prompt' }));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('user-modified prompt\nline 2'));

@@ -261,31 +261,35 @@ is added back to Recent Projects on a subsequent successful Open.
 
 ### AI repair prompt: working-state evidence and Project read scope
 
-The active-Project **Fix** prompt now identifies the current native working
-revision as its validation target. For each selected diagnostic it compares
-the affected owner with the last observed saved editor baseline, providing
-bounded saved/working field values where they differ. An unsaved owner is
-**not proof** that the diagnostic was introduced by the unsaved change;
-confirming that requires a separate saved-state validation result. Failed-open
-candidate prompts remain disk-source diagnostics.
+The **Fix** prompt has been shortened to the selected diagnostic(s), Project
+root and scope, optional saved/working field differences, and three instructions:
+stay inside the Project root for reads/searches/writes (including symlinks),
+follow its AGENTS.md for CLI usage, and consider unsaved native editor state.
+It omits duplicated Agent Kit/CLI walkthroughs, separate file lists and
+dependency exploration. Failed-open candidate prompts describe disk-source
+diagnostics; active-Project prompts may describe unsaved native working state.
+A difference in a record does not by itself establish which revision caused
+a diagnostic. Untrusted out-of-root source paths are not advertised as places
+to inspect.
 
-The prompt also explicitly prohibits **reads, directory listings, searches,
-and writes** outside the selected Project root, including source repositories,
-parent/sibling paths and symlinks escaping the root. A diagnostic's advertised
-external source path is excluded from the suggested affected-file list.
-Installed CLI executables may run, but browsing their implementation is
-prohibited without user authorization. These instructions are **not a sandbox**:
-the harness still requires separately implemented filesystem access controls
-if technical enforcement is desired. Because an active unsaved diagnostic
-cannot be fixed through disk-only YAML editing, the agent is instructed to
-stop rather than alter recovery files or claim success if no supported native
-working-state edit interface is available.
+Until #622 provides an authenticated editor-working-state mutation interface,
+the prompt tells the agent to report that limitation immediately rather than
+searching for undocumented APIs, changing physical YAML as a substitute,
+or editing the recovery journal. Instructions are not a filesystem sandbox;
+enforcement needs harness permissions independent of prompt text.
 
-Focused repair prompt tests (21) and editor check pass. The full editor test
-run recorded 2,373 passing and one intermittent metadata-save assertion in
-`workspace-new-project.test.tsx`; the affected suite passed 42/42 when rerun
-alone. Production editor build passed. AI native working-state mutation remains
-an outstanding #622 integration requirement.
+**Storage boundary:** `.noveltea/editor/native-dirty-state.json` is a single
+atomic, native-owned per-Project checkpoint of acknowledged unsaved mutations,
+source evidence, conflicts and pending fields. Renderer drafts and UI recovery
+metadata are persisted separately in `.noveltea/editor/state.json`.
+The native source observer excludes `.noveltea/`; external changes to these
+files are not a live mutation API. The correct future agent integration should
+submit revision-checked native operations through the editor and let the editor
+persist its checkpoint rather than splitting or directly watching writable
+recovery files.
+
+Updated focused repair prompt and dialog tests (20) and editor checks pass.
+AI working-state mutation and interactive acceptance remain open for #622.
 ## Feature Lab and documentation
 
 Feature Lab: **already covered as a valid authored reference**; use only a

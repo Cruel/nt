@@ -2,7 +2,6 @@ import { create } from 'zustand';
 import { useProjectStore } from './project-store';
 import { useWorkspaceStore } from '../stores/workspace-store';
 import { useCandidateRepairStore } from './candidate-repair-store';
-import { currentAuthoringGraphSnapshot } from './authoring-dependency-graph-runtime';
 import {
   buildRepairPrompt,
   candidateFormatRisk,
@@ -74,7 +73,6 @@ function currentInput(
       scope: request.scope,
       selectedKey: request.selectedKey,
       diagnostics: useWorkspaceStore.getState().diagnostics,
-      graph: currentAuthoringGraphSnapshot(),
       savedDocument: project.savedDocument,
       workingDocument: project.document,
     },
