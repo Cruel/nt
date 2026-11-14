@@ -43,9 +43,23 @@ import { useWorkbenchStore } from './workbench-store';
 import { buildCandidateRepairTab } from './editor-registry';
 import { navigateToWorkbenchTarget } from './workbench-navigation';
 
+const diagnosticSeverityOrder = { error: 0, warning: 1, info: 2 } as const;
+
+function sortProblemsBySeverity<T extends { severity: keyof typeof diagnosticSeverityOrder }>(
+  items: readonly T[],
+): T[] {
+  // Sort only the displayed findings. Preserve validation order within
+  // each severity, and leave the source list intact for prompt generation.
+  return [...items].sort(
+    (left, right) =>
+      diagnosticSeverityOrder[left.severity] - diagnosticSeverityOrder[right.severity],
+  );
+}
+
 function ProblemsPanel() {
   const { t } = useTranslation('workspace');
   const diagnostics = useWorkspaceStore((state) => state.diagnostics);
+  const orderedDiagnostics = useMemo(() => sortProblemsBySeverity(diagnostics), [diagnostics]);
   const candidateEntries = useCandidateRepairStore((state) => state.entries);
   const candidates = Object.values(candidateEntries);
   const developerMode = usePreferencesStore((state) => state.developerMode);
@@ -56,7 +70,7 @@ function ProblemsPanel() {
   const project = isAuthoringProjectView(projectDocument) ? projectDocument : null;
   const diagnosticItems = useMemo(
     () =>
-      diagnostics.map((diagnostic) => ({
+      orderedDiagnostics.map((diagnostic) => ({
         ...diagnostic,
         dirtyOwner:
           repairDiagnosticOwnerIsDirty(diagnostic, savedDocument, projectDocument) ||
@@ -74,7 +88,7 @@ function ProblemsPanel() {
               ? resolveProjectDiagnosticTarget(project, diagnostic, sourceFiles)
               : null,
       })),
-    [diagnostics, project, sourceFiles, sourceBuffers, savedDocument, projectDocument],
+    [orderedDiagnostics, project, sourceFiles, sourceBuffers, savedDocument, projectDocument],
   );
   const projectSessionId = useProjectStore(
     (state) => state.projectSessionId ?? state.projectInstanceId,
@@ -114,7 +128,7 @@ function ProblemsPanel() {
         onFix={
           projectSessionId
             ? (_item, index) => {
-                const diagnostic = diagnostics[index]!;
+                const diagnostic = orderedDiagnostics[index]!;
                 if (
                   !requestPrompt({
                     kind: 'active',
@@ -134,7 +148,7 @@ function ProblemsPanel() {
       />
       {candidates.map((candidate) => {
         const tab = buildCandidateRepairTab(candidate.id, candidate.root);
-        const candidateDiagnostics = candidateVisibleDiagnostics(candidate);
+        const candidateDiagnostics = sortProblemsBySeverity(candidateVisibleDiagnostics(candidate));
         const dirty = Boolean(candidate.source && candidate.buffer !== candidate.source.text);
         const canFix =
           !candidate.admitted &&

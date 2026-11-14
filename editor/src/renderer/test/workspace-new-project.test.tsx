@@ -5,6 +5,7 @@ import { useCommandStore } from '@/commands/command-store';
 import { useComfyUiStore } from '@/comfyui/comfyui-store';
 import { useComfyUiQueueStore } from '@/comfyui/comfyui-queue-store';
 import { useProjectStore } from '@/project/project-store';
+import { refreshNativeProjectDiagnostics } from '@/project/native-project-diagnostics';
 import { useCandidateRepairStore } from '@/project/candidate-repair-store';
 import { RepairPromptDialog } from '@/project/RepairPromptDialog';
 import { useRepairPromptStore } from '@/project/repair-prompt-store';
@@ -31,7 +32,11 @@ import {
 import { toJsonValue } from '@/project/json-value';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { useLocalEditorSessionStore } from '@/workbench/local-editor-session-store';
-import { buildCandidateRepairTab, buildProjectSettingsTab } from '@/workbench/editor-registry';
+import {
+  buildCandidateRepairTab,
+  buildProjectSettingsTab,
+  buildRoomDetailTabForRecord,
+} from '@/workbench/editor-registry';
 import { useRecentProjectsStore } from '@/workspace/recent-projects-store';
 import { WORKSPACE_TOOLBAR_COMMAND_EVENT } from '@/workspace/workspace-toolbar-events';
 import { admitNativeRendererCommandFixture } from '../test-support/native-acknowledged-command-fixture';
@@ -1211,6 +1216,90 @@ describe('WorkspacePage new project modal', () => {
     expect(window.noveltea.saveProjectEditorMetadata).toHaveBeenCalled();
     expect(window.noveltea.saveProjectContent).not.toHaveBeenCalled();
     Reflect.deleteProperty(window.noveltea, 'nativeProjectValidate');
+  });
+
+  it('keeps Problems unchanged while an invalid record Save is rejected', async () => {
+    const project = createAuthoringProject({ id: 'my-story', name: 'My Story' });
+    project.rooms.hall = { id: 'hall', label: 'Hall', data: defaultRoomData('Hall') };
+    const session = 'invalid-record-save-session';
+    admitNativeRendererCommandFixture(project, session);
+
+    await act(async () => {
+      await useCommandStore.getState().executeCommandAsync({
+        type: 'project.applyPatch',
+        label: 'Edit invalid Room',
+        payload: [{ op: 'replace', path: '/rooms/hall/label', value: 'Invalid Hall' }],
+        originSaveUnitId: 'record:rooms:hall',
+        persistencePolicy: 'manual-save',
+      });
+    });
+    const diagnostic = {
+      code: 'room.invalid',
+      severity: 'error' as const,
+      path: '/rooms/hall/data/description',
+      message: 'Invalid Room data.',
+    };
+    const nativeValidate = vi.fn().mockResolvedValue({ diagnostics: [diagnostic] });
+    const nativeSave = vi.fn().mockResolvedValue({
+      accepted: false,
+      error: 'Invalid Room data.',
+      diagnosticsAdded: [diagnostic],
+      snapshot: { workingRevision: 1 },
+    });
+    Object.defineProperty(window.noveltea, 'nativeProjectValidate', {
+      configurable: true,
+      value: nativeValidate,
+    });
+    Object.defineProperty(window.noveltea, 'nativeProjectSaveUnit', {
+      configurable: true,
+      value: nativeSave,
+    });
+    try {
+      render(<WorkspacePage />);
+      await waitFor(() =>
+        expect(useWorkspaceStore.getState().diagnostics).toContainEqual(
+          expect.objectContaining({ code: 'room.invalid' }),
+        ),
+      );
+      act(() => useWorkbenchStore.getState().openTab(buildRoomDetailTabForRecord('hall')));
+      const before = useWorkspaceStore.getState().diagnostics;
+      const changed: (typeof before)[] = [];
+      const unsubscribe = useWorkspaceStore.subscribe((next, previous) => {
+        if (next.diagnostics !== previous.diagnostics) changed.push(next.diagnostics);
+      });
+      try {
+        await act(async () => {
+          window.dispatchEvent(
+            new CustomEvent(WORKSPACE_TOOLBAR_COMMAND_EVENT, { detail: 'save' }),
+          );
+        });
+        await waitFor(() => expect(nativeSave).toHaveBeenCalledTimes(1));
+        await waitFor(() =>
+          expect(useWorkspaceStore.getState().statusMessage).toContain('Invalid Room data.'),
+        );
+        // The failed Save may report its error in the status/timeline, but must
+        // not temporarily replace the unchanged native validation findings.
+        expect(changed).toEqual([]);
+        expect(useWorkspaceStore.getState().diagnostics).toBe(before);
+
+        // A genuine new native validation result must still update Problems.
+        nativeValidate.mockResolvedValue({
+          diagnostics: [{ ...diagnostic, message: 'A newly detected Room error.' }],
+        });
+        await act(async () => refreshNativeProjectDiagnostics(true));
+        await waitFor(() =>
+          expect(useWorkspaceStore.getState().diagnostics[0]?.message).toBe(
+            'A newly detected Room error.',
+          ),
+        );
+        expect(changed).toHaveLength(1);
+      } finally {
+        unsubscribe();
+      }
+    } finally {
+      Reflect.deleteProperty(window.noveltea, 'nativeProjectValidate');
+      Reflect.deleteProperty(window.noveltea, 'nativeProjectSaveUnit');
+    }
   });
 
   it('routes Validate through the native revision and does not use legacy Project validation', async () => {

@@ -13,6 +13,7 @@ import { useToolingActivityStore } from '@/workbench/tooling-activity-store';
 import { useProjectStore } from '@/project/project-store';
 import { useCandidateRepairStore } from '@/project/candidate-repair-store';
 import { useRepairPromptStore } from '@/project/repair-prompt-store';
+import { repairDiagnosticKey } from '@/project/repair-prompt';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { usePreferencesStore } from '@/stores/preferences-store';
 import { usePreviewManagerStore } from '@/preview/preview-manager-store';
@@ -454,6 +455,61 @@ describe('BottomPanel', () => {
     expect(screen.getByLabelText('1 preview error')).toHaveTextContent('1');
     expect(screen.getByRole('button', { name: /Preview Diagnostics/ })).toContainElement(
       screen.getByLabelText('1 preview error'),
+    );
+  });
+
+  it('shows project diagnostics Error → Warning → Info, keeping source order and Fix targets', () => {
+    const diagnostics = [
+      { severity: 'info' as const, path: '/info/a', message: 'Info A' },
+      { severity: 'warning' as const, path: '/warning/a', message: 'Warning A' },
+      { severity: 'error' as const, path: '/error/a', message: 'Error A' },
+      { severity: 'info' as const, path: '/info/b', message: 'Info B' },
+      { severity: 'error' as const, path: '/error/b', message: 'Error B' },
+      { severity: 'warning' as const, path: '/warning/b', message: 'Warning B' },
+    ];
+    useWorkspaceStore.getState().setDiagnostics(diagnostics);
+    render(<BottomPanel />);
+
+    expect(
+      screen.getAllByText(/^(?:Error|Warning|Info) [AB]$/u).map((element) => element.textContent),
+    ).toEqual(['Error A', 'Error B', 'Warning A', 'Warning B', 'Info A', 'Info B']);
+    expect(useWorkspaceStore.getState().diagnostics).toEqual(diagnostics);
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Fix' })[0]!);
+    expect(useRepairPromptStore.getState().draft).toMatchObject({
+      scope: 'one',
+      selectedKey: repairDiagnosticKey(diagnostics[2]!),
+    });
+    expect(useRepairPromptStore.getState().draft?.text).toContain('Error A');
+    expect(useRepairPromptStore.getState().draft?.text).not.toContain('Error B');
+  });
+
+  it('shows candidate diagnostics Error → Warning → Info without changing native order', () => {
+    const diagnostics = [
+      { severity: 'warning' as const, path: '/warning/a', message: 'Candidate Warning A' },
+      { severity: 'info' as const, path: '/info/a', message: 'Candidate Info A' },
+      { severity: 'error' as const, path: '/error/a', message: 'Candidate Error A' },
+      { severity: 'warning' as const, path: '/warning/b', message: 'Candidate Warning B' },
+      { severity: 'error' as const, path: '/error/b', message: 'Candidate Error B' },
+    ];
+    useCandidateRepairStore
+      .getState()
+      .register('candidate-order', '/candidate/order', 'strong', diagnostics);
+    render(<BottomPanel />);
+
+    expect(
+      screen
+        .getAllByText(/^Candidate (?:Error|Warning|Info) [AB]$/u)
+        .map((element) => element.textContent),
+    ).toEqual([
+      'Candidate Error A',
+      'Candidate Error B',
+      'Candidate Warning A',
+      'Candidate Warning B',
+      'Candidate Info A',
+    ]);
+    expect(useCandidateRepairStore.getState().entries['candidate-order']?.diagnostics).toEqual(
+      diagnostics,
     );
   });
 

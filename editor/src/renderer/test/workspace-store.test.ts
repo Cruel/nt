@@ -1,6 +1,46 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { buildAuthoringProjectTree, buildProjectTree } from '@/stores/workspace-store';
+import {
+  buildAuthoringProjectTree,
+  buildProjectTree,
+  useWorkspaceStore,
+} from '@/stores/workspace-store';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+
+describe('workspace diagnostic snapshots', () => {
+  it('does not republish equal diagnostics but does publish changed findings', () => {
+    const store = useWorkspaceStore.getState();
+    const diagnostic = {
+      code: 'record.invalid',
+      severity: 'error' as const,
+      path: '/rooms/hall',
+      message: 'Invalid Room',
+      ownerPaths: ['/rooms/hall'],
+      observedAgainst: 'working' as const,
+    };
+    store.setDiagnostics([diagnostic]);
+    const original = useWorkspaceStore.getState().diagnostics;
+    const snapshots: (typeof original)[] = [];
+    const unsubscribe = useWorkspaceStore.subscribe((next, previous) => {
+      if (next.diagnostics !== previous.diagnostics) snapshots.push(next.diagnostics);
+    });
+    try {
+      store.setDiagnostics([{ ...diagnostic, ownerPaths: [...diagnostic.ownerPaths] }]);
+      expect(useWorkspaceStore.getState().diagnostics).toBe(original);
+      expect(snapshots).toEqual([]);
+
+      const changed = [{ ...diagnostic, message: 'Invalid Room identity' }];
+      store.setDiagnostics(changed);
+      expect(useWorkspaceStore.getState().diagnostics).toBe(changed);
+      expect(snapshots).toEqual([changed]);
+      store.setDiagnostics([]);
+      expect(useWorkspaceStore.getState().diagnostics).toEqual([]);
+      expect(snapshots).toHaveLength(2);
+    } finally {
+      unsubscribe();
+      store.setDiagnostics([]);
+    }
+  });
+});
 
 describe('workspace project tree', () => {
   it('shows all authoring collection folders for empty projects', () => {

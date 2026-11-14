@@ -1796,22 +1796,18 @@ export function WorkspacePage() {
 
   function publishSaveResult(result: ProjectSaveCoordinatorResult, label: string) {
     const latestProject = useProjectStore.getState().document;
-    if (result.diagnostics.length > 0 && latestProject) {
-      persistentRecoveryDiagnosticsRef.current = result.diagnostics.filter(
-        isPersistentRecoveryDiagnostic,
-      );
+    // A rejected Save is an operation result, not a new validation revision.
+    // Native diagnostics retain their prior findings until validation actually
+    // publishes a change; briefly mixing in Save errors makes Problems flicker.
+    // Recovery conflicts are different: they remain actionable diagnostics.
+    const recoveryDiagnostics = result.diagnostics.filter(isPersistentRecoveryDiagnostic);
+    if (latestProject && (result.success || recoveryDiagnostics.length > 0)) {
+      persistentRecoveryDiagnosticsRef.current = recoveryDiagnostics;
       setDiagnostics(
         collectWorkspaceProjectDiagnostics(latestProject, [
           ...externalSourceDiagnosticsRef.current,
-          ...result.diagnostics,
+          ...(result.success ? result.diagnostics : recoveryDiagnostics),
         ]),
-      );
-      // Saving reports diagnostics, but must not steal the user's selected
-      // Terminal/Preview/Tooling panel or navigate away from the edited tab.
-    } else if (latestProject) {
-      persistentRecoveryDiagnosticsRef.current = [];
-      setDiagnostics(
-        collectWorkspaceProjectDiagnostics(latestProject, externalSourceDiagnosticsRef.current),
       );
     }
     const responseMessage = result.response?.error;

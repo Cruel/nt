@@ -73,6 +73,12 @@ Diagnostics displayed in the editor should be actionable when they refer to proj
 
 Ordinary project validation warnings and errors belong in the Problems panel, not as summary cards in record editor bodies. Record tabs and matching Project Explorer items should reflect their highest current diagnostic severity so users can locate affected records without sacrificing editor space. Project Explorer collection rows should also show compact warning and error counts alongside their record count. Keep technical diagnostic paths hidden from ordinary users and show them in Problems only when Developer Mode is enabled.
 
+Problems displays active-Project and candidate diagnostics by severity (Error, Warning, Info),
+preserving source order within each severity. This is presentation-only: native diagnostic order
+and Fix/agent prompt targeting remain unchanged. Rejected Save operation errors are shown in
+status and Activity without temporarily replacing the last native validation findings; persistent
+recovery conflicts remain actionable in Problems until reconciled.
+
 Developer Mode is an editor-wide persisted preference that defaults off. Use it for optional technical detail or developer-focused behavior; ordinary editing, validation, and navigation must not depend on enabling it.
 
 Clickable diagnostics should open or focus the relevant tab, scroll to the closest meaningful section or field, and briefly highlight the destination. If exact field-level navigation is not available yet, link to the closest section and document the limitation in the implementation plan or follow-up notes.

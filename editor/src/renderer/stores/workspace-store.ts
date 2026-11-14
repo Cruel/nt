@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { jsonValuesEqual, toJsonValue } from '@/project/json-value';
 import {
   authoringCollectionKeys,
   authoringCollectionMetadata,
@@ -164,7 +165,13 @@ export const useWorkspaceStore = create<WorkspaceState>()((set) => ({
   setProjectPath: (projectPath) => set({ projectPath }),
   setProjectFilePath: (projectFilePath) => set({ projectFilePath }),
   setProject: (project) => set({ project }),
-  setDiagnostics: (diagnostics) => set({ diagnostics }),
+  setDiagnostics: (diagnostics) =>
+    set((state) =>
+      state.diagnostics === diagnostics ||
+      jsonValuesEqual(toJsonValue(state.diagnostics), toJsonValue(diagnostics))
+        ? state
+        : { diagnostics },
+    ),
   setPlaybackTests: (playbackTests) => set({ playbackTests }),
   setSelectedAssetId: (selectedAssetId) => set({ selectedAssetId }),
   setPreviewConnectionState: (previewConnectionState) => set({ previewConnectionState }),
