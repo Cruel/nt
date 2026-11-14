@@ -1,4 +1,10 @@
 {
+  "diagnostics": {
+    "observedWorking": "Working state",
+    "observedDisk": "Saved disk",
+    "observedWorkingFile": "External working file",
+    "unsavedOwner": "Owner has unsaved edits"
+  },
   "repairPrompt": {
     "title": "Repair Project source",
     "description": "Review and edit the scoped prompt. Copy leaves Project files unchanged; Run prepares the Agent Kit and launches your installed AI tool in a new Terminal.",

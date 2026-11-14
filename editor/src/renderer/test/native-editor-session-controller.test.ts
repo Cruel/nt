@@ -968,7 +968,9 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
         [{ op: 'replace', path: '/project/name', value: 'Acknowledged but not saved' }],
       );
       expect(patched.accepted, patched.error).toBe(true);
-      await controller.flushWorkingSources(opened.projectSessionId!);
+      expect(await controller.flushWorkingSources(opened.projectSessionId!)).toMatchObject({
+        'project.yaml': 'file',
+      });
       const projected = path.join(root, '.noveltea/editor/working/files/project.yaml');
       expect(await readFile(projected, 'utf8')).toContain('Acknowledged but not saved');
       expect(await readFile(physical, 'utf8')).toBe(original);
@@ -979,7 +981,9 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
         {},
       );
       expect(saved.accepted, saved.error).toBe(true);
-      await controller.flushWorkingSources(opened.projectSessionId!);
+      expect(await controller.flushWorkingSources(opened.projectSessionId!)).not.toHaveProperty(
+        'project.yaml',
+      );
       await expect(readFile(projected)).rejects.toMatchObject({ code: 'ENOENT' });
       expect(await readFile(physical, 'utf8')).toContain('Acknowledged but not saved');
     } finally {

@@ -13,7 +13,9 @@ Before editing NovelTea project content:
 \`.noveltea/\` is generated, ignored local state. Do not edit its internal recovery
 files. For an explicitly diagnosed unsaved editor source, the only editable
 exception is \`.noveltea/editor/working/files/<Project-relative-source-path>\`;
-see the generated Guide before changing working-source files.`;
+see the generated Guide before changing working-source files. For projected
+working repairs run \`noveltea --project . validate --working --json\`;
+ordinary \`validate\` checks saved Project files only.`;
 
 export const NOVELTEA_PROJECT_AGENTS_MANAGED_BLOCK = `${NOVELTEA_AGENT_BOOTSTRAP_START}
 ${bootstrapBody}

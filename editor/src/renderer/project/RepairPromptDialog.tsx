@@ -13,12 +13,14 @@ import { useCandidateRepairStore } from './candidate-repair-store';
 import { useProjectStore } from './project-store';
 import { flushNativeProjectSources } from './project-source-store';
 import { flushNativeFields } from '../commands/native-field-drafts';
+import { useCommandStore } from '../commands/command-store';
 import { useDraftDirtyStore } from '../workbench/draft-dirty-store';
 import { assertNoUnprojectedRendererDrafts } from './agent-working-source-draft-guard';
 import { useWorkspaceStore } from '../stores/workspace-store';
 import { useBottomPanelStore } from '../workbench/bottom-panel-store';
 import { launchWindowRepairTerminal } from '../workbench/terminal-window-host';
 import type { RepairHarness } from '../../shared/repair-harness';
+import type { WorkingSourceRepresentations } from '../../shared/editor-tooling';
 import { validRepairModelId, type RepairModelCatalog } from '../../shared/repair-harness';
 import { usePreferencesStore } from '../stores/preferences-store';
 import {
@@ -27,12 +29,14 @@ import {
   repairPromptRunAuthorized,
 } from './repair-prompt-store';
 
-async function prepareAgentWorkingSources(sessionId: string): Promise<void> {
+async function prepareAgentWorkingSources(
+  sessionId: string,
+): Promise<WorkingSourceRepresentations> {
   if (!(await flushNativeFields()))
     throw new Error('Unsaved Project fields have not been acknowledged by native editing.');
   await flushNativeProjectSources();
   assertNoUnprojectedRendererDrafts(useDraftDirtyStore.getState().entriesByKey);
-  await window.noveltea.nativeProjectFlushWorkingSources(sessionId);
+  return window.noveltea.nativeProjectFlushWorkingSources(sessionId);
 }
 
 export function RepairPromptDialog() {
@@ -42,12 +46,14 @@ export function RepairPromptDialog() {
   const close = useRepairPromptStore((state) => state.close);
   const request = useRepairPromptStore((state) => state.request);
   const setText = useRepairPromptStore((state) => state.setText);
+  const setWorkingPublication = useRepairPromptStore((state) => state.setWorkingPublication);
   const setAuthorization = useRepairPromptStore((state) => state.setAuthorization);
   // Subscribe to both diagnostic authorities so a visible draft cannot look current
   // after a Project switch, source edit or a successful correction.
   useWorkspaceStore((state) => state.diagnostics);
   useProjectStore((state) => state.projectRevision);
   useProjectStore((state) => state.projectSessionId);
+  useCommandStore((state) => state.nativeWorkingRevision);
   useCandidateRepairStore((state) => state.entries);
   const [copyMessage, setCopyMessage] = useState<'copied' | 'failed' | null>(null);
   const [harnesses, setHarnesses] = useState<RepairHarness[]>([]);
@@ -62,20 +68,55 @@ export function RepairPromptDialog() {
   const [runError, setRunError] = useState<string | null>(null);
   const current = draft ? repairPromptIsCurrent(draft) : false;
   const [publishedPrompt, setPublishedPrompt] = useState<string | null>(null);
-  const publicationKey = draft ? `${draft.id}:${draft.sourceFingerprint}` : null;
+  const publicationKey = draft
+    ? JSON.stringify([
+        draft.id,
+        draft.sourceFingerprint,
+        draft.scope,
+        draft.selectedKey,
+        draft.requestGeneration,
+      ])
+    : null;
   const projectionReady =
-    !draft || draft.kind === 'candidate' || publishedPrompt === publicationKey;
+    !draft ||
+    draft.kind === 'candidate' ||
+    (draft.workingSources !== undefined && publishedPrompt === publicationKey);
   const draftId = draft?.id;
   const draftKind = draft?.kind;
   const draftSourceFingerprint = draft?.sourceFingerprint;
+  const draftScope = draft?.scope;
+  const draftSelectedKey = draft?.selectedKey;
+  const draftGeneration = draft?.requestGeneration;
 
   useEffect(() => {
     if (!visible || !draftId || draftKind !== 'active') return;
     let live = true;
     setPublishedPrompt(null);
+    setRunError(null);
     void prepareAgentWorkingSources(draftId)
-      .then(() => {
-        if (live) setPublishedPrompt(`${draftId}:${draftSourceFingerprint}`);
+      .then((sources) => {
+        if (!live) return;
+        if (
+          !sources ||
+          !setWorkingPublication(
+            { kind: 'active', id: draftId, scope: draftScope!, selectedKey: draftSelectedKey },
+            draftSourceFingerprint!,
+            sources,
+          )
+        )
+          throw new Error(
+            'Working Project changed while preparing the prompt. Regenerate from current diagnostics.',
+          );
+        setPublishedPrompt(
+          JSON.stringify([
+            draftId,
+            draftSourceFingerprint,
+            draftScope,
+            draftSelectedKey,
+            draftGeneration,
+          ]),
+        );
+        setRunError(null);
       })
       .catch((error: unknown) => {
         if (live) setRunError(error instanceof Error ? error.message : String(error));
@@ -83,7 +124,16 @@ export function RepairPromptDialog() {
     return () => {
       live = false;
     };
-  }, [visible, draftId, draftKind, draftSourceFingerprint]);
+  }, [
+    visible,
+    draftId,
+    draftKind,
+    draftSourceFingerprint,
+    draftScope,
+    draftSelectedKey,
+    draftGeneration,
+    setWorkingPublication,
+  ]);
 
   useEffect(() => {
     if (!visible) return;
@@ -167,7 +217,13 @@ export function RepairPromptDialog() {
     setRunning(true);
     setRunError(null);
     try {
-      if (draft.kind === 'active') await prepareAgentWorkingSources(draft.id);
+      if (draft.kind === 'active') {
+        const sources = await prepareAgentWorkingSources(draft.id);
+        if (!sources || !setWorkingPublication(draft, draft.sourceFingerprint, sources))
+          throw new Error('Working Project changed. Regenerate the prompt before Run.');
+        if (!repairPromptRunAuthorized(useRepairPromptStore.getState().draft!))
+          throw new Error('Project validation changed before Run.');
+      }
       await launchWindowRepairTerminal({
         kind: draft.kind,
         id: draft.id,
@@ -192,8 +248,15 @@ export function RepairPromptDialog() {
   async function copy() {
     if (!draft || !current || !projectionReady) return;
     try {
-      if (draft.kind === 'active') await prepareAgentWorkingSources(draft.id);
-      await navigator.clipboard.writeText(draft.text);
+      if (draft.kind === 'active') {
+        const sources = await prepareAgentWorkingSources(draft.id);
+        if (!sources || !setWorkingPublication(draft, draft.sourceFingerprint, sources))
+          throw new Error('Working Project changed. Regenerate the prompt before Copy.');
+      }
+      const currentDraft = useRepairPromptStore.getState().draft;
+      if (!currentDraft || !repairPromptIsCurrent(currentDraft))
+        throw new Error('Project diagnostics changed before Copy.');
+      await navigator.clipboard.writeText(currentDraft.text);
       setCopyMessage('copied');
     } catch (error) {
       setRunError(error instanceof Error ? error.message : String(error));
@@ -213,14 +276,15 @@ export function RepairPromptDialog() {
             <div className="truncate font-mono text-xs text-muted-foreground" title={draft.root}>
               {draft.root}
             </div>
-            {!current ? (
-              <div role="alert" className="space-y-2 text-xs text-amber-600">
-                <p>{t('repairPrompt.outdated')}</p>
+            {!current || (draft.kind === 'active' && !projectionReady && runError) ? (
+              <div className="space-y-2 text-xs text-amber-600">
+                {!current ? <p role="alert">{t('repairPrompt.outdated')}</p> : null}
                 <Button
                   size="sm"
                   variant="outline"
                   onClick={() => {
                     setCopyMessage(null);
+                    setRunError(null);
                     request({
                       kind: draft.kind,
                       id: draft.id,

@@ -1,4 +1,10 @@
 {
+  "diagnostics": {
+    "observedWorking": "⟦Working state⟧",
+    "observedDisk": "⟦Saved disk⟧",
+    "observedWorkingFile": "⟦External working file⟧",
+    "unsavedOwner": "⟦Owner has unsaved edits⟧"
+  },
   "repairPrompt": {
     "title": "[Rëpäïr Pröjëct söürcë]",
     "description": "[Rëvïëw änd ëdït thë prömpt. Cöpy dëës nöt mödïfy fïlës; Rün prëpärës thë Ägënt Kït änd läünchës än ïnställëd ÄÏ tööl ïn Tërmïnäl.]",

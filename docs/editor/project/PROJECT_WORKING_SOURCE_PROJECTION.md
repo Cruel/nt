@@ -3,7 +3,7 @@
 **Status:** contract fixed by #624; source publication is implemented by #625,
 cold-Project admission by #626, and live working-file observation by #627.
 Standalone working-source validation is implemented by #628; prompt integration
-is tracked in #629.
+is implemented by #629.
 [ADR 0002](../../adr/0002-agent-editable-working-sources.md)
 records why the interface is file-backed.
 
@@ -182,6 +182,20 @@ clean Project, acknowledged dirty YAML, malformed working YAML and its
 diagnostic location, an external repair, a missing publication after native
 checkpoint, stale saved source bytes, damaged immutable baseline, foreign
 Project identity, pending text, orphaned artifacts, and working-file symlinks.
+
+**Fix / Copy / Run:** before exposing an active Project repair prompt, the
+renderer drains pending native fields and text and asks main to flush the
+published working projection. Main returns the exact represented physical
+source paths and their file/deleted/pending-only kinds. The prompt names the
+editable `working/files/` path only when main confirms it is represented, and
+includes saved-versus-working differences as context rather than claiming that
+an unsaved edit caused the validation error. Copy works without an AI tool and
+can be pasted into a harness later, with the editor closed. Run uses only the
+existing interactive TUI Terminal route. The prompt remains scoped to the
+selected issue(s) and Project root; an obsolete fingerprint or changed
+publication blocks Copy/Run until regeneration. Problems differentiates
+native working-state validation, disk observations and external working-file
+observations, with an independent unsaved-owner indicator.
 
 **Save/Save All:** first reconcile observed external working edits. Save only
 requested safe logical Save units using native source CAS; let independent units

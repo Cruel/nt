@@ -1,6 +1,8 @@
 import { create } from 'zustand';
+import type { WorkingSourceRepresentations } from '../../shared/editor-tooling';
 import { useProjectStore } from './project-store';
 import { useWorkspaceStore } from '../stores/workspace-store';
+import { useCommandStore } from '../commands/command-store';
 import { useCandidateRepairStore } from './candidate-repair-store';
 import {
   buildRepairPrompt,
@@ -20,10 +22,13 @@ export interface RepairPromptRequest {
 }
 
 export interface RepairPromptDraft extends RepairPromptRequest {
+  /** Distinguishes a regenerated prompt from a previous request at the same revision. */
+  requestGeneration: number;
   root: string;
   text: string;
   diagnosticFingerprint: string;
   sourceFingerprint: string;
+  workingSources?: WorkingSourceRepresentations;
   candidateRevision?: string;
   recognition?: 'strong' | 'weak';
   formatRisk: CandidateFormatRisk;
@@ -76,7 +81,12 @@ function currentInput(
       savedDocument: project.savedDocument,
       workingDocument: project.document,
     },
-    sourceFingerprint: String(project.projectRevision),
+    sourceFingerprint: JSON.stringify([
+      project.projectRevision,
+      useCommandStore.getState().nativeProjectSessionId === request.id
+        ? useCommandStore.getState().nativeWorkingRevision
+        : null,
+    ]),
   };
 }
 
@@ -95,6 +105,7 @@ export function repairPromptIsCurrent(draft: RepairPromptDraft): boolean {
   );
 }
 
+let requestGeneration = 0;
 function makeDraft(request: RepairPromptRequest): RepairPromptDraft | null {
   const current = currentInput(request);
   if (!current) return null;
@@ -102,6 +113,7 @@ function makeDraft(request: RepairPromptRequest): RepairPromptDraft | null {
   if (!prompt) return null;
   return {
     ...request,
+    requestGeneration: ++requestGeneration,
     root: current.input.root,
     ...(request.kind === 'candidate'
       ? {
@@ -131,6 +143,12 @@ interface RepairPromptStore {
   request: (request: RepairPromptRequest) => boolean;
   close: () => void;
   setText: (text: string) => void;
+  /** Main-authenticated publication, never a renderer-constructed path inventory. */
+  setWorkingPublication: (
+    request: RepairPromptRequest,
+    sourceFingerprint: string,
+    sources: WorkingSourceRepresentations,
+  ) => boolean;
   setAuthorization: (
     kind: 'authorizeWeak' | 'authorizeOlder' | 'authorizeNewer',
     value: boolean,
@@ -151,6 +169,35 @@ export const useRepairPromptStore = create<RepairPromptStore>()((set) => ({
     set((state) => ({
       draft: state.draft ? { ...state.draft, text } : null,
     })),
+  setWorkingPublication: (request, sourceFingerprint, sources) => {
+    const draft = useRepairPromptStore.getState().draft;
+    if (
+      !draft ||
+      draft.kind !== 'active' ||
+      draft.kind !== request.kind ||
+      draft.id !== request.id ||
+      draft.scope !== request.scope ||
+      draft.selectedKey !== request.selectedKey ||
+      draft.sourceFingerprint !== sourceFingerprint ||
+      !repairPromptIsCurrent(draft)
+    )
+      return false;
+    const previous = draft.workingSources;
+    if (previous && JSON.stringify(previous) !== JSON.stringify(sources)) return false;
+    const current = currentInput(draft);
+    if (!current) return false;
+    const generated = buildRepairPrompt({ ...current.input, workingSources: sources });
+    if (!generated) return false;
+    // After the initial publication, preserve any user-edited prompt verbatim.
+    useRepairPromptStore.setState({
+      draft: {
+        ...draft,
+        workingSources: sources,
+        text: previous ? draft.text : generated,
+      },
+    });
+    return true;
+  },
   setAuthorization: (kind, value) =>
     set((state) => ({
       draft: state.draft ? { ...state.draft, [kind]: value } : null,
@@ -161,6 +208,7 @@ export const useRepairPromptStore = create<RepairPromptStore>()((set) => ({
 export function repairPromptRunAuthorized(draft: RepairPromptDraft): boolean {
   return (
     repairPromptIsCurrent(draft) &&
+    (draft.kind !== 'active' || draft.workingSources !== undefined) &&
     (draft.kind !== 'candidate' || draft.formatRisk !== 'unknown' || draft.manifestAbsent) &&
     (draft.recognition !== 'weak' || draft.authorizeWeak) &&
     (draft.formatRisk !== 'newer' || draft.authorizeNewer) &&

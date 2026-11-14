@@ -5,6 +5,8 @@ import { useCandidateRepairStore } from '../project/candidate-repair-store';
 import { useRepairPromptStore, repairPromptRunAuthorized } from '../project/repair-prompt-store';
 import { useBottomPanelStore } from '../workbench/bottom-panel-store';
 import { usePreferencesStore } from '../stores/preferences-store';
+import { useProjectStore } from '../project/project-store';
+import { useWorkspaceStore } from '../stores/workspace-store';
 
 vi.mock('../workbench/terminal-window-host', () => ({
   launchWindowRepairTerminal: (request: unknown) =>
@@ -72,6 +74,176 @@ function showPrompt() {
 }
 
 describe('RepairPromptDialog', () => {
+  it('retries failed publication on Regenerate at the same native revision', async () => {
+    const beforeProject = useProjectStore.getState();
+    const beforeWorkspace = useWorkspaceStore.getState();
+    const beforeFlush = window.noveltea.nativeProjectFlushWorkingSources;
+    const flush = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('Working-source publication unavailable'));
+    flush.mockResolvedValue({ 'records/rooms/hall.yaml': 'file' });
+    window.noveltea.nativeProjectFlushWorkingSources = flush;
+    try {
+      useProjectStore.setState({
+        projectPath: '/project',
+        projectSessionId: 'active-session',
+        projectRevision: 80,
+        savedDocument: { rooms: { hall: { label: 'Saved' } } },
+        document: { rooms: { hall: { label: 'Invalid' } } },
+      });
+      useWorkspaceStore.setState({
+        diagnostics: [
+          {
+            severity: 'error',
+            path: '/rooms/hall/label',
+            sourcePath: 'records/rooms/hall.yaml',
+            message: 'Invalid label',
+          },
+        ],
+      });
+      render(<RepairPromptDialog />);
+      act(() => {
+        useRepairPromptStore.getState().request({
+          kind: 'active',
+          id: 'active-session',
+          scope: 'errors',
+        });
+      });
+      await waitFor(() =>
+        expect(screen.getByRole('alert')).toHaveTextContent(
+          'Working-source publication unavailable',
+        ),
+      );
+      expect(screen.getByRole('button', { name: 'Copy prompt' })).toBeDisabled();
+      fireEvent.click(screen.getByRole('button', { name: 'Regenerate from current diagnostics' }));
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Copy prompt' })).toBeEnabled(),
+      );
+      expect(flush).toHaveBeenCalledTimes(2);
+    } finally {
+      window.noveltea.nativeProjectFlushWorkingSources = beforeFlush;
+      useProjectStore.setState(beforeProject);
+      useWorkspaceStore.setState(beforeWorkspace);
+    }
+  });
+
+  it('publishes the exact native working owner before Copy and refuses an unverified republish', async () => {
+    const beforeProject = useProjectStore.getState();
+    const beforeWorkspace = useWorkspaceStore.getState();
+    const beforeFlush = window.noveltea.nativeProjectFlushWorkingSources;
+    const source = 'records/rooms/hall.yaml';
+    const flush = vi.fn().mockResolvedValue({ [source]: 'file' });
+    window.noveltea.nativeProjectFlushWorkingSources = flush;
+    try {
+      useProjectStore.setState({
+        projectPath: '/project',
+        projectSessionId: 'active-session',
+        projectRevision: 20,
+        savedDocument: { rooms: { hall: { data: { name: 'Saved' } } } },
+        document: { rooms: { hall: { data: { name: '' } } } },
+      });
+      useWorkspaceStore.setState({
+        diagnostics: [
+          {
+            severity: 'error',
+            path: '/rooms/hall/data/name',
+            sourcePath: source,
+            message: 'Room display name is required.',
+            observedAgainst: 'working',
+          },
+        ],
+      });
+      render(<RepairPromptDialog />);
+      act(() => {
+        useRepairPromptStore.getState().request({
+          kind: 'active',
+          id: 'active-session',
+          scope: 'errors',
+        });
+      });
+      const prompt = await screen.findByRole('textbox', { name: 'Editable repair prompt' });
+      await waitFor(() =>
+        expect((prompt as HTMLTextAreaElement).value).toContain(
+          '.noveltea/editor/working/files/records/rooms/hall.yaml',
+        ),
+      );
+      expect((prompt as HTMLTextAreaElement).value).toContain(
+        'NOT the saved records/rooms/hall.yaml',
+      );
+      expect((prompt as HTMLTextAreaElement).value).toContain('validate --working');
+      expect(screen.getByRole('button', { name: 'Run' })).toBeDisabled();
+      fireEvent.click(screen.getByRole('button', { name: 'Copy prompt' }));
+      await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+      expect(flush).toHaveBeenCalledWith('active-session');
+      writeText.mockClear();
+      flush.mockResolvedValue({ 'records/rooms/other.yaml': 'file' });
+      fireEvent.click(screen.getByRole('button', { name: 'Copy prompt' }));
+      await waitFor(() =>
+        expect(screen.getByRole('alert')).toHaveTextContent('Working Project changed'),
+      );
+      expect(writeText).not.toHaveBeenCalled();
+    } finally {
+      window.noveltea.nativeProjectFlushWorkingSources = beforeFlush;
+      useProjectStore.setState(beforeProject);
+      useWorkspaceStore.setState(beforeWorkspace);
+    }
+  });
+
+  it('runs an active published repair only through the existing interactive terminal route', async () => {
+    const beforeProject = useProjectStore.getState();
+    const beforeWorkspace = useWorkspaceStore.getState();
+    const beforeFlush = window.noveltea.nativeProjectFlushWorkingSources;
+    window.noveltea.nativeProjectFlushWorkingSources = vi.fn().mockResolvedValue({
+      'records/rooms/hall.yaml': 'file',
+    });
+    vi.mocked(window.noveltea.probeRepairHarnesses).mockResolvedValue(['codex']);
+    launchRepairHarness.mockResolvedValue({ sessions: [], selectedSessionId: 'terminal-2' });
+    try {
+      useProjectStore.setState({
+        projectPath: '/project',
+        projectSessionId: 'active-session',
+        projectRevision: 12,
+        savedDocument: { rooms: { hall: { data: { name: 'Saved' } } } },
+        document: { rooms: { hall: { data: { name: '' } } } },
+      });
+      useWorkspaceStore.setState({
+        diagnostics: [
+          {
+            severity: 'error',
+            path: '/rooms/hall/data/name',
+            sourcePath: 'records/rooms/hall.yaml',
+            message: 'Invalid unsaved Room',
+          },
+        ],
+      });
+      render(<RepairPromptDialog />);
+      act(() => {
+        useRepairPromptStore.getState().request({
+          kind: 'active',
+          id: 'active-session',
+          scope: 'errors',
+        });
+      });
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Run' })).toBeEnabled());
+      fireEvent.click(screen.getByRole('button', { name: 'Run' }));
+      await waitFor(() =>
+        expect(launchRepairHarness).toHaveBeenCalledWith(
+          expect.objectContaining({
+            kind: 'active',
+            id: 'active-session',
+            harness: 'codex',
+            prompt: expect.stringContaining('files/records/rooms/hall.yaml'),
+          }),
+        ),
+      );
+      expect(useBottomPanelStore.getState().activePanelId).toBe('terminal');
+    } finally {
+      window.noveltea.nativeProjectFlushWorkingSources = beforeFlush;
+      useProjectStore.setState(beforeProject);
+      useWorkspaceStore.setState(beforeWorkspace);
+    }
+  });
+
   it('copies the edited prompt when Run has no installed executable', async () => {
     render(<RepairPromptDialog />);
     showPrompt();

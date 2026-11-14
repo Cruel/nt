@@ -2,6 +2,7 @@ import type { ToolDiagnostic } from '../../shared/editor-tooling';
 import { getJsonAtPointer, hasJsonAtPointer } from './json-pointer';
 import { jsonValuesEqual, type JsonValue } from './json-value';
 import { candidateFormatRisk } from '../../shared/repair-format-risk';
+import type { WorkingSourceRepresentations } from '../../shared/editor-tooling';
 export { candidateFormatRisk } from '../../shared/repair-format-risk';
 export type { CandidateFormatRisk } from '../../shared/repair-format-risk';
 
@@ -38,6 +39,28 @@ export function selectedRepairDiagnostics(
 function ownerOf(pointer: string): string {
   const [, collection, id] = pointer.split('/');
   return collection && id ? '/' + collection + '/' + id : pointer;
+}
+
+/** Ownership difference is context, never causal attribution for a diagnostic. */
+export function repairDiagnosticOwnerIsDirty(
+  diagnostic: ToolDiagnostic,
+  saved: JsonValue | null | undefined,
+  working: JsonValue | null | undefined,
+): boolean {
+  if (saved == null || working == null) return false;
+  const sourceOwner = diagnostic.sourcePath?.match(/^records\/([^/]+)\/([^/]+)\.yaml$/);
+  const owner = sourceOwner
+    ? `/${sourceOwner[1]}/${sourceOwner[2]}`
+    : ownerOf(diagnostic.ownerPaths?.[0] ?? diagnostic.path);
+  if (!owner.startsWith('/') || owner === '/') return false;
+  const diskPresent = hasJsonAtPointer(saved, owner);
+  const workingPresent = hasJsonAtPointer(working, owner);
+  return (
+    diskPresent !== workingPresent ||
+    (diskPresent &&
+      workingPresent &&
+      !jsonValuesEqual(getJsonAtPointer(saved, owner), getJsonAtPointer(working, owner)))
+  );
 }
 
 function projectRelativeSourcePath(value: string): string | null {
@@ -106,6 +129,8 @@ export interface RepairPromptInput {
   /** Last observed saved baseline and current native editing view. */
   savedDocument?: JsonValue | null;
   workingDocument?: JsonValue | null;
+  /** Returned only after main has durably published this Project's native working sources. */
+  workingSources?: WorkingSourceRepresentations;
 }
 
 export function repairDiagnosticFingerprint(diagnostics: readonly ToolDiagnostic[]): string {
@@ -123,10 +148,9 @@ export function buildRepairPrompt(input: RepairPromptInput): string | null {
         ? 'all errors'
         : 'all errors and warnings';
   const lines = [
-    'Fix these NovelTea Project issues without changing unrelated data.',
+    'Fix only the following NovelTea Project issue(s).',
     'Project root: ' + input.root,
     'Scope: ' + scope,
-    '',
     ...selected.map((diagnostic, index) => {
       const source = diagnostic.sourcePath
         ? projectRelativeSourcePath(diagnostic.sourcePath)
@@ -139,11 +163,33 @@ export function buildRepairPrompt(input: RepairPromptInput): string | null {
             : '') +
           ')'
         : '';
+      const representation = source ? input.workingSources?.[source] : undefined;
+      const missingWorkingOwner =
+        input.kind === 'active' &&
+        source &&
+        !representation &&
+        (diagnostic.observedAgainst === 'working-file' ||
+          repairDiagnosticOwnerIsDirty(diagnostic, input.savedDocument, input.workingDocument));
       const workingLocation =
-        input.kind === 'active' && source
-          ? '\n   Unsaved working-file path (when present in the working-source manifest): .noveltea/editor/working/files/' +
-            source
-          : '';
+        representation === 'file'
+          ? '\n   Edit unsaved working file: .noveltea/editor/working/files/' +
+            source +
+            ' (NOT the saved ' +
+            source +
+            ').'
+          : representation === 'deleted'
+            ? '\n   Unsaved deletion marker: .noveltea/editor/working/deletions/' +
+              source +
+              '.delete.json; do not recreate the saved source.'
+            : representation === 'pending-only'
+              ? '\n   Pending editor input: .noveltea/editor/working/pending/' +
+                source +
+                '.json; ask the user to finish the field rather than editing recovery state.'
+              : missingWorkingOwner
+                ? '\n   This unsaved owner has no published working file. Report the missing projection; do not edit the valid saved source.'
+                : source
+                  ? '\n   Saved source: ' + source
+                  : '';
       const context =
         input.kind === 'active'
           ? workingContext(diagnostic, input.savedDocument, input.workingDocument)
@@ -164,13 +210,13 @@ export function buildRepairPrompt(input: RepairPromptInput): string | null {
         (context ? '\n   ' + context : '')
       );
     }),
-    '',
-    'Read, search, and modify files only inside this Project root (including symlink targets). Ask before accessing anything outside it.',
+    'Read, search, and modify files only inside this Project root (including resolved symlink targets). Ask before accessing anything outside it.',
     'Follow the Project AGENTS.md for NovelTea CLI usage.',
   ];
   if (input.kind === 'active')
     lines.push(
-      'Editor diagnostics may come from unsaved working state. First read .noveltea/editor/working/manifest.json. For a listed dirty source, edit only its matching .noveltea/editor/working/files/<physical-project-relative-path> (or the declared pending/deletion artifact), not the tracked saved source. For a clean source without a working projection, ordinary tracked-file edits remain appropriate. The editor must reconcile agent edits before Save. Never edit .noveltea/editor/native-dirty-state.json, .noveltea/editor/state.json, working/manifest.json, or working/baselines/. If the required unsaved source is absent or cannot be represented, report the blocker; do not invent an editor API.',
+      'Verify projected repairs with `noveltea --project . validate --working`; ordinary validate checks only saved files. A working-file repair is not a Save.',
+      'Never edit .noveltea/editor/native-dirty-state.json, .noveltea/editor/state.json, .noveltea/editor/working/manifest.json or .noveltea/editor/working/baselines/. If the necessary unsaved source is unavailable, report it rather than modifying the saved source.',
     );
   if (input.recognition === 'weak')
     lines.push('Project identification is uncertain: do not modify source without user approval.');

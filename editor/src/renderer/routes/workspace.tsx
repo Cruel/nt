@@ -1186,8 +1186,8 @@ export function WorkspacePage() {
               if (useProjectStore.getState().projectSessionId !== latestProjectSessionId) return;
               if (!imported.ok || imported.warnings?.length) {
                 externalSourceDiagnosticsRef.current = imported.warnings?.length
-                  ? imported.warnings.map(({ sourcePath, message }) =>
-                      createProjectValidationDiagnostic({
+                  ? imported.warnings.map(({ sourcePath, message }) => ({
+                      ...createProjectValidationDiagnostic({
                         code: 'editor.working-source.reconciliation-required',
                         severity: 'error',
                         category: 'External working source',
@@ -1198,17 +1198,22 @@ export function WorkspacePage() {
                         message,
                         boundaries: ['authoring'],
                       }),
-                    )
+                      observedAgainst: 'working-file' as const,
+                      sourcePath,
+                    }))
                   : [
-                      createProjectValidationDiagnostic({
-                        code: 'editor.working-source.import-failed',
-                        severity: 'error',
-                        category: 'External working source',
-                        path: '/',
-                        message:
-                          imported.diagnostics[0]?.message ?? 'Working-source import failed.',
-                        boundaries: ['authoring'],
-                      }),
+                      {
+                        ...createProjectValidationDiagnostic({
+                          code: 'editor.working-source.import-failed',
+                          severity: 'error',
+                          category: 'External working source',
+                          path: '/',
+                          message:
+                            imported.diagnostics[0]?.message ?? 'Working-source import failed.',
+                          boundaries: ['authoring'],
+                        }),
+                        observedAgainst: 'working-file' as const,
+                      },
                     ];
               } else {
                 externalSourceDiagnosticsRef.current = [];
@@ -1247,9 +1252,13 @@ export function WorkspacePage() {
           if ((event.sourceChangedPaths?.length ?? 0) > 0 || event.assetChangedPaths.length > 0)
             void refreshAuthoringDependencyGraphProjectSources();
           if (sourceDiagnosticUpdate)
-            externalPhysicalSourceDiagnosticsRef.current = [...(event.sourceDiagnostics ?? [])];
+            externalPhysicalSourceDiagnosticsRef.current = (event.sourceDiagnostics ?? []).map(
+              (diagnostic) => ({ ...diagnostic, observedAgainst: 'disk' as const }),
+            );
           if (assetDiagnosticUpdate)
-            externalAssetDiagnosticsRef.current = [...(event.assetDiagnostics ?? [])];
+            externalAssetDiagnosticsRef.current = (event.assetDiagnostics ?? []).map(
+              (diagnostic) => ({ ...diagnostic, observedAgainst: 'disk' as const }),
+            );
           if (sourceDiagnosticUpdate || assetDiagnosticUpdate) {
             setDiagnostics(
               collectWorkspaceProjectDiagnostics(latestProject, [

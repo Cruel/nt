@@ -1,4 +1,10 @@
 {
+  "diagnostics": {
+    "observedWorking": "Estado de trabalho",
+    "observedDisk": "Disco salvo",
+    "observedWorkingFile": "Arquivo de trabalho externo",
+    "unsavedOwner": "Registro com alterações não salvas"
+  },
   "repairPrompt": {
     "title": "Reparar arquivos do Projeto",
     "description": "Revise e edite o prompt. Copiar não altera arquivos; Executar prepara o Agent Kit e abre uma nova sessão no Terminal com a ferramenta de IA instalada.",

@@ -2,6 +2,9 @@ import type { SourceRevisionDigest } from './project-text-sources';
 
 export type ToolSeverity = 'info' | 'warning' | 'error';
 export type EditorValidationAuthority = 'disk-authoritative' | 'session-local';
+/** A diagnostic's validation/observation source, not proof that an edit caused it. */
+export type DiagnosticObservedAgainst = 'working' | 'disk' | 'working-file';
+export type WorkingSourceRepresentations = Record<string, 'file' | 'deleted' | 'pending-only'>;
 
 export type ToolDiagnosticNavigation = {
   kind: 'interactable-instance-property';
@@ -19,6 +22,7 @@ export interface ToolDiagnostic {
   line?: number;
   column?: number;
   ownerPaths?: readonly string[];
+  observedAgainst?: DiagnosticObservedAgainst;
   navigation?: ToolDiagnosticNavigation;
 }
 

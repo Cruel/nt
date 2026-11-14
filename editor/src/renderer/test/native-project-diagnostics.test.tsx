@@ -60,17 +60,23 @@ describe('native validation findings during edits', () => {
         await refreshNativeProjectDiagnostics();
       });
       expect(nativeProjectDiagnosticsReady()).toBe(true);
-      expect(currentNativeProjectDiagnostics()).toEqual([previous]);
+      expect(currentNativeProjectDiagnostics()).toEqual([
+        { ...previous, observedAgainst: 'working' },
+      ]);
 
       act(() => useCommandStore.setState({ nativeMutationPending: true }));
-      expect(currentNativeProjectDiagnostics()).toEqual([previous]);
+      expect(currentNativeProjectDiagnostics()).toEqual([
+        { ...previous, observedAgainst: 'working' },
+      ]);
 
       act(() =>
         useCommandStore.setState({ nativeMutationPending: false, nativeWorkingRevision: 1 }),
       );
       await waitFor(() => expect(validate).toHaveBeenCalledWith(session, 1, false));
       expect(nativeProjectDiagnosticsReady()).toBe(false);
-      expect(currentNativeProjectDiagnostics()).toEqual([previous]);
+      expect(currentNativeProjectDiagnostics()).toEqual([
+        { ...previous, observedAgainst: 'working' },
+      ]);
 
       await act(async () => finishNext({ diagnostics: [] }));
       await waitFor(() => expect(nativeProjectDiagnosticsReady()).toBe(true));

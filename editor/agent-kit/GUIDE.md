@@ -60,7 +60,11 @@ materialize localization tracking.
 Structural and behavioral validation is the agent's responsibility. Visual judgment such as whether
 a sprite or hotspot is positioned attractively or precisely remains a user decision.
 
-When the editor is open, continue editing tracked project source normally unless an unsaved working
-source is explicitly identified. Such working-file changes are proposals to the editor, not saved
-Project content; let its normal conflict flow reconcile them. Ordinary `noveltea validate` checks
-tracked source, not unsaved working source. Do not claim it has validated a working-file repair.
+When the editor is open, continue editing tracked Project source normally unless an unsaved working
+source is explicitly identified in the publication manifest. This also works after the editor closes:
+its native checkpoint and working files remain on disk. Working-file edits are proposals to the
+editor, not saved Project content; let normal conflict reconciliation import them.
+Run `noveltea --project . validate --working --json` to validate the composed working sources
+read-only, including references to unchanged saved files. Failures can indicate malformed input,
+incomplete publication, stale source evidence or pending editor values. Ordinary `noveltea validate`
+checks saved source only; it is not proof that a working-file repair is valid. Neither mode Saves.

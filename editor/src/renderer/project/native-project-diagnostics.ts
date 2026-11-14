@@ -93,7 +93,12 @@ export function refreshNativeProjectDiagnostics(force = false): Promise<void> {
     .then(() => window.noveltea.nativeProjectValidate(current.session, current.revision, force))
     .then((reply) => {
       if (token !== generation || key !== JSON.stringify(identity())) return;
-      diagnostics = reply.diagnostics;
+      // These findings describe native acknowledged *working* authoring state.
+      // They are not evidence that any particular unsaved edit caused the issue.
+      diagnostics = reply.diagnostics.map((diagnostic) => ({
+        ...diagnostic,
+        observedAgainst: 'working' as const,
+      }));
       visibleSession = current.session;
       completed = true;
       notify();

@@ -34,7 +34,11 @@ import type { JsonValue } from '../../renderer/project/json-value';
 import { nativeAssetContentHashes, verifyNativeSourceBytes } from './native-authoring-source-proof';
 import { classifyProjectValidationDiagnostics } from '../../shared/project-schema/project-diagnostic-projection';
 import { validateNativeWorkingStages } from './native-working-stage-validation';
-import { NativeWorkingSourcePublisher } from './native-working-source-publisher';
+import {
+  NativeWorkingSourcePublisher,
+  nativeWorkingSourceProjection,
+} from './native-working-source-publisher';
+import type { WorkingSourceRepresentations } from '../../shared/editor-tooling';
 import type { NativeAuthoringPatchResult } from './native-authoring-worker-contract';
 import {
   planOfflineWorkingSourceImport,
@@ -171,13 +175,27 @@ export class NativeEditorSessionController {
   }
 
   /** Flush publisher without treating agent-modified files as native or saved Project content. */
-  async flushWorkingSources(projectSessionId = this.activeId ?? ''): Promise<void> {
+  async flushWorkingSources(
+    projectSessionId = this.activeId ?? '',
+  ): Promise<WorkingSourceRepresentations> {
     if (!this.isAdmitted(projectSessionId))
       throw new Error('Working-source publication requires the admitted Project session.');
+    const expectedRevision = this.working.snapshot()?.workingRevision;
     await this.checkpointWrites;
     await this.workingSourcePublisher.flush();
     if (!this.isAdmitted(projectSessionId))
       throw new Error('Working-source publication completed for a superseded Project.');
+    const snapshot = this.working.snapshot();
+    if (!snapshot) throw new Error('Native working-source snapshot is no longer available.');
+    if (snapshot.workingRevision !== expectedRevision)
+      throw new Error(
+        'Native working revision changed during publication; regenerate the repair prompt.',
+      );
+    return Object.fromEntries(
+      [...nativeWorkingSourceProjection(snapshot, this.working.dirtyCheckpoint())].map(
+        ([owner, projection]) => [owner, projection.representation],
+      ),
+    );
   }
 
   workingSourcePublicationError(): string | null {

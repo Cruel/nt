@@ -26,6 +26,10 @@ explicitly identifies unsaved working source, the editable exception is
 `.noveltea/editor/working/manifest.json` for the projected dirty-owner inventory,
 but never modify the manifest, `baselines/`, `state.json` or
 `native-dirty-state.json`. A working-file edit does not Save tracked Project YAML.
+Validate unsaved repairs with `noveltea --project . validate --working --json`, even after
+closing the editor. This composes working files over unchanged saved Project sources without
+modifying either. Ordinary `validate` checks saved sources only. Report incomplete, stale,
+conflicted or unrepresentable pending working state instead of editing recovery internals.
 
 Stable top-level record IDs determine canonical record paths. Non-Layout records use
 `records/<collection>/<id>.yaml`; Layouts use `records/layouts/<id>/layout.yaml` plus their admitted

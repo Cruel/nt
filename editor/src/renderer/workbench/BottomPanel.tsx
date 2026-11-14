@@ -12,7 +12,7 @@ import {
 import { useProjectStore } from '@/project/project-store';
 import { useCandidateRepairStore } from '@/project/candidate-repair-store';
 import { useRepairPromptStore } from '@/project/repair-prompt-store';
-import { repairDiagnosticKey } from '@/project/repair-prompt';
+import { repairDiagnosticKey, repairDiagnosticOwnerIsDirty } from '@/project/repair-prompt';
 import { useProjectSourceStore } from '@/project/project-source-store';
 import { useEntityUsagesStore } from '@/project/entity-usages-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
@@ -47,15 +47,31 @@ function ProblemsPanel() {
   const candidates = Object.values(candidateEntries);
   const developerMode = usePreferencesStore((state) => state.developerMode);
   const projectDocument = useProjectStore((state) => state.document);
+  const savedDocument = useProjectStore((state) => state.savedDocument);
   const sourceFiles = useProjectSourceStore((state) => state.files);
+  const sourceBuffers = useProjectSourceStore((state) => state.buffersById);
   const project = isAuthoringProjectView(projectDocument) ? projectDocument : null;
   const diagnosticItems = useMemo(
     () =>
       diagnostics.map((diagnostic) => ({
         ...diagnostic,
-        target: project ? resolveProjectDiagnosticTarget(project, diagnostic, sourceFiles) : null,
+        dirtyOwner:
+          repairDiagnosticOwnerIsDirty(diagnostic, savedDocument, projectDocument) ||
+          sourceFiles.some(
+            (file) =>
+              file.projectRelativePath === diagnostic.sourcePath &&
+              sourceBuffers[file.id]?.dirty === true,
+          ),
+        // External working-file diagnostics identify an agent-editable proposal.
+        // Do not navigate into the *saved* source editor and suggest it is the repair target.
+        target:
+          diagnostic.observedAgainst === 'working-file'
+            ? null
+            : project
+              ? resolveProjectDiagnosticTarget(project, diagnostic, sourceFiles)
+              : null,
       })),
-    [diagnostics, project, sourceFiles],
+    [diagnostics, project, sourceFiles, sourceBuffers, savedDocument, projectDocument],
   );
   const projectSessionId = useProjectStore(
     (state) => state.projectSessionId ?? state.projectInstanceId,
@@ -158,6 +174,7 @@ function ProblemsPanel() {
             <DiagnosticList
               items={candidate.diagnostics.map((item) => ({
                 ...item,
+                observedAgainst: 'disk' as const,
                 target:
                   item.sourcePath && item.sourcePath !== 'project.yaml'
                     ? null

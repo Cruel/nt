@@ -7,6 +7,7 @@ import {
   type WorkbenchNavigationRequest,
 } from '@/workbench/workbench-navigation';
 import { localizedDiagnosticMessage } from './diagnostic-i18n';
+import type { DiagnosticObservedAgainst } from '../../shared/editor-tooling';
 
 export interface EditorDiagnosticItem {
   code?: string;
@@ -18,6 +19,8 @@ export interface EditorDiagnosticItem {
   line?: number;
   column?: number;
   target?: WorkbenchNavigationRequest | null;
+  observedAgainst?: DiagnosticObservedAgainst;
+  dirtyOwner?: boolean;
 }
 
 interface DiagnosticListProps {
@@ -57,8 +60,27 @@ export function DiagnosticCard({
   const { t } = useTranslation('workspace');
   const message = localizedDiagnosticMessage(item, t);
   const sourceLocation = item.sourcePath
-    ? [item.sourcePath, item.line, item.column].filter((part) => part !== undefined).join(':')
+    ? [
+        item.observedAgainst === 'working-file'
+          ? `.noveltea/editor/working/files/${item.sourcePath}`
+          : item.sourcePath,
+        item.line,
+        item.column,
+      ]
+        .filter((part) => part !== undefined)
+        .join(':')
     : null;
+  const observation =
+    item.observedAgainst === 'working'
+      ? t('diagnostics.observedWorking')
+      : item.observedAgainst === 'disk'
+        ? t('diagnostics.observedDisk')
+        : item.observedAgainst === 'working-file'
+          ? t('diagnostics.observedWorkingFile')
+          : null;
+  const originText = [observation, item.dirtyOwner ? t('diagnostics.unsavedOwner') : null]
+    .filter(Boolean)
+    .join(' · ');
   if (compact) {
     const targetTab = item.target?.tab;
     const targetVisual = targetTab
@@ -77,6 +99,16 @@ export function DiagnosticCard({
               />
             ) : null}
             <span className="truncate">{targetLabel}</span>
+            {originText ? (
+              <span className="shrink-0 text-[10px] font-normal" title={originText}>
+                {originText}
+              </span>
+            ) : null}
+          </span>
+        ) : null}
+        {!targetLabel && originText ? (
+          <span className="text-[10px] text-muted-foreground" title={originText}>
+            {originText}
           </span>
         ) : null}
         <span className="min-w-0 truncate">
@@ -126,6 +158,9 @@ export function DiagnosticCard({
       <div className="mb-1 flex min-w-0 items-center gap-2">
         <Badge variant={severityVariant(item.severity)}>{item.severity}</Badge>
         {item.category ? <Badge variant="outline">{item.category}</Badge> : null}
+        {originText ? (
+          <span className="text-[10px] text-muted-foreground">{originText}</span>
+        ) : null}
         {showPath && item.path ? (
           <span className="truncate font-mono text-[10px] text-muted-foreground">{item.path}</span>
         ) : null}

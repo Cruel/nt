@@ -88,21 +88,35 @@ describe('scoped Project diagnostic prompts', () => {
       selectedKey: repairDiagnosticKey(diagnostics[0]!),
       savedDocument,
       workingDocument,
+      workingSources: { 'records/rooms/foyer.yaml': 'file' },
     })!;
     expect(prompt).toContain('Saved "Saved"; editor working "".');
     expect(prompt).toContain('Read, search, and modify files only inside this Project root');
-    expect(prompt).toContain('Editor diagnostics may come from unsaved working state');
-    expect(prompt).toContain('.noveltea/editor/working/files/records/rooms/foyer.yaml');
-    expect(prompt).toContain('First read .noveltea/editor/working/manifest.json');
+    expect(prompt).toContain(
+      'Edit unsaved working file: .noveltea/editor/working/files/records/rooms/foyer.yaml',
+    );
+    expect(prompt).toContain('NOT the saved records/rooms/foyer.yaml');
+    expect(prompt).toContain('validate --working');
     expect(prompt).toContain('Never edit .noveltea/editor/native-dirty-state.json');
-    expect(prompt).toContain('report the blocker');
+    expect(prompt).toContain('report it rather than modifying the saved source');
+    const unknownPublication = buildRepairPrompt({
+      root: '/projects/feature-lab',
+      kind: 'active',
+      scope: 'errors',
+      diagnostics,
+      savedDocument,
+      workingDocument,
+    })!;
+    expect(unknownPublication).not.toContain('Edit unsaved working file:');
+    expect(unknownPublication).toContain('has no published working file');
+    expect(unknownPublication).not.toContain('Saved source: records/rooms/foyer.yaml');
     const candidate = buildRepairPrompt({
       root: '/projects/feature-lab',
       kind: 'candidate',
       scope: 'errors',
       diagnostics,
     })!;
-    expect(candidate).not.toContain('Editor diagnostics may come from unsaved working state');
+    expect(candidate).not.toContain('validate --working');
   });
 
   it('does not attribute a diagnostic to unrelated unsaved edits', () => {
