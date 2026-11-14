@@ -139,6 +139,11 @@ export function buildRepairPrompt(input: RepairPromptInput): string | null {
             : '') +
           ')'
         : '';
+      const workingLocation =
+        input.kind === 'active' && source
+          ? '\n   Unsaved working-file path (when present in the working-source manifest): .noveltea/editor/working/files/' +
+            source
+          : '';
       const context =
         input.kind === 'active'
           ? workingContext(diagnostic, input.savedDocument, input.workingDocument)
@@ -155,6 +160,7 @@ export function buildRepairPrompt(input: RepairPromptInput): string | null {
         location +
         ': ' +
         diagnostic.message +
+        workingLocation +
         (context ? '\n   ' + context : '')
       );
     }),
@@ -164,7 +170,7 @@ export function buildRepairPrompt(input: RepairPromptInput): string | null {
   ];
   if (input.kind === 'active')
     lines.push(
-      'Editor diagnostics may come from unsaved working state, not disk. Fix the editor working value through a supported editor tool, never by editing .noveltea/ recovery files. If no such tool is available, report the blocker immediately and stop; do not search for undocumented APIs or workarounds.',
+      'Editor diagnostics may come from unsaved working state. First read .noveltea/editor/working/manifest.json. For a listed dirty source, edit only its matching .noveltea/editor/working/files/<physical-project-relative-path> (or the declared pending/deletion artifact), not the tracked saved source. For a clean source without a working projection, ordinary tracked-file edits remain appropriate. The editor must reconcile agent edits before Save. Never edit .noveltea/editor/native-dirty-state.json, .noveltea/editor/state.json, working/manifest.json, or working/baselines/. If the required unsaved source is absent or cannot be represented, report the blocker; do not invent an editor API.',
     );
   if (input.recognition === 'weak')
     lines.push('Project identification is uncertain: do not modify source without user approval.');

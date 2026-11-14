@@ -77,7 +77,7 @@ describe('scoped Project diagnostic prompts', () => {
     expect(prompt).not.toContain('noveltea validate');
     expect(prompt).not.toContain('Dependency context');
   });
-  it('shows saved-versus-working values and blocks unsupported editor-state repair', () => {
+  it('shows saved-versus-working values and routes unsaved repair to physical working source', () => {
     const savedDocument = { rooms: { foyer: { data: { name: 'Saved', description: 'Same' } } } };
     const workingDocument = { rooms: { foyer: { data: { name: '', description: 'Same' } } } };
     const prompt = buildRepairPrompt({
@@ -92,9 +92,10 @@ describe('scoped Project diagnostic prompts', () => {
     expect(prompt).toContain('Saved "Saved"; editor working "".');
     expect(prompt).toContain('Read, search, and modify files only inside this Project root');
     expect(prompt).toContain('Editor diagnostics may come from unsaved working state');
-    expect(prompt).toContain('never by editing .noveltea/ recovery files');
-    expect(prompt).toContain('report the blocker immediately and stop');
-    expect(prompt).toContain('do not search for undocumented APIs or workarounds');
+    expect(prompt).toContain('.noveltea/editor/working/files/records/rooms/foyer.yaml');
+    expect(prompt).toContain('First read .noveltea/editor/working/manifest.json');
+    expect(prompt).toContain('Never edit .noveltea/editor/native-dirty-state.json');
+    expect(prompt).toContain('report the blocker');
     const candidate = buildRepairPrompt({
       root: '/projects/feature-lab',
       kind: 'candidate',
