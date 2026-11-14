@@ -930,6 +930,65 @@ describe('native admission at the editor main Project lifecycle', () => {
 
 const nativeAddon = process.env.NOVELTEA_AUTHORING_NODE_ADDON;
 describe.skipIf(!nativeAddon)('real native worker admission of the editor Project', () => {
+  it('publishes and prunes an acknowledged dirty Project source without saving its physical YAML', async () => {
+    const parent = await mkdtemp(path.join(tmpdir(), 'native-working-source-cert-'));
+    const root = path.join(parent, 'project');
+    const created = await createNativeEditorProject({
+      projectName: 'Working Source Certificate',
+      projectDirectory: root,
+    });
+    expect(created.success, created.error).toBe(true);
+    const sessions = new ActiveProjectSessionService();
+    const bridge = new NativeAuthoringSessionBridge(sessions, {
+      addonPath: nativeAddon!,
+      workerScript: path.resolve(
+        process.cwd(),
+        'dist-electron/authoring-worker/native-authoring-worker.cjs',
+      ),
+      pollIntervalMs: 100,
+    });
+    const controller = new NativeEditorSessionController(
+      sessions,
+      bridge,
+      new NativeAuthoringWorkingProject(bridge),
+    );
+    try {
+      const opened = await openNativeEditorProject(
+        root,
+        sessions.beginProjectActivation(),
+        sessions,
+        controller,
+      );
+      expect(opened.success, opened.error).toBe(true);
+      const physical = path.join(root, 'project.yaml');
+      const original = await readFile(physical, 'utf8');
+      const patched = await controller.applyRevisionedPatches(
+        opened.projectSessionId!,
+        opened.nativeWorkingRevision!,
+        [{ op: 'replace', path: '/project/name', value: 'Acknowledged but not saved' }],
+      );
+      expect(patched.accepted, patched.error).toBe(true);
+      await controller.flushWorkingSources(opened.projectSessionId!);
+      const projected = path.join(root, '.noveltea/editor/working/files/project.yaml');
+      expect(await readFile(projected, 'utf8')).toContain('Acknowledged but not saved');
+      expect(await readFile(physical, 'utf8')).toBe(original);
+      const saved = await controller.saveUnit(
+        opened.projectSessionId!,
+        patched.snapshot.workingRevision,
+        'project:settings',
+        {},
+      );
+      expect(saved.accepted, saved.error).toBe(true);
+      await controller.flushWorkingSources(opened.projectSessionId!);
+      await expect(readFile(projected)).rejects.toMatchObject({ code: 'ENOENT' });
+      expect(await readFile(physical, 'utf8')).toContain('Acknowledged but not saved');
+    } finally {
+      controller.dispose();
+      sessions.dispose();
+      await rm(parent, { recursive: true, force: true });
+    }
+  }, 120_000);
+
   it.each(['malformed', 'truncated', 'oversized', 'unsupported', 'wrong-root', 'wrong-id'])(
     'opens and saves a native Project with %s recovery quarantined exactly once',
     async (kind) => {

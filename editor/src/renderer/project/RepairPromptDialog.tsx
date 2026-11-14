@@ -11,6 +11,8 @@ import {
 } from '@/components/ui/dialog';
 import { useCandidateRepairStore } from './candidate-repair-store';
 import { useProjectStore } from './project-store';
+import { flushNativeProjectSources } from './project-source-store';
+import { flushNativeFields } from '../commands/native-field-drafts';
 import { useWorkspaceStore } from '../stores/workspace-store';
 import { useBottomPanelStore } from '../workbench/bottom-panel-store';
 import { launchWindowRepairTerminal } from '../workbench/terminal-window-host';
@@ -22,6 +24,13 @@ import {
   repairPromptIsCurrent,
   repairPromptRunAuthorized,
 } from './repair-prompt-store';
+
+async function prepareAgentWorkingSources(sessionId: string): Promise<void> {
+  if (!(await flushNativeFields()))
+    throw new Error('Unsaved Project fields have not been acknowledged by native editing.');
+  await flushNativeProjectSources();
+  await window.noveltea.nativeProjectFlushWorkingSources(sessionId);
+}
 
 export function RepairPromptDialog() {
   const { t } = useTranslation('workspace');
@@ -49,6 +58,29 @@ export function RepairPromptDialog() {
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
   const current = draft ? repairPromptIsCurrent(draft) : false;
+  const [publishedPrompt, setPublishedPrompt] = useState<string | null>(null);
+  const publicationKey = draft ? `${draft.id}:${draft.sourceFingerprint}` : null;
+  const projectionReady =
+    !draft || draft.kind === 'candidate' || publishedPrompt === publicationKey;
+  const draftId = draft?.id;
+  const draftKind = draft?.kind;
+  const draftSourceFingerprint = draft?.sourceFingerprint;
+
+  useEffect(() => {
+    if (!visible || !draftId || draftKind !== 'active') return;
+    let live = true;
+    setPublishedPrompt(null);
+    void prepareAgentWorkingSources(draftId)
+      .then(() => {
+        if (live) setPublishedPrompt(`${draftId}:${draftSourceFingerprint}`);
+      })
+      .catch((error: unknown) => {
+        if (live) setRunError(error instanceof Error ? error.message : String(error));
+      });
+    return () => {
+      live = false;
+    };
+  }, [visible, draftId, draftKind, draftSourceFingerprint]);
 
   useEffect(() => {
     if (!visible) return;
@@ -125,12 +157,14 @@ export function RepairPromptDialog() {
       running ||
       !modelIsValid ||
       !draft.text.trim() ||
+      !projectionReady ||
       !repairPromptRunAuthorized(draft)
     )
       return;
     setRunning(true);
     setRunError(null);
     try {
+      if (draft.kind === 'active') await prepareAgentWorkingSources(draft.id);
       await launchWindowRepairTerminal({
         kind: draft.kind,
         id: draft.id,
@@ -153,11 +187,13 @@ export function RepairPromptDialog() {
   }
 
   async function copy() {
-    if (!draft || !current) return;
+    if (!draft || !current || !projectionReady) return;
     try {
+      if (draft.kind === 'active') await prepareAgentWorkingSources(draft.id);
       await navigator.clipboard.writeText(draft.text);
       setCopyMessage('copied');
-    } catch {
+    } catch (error) {
+      setRunError(error instanceof Error ? error.message : String(error));
       setCopyMessage('failed');
     }
   }
@@ -235,7 +271,8 @@ export function RepairPromptDialog() {
               {t('repairPrompt.promptLabel')}
               <textarea
                 className="min-h-44 w-full flex-1 resize-y rounded border bg-background p-3 font-mono text-xs font-normal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-                value={draft.text}
+                value={projectionReady ? draft.text : ''}
+                disabled={!projectionReady}
                 onChange={(event) => {
                   setText(event.target.value);
                   setCopyMessage(null);
@@ -350,7 +387,10 @@ export function RepairPromptDialog() {
           <Button variant="outline" onClick={close}>
             {t('repairPrompt.close')}
           </Button>
-          <Button disabled={!draft || !current || !draft.text.trim()} onClick={() => void copy()}>
+          <Button
+            disabled={!draft || !current || !projectionReady || !draft.text.trim()}
+            onClick={() => void copy()}
+          >
             {t('repairPrompt.copy')}
           </Button>
           <span title={harnesses.length === 0 ? t('repairPrompt.noHarnessTooltip') : undefined}>
@@ -361,6 +401,7 @@ export function RepairPromptDialog() {
                 probing ||
                 running ||
                 !modelIsValid ||
+                !projectionReady ||
                 !draft.text.trim() ||
                 !repairPromptRunAuthorized(draft)
               }

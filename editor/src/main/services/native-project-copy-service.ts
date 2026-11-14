@@ -6,6 +6,7 @@ import type { SaveProjectResponse } from '../../shared/editor-tooling';
 import { parseEditorProjectState } from '../../shared/project-schema/editor-project-state';
 import { projectWorkspaceLocalStateFile } from '../../shared/editor-local-state-file';
 import { NativeDirtyCheckpointStore } from './native-dirty-checkpoint-store';
+import { copyNativeWorkingSourceTree } from './native-working-source-publisher';
 import type { NativeEditorSessionController } from './native-editor-session-controller';
 
 /** Copy verified native saved sources byte-for-byte; never serialize YAML in TypeScript. */
@@ -99,6 +100,10 @@ export async function saveNativeProjectCopyAs(
       path.join(staging, '.noveltea', 'editor', 'state.json'),
       projectWorkspaceLocalStateFile(editor),
     );
+    if (recoverySnapshot)
+      await copyNativeWorkingSourceTree(sourceRoot, staging, target, recoverySnapshot.projectId);
+    else if (await fs.lstat(path.join(sourceRoot, '.noveltea/editor/working')).catch(() => null))
+      throw new Error('Cannot copy working sources without a native recovery identity.');
     await verifyNativeSavedSources();
     if (recoverySnapshot) {
       if (JSON.stringify(recoverySnapshot) !== JSON.stringify(recovery?.()))

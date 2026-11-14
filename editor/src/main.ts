@@ -1351,6 +1351,7 @@ void app.whenReady().then(async () => {
       await projectCandidateRepairs.freezeRoot(candidateRoot);
       try {
         const incumbent = nativeEditorHandoff.current();
+        if (incumbent) await incumbent.flushWorkingSources();
         const result = await nativeEditorHandoff.open(projectPath);
         if (result.success) {
           if (incumbent && incumbent !== nativeEditorHandoff.current())
@@ -1438,6 +1439,7 @@ void app.whenReady().then(async () => {
     IPC_CHANNELS.CLOSE_ACTIVE_PROJECT,
     (arguments_) => noArgumentsSchema.parse(arguments_),
     async () => {
+      await nativeEditorHandoff.current()?.flushWorkingSources();
       closeNativeEditorHandoff();
       nativeEditorAdmission = null;
       return;
@@ -1517,6 +1519,16 @@ void app.whenReady().then(async () => {
         diskRevision,
         text,
       );
+    },
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.NATIVE_PROJECT_FLUSH_WORKING_SOURCES,
+    (arguments_) => projectSessionArgumentsSchema.parse(arguments_),
+    (projectSessionId) => {
+      if (!nativeEditorAdmission)
+        throw new Error('Working-source publication requires an admitted Project.');
+      return nativeEditorAdmission.flushWorkingSources(projectSessionId);
     },
   );
 
@@ -1868,6 +1880,7 @@ void app.whenReady().then(async () => {
         if (!nativeEditorAdmission?.isAdmitted(projectSessionId))
           throw new Error('Native Project Copy requires an admitted Project.');
         const controller = nativeEditorAdmission;
+        await controller.flushWorkingSources(projectSessionId);
         return await saveNativeProjectCopyAs(
           mainWindow,
           projectRoot,

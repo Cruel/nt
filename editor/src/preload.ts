@@ -139,6 +139,8 @@ const api: NovelTeaElectronApi = {
       diskRevision,
       text,
     ),
+  nativeProjectFlushWorkingSources: (projectSessionId) =>
+    invokeGuarded(IPC_CHANNELS.NATIVE_PROJECT_FLUSH_WORKING_SOURCES, projectSessionId),
   nativeProjectValidate: (projectSessionId, expectedRevision, fullStages) =>
     invokeGuarded(
       IPC_CHANNELS.NATIVE_PROJECT_VALIDATE,

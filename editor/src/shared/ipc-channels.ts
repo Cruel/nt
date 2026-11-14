@@ -51,6 +51,7 @@ export const IPC_CHANNELS = {
   NATIVE_PROJECT_SAVE_UNIT: 'noveltea:native-project-save-unit',
   NATIVE_PROJECT_SAVE_TEXT: 'noveltea:native-project-save-text',
   NATIVE_PROJECT_STAGE_TEXT: 'noveltea:native-project-stage-text',
+  NATIVE_PROJECT_FLUSH_WORKING_SOURCES: 'noveltea:native-project-flush-working-sources',
   NATIVE_PROJECT_RECONCILE: 'noveltea:native-project-reconcile',
   NATIVE_PROJECT_USE_DISK_UNIT: 'noveltea:native-project-use-disk-unit',
   NATIVE_PROJECT_VALIDATE: 'noveltea:native-project-validate',

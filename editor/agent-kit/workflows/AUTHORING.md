@@ -20,7 +20,12 @@ way to learn NovelTea semantics when the compact reference already explains them
 
 The project root contains `project.yaml`. Editable source lives in the tracked Project workspace:
 `project.yaml`, `traits.yaml`, `editor.yaml`, `i18n/`, `records/`, `scripts/`, `shaders/`, and `assets/`.
-Never author against `.noveltea/`.
+Do not author against generated `.noveltea/` state. When an editor diagnostic
+explicitly identifies unsaved working source, the editable exception is
+`.noveltea/editor/working/files/<same-project-relative-path>`; inspect
+`.noveltea/editor/working/manifest.json` for the projected dirty-owner inventory,
+but never modify the manifest, `baselines/`, `state.json` or
+`native-dirty-state.json`. A working-file edit does not Save tracked Project YAML.
 
 Stable top-level record IDs determine canonical record paths. Non-Layout records use
 `records/<collection>/<id>.yaml`; Layouts use `records/layouts/<id>/layout.yaml` plus their admitted

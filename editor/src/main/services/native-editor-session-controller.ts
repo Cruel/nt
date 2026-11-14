@@ -34,6 +34,7 @@ import type { JsonValue } from '../../renderer/project/json-value';
 import { nativeAssetContentHashes, verifyNativeSourceBytes } from './native-authoring-source-proof';
 import { classifyProjectValidationDiagnostics } from '../../shared/project-schema/project-diagnostic-projection';
 import { validateNativeWorkingStages } from './native-working-stage-validation';
+import { NativeWorkingSourcePublisher } from './native-working-source-publisher';
 
 export interface NativeCleanExportAdmission {
   readonly project: AuthoringProject;
@@ -59,6 +60,7 @@ export class NativeEditorSessionController {
   private recoveredProject: AuthoringProject | null = null;
   private recoveryFailure: string | null = null;
   private assetStaging: NativeAssetStagingService | null = null;
+  private readonly workingSourcePublisher: NativeWorkingSourcePublisher;
 
   constructor(
     private readonly authority: Pick<
@@ -91,6 +93,7 @@ export class NativeEditorSessionController {
       'readResult' | 'write'
     > = new NativeDirtyCheckpointStore(),
   ) {
+    this.workingSourcePublisher = new NativeWorkingSourcePublisher(200, this.sourceRevisionFor());
     this.unsubscribeFailure = bridge.onFailure((error) => {
       const sessionId = this.activeId;
       if (!sessionId) return;
@@ -146,6 +149,23 @@ export class NativeEditorSessionController {
     }
     if (generation !== this.generation || !this.isAdmitted(projectSessionId))
       throw new Error('Native Project was superseded during recovery checkpoint publication.');
+    const nativeSnapshot = this.working.snapshot();
+    if (nativeSnapshot && Array.isArray(nativeSnapshot.dirtyPatches))
+      this.workingSourcePublisher.schedule(root, projectId, nativeSnapshot, checkpoint);
+  }
+
+  /** Flush publisher without treating agent-modified files as native or saved Project content. */
+  async flushWorkingSources(projectSessionId = this.activeId ?? ''): Promise<void> {
+    if (!this.isAdmitted(projectSessionId))
+      throw new Error('Working-source publication requires the admitted Project session.');
+    await this.checkpointWrites;
+    await this.workingSourcePublisher.flush();
+    if (!this.isAdmitted(projectSessionId))
+      throw new Error('Working-source publication completed for a superseded Project.');
+  }
+
+  workingSourcePublicationError(): string | null {
+    return this.workingSourcePublisher.error;
   }
 
   private projectIdentity: string | null = null;
@@ -194,6 +214,7 @@ export class NativeEditorSessionController {
 
   /** Revoke the native session on replacement, explicit close or failure. */
   close(): void {
+    this.workingSourcePublisher.cancel();
     this.assetStaging?.close();
     this.assetStaging = null;
     this.generation++;
@@ -306,6 +327,20 @@ export class NativeEditorSessionController {
       this.projectIdentity = native.project.id;
       this.assetStaging = new NativeAssetStagingService(root, this.sourceRevisionFor());
       this.activeId = projectSessionId;
+      // Older acknowledged checkpoints may predate working-file publication.
+      // Reopen schedules only the dirty native owners; the publisher must CAS
+      // against any agent-owned bytes already changed while the editor was closed.
+      const recoveredSnapshot = this.working.snapshot();
+      const retained = this.working.dirtyCheckpoint();
+      if (
+        recoveredSnapshot &&
+        Array.isArray(recoveredSnapshot.dirtyPatches) &&
+        (retained.batches.length ||
+          Object.keys(retained.textSources).length ||
+          Object.keys(retained.pendingFields).length ||
+          Object.keys(retained.conflicts).length)
+      )
+        this.workingSourcePublisher.schedule(root, native.project.id, recoveredSnapshot, retained);
       return {
         revision: finalRevision,
         savedProject: native,

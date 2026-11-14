@@ -1,8 +1,8 @@
 # Agent-editable working sources (#624)
 
-**Status:** contract and fixtures fixed by #624; publication, import, observation and
-validation are implemented separately by #625–#629. No part of this document claims
-that the editor currently publishes these files. [ADR 0002](../../adr/0002-agent-editable-working-sources.md)
+**Status:** contract fixed by #624; source publication is implemented by #625.
+Offline import, observation, standalone validation and prompt integration are
+tracked separately in #626–#629. [ADR 0002](../../adr/0002-agent-editable-working-sources.md)
 records why the interface is file-backed.
 
 ## Authority and layout
@@ -89,8 +89,9 @@ Each entry has `representation: file | deleted | pending-only`,
 `publishedRevision` (SHA-256 of last published source bytes or tombstone;
 null for pending-only), `pendingRevision` (SHA-256 of pending JSON bytes or
 null), `diskRevision` (native exact-byte `xxh3-128:<32 hex>` or `absent`),
-`checkpointRevision` (SHA-256 of the acknowledged checkpoint bytes used for
-this entry), and `localStateRevision` (SHA-256 of renderer local-state bytes
+`checkpointRevision` (SHA-256 of the owner-specific serialized acknowledged
+checkpoint evidence, not a hash of every unrelated dirty owner), and
+`localStateRevision` (SHA-256 of renderer local-state bytes
 when they contribute a pending draft; otherwise null). All entries must
 identify the same admitted Project; root/identity must match before import.
 Unknown shapes and missing revisions fail closed. File bytes are compared, never

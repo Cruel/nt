@@ -10,7 +10,10 @@ Before editing NovelTea project content:
 2. Read \`.noveltea/agent/GUIDE.md\` and follow its routing to the focused generated docs for the task.
 
 \`.noveltea/agent/GUIDE.md\` is the authoritative entrypoint for NovelTea authoring guidance.
-\`.noveltea/\` is generated, ignored local state. Do not edit it as project source.`;
+\`.noveltea/\` is generated, ignored local state. Do not edit its internal recovery
+files. For an explicitly diagnosed unsaved editor source, the only editable
+exception is \`.noveltea/editor/working/files/<Project-relative-source-path>\`;
+see the generated Guide before changing working-source files.`;
 
 export const NOVELTEA_PROJECT_AGENTS_MANAGED_BLOCK = `${NOVELTEA_AGENT_BOOTSTRAP_START}
 ${bootstrapBody}

@@ -143,6 +143,8 @@ interface NovelTeaElectronApiContract {
   ): Promise<
     import('../main/services/native-authoring-worker-contract').NativeAuthoringPatchResult
   >;
+  /** Flush the current native recovery projection before giving an agent working-source paths. */
+  nativeProjectFlushWorkingSources(projectSessionId: string): Promise<void>;
   nativeProjectValidate(
     projectSessionId: string,
     expectedRevision: number,
