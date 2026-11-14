@@ -167,8 +167,8 @@ ProjectSession::prepare_working(std::uint64_t expected_revision, std::string_vie
                 // it cannot disappear when the invalid working snapshot omits
                 // it from the normalized aggregate. The renderer overlays only
                 // the native B->L draft patches for editing, never for runtime.
-                if (separator != std::string::npos && owner != "editor" &&
-                    owner != "traits" && !owner.starts_with("i18n/")) {
+                if (separator != std::string::npos && owner != "editor" && owner != "traits" &&
+                    !owner.starts_with("i18n/")) {
                     if (!changed.contains(family))
                         changed.insert_or_assign(family, Json::object());
                     changed[family].insert_or_assign(id,

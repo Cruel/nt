@@ -309,6 +309,30 @@ it does not execute Lua or guarantee successful runtime execution. Room pre-comm
 is a static rule and is checked during validation. Compiled Project admission remains a separate
 runtime boundary, and dynamic hook/capability failures are diagnosed when exercised.
 
+### Validate unsaved working sources (#628)
+
+`noveltea validate --working --json --project <directory>` explicitly validates the
+editor-published, unsaved working-source projection **without opening the editor,
+saving the Project, or changing any tracked file**. Omit `--working` to validate
+saved Project files exactly as before. The standalone CLI works even when the
+editor is closed; an active editor must first flush its working-source projection
+to make the latest acknowledged edits available.
+
+The CLI verifies the working manifest's Project identity, the native recovery
+checkpoint, each represented physical owner's saved-source revision and immutable
+baseline, then validates a disposable read-only composition through the normal
+native validation pipeline. Diagnostics in represented YAML files identify their
+repairable `.noveltea/editor/working/files/<physical path>` location. Valid
+saved Project content that has no corresponding working-file override is retained
+in the validation view, so cross-owner references are still checked. No editor
+IPC, daemon session, or separate validation schema is required.
+
+Pending editor input that cannot be represented as authored source, missing or
+corrupt evidence, stale physical source revisions, unsafe paths, and simultaneous
+file/deletion markers result in a non-success diagnostic rather than a misleading
+clean result. This command does not import or reconcile an agent's edits into
+the native checkpoint, and does not certify compiled runtime behavior.
+
 For single authored Tests and stdin `run-spec`/`run-ui-spec`, `native.report.passed` is the Test
 verdict. A false verdict produces `success:false`, exit code `6`, and `native.test.failed`, while
 retaining the full native report. Native `ok:true` means playback produced a report, not that the

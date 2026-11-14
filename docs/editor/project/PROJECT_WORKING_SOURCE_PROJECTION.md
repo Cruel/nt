@@ -2,7 +2,8 @@
 
 **Status:** contract fixed by #624; source publication is implemented by #625,
 cold-Project admission by #626, and live working-file observation by #627.
-Standalone validation and prompt integration are tracked in #628–#629.
+Standalone working-source validation is implemented by #628; prompt integration
+is tracked in #629.
 [ADR 0002](../../adr/0002-agent-editable-working-sources.md)
 records why the interface is file-backed.
 
@@ -161,13 +162,26 @@ import and native conflict UI as offline edits. A late watcher event may never
 target a different Project session.
 
 Standalone `noveltea validate` continues to validate saved Project files by
-default. The explicit working-source validation mode planned in #628 must read
-the manifest and only its represented owners, overlay them onto a read-only
-native validation view, and report source-located errors (including invalid
-raw text and unresolved pending drafts). It must neither require a live editor
-nor import, acknowledge, Save or rewrite the projection. If identity, baseline
-or source revisions cannot be verified, return an indeterminate/failure result
-rather than a false successful validation of just the saved Project.
+default. `noveltea validate --working` verifies the native checkpoint, manifest
+Project identity, immutable baseline blobs and represented owners' exact saved
+source revisions before composing the manifest-proven working files over a
+disposable read-only Project copy. It runs the *existing native CLI validation*
+against that view and maps diagnostics to the repairable working-source path.
+This process requires no editor, does not call the daemon or native editor IPC,
+and never imports, acknowledges, Saves or rewrites the original projection.
+Malformed raw YAML is reported at its working-source location. Unrepresentable
+pending field/draft text, conflicting files and deletion markers, untrusted
+checkpoint or baseline evidence, stale source revisions and concurrent writes
+return non-success instead of falsely validating only saved Project files.
+The native CLI remains usable when no working manifest exists and the native
+recovery checkpoint contains no dirty state.
+
+The standalone certification `pnpm -C editor noveltea:certify:native-cli-working`
+tests a relocated native CLI against a copied Feature Lab Project, covering a
+clean Project, acknowledged dirty YAML, malformed working YAML and its
+diagnostic location, an external repair, a missing publication after native
+checkpoint, stale saved source bytes, damaged immutable baseline, foreign
+Project identity, pending text, orphaned artifacts, and working-file symlinks.
 
 **Save/Save All:** first reconcile observed external working edits. Save only
 requested safe logical Save units using native source CAS; let independent units

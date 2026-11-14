@@ -8,6 +8,7 @@
 #include "native_cli_media.hpp"
 #include "native_cli_platform.hpp"
 #include "native_cli_test_catalog.hpp"
+#include "native_cli_working_view.hpp"
 #include "tooling_native_project_asset.hpp"
 #include "tooling_native_project_shader_validation.hpp"
 #include "native_compiled_project.hpp"
@@ -1745,7 +1746,8 @@ int inspect(const Arguments& args)
     return emit(std::move(result), args.json, human.dump(2));
 }
 
-int project_read(const Arguments& args, std::string action)
+int project_read(const Arguments& args, std::string action,
+                 const WorkingValidationView* working_view = nullptr)
 {
     Json request{{"action", action}};
     if (action == "project-validate") {
@@ -2066,13 +2068,34 @@ int project_read(const Arguments& args, std::string action)
                 return item.value("code", std::string{}).starts_with("native.");
             });
         valid = valid && !errors;
-        Json output{{"success", valid},
-                    {"exitCode", valid          ? 0
-                                 : workspace    ? 3
-                                 : native_error ? 6
-                                                : 4},
-                    {"diagnostics", diagnostics},
-                    {"projectRoot", root_text}};
+        if (working_view) {
+            if (const auto stale = working_view->stale_reason())
+                return failure(args.json, 5, "WORKING_SOURCE_CHANGED", "/.noveltea/editor/working",
+                               *stale, *stale);
+            for (auto& item : diagnostics) {
+                if (!item.contains("sourceUrl") || !item.at("sourceUrl").is_string())
+                    continue;
+                const auto source = item.at("sourceUrl").get<std::string>();
+                if (!source.starts_with("project:/"))
+                    continue;
+                const auto relative = source.substr(9);
+                if (working_view->overlays.contains(relative))
+                    item["sourceUrl"] = "project:/.noveltea/editor/working/files/" + relative;
+                else if (working_view->deletions.contains(relative))
+                    item["sourceUrl"] =
+                        "project:/.noveltea/editor/working/deletions/" + relative + ".delete.json";
+            }
+        }
+        Json output{
+            {"success", valid},
+            {"exitCode", valid          ? 0
+                         : workspace    ? 3
+                         : native_error ? 6
+                                        : 4},
+            {"diagnostics", diagnostics},
+            {"projectRoot", working_view ? path_text(working_view->original_root) : root_text}};
+        if (working_view)
+            output["working"] = true;
         if (profile_work && work_profile.is_object())
             output["validationWork"] = std::move(work_profile);
         return emit(output, args.json,
@@ -2687,7 +2710,8 @@ int run(const std::vector<std::string>& argv)
             (family == "agent" &&
              std::find(args.command.begin(), args.command.end(), "--fix") != args.command.end());
         const bool owner_command =
-            family == "validate" || family == "usages" || family == "fmt" ||
+            (family == "validate" && args.command.size() == 1) || family == "usages" ||
+            family == "fmt" ||
             (family == "entity" && (operation == "inspect" || operation == "create" ||
                                     operation == "rename" || operation == "delete")) ||
             (family == "asset" && (operation == "audit" || operation == "import")) ||
@@ -3335,8 +3359,31 @@ int run(const std::vector<std::string>& argv)
                                            native_disposable_comfyui_hooks(args.json));
             return emit(result.envelope, args.json, result.human);
         }
-        if (family == "validate")
-            return project_read(args, "project-validate");
+        if (family == "validate") {
+            if (args.command.size() == 1)
+                return project_read(args, "project-validate");
+            if (args.command.size() != 2 || args.command[1] != "--working")
+                return usage(args.json, "Usage: noveltea validate [--working]");
+            const auto root = project_root(args.project);
+            if (root.empty())
+                return missing_project(args);
+            try {
+                auto view = WorkingValidationView::prepare(root);
+                Arguments local = args;
+                local.command = {"validate"};
+                local.no_daemon = true;
+                local.project = path_text(view ? view->view_root : root);
+                if (view)
+                    return project_read(local, "project-validate", &*view);
+                WorkingValidationView empty_view;
+                empty_view.original_root = root;
+                return project_read(local, "project-validate", &empty_view);
+            } catch (const WorkingViewError& error) {
+                return failure(args.json, error.exit_code, error.code,
+                               "/.noveltea/editor/working/" + error.owner, error.what(),
+                               error.what());
+            }
+        }
         if (family == "shaders" && operation == "compile")
             return shaders_compile(args);
         if (family == "test")

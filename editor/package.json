@@ -55,6 +55,7 @@
     "noveltea:certify:native-cli-performance": "node scripts/certify-native-cli-performance.mjs",
     "noveltea:certify:native-editor-performance": "node scripts/certify-native-editor-performance.mjs",
     "noveltea:certify:native-cli-project-routing": "node scripts/certify-native-cli-project-routing.mjs",
+    "noveltea:certify:native-cli-working": "node scripts/certify-native-cli-working.mjs",
     "noveltea:certify:native-cli-lifecycle": "node scripts/certify-native-cli-lifecycle.mjs",
     "noveltea:certify:native-cli-package": "node scripts/certify-native-cli-package.mjs",
     "noveltea:certify:native-cli-platform": "node scripts/certify-native-cli-platform.mjs",
