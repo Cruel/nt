@@ -179,6 +179,32 @@ describe('candidate repair renderer buffer', () => {
     );
   });
 
+  it('loads a disk comparison automatically when an explicit Save hits stale CAS', async () => {
+    const external = {
+      ...initial,
+      text: 'externally changed manifest',
+      revision: `sha256:${'d'.repeat(64)}`,
+    };
+    const read = vi
+      .spyOn(window.noveltea, 'readRepairCandidate')
+      .mockResolvedValueOnce(initial)
+      .mockResolvedValue(external);
+    vi.spyOn(window.noveltea, 'saveRepairCandidate').mockRejectedValue(
+      new Error('Manifest changed on disk.'),
+    );
+    const store = useCandidateRepairStore.getState();
+    store.register('repair-stale', initial.root, 'strong', []);
+    await store.load('repair-stale');
+    store.setBuffer('repair-stale', 'my unsaved repair');
+    expect(await store.save('repair-stale')).toBe(false);
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(useCandidateRepairStore.getState().entries['repair-stale']).toMatchObject({
+      buffer: 'my unsaved repair',
+      diskText: external.text,
+      diskSource: external,
+    });
+  });
+
   it('retains later typing after an in-flight source Save finishes', async () => {
     let acknowledge!: (value: CandidateRepairSource) => void;
     vi.spyOn(window.noveltea, 'readRepairCandidate').mockResolvedValue(initial);

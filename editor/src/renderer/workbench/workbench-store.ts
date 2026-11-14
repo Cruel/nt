@@ -53,6 +53,7 @@ interface WorkbenchStore extends WorkbenchState {
   closeTab: (groupId: string, tabId: string) => void;
   closeTabs: (groupId: string, tabIds: string[]) => void;
   discardTabs: (groupId: string, tabIds: string[]) => void;
+  discardRepairCandidateTabs: (candidateIds: string[]) => void;
   closeOtherTabs: (groupId: string, tabId: string) => void;
   closeTabsToRight: (groupId: string, tabId: string) => void;
   closeAllTabsInGroup: (groupId: string) => void;
@@ -201,6 +202,29 @@ export const useWorkbenchStore = create<WorkbenchStore>()((set, get) => ({
       next.recentlyClosedTabs = next.recentlyClosedTabs.filter(
         (entry) => !discarded.has(entry.tab.id),
       );
+      pruneWorkbenchTabStates(tabStateKeepIds(next));
+      return toStoreState(next);
+    }),
+  discardRepairCandidateTabs: (candidateIds) =>
+    set((state) => {
+      const ids = new Set(candidateIds);
+      if (ids.size === 0) return state;
+      const matches = (tab: WorkbenchTab) =>
+        tab.editorType === 'candidate-repair' &&
+        !!tab.resource?.sourceId &&
+        ids.has(tab.resource.sourceId);
+      let next: WorkbenchState = state;
+      for (const group of Object.values(state.groupsById)) {
+        const tabIds = group.tabIds.filter((tabId) => {
+          const tab = next.tabsById[tabId];
+          return tab && matches(tab);
+        });
+        if (tabIds.length > 0) next = closeWorkbenchTabs(next, group.id, tabIds);
+      }
+      next = {
+        ...next,
+        recentlyClosedTabs: next.recentlyClosedTabs.filter((entry) => !matches(entry.tab)),
+      };
       pruneWorkbenchTabStates(tabStateKeepIds(next));
       return toStoreState(next);
     }),

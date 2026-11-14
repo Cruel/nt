@@ -67,6 +67,7 @@ import {
 } from '@/project/project-save-coordinator';
 import { flushNativeProjectSources, useProjectSourceStore } from '@/project/project-source-store';
 import { useCandidateRepairStore } from '@/project/candidate-repair-store';
+import { useRepairPromptStore } from '@/project/repair-prompt-store';
 import { selectProjectDirty, useProjectStore } from '@/project/project-store';
 import { MUTATION_SURFACE_ATTRIBUTIONS, resolveSaveUnitForTab } from '@/project/save-unit-registry';
 import { usePreferencesStore } from '@/stores/preferences-store';
@@ -111,10 +112,11 @@ import { useRecentProjectsStore } from '@/workspace/recent-projects-store';
 import {
   dispatchWorkspaceToolbarCommand,
   WORKSPACE_TOOLBAR_COMMAND_EVENT,
+  beginProjectOpenRequest,
   type WorkspaceToolbarCommandDetail,
 } from '@/workspace/workspace-toolbar-events';
 import { createFileRoute } from '@tanstack/react-router';
-import { LoaderCircle } from 'lucide-react';
+import { LoaderCircle, Sparkles } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Group, Panel, usePanelRef } from 'react-resizable-panels';
@@ -212,6 +214,40 @@ interface WorkspaceAlert {
   title: string;
   message: string;
   repairCandidateId?: string;
+  diagnostics?: ToolDiagnostic[];
+  actionError?: string;
+}
+
+/** Keep the actionable source error, not the repeated native admission wrapper. */
+function projectOpenDiagnosticDetails(diagnostics: readonly ToolDiagnostic[]) {
+  const hasSourceLocation = diagnostics.some(
+    (diagnostic) => diagnostic.sourcePath && diagnostic.line,
+  );
+  const seen = new Set<string>();
+  const details: { message: string; location: string | null }[] = [];
+
+  for (const diagnostic of diagnostics) {
+    if (
+      hasSourceLocation &&
+      !diagnostic.line &&
+      /^(?:Error:\s*)?Native Project open failed:\s*Invalid Project manifest YAML:\s*Invalid YAML document\.?/iu.test(
+        diagnostic.message,
+      )
+    )
+      continue;
+    const message =
+      diagnostic.category === 'Project source syntax' && diagnostic.line
+        ? diagnostic.message.replace(/ at line \d+, column \d+:[\s\S]*$/u, '').trim()
+        : diagnostic.message.trim();
+    const location = diagnostic.sourcePath
+      ? `${diagnostic.sourcePath}${diagnostic.line ? `:${diagnostic.line}${diagnostic.column ? `:${diagnostic.column}` : ''}` : ''}`
+      : null;
+    const identity = JSON.stringify([message, location]);
+    if (!message || seen.has(identity)) continue;
+    seen.add(identity);
+    details.push({ message, location });
+  }
+  return details;
 }
 
 export function WorkspacePage() {
@@ -219,6 +255,7 @@ export function WorkspacePage() {
   const [, setBusy] = useState(false);
   const [projectOpening, setProjectOpening] = useState(false);
   const [alert, setAlert] = useState<WorkspaceAlert | null>(null);
+  const [candidateAiOpening, setCandidateAiOpening] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [newProjectOpen, setNewProjectOpen] = useState(false);
   const [newProjectName, setNewProjectName] = useState('New Project');
@@ -793,6 +830,61 @@ export function WorkspacePage() {
     [setStatusMessage],
   );
 
+  async function openCandidateAiRepair() {
+    const id = alert?.repairCandidateId;
+    if (!id || candidateAiOpening) return;
+    setCandidateAiOpening(true);
+    try {
+      await useCandidateRepairStore.getState().load(id);
+      // The candidate observer may already be loading the same source. Wait
+      // for its result rather than building a prompt with an unknown revision.
+      if (useCandidateRepairStore.getState().entries[id]?.loading)
+        await new Promise<void>((resolve) => {
+          const unsubscribe = useCandidateRepairStore.subscribe((state) => {
+            if (!state.entries[id]?.loading) {
+              unsubscribe();
+              resolve();
+            }
+          });
+          if (!useCandidateRepairStore.getState().entries[id]?.loading) {
+            unsubscribe();
+            resolve();
+          }
+        });
+      const candidate = useCandidateRepairStore.getState().entries[id];
+      if (
+        !candidate?.source ||
+        candidate.admitted ||
+        candidate.diagnosticsNeedRefresh ||
+        candidate.buffer !== candidate.source.text ||
+        !useRepairPromptStore.getState().request({ kind: 'candidate', id, scope: 'errors' })
+      ) {
+        setAlert((current) =>
+          current?.repairCandidateId === id
+            ? {
+                ...current,
+                actionError: candidate?.error ?? t('candidateRepair.errors.aiUnavailable'),
+              }
+            : current,
+        );
+        return;
+      }
+      setAlert(null);
+    } catch (error) {
+      setAlert((current) =>
+        current?.repairCandidateId === id
+          ? {
+              ...current,
+              actionError:
+                error instanceof Error ? error.message : t('candidateRepair.errors.aiUnavailable'),
+            }
+          : current,
+      );
+    } finally {
+      setCandidateAiOpening(false);
+    }
+  }
+
   async function closeProject() {
     if (!(await flushProjectEditorMetadata('close-project'))) return;
     if (projectSessionId) await window.noveltea.stopProjectWorkspaceWatcher(projectSessionId);
@@ -832,6 +924,7 @@ export function WorkspacePage() {
     projectPathOverride?: string,
     readyCandidate?: { repairCandidateId: string; readyRevision: string },
   ) {
+    beginProjectOpenRequest();
     const dir = projectPathOverride ?? (await window.noveltea.selectProjectDirectory());
     if (!dir) return;
     setProjectOpening(true);
@@ -882,11 +975,11 @@ export function WorkspacePage() {
             ? 'This project was created with an older or unsupported NovelTea format and cannot be opened by this version of the editor.'
             : (reason ?? 'The Project could not be admitted. Its source files were not changed.'),
           repairCandidateId: loaded.repairCandidateId,
+          diagnostics: loaded.repairCandidateId ? loaded.diagnostics : undefined,
         });
         return;
       }
       candidateAdmitted = true;
-      useCandidateRepairStore.getState().revokeRoot(loaded.projectPath);
       await cancelAndClearComfyUiProjectJobs(projectFilePath);
       let reconstructed = reconstructEditorProject(
         toJsonValue(loaded.savedContentProject ?? loaded.contentProject),
@@ -941,6 +1034,14 @@ export function WorkspacePage() {
       );
       if (loaded.nativeWorkingRevision !== undefined)
         useCommandStore.getState().enableNativeCommandMode(loaded.nativeWorkingRevision);
+      // A successfully opened Project supersedes its temporary raw repair
+      // views and candidate-only diagnostics; unrelated candidates remain.
+      const admittedCandidates = Object.values(useCandidateRepairStore.getState().entries)
+        .filter((entry) => entry.root === loaded.projectPath)
+        .map((entry) => entry.id);
+      useCandidateRepairStore.getState().revokeRoot(loaded.projectPath);
+      useWorkbenchStore.getState().discardRepairCandidateTabs(admittedCandidates);
+      for (const id of admittedCandidates) useCandidateRepairStore.getState().release(id);
       refreshRecentProjectEntry(
         reconstructed.workingDocument,
         loaded.projectPath,
@@ -1804,8 +1905,10 @@ export function WorkspacePage() {
     const activeCandidate = selected ? activeWorkbench.tabsById[selected] : undefined;
     if (activeCandidate?.editorType === 'candidate-repair') {
       const id = activeCandidate.resource?.sourceId;
-      const success = id ? await useCandidateRepairStore.getState().save(id) : false;
-      setStatusMessage(success ? t('candidateRepair.saved') : t('candidateRepair.saveFailed'));
+      const success = id
+        ? await useCandidateRepairStore.getState().saveAndOpen(id, activeCandidate.id)
+        : false;
+      setStatusMessage(t(success ? 'candidateRepair.saved' : 'candidateRepair.saveFailed'));
       return success;
     }
     if (!project) return false;
@@ -2034,7 +2137,7 @@ export function WorkspacePage() {
         toggleTerminalPanel();
         return;
       }
-      const target = event.target as HTMLElement | null;
+      const target = event.target instanceof HTMLElement ? event.target : null;
       const insideTerminal = !!target?.closest('[data-terminal-panel]');
       if (insideTerminal) return;
       if (event.key.toLowerCase() === 'n') {
@@ -2813,29 +2916,32 @@ export function WorkspacePage() {
       >
         <DialogPopup>
           <DialogTitle>{alert?.title ?? 'Workspace warning'}</DialogTitle>
-          <DialogDescription>{alert?.message}</DialogDescription>
+          <DialogDescription>
+            {alert?.repairCandidateId
+              ? (projectOpenDiagnosticDetails(alert.diagnostics ?? [])[0]?.message ?? alert.message)
+              : alert?.message}
+          </DialogDescription>
           {alert?.repairCandidateId ? (
-            <div className="space-y-2 text-xs">
-              {useCandidateRepairStore
-                .getState()
-                .entries[alert.repairCandidateId]?.diagnostics.map((diagnostic, index) => (
-                  <div key={index} className="rounded border p-2">
-                    <div>{diagnostic.message}</div>
-                    <div className="font-mono text-muted-foreground">
-                      {diagnostic.sourcePath ?? diagnostic.path}
-                      {diagnostic.line
-                        ? `:${diagnostic.line}${diagnostic.column ? `:${diagnostic.column}` : ''}`
-                        : ''}
-                    </div>
-                  </div>
-                ))}
+            <div className="space-y-2 text-xs text-muted-foreground">
+              {projectOpenDiagnosticDetails(alert.diagnostics ?? []).map((detail, index) => (
+                <div key={index} className="space-y-1">
+                  {index > 0 ? <p className="text-foreground">{detail.message}</p> : null}
+                  {detail.location ? <p className="font-mono">{detail.location}</p> : null}
+                </div>
+              ))}
             </div>
           ) : null}
-          <div className="flex justify-end">
+          {alert?.actionError ? (
+            <p role="alert" className="text-xs text-destructive">
+              {alert.actionError}
+            </p>
+          ) : null}
+          <div className="flex justify-end gap-2">
             {alert?.repairCandidateId ? (
               <Button
                 size="sm"
-                variant="default"
+                variant="outline"
+                disabled={candidateAiOpening}
                 onClick={() => {
                   const id = alert.repairCandidateId!;
                   const candidate = useCandidateRepairStore.getState().entries[id];
@@ -2856,12 +2962,23 @@ export function WorkspacePage() {
                   setAlert(null);
                 }}
               >
-                {t('candidateRepair.fixIt')}
+                {t('candidateRepair.manualEdit')}
               </Button>
             ) : null}
-            <Button size="sm" onClick={() => setAlert(null)}>
-              OK
-            </Button>
+            {alert?.repairCandidateId ? (
+              <Button
+                size="sm"
+                disabled={candidateAiOpening}
+                onClick={() => void openCandidateAiRepair()}
+              >
+                {t('candidateRepair.fixWithAi')}
+                <Sparkles data-icon="inline-end" aria-hidden="true" />
+              </Button>
+            ) : (
+              <Button size="sm" onClick={() => setAlert(null)}>
+                OK
+              </Button>
+            )}
           </div>
         </DialogPopup>
       </Dialog>

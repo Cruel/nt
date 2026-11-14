@@ -1,4 +1,10 @@
 import { create } from 'zustand';
+import { useProjectStore } from './project-store';
+import { useWorkbenchStore } from '@/workbench/workbench-store';
+import {
+  currentProjectOpenRequestGeneration,
+  dispatchWorkspaceToolbarCommand,
+} from '@/workspace/workspace-toolbar-events';
 import type { ToolDiagnostic } from '../../shared/editor-tooling';
 import type {
   CandidateRepairSource,
@@ -11,6 +17,9 @@ export interface CandidateRepairEntry {
   recognition: 'strong' | 'weak';
   diagnostics: ToolDiagnostic[];
   diagnosticsNeedRefresh?: boolean;
+  /** Locally parsed syntax errors for this exact unsaved buffer, not disk validation. */
+  syntaxText?: string;
+  syntaxDiagnostics?: ToolDiagnostic[];
   source?: CandidateRepairSource;
   buffer?: string;
   diskText?: string;
@@ -18,6 +27,7 @@ export interface CandidateRepairEntry {
   error?: string;
   loading?: boolean;
   saving?: boolean;
+  validatingAfterSave?: boolean;
   admitted?: boolean;
   status?: CandidateRepairStatus;
 }
@@ -33,15 +43,39 @@ interface CandidateRepairStore {
     diagnostics: ToolDiagnostic[],
   ) => void;
   load: (id: string, refresh?: boolean, validatedGeneration?: number) => Promise<void>;
-  observe: (id: string) => Promise<void>;
+  observe: (id: string) => Promise<CandidateRepairStatus | null>;
   applyStatus: (status: CandidateRepairStatus) => void;
   setBuffer: (id: string, text: string) => void;
+  setSyntaxDiagnostics: (id: string, text: string, diagnostics: ToolDiagnostic[]) => void;
   useDisk: (id: string) => void;
   save: (id: string) => Promise<boolean>;
+  saveAndOpen: (id: string, tabId: string) => Promise<boolean>;
 }
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** The Problems panel and YAML editor must display the same text revision.
+ * Native checks are authoritative for the saved candidate, while local YAML
+ * parsing gives provisional feedback for the unsaved buffer. */
+export function candidateVisibleDiagnostics(entry: CandidateRepairEntry): ToolDiagnostic[] {
+  const dirty = Boolean(entry.source && entry.buffer !== entry.source.text);
+  const currentSyntax =
+    entry.syntaxText === entry.buffer && entry.syntaxDiagnostics ? entry.syntaxDiagnostics : null;
+  const native = entry.diagnosticsNeedRefresh
+    ? []
+    : entry.diagnostics.filter(
+        (item) =>
+          item.category !== 'Project source syntax' &&
+          (!dirty || (item.sourcePath !== undefined && item.sourcePath !== 'project.yaml')),
+      );
+  // Keep independently diagnosed saved files visible while editing the
+  // manifest; only manifest errors and generic native admission wrappers
+  // become stale when its local buffer changes.
+  if (currentSyntax) return [...currentSyntax, ...native];
+  if (dirty || entry.diagnosticsNeedRefresh) return native;
+  return entry.diagnostics;
 }
 
 export const useCandidateRepairStore = create<CandidateRepairStore>()((set, get) => ({
@@ -79,6 +113,7 @@ export const useCandidateRepairStore = create<CandidateRepairStore>()((set, get)
     try {
       const status = await window.noveltea.observeRepairCandidate(id);
       if (status) get().applyStatus(status);
+      return status;
     } catch (error) {
       set((state) => {
         const entry = state.entries[id];
@@ -86,6 +121,7 @@ export const useCandidateRepairStore = create<CandidateRepairStore>()((set, get)
           ? { entries: { ...state.entries, [id]: { ...entry, error: errorMessage(error) } } }
           : state;
       });
+      return null;
     }
   },
   applyStatus: (status) => {
@@ -165,7 +201,20 @@ export const useCandidateRepairStore = create<CandidateRepairStore>()((set, get)
   setBuffer: (id, buffer) =>
     set((state) => {
       const entry = state.entries[id];
-      return entry ? { entries: { ...state.entries, [id]: { ...entry, buffer } } } : state;
+      if (!entry || entry.buffer === buffer) return state;
+      return { entries: { ...state.entries, [id]: { ...entry, buffer } } };
+    }),
+  setSyntaxDiagnostics: (id, text, diagnostics) =>
+    set((state) => {
+      const entry = state.entries[id];
+      // A scheduled parse may finish after another edit, disk refresh or close.
+      if (!entry || entry.admitted || entry.buffer !== text) return state;
+      return {
+        entries: {
+          ...state.entries,
+          [id]: { ...entry, syntaxText: text, syntaxDiagnostics: diagnostics },
+        },
+      };
     }),
   useDisk: (id) =>
     set((state) => {
@@ -187,6 +236,143 @@ export const useCandidateRepairStore = create<CandidateRepairStore>()((set, get)
         },
       };
     }),
+  saveAndOpen: async (id, tabId) => {
+    const entry = get().entries[id];
+    if (
+      !entry?.source ||
+      entry.buffer === undefined ||
+      entry.saving ||
+      entry.validatingAfterSave ||
+      entry.diskSource ||
+      entry.admitted
+    )
+      return false;
+
+    // A physical Save explicitly authorizes admission of this candidate, but
+    // neither a background watcher check nor a later tab/project switch does.
+    const text = entry.buffer;
+    const hasUnsavedEdits = text !== entry.source.text;
+    const generation = entry.status?.generation ?? -1;
+    const openRequestGeneration = currentProjectOpenRequestGeneration();
+    const sameOpenRequest = () => currentProjectOpenRequestGeneration() === openRequestGeneration;
+    const projectBefore = useProjectStore.getState();
+    const sameProject = () => {
+      const current = useProjectStore.getState();
+      return (
+        current.projectInstanceId === projectBefore.projectInstanceId &&
+        current.projectSessionId === projectBefore.projectSessionId &&
+        current.projectPath === projectBefore.projectPath &&
+        current.projectFilePath === projectBefore.projectFilePath
+      );
+    };
+    const sameTab = () => {
+      const state = useWorkbenchStore.getState();
+      return (
+        state.tabsById[tabId]?.resource?.sourceId === id &&
+        state.groupsById[state.activeGroupId]?.activeTabId === tabId
+      );
+    };
+    if (!sameTab()) return false;
+    let abandoned = false;
+    const cancelIfMoved = () => {
+      if (!sameProject() || !sameTab() || !sameOpenRequest()) abandoned = true;
+    };
+    const unsubscribeProject = useProjectStore.subscribe(cancelIfMoved);
+    const unsubscribeTabs = useWorkbenchStore.subscribe(cancelIfMoved);
+    try {
+      if (
+        (hasUnsavedEdits && !(await get().save(id))) ||
+        abandoned ||
+        !sameProject() ||
+        !sameTab() ||
+        !sameOpenRequest()
+      )
+        return false;
+      const saved = get().entries[id];
+      if (
+        !saved ||
+        saved.source?.text !== text ||
+        saved.buffer !== text ||
+        saved.diskSource ||
+        saved.error
+      )
+        return false;
+
+      // Native readiness already reflects the saved source tree. For a clean
+      // candidate, reuse its revision-bound token rather than repeating a
+      // full native validation. Main independently verifies the fingerprint
+      // before admission; local YAML syntax alone never grants readiness.
+      const ready = !hasUnsavedEdits && !saved.diagnosticsNeedRefresh ? saved.status : undefined;
+      if (ready?.ready && ready.revision && ready.id === id) {
+        dispatchWorkspaceToolbarCommand({
+          command: 'open-project',
+          projectPath: entry.root,
+          repairCandidateId: id,
+          readyRevision: ready.revision,
+        });
+        return true;
+      }
+
+      set((state) => {
+        const current = state.entries[id];
+        return current
+          ? { entries: { ...state.entries, [id]: { ...current, validatingAfterSave: true } } }
+          : state;
+      });
+      let checked = await get().observe(id);
+      const afterFirstCheck = get().entries[id];
+      if (
+        !checked &&
+        !abandoned &&
+        sameProject() &&
+        sameTab() &&
+        sameOpenRequest() &&
+        afterFirstCheck?.source?.text === text &&
+        afterFirstCheck.buffer === text &&
+        !afterFirstCheck.error &&
+        !afterFirstCheck.diskSource
+      )
+        checked = await get().observe(id);
+      const current = get().entries[id];
+      if (
+        abandoned ||
+        !sameProject() ||
+        !sameTab() ||
+        !sameOpenRequest() ||
+        !checked?.ready ||
+        !checked.revision ||
+        checked.id !== id ||
+        (hasUnsavedEdits ? checked.generation <= generation : checked.generation < generation) ||
+        !current ||
+        current.admitted ||
+        current.saving ||
+        current.diskSource ||
+        current.error ||
+        current.source?.text !== text ||
+        current.buffer !== text ||
+        current.diagnosticsNeedRefresh ||
+        current.status?.generation !== checked.generation ||
+        current.status.revision !== checked.revision
+      )
+        return true; // The physical Save succeeded even when admission is not ready.
+      dispatchWorkspaceToolbarCommand({
+        command: 'open-project',
+        projectPath: entry.root,
+        repairCandidateId: id,
+        readyRevision: checked.revision,
+      });
+      return true;
+    } finally {
+      set((state) => {
+        const current = state.entries[id];
+        return current
+          ? { entries: { ...state.entries, [id]: { ...current, validatingAfterSave: false } } }
+          : state;
+      });
+      unsubscribeProject();
+      unsubscribeTabs();
+    }
+  },
   save: async (id) => {
     const entry = get().entries[id];
     if (
@@ -241,6 +427,10 @@ export const useCandidateRepairStore = create<CandidateRepairStore>()((set, get)
             }
           : state;
       });
+      // A watcher event is not guaranteed to arrive before stale-CAS refusal.
+      // Refresh the disk comparison automatically; never discard the buffer.
+      if (/manifest changed (?:on disk|during Save)/iu.test(errorMessage(error)))
+        await get().load(id, true);
       return false;
     }
   },

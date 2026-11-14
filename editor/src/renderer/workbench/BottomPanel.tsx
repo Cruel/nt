@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronUp } from 'lucide-react';
+import { ChevronDown, ChevronUp, Sparkles } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
@@ -10,7 +10,10 @@ import {
   resolveRepairDiagnosticTarget,
 } from '@/diagnostics/diagnostic-navigation';
 import { useProjectStore } from '@/project/project-store';
-import { useCandidateRepairStore } from '@/project/candidate-repair-store';
+import {
+  candidateVisibleDiagnostics,
+  useCandidateRepairStore,
+} from '@/project/candidate-repair-store';
 import { useRepairPromptStore } from '@/project/repair-prompt-store';
 import { repairDiagnosticKey, repairDiagnosticOwnerIsDirty } from '@/project/repair-prompt';
 import { useProjectSourceStore } from '@/project/project-source-store';
@@ -131,6 +134,13 @@ function ProblemsPanel() {
       />
       {candidates.map((candidate) => {
         const tab = buildCandidateRepairTab(candidate.id, candidate.root);
+        const candidateDiagnostics = candidateVisibleDiagnostics(candidate);
+        const dirty = Boolean(candidate.source && candidate.buffer !== candidate.source.text);
+        const canFix =
+          !candidate.admitted &&
+          !dirty &&
+          !candidate.diagnosticsNeedRefresh &&
+          candidateDiagnostics.some((diagnostic) => diagnostic.severity === 'error');
         return (
           <div key={candidate.id} className="space-y-1" data-candidate-problems={candidate.id}>
             <div className="flex items-center gap-2">
@@ -143,38 +153,33 @@ function ProblemsPanel() {
                 className="h-7"
                 onClick={() => navigateToWorkbenchTarget({ tab })}
               >
-                {t('candidateRepair.fixIt')}
+                {t('candidateRepair.manualEdit')}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7"
+                disabled={!canFix}
+                title={
+                  dirty || candidate.diagnosticsNeedRefresh
+                    ? t('repairPrompt.candidateRefresh')
+                    : undefined
+                }
+                onClick={() =>
+                  requestPrompt({ kind: 'candidate', id: candidate.id, scope: 'errors' })
+                }
+              >
+                {t('candidateRepair.fixWithAi')}
+                <Sparkles data-icon="inline-end" aria-hidden="true" />
               </Button>
             </div>
-            {!candidate.diagnosticsNeedRefresh &&
-            (!candidate.source || candidate.buffer === candidate.source.text) &&
-            candidate.diagnostics.some((d) => d.severity !== 'info') ? (
-              <div className="flex flex-wrap gap-1">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() =>
-                    requestPrompt({ kind: 'candidate', id: candidate.id, scope: 'all' })
-                  }
-                >
-                  {t('repairPrompt.fixAll')}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={!candidate.diagnostics.some((d) => d.severity === 'error')}
-                  onClick={() =>
-                    requestPrompt({ kind: 'candidate', id: candidate.id, scope: 'errors' })
-                  }
-                >
-                  {t('repairPrompt.fixAllErrors')}
-                </Button>
-              </div>
-            ) : null}
             <DiagnosticList
-              items={candidate.diagnostics.map((item) => ({
+              items={candidateDiagnostics.map((item) => ({
                 ...item,
-                observedAgainst: 'disk' as const,
+                observedAgainst:
+                  dirty && (item.sourcePath === 'project.yaml' || item.path === '/project.yaml')
+                    ? ('working' as const)
+                    : ('disk' as const),
                 target:
                   item.sourcePath && item.sourcePath !== 'project.yaml'
                     ? null
@@ -188,38 +193,6 @@ function ProblemsPanel() {
               }))}
               compact
               showPath={developerMode}
-              fixLabel={t('repairPrompt.fix')}
-              onFix={
-                candidate.diagnosticsNeedRefresh ||
-                (candidate.source && candidate.buffer !== candidate.source.text)
-                  ? undefined
-                  : (_item, index) => {
-                      const diagnostic = candidate.diagnostics[index]!;
-                      if (
-                        !requestPrompt({
-                          kind: 'candidate',
-                          id: candidate.id,
-                          scope: 'one',
-                          selectedKey: repairDiagnosticKey(diagnostic),
-                        })
-                      )
-                        return;
-                      navigateToWorkbenchTarget({
-                        tab,
-                        ...(diagnostic.sourcePath === 'project.yaml'
-                          ? {
-                              target: {
-                                id: 'source.line',
-                                payload: {
-                                  line: diagnostic.line ?? 1,
-                                  column: diagnostic.column ?? 1,
-                                },
-                              },
-                            }
-                          : {}),
-                      });
-                    }
-              }
             />
           </div>
         );

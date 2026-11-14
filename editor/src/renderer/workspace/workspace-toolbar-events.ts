@@ -1,5 +1,18 @@
 export const WORKSPACE_TOOLBAR_COMMAND_EVENT = 'noveltea-workspace-toolbar-command';
 
+// A new user-initiated Open supersedes a pending candidate Save/auto-open,
+// even while the new Project is still loading and the active Project identity
+// has not yet changed.
+let projectOpenRequestGeneration = 0;
+
+export function currentProjectOpenRequestGeneration(): number {
+  return projectOpenRequestGeneration;
+}
+
+export function beginProjectOpenRequest(): void {
+  projectOpenRequestGeneration++;
+}
+
 export type WorkspaceToolbarCommand =
   | 'new-project'
   | 'new-entity'

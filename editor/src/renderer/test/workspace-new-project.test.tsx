@@ -5,6 +5,10 @@ import { useCommandStore } from '@/commands/command-store';
 import { useComfyUiStore } from '@/comfyui/comfyui-store';
 import { useComfyUiQueueStore } from '@/comfyui/comfyui-queue-store';
 import { useProjectStore } from '@/project/project-store';
+import { useCandidateRepairStore } from '@/project/candidate-repair-store';
+import { RepairPromptDialog } from '@/project/RepairPromptDialog';
+import { useRepairPromptStore } from '@/project/repair-prompt-store';
+import { useRepairToolCatalogStore } from '@/project/repair-tool-catalog-store';
 import { defaultComfyUiConfig } from '../../shared/comfyui';
 import {
   authoringProjectSchema,
@@ -26,7 +30,8 @@ import {
 } from '@/workbench/project-editor-state';
 import { toJsonValue } from '@/project/json-value';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
-import { buildProjectSettingsTab } from '@/workbench/editor-registry';
+import { useLocalEditorSessionStore } from '@/workbench/local-editor-session-store';
+import { buildCandidateRepairTab, buildProjectSettingsTab } from '@/workbench/editor-registry';
 import { useRecentProjectsStore } from '@/workspace/recent-projects-store';
 import { WORKSPACE_TOOLBAR_COMMAND_EVENT } from '@/workspace/workspace-toolbar-events';
 import { admitNativeRendererCommandFixture } from '../test-support/native-acknowledged-command-fixture';
@@ -78,6 +83,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
   useProjectStore.getState().clearProject();
+  useCandidateRepairStore.setState({ entries: {} });
+  useRepairPromptStore.setState({ draft: null, visible: false });
   useWorkbenchStore.getState().resetWorkbench();
   useDraftDirtyStore.getState().resetDraftDirty();
   useBottomPanelStore.getState().hydrate({
@@ -1358,6 +1365,330 @@ describe('WorkspacePage new project modal', () => {
       screen.getByText(
         'This project was created with an older or unsupported NovelTea format and cannot be opened by this version of the editor.',
       ),
+    ).toBeInTheDocument();
+  });
+
+  it('shows malformed Project YAML once, with its source location and Fix it action', async () => {
+    const syntaxMessage =
+      'Flow sequence in block collection must be sufficiently indented and end with a ] at line 2268, column 5:\nlocalProperties: [ materialApplication: ^';
+    vi.mocked(window.noveltea.openProject).mockResolvedValue({
+      ok: true,
+      success: false,
+      projectPath: '/mock/invalid-project',
+      projectFilePath: '/mock/invalid-project/project.yaml',
+      repairCandidateId: 'invalid-project-candidate',
+      repairCandidateRecognition: 'strong',
+      diagnostics: [
+        {
+          severity: 'error',
+          category: 'Project source syntax',
+          path: '/project.yaml',
+          sourcePath: 'project.yaml',
+          line: 2268,
+          column: 5,
+          message: syntaxMessage,
+        },
+        {
+          severity: 'error',
+          path: '/project.yaml',
+          message:
+            'Error: Native Project open failed: Invalid Project manifest YAML: Invalid YAML document.\nproject.yaml',
+        },
+      ],
+    });
+    vi.mocked(window.noveltea.observeRepairCandidate).mockResolvedValue(null);
+
+    render(<WorkspacePage />);
+    dispatchOpenProject('/mock/invalid-project');
+
+    const dialog = await screen.findByRole('dialog');
+    expect(
+      within(dialog).getByRole('heading', { name: 'Unable to open Project' }),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(
+        'Flow sequence in block collection must be sufficiently indented and end with a ]',
+      ),
+    ).toBeInTheDocument();
+    expect(within(dialog).getAllByText('project.yaml:2268:5')).toHaveLength(1);
+    expect(within(dialog).queryByText(/Native Project open failed/iu)).not.toBeInTheDocument();
+    expect(within(dialog).queryByText(/localProperties:/iu)).not.toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Manual Edit' })).toBeEnabled();
+    const fix = within(dialog).getByRole('button', { name: 'Fix' });
+    expect(fix).toBeEnabled();
+    expect(fix.querySelector('svg.lucide-sparkles')).toBeInTheDocument();
+  });
+
+  it('offers Manual Edit and Fix with a Sparkles icon from failed Open, and routes AI repair to the candidate prompt', async () => {
+    const root = '/mock/invalid-project';
+    const source = {
+      root,
+      sourcePath: 'project.yaml',
+      text: 'schema: noveltea.project.workspace\nschemaVersion: 1\nbroken: [',
+      revision: `sha256:${'a'.repeat(64)}`,
+      recognition: 'strong' as const,
+    };
+    vi.mocked(window.noveltea.openProject).mockResolvedValue({
+      ok: true,
+      success: false,
+      projectPath: root,
+      projectFilePath: `${root}/project.yaml`,
+      repairCandidateId: 'invalid-project-candidate',
+      repairCandidateRecognition: 'strong',
+      diagnostics: [
+        {
+          severity: 'error',
+          path: '/project.yaml',
+          sourcePath: 'project.yaml',
+          category: 'Project source syntax',
+          line: 3,
+          column: 9,
+          message: 'Unclosed flow sequence at line 3, column 9:\nbroken: [',
+        },
+      ],
+    });
+    vi.mocked(window.noveltea.observeRepairCandidate).mockResolvedValue(null);
+    Object.assign(window.noveltea, { readRepairCandidate: vi.fn().mockResolvedValue(source) });
+    vi.mocked(window.noveltea.probeRepairHarnesses).mockResolvedValue(['codex']);
+    vi.mocked(window.noveltea.repairModelCatalog).mockResolvedValue({
+      harness: 'codex',
+      status: 'available',
+      models: ['gpt-6-luna'],
+    });
+    useRepairToolCatalogStore.setState({
+      probed: true,
+      harnesses: ['codex'],
+      catalogs: { codex: { harness: 'codex', status: 'available', models: ['gpt-6-luna'] } },
+    });
+
+    render(
+      <>
+        <WorkspacePage />
+        <RepairPromptDialog />
+      </>,
+    );
+    dispatchOpenProject(root);
+
+    const openDialog = await screen.findByRole('dialog');
+    expect(within(openDialog).getByRole('button', { name: 'Manual Edit' })).toBeEnabled();
+    expect(within(openDialog).getByRole('button', { name: 'Fix' })).toBeEnabled();
+    expect(within(openDialog).queryByRole('button', { name: 'Fix it' })).not.toBeInTheDocument();
+    expect(within(openDialog).queryByRole('button', { name: 'OK' })).not.toBeInTheDocument();
+
+    fireEvent.click(within(openDialog).getByRole('button', { name: 'Fix' }));
+    expect(await screen.findByRole('heading', { name: 'Repair' })).toBeInTheDocument();
+    expect(
+      screen.queryByRole('heading', { name: 'Unable to open Project' }),
+    ).not.toBeInTheDocument();
+    expect(
+      (screen.getByRole('textbox', { name: 'Prompt' }) as HTMLTextAreaElement).value,
+    ).toContain('Saved source: project.yaml');
+    expect(screen.getByRole('button', { name: 'Copy prompt' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Run' })).toBeEnabled();
+    expect(useRepairPromptStore.getState().draft).toMatchObject({
+      kind: 'candidate',
+      id: 'invalid-project-candidate',
+      candidateRevision: source.revision,
+      formatRisk: 'current',
+    });
+    expect(window.noveltea.readRepairCandidate).toHaveBeenCalledWith('invalid-project-candidate');
+  });
+
+  it('routes a validated candidate auto-open through the revision-bound native admission path', async () => {
+    render(<WorkspacePage />);
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(WORKSPACE_TOOLBAR_COMMAND_EVENT, {
+          detail: {
+            command: 'open-project',
+            projectPath: '/mock/repaired-project',
+            repairCandidateId: 'repaired-candidate',
+            readyRevision: 'sha256:verified-source-tree',
+          },
+        }),
+      );
+    });
+    await waitFor(() =>
+      expect(window.noveltea.openProject).toHaveBeenCalledWith({
+        repairCandidateId: 'repaired-candidate',
+        readyRevision: 'sha256:verified-source-tree',
+      }),
+    );
+    expect(window.noveltea.openProject).not.toHaveBeenCalledWith('/mock/repaired-project');
+  });
+
+  it.each(['keyboard', 'toolbar'] as const)(
+    'saves and automatically opens a repaired candidate using %s Save, removing its temporary UI',
+    async (saveMode) => {
+      const root = '/home/test/Documents/NovelTea/my-story';
+      const id = 'repair-to-admit';
+      const source = {
+        root,
+        sourcePath: 'project.yaml' as const,
+        recognition: 'strong' as const,
+        revision: `sha256:${'a'.repeat(64)}`,
+        text: 'schema: noveltea.project.workspace\\nbroken: [\\n',
+      };
+      const repaired = 'schema: noveltea.project.workspace\\nbroken: []\\n';
+      const saved = { ...source, text: repaired, revision: `sha256:${'b'.repeat(64)}` };
+      const token = `sha256:${'c'.repeat(64)}`;
+      useCandidateRepairStore.setState({
+        entries: {
+          [id]: {
+            id,
+            root,
+            recognition: 'strong',
+            diagnostics: [{ severity: 'error', path: '/project.yaml', message: 'Bad YAML' }],
+            source,
+            buffer: repaired,
+          },
+          unrelated: {
+            id: 'unrelated',
+            root: '/other/recovery',
+            recognition: 'strong',
+            diagnostics: [{ severity: 'error', path: '/project.yaml', message: 'Still broken' }],
+          },
+        },
+      });
+      vi.stubGlobal('noveltea', {
+        ...window.noveltea,
+        saveRepairCandidate: vi.fn().mockResolvedValue(saved),
+        observeRepairCandidate: vi.fn().mockResolvedValue({
+          id,
+          generation: 2,
+          ready: true,
+          revision: token,
+          diagnostics: [],
+        }),
+        readRepairCandidate: vi.fn().mockResolvedValue(saved),
+      });
+
+      // Force the normal no-project startup restoration branch, independent
+      // of shell snapshots left by other tests in the same suite.
+      const priorShell = useLocalEditorSessionStore.getState().shellSession;
+      useLocalEditorSessionStore.getState().saveShellWorkbench(null, useWorkbenchStore.getState());
+      const restoreShell = vi.spyOn(useWorkbenchStore.getState(), 'restoreShellWorkbench');
+      render(<WorkspacePage />);
+      // Startup restores the no-project shell after an async import check.
+      // Insert the repair tab only after that restoration has completed.
+      await waitFor(() => expect(restoreShell).toHaveBeenCalled());
+      restoreShell.mockRestore();
+      act(() => {
+        useWorkbenchStore
+          .getState()
+          .openTab(buildCandidateRepairTab('unrelated', '/other/recovery'));
+        useWorkbenchStore.getState().openTab(buildCandidateRepairTab(id, root));
+      });
+      if (saveMode === 'keyboard') {
+        fireEvent.keyDown(window, { key: 's', ctrlKey: true });
+      } else {
+        await act(async () => {
+          window.dispatchEvent(
+            new CustomEvent(WORKSPACE_TOOLBAR_COMMAND_EVENT, { detail: 'save' }),
+          );
+        });
+      }
+      await waitFor(() => expect(window.noveltea.saveRepairCandidate).toHaveBeenCalled());
+      expect(window.noveltea.observeRepairCandidate).toHaveBeenCalledWith(id);
+      await waitFor(() =>
+        expect(window.noveltea.openProject).toHaveBeenCalledWith({
+          repairCandidateId: id,
+          readyRevision: token,
+        }),
+      );
+      expect(window.noveltea.saveRepairCandidate).toHaveBeenCalledWith(
+        id,
+        source.revision,
+        repaired,
+      );
+      await waitFor(() => expect(useCandidateRepairStore.getState().entries[id]).toBeUndefined());
+      await waitFor(() =>
+        expect(useWorkspaceStore.getState().statusMessage).toBe('Project loaded'),
+      );
+      expect(useCandidateRepairStore.getState().entries.unrelated).toBeDefined();
+      expect(Object.values(useWorkbenchStore.getState().tabsById)).not.toContainEqual(
+        expect.objectContaining({ resource: expect.objectContaining({ sourceId: id }) }),
+      );
+      expect(useWorkspaceStore.getState().diagnostics).toEqual([]);
+      expect(useWorkbenchStore.getState().recentlyClosedTabs).not.toContainEqual(
+        expect.objectContaining({
+          tab: expect.objectContaining({ resource: expect.objectContaining({ sourceId: id }) }),
+        }),
+      );
+      vi.unstubAllGlobals();
+      useLocalEditorSessionStore.setState({ shellSession: priorShell });
+    },
+  );
+
+  it('opens the raw manifest editor when Manual Edit is selected', async () => {
+    const root = '/mock/manual-project';
+    vi.mocked(window.noveltea.openProject).mockResolvedValue({
+      ok: true,
+      success: false,
+      projectPath: root,
+      projectFilePath: `${root}/project.yaml`,
+      repairCandidateId: 'manual-candidate',
+      repairCandidateRecognition: 'strong',
+      diagnostics: [
+        {
+          severity: 'error',
+          path: '/project.yaml',
+          sourcePath: 'project.yaml',
+          line: 5,
+          column: 4,
+          message: 'Malformed manifest',
+        },
+      ],
+    });
+    vi.mocked(window.noveltea.observeRepairCandidate).mockResolvedValue(null);
+    render(<WorkspacePage />);
+    dispatchOpenProject(root);
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Manual Edit' }));
+    expect(
+      screen.queryByRole('heading', { name: 'Unable to open Project' }),
+    ).not.toBeInTheDocument();
+    expect(Object.values(useWorkbenchStore.getState().tabsById)).toEqual(
+      expect.arrayContaining([expect.objectContaining({ editorType: 'candidate-repair' })]),
+    );
+    expect(useRepairPromptStore.getState().visible).toBe(false);
+  });
+
+  it('retains additional distinct candidate errors without repeating the primary error', async () => {
+    vi.mocked(window.noveltea.openProject).mockResolvedValue({
+      ok: true,
+      success: false,
+      projectPath: '/mock/invalid-project',
+      projectFilePath: '/mock/invalid-project/project.yaml',
+      repairCandidateId: 'invalid-project-candidate',
+      repairCandidateRecognition: 'strong',
+      diagnostics: [
+        {
+          severity: 'error',
+          category: 'Project source syntax',
+          path: '/project.yaml',
+          sourcePath: 'project.yaml',
+          line: 15,
+          column: 3,
+          message: 'Unclosed YAML flow sequence at line 15, column 3:\nbroken: [',
+        },
+        {
+          severity: 'error',
+          path: '/other',
+          message: 'An independent Project problem needs attention.',
+        },
+      ],
+    });
+    vi.mocked(window.noveltea.observeRepairCandidate).mockResolvedValue(null);
+
+    render(<WorkspacePage />);
+    dispatchOpenProject('/mock/invalid-project');
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getAllByText('Unclosed YAML flow sequence')).toHaveLength(1);
+    expect(within(dialog).getByText('project.yaml:15:3')).toBeInTheDocument();
+    expect(
+      within(dialog).getByText('An independent Project problem needs attention.'),
     ).toBeInTheDocument();
   });
 

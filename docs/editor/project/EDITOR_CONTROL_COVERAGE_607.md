@@ -5,22 +5,36 @@ following the immediate-native-field migrations in #603–#606. Its machine-read
 counterpart is `editor/scripts/editor-control-coverage.json`. Every `.tsx` module
 under `editor/src/renderer/editors/` is inventoried, including nested property,
 selection, list, preview and import controls, whether or not it contains a JSX
-callback. The inventory currently covers **56 modules and 1,290 JSX callback
+callback. The inventory currently covers **56 modules and 1,287 JSX callback
 sites** (`onChange`, `onBlur`, `onClick`, `onValueChange`, custom semantic callbacks,
 etc.). This count is a *source coverage* measure, not a claim that there are
-1,290 distinct native mutations.
+1,287 distinct native mutations.
 
 The #617 candidate repair source editor extends the inventory by one route and
 module. It uses an explicit source buffer and candidate-specific physical CAS
 instead of an admitted Project Save unit. Its regression evidence is
 `project-candidate-repair.test.ts`.
 
-The #619 Fix/All/All Errors controls in that candidate editor are **O**:
-they select a diagnostic scope and open an editable, copyable draft, with no
-Project filesystem mutation. Their three callbacks are classified separately
-from the four existing read/open/save/source-resolution controls. Source Save
-remains **F**, subject to main-owned candidate CAS; prompt-copy regression
-coverage is in `repair-prompt.test.ts` and `repair-prompt-dialog.test.tsx`.
+The former #619 Fix/All/All Errors buttons have been removed from the
+candidate YAML editor. Failed-Project Open now offers **Manual Edit** (opens
+this raw source editor) or **Fix** with a Sparkles icon (opens the separate
+AI Repair dialog). Its former Open Project button was removed: Save now
+performs a native read-only validation and automatically opens the candidate
+only if ready, the tab is still active and no Project switch intervened.
+The sole remaining click callback is the conflict-only Use Disk action.
+Ctrl+S and the workbench Save command now share the same native Save, validation,
+and automatic-open path. Source Save remains **F**, subject to main-owned
+candidate CAS; admission still requires the exact revision-bound native
+readiness token. There are no duplicate Save or Inspect Disk buttons. Diagnostic
+markers remain visible in the source editor. The candidate Problems panel likewise shows just one
+Manual Edit and one Sparkles Fix action, not per-diagnostic Fix buttons.
+Both Problems and the source editor read syntax feedback for the same
+unsaved buffer from the candidate store; native results remain authoritative
+for saved source and independently diagnosed files. The no-Fix-toolbar
+regression is `candidate-repair-editor.test.tsx`; Problems synchronization
+is tested in `bottom-panel.test.tsx`. AI prompt regression coverage is in
+`repair-prompt.test.ts`, `repair-prompt-dialog.test.tsx`, and
+`workspace-new-project.test.tsx`.
 
 The gate is run by `pnpm -C editor exec vp run check:editor-control-coverage` and by
 `pnpm -C editor run check` (through `check:types`). It fails for a new or removed

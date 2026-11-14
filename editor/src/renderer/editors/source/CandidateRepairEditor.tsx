@@ -6,11 +6,12 @@ import {
   type SourceEditorHandle,
   type SourceEditorDiagnostic,
 } from '@/components/source/SourceEditor';
-import { useCandidateRepairStore } from '@/project/candidate-repair-store';
-import { useRepairPromptStore } from '@/project/repair-prompt-store';
-import { repairDiagnosticKey } from '@/project/repair-prompt';
+import {
+  candidateVisibleDiagnostics,
+  useCandidateRepairStore,
+} from '@/project/candidate-repair-store';
+import { candidateManifestSyntaxDiagnostics } from '../../../shared/project-candidate-syntax';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
-import { dispatchWorkspaceToolbarCommand } from '@/workspace/workspace-toolbar-events';
 import { registerWorkbenchTargetHandler } from '@/workbench/workbench-navigation';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 
@@ -19,14 +20,22 @@ export function CandidateRepairEditor({ tab }: WorkbenchEditorProps) {
   const id = tab.resource?.sourceId;
   const entry = useCandidateRepairStore((state) => (id ? state.entries[id] : undefined));
   const load = useCandidateRepairStore((state) => state.load);
-  const save = useCandidateRepairStore((state) => state.save);
   const setBuffer = useCandidateRepairStore((state) => state.setBuffer);
+  const setSyntaxDiagnostics = useCandidateRepairStore((state) => state.setSyntaxDiagnostics);
   const applyDiskSource = useCandidateRepairStore((state) => state.useDisk);
-  const requestPrompt = useRepairPromptStore((state) => state.request);
   const setTabDirty = useWorkbenchStore((state) => state.setTabDirty);
   const sourceEditor = useRef<SourceEditorHandle>(null);
   const dirty = Boolean(entry?.source && entry.buffer !== entry.source.text);
-  const diagnosticsCurrent = !entry?.diagnosticsNeedRefresh && !dirty;
+  const currentText = entry?.buffer;
+
+  // The editor and Problems use local syntax for the exact unsaved revision.
+  useEffect(() => {
+    if (!id || currentText === undefined) return;
+    const timer = setTimeout(() => {
+      setSyntaxDiagnostics(id, currentText, candidateManifestSyntaxDiagnostics(currentText));
+    }, 180);
+    return () => clearTimeout(timer);
+  }, [id, currentText, setSyntaxDiagnostics]);
 
   useEffect(() => {
     if (id) void load(id);
@@ -55,14 +64,19 @@ export function CandidateRepairEditor({ tab }: WorkbenchEditorProps) {
 
   if (!id || !entry) return <p className="p-4 text-sm">{t('candidateRepair.expired')}</p>;
   const source = entry.source;
-  const diagnostics: SourceEditorDiagnostic[] = (entry.diagnostics || [])
+  const bufferLines = (currentText ?? '').split('\n');
+  const diagnostics: SourceEditorDiagnostic[] = candidateVisibleDiagnostics(entry)
     .filter((d) => d.line && (d.sourcePath === 'project.yaml' || d.path === '/project.yaml'))
     .map((d) => {
-      const lines = (entry.buffer ?? '').split('\n');
-      const before = lines.slice(0, Math.max(0, d.line! - 1)).join('\n');
-      const from = before.length + (d.line! > 1 ? 1 : 0) + Math.max(0, (d.column ?? 1) - 1);
+      const row = Math.min(Math.max(1, d.line!), bufferLines.length);
+      const before = bufferLines.slice(0, row - 1).join('\n');
+      const from =
+        before.length +
+        (row > 1 ? 1 : 0) +
+        Math.min(Math.max(0, (d.column ?? 1) - 1), bufferLines[row - 1]?.length ?? 0);
       return { from, to: from, message: d.message, severity: d.severity };
     });
+
   const repairErrorKey = !entry.error
     ? null
     : /changed on disk|changed during Save|was created outside|disk source changed/iu.test(
@@ -83,111 +97,29 @@ export function CandidateRepairEditor({ tab }: WorkbenchEditorProps) {
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-2 p-3" data-candidate-repair-id={id}>
-      <div className="flex min-w-0 flex-wrap items-center gap-2">
-        <div className="min-w-0 flex-1">
-          <div className="text-sm font-medium">{t('candidateRepair.title')}</div>
-          <div className="truncate font-mono text-xs text-muted-foreground" title={entry.root}>
-            {entry.root}/project.yaml
-          </div>
-        </div>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => {
-            if (!entry.status?.ready || !entry.status.revision) return;
-            dispatchWorkspaceToolbarCommand({
-              command: 'open-project',
-              projectPath: entry.root,
-              repairCandidateId: id,
-              readyRevision: entry.status.revision,
-            });
-          }}
-          disabled={
-            entry.admitted ||
-            !entry.status?.ready ||
-            !entry.status.revision ||
-            dirty ||
-            entry.saving ||
-            !!entry.diskSource
-          }
+      <div className="flex min-w-0 items-center gap-2 text-xs">
+        <span className="truncate font-mono font-medium" title={`${entry.root}/project.yaml`}>
+          project.yaml
+        </span>
+        <span className="shrink-0 whitespace-nowrap text-muted-foreground">
+          {t('candidateRepair.saveHint')}
+        </span>
+        <span
+          role={entry.saving || entry.validatingAfterSave ? 'status' : undefined}
+          className="min-w-0 flex-1 text-center text-muted-foreground"
         >
-          {t('candidateRepair.openProject')}
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => {
-            void load(id, true);
-            void useCandidateRepairStore.getState().observe(id);
-          }}
-          disabled={entry.loading || entry.saving || entry.admitted}
-        >
-          {t('candidateRepair.readDisk')}
-        </Button>
-        <Button
-          size="sm"
-          onClick={() => void save(id)}
-          disabled={!source || !dirty || entry.saving || !!entry.diskSource || entry.admitted}
-        >
-          {entry.saving ? t('candidateRepair.saving') : t('candidateRepair.save')}
-        </Button>
+          {entry.saving
+            ? t('candidateRepair.saving')
+            : entry.validatingAfterSave
+              ? t('candidateRepair.validating')
+              : null}
+        </span>
       </div>
-      <p className="text-xs text-muted-foreground">{t('candidateRepair.description')}</p>
-      {entry.diagnosticsNeedRefresh || dirty ? (
-        <p className="text-xs text-muted-foreground" role="status">
-          {t('repairPrompt.candidateRefresh')}
-        </p>
-      ) : null}
-      {diagnosticsCurrent &&
-      entry.diagnostics.some((diagnostic) => diagnostic.severity !== 'info') ? (
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => requestPrompt({ kind: 'candidate', id, scope: 'all' })}
-          >
-            {t('repairPrompt.fixAll')}
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={!entry.diagnostics.some((diagnostic) => diagnostic.severity === 'error')}
-            onClick={() => requestPrompt({ kind: 'candidate', id, scope: 'errors' })}
-          >
-            {t('repairPrompt.fixAllErrors')}
-          </Button>
-          {entry.diagnostics
-            .filter((diagnostic) => diagnostic.severity !== 'info')
-            .map((diagnostic, index) => (
-              <Button
-                key={`${repairDiagnosticKey(diagnostic)}:${index}`}
-                size="sm"
-                variant="outline"
-                title={diagnostic.message}
-                onClick={() => {
-                  if (diagnostic.sourcePath === 'project.yaml' && diagnostic.line)
-                    sourceEditor.current?.revealLine(diagnostic.line, diagnostic.column);
-                  requestPrompt({
-                    kind: 'candidate',
-                    id,
-                    scope: 'one',
-                    selectedKey: repairDiagnosticKey(diagnostic),
-                  });
-                }}
-              >
-                {t('repairPrompt.fix')} · {index + 1}
-              </Button>
-            ))}
-        </div>
-      ) : null}
       {entry.recognition === 'weak' ? (
         <p className="text-xs text-amber-600">{t('candidateRepair.weak')}</p>
       ) : null}
       {entry.admitted ? (
         <p className="text-xs text-muted-foreground">{t('candidateRepair.admitted')}</p>
-      ) : null}
-      {entry.status?.ready && !dirty ? (
-        <p className="text-xs text-muted-foreground">{t('candidateRepair.ready')}</p>
       ) : null}
       {entry.error ? (
         <p role="alert" className="text-xs text-destructive">

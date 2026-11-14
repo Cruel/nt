@@ -2,8 +2,10 @@ import { createHash, randomUUID } from 'node:crypto';
 import { constants, watch, type FSWatcher } from 'node:fs';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { LineCounter, parse, parseDocument } from 'yaml';
+import { parse } from 'yaml';
 import type { ToolDiagnostic } from '../../shared/editor-tooling';
+import { candidateManifestSyntaxDiagnostics } from '../../shared/project-candidate-syntax';
+export { candidateManifestSyntaxDiagnostics } from '../../shared/project-candidate-syntax';
 import type {
   CandidateRepairSource,
   CandidateRepairStatus,
@@ -257,25 +259,6 @@ async function candidateSourceFingerprint(root: string): Promise<string> {
   };
   await visit(root);
   return `sha256:${digest.digest('hex')}`;
-}
-
-/** The native Open error remains authoritative; the original YAML parser
- * positions are supplemental, source-local diagnostics for manual repair. */
-export function candidateManifestSyntaxDiagnostics(text: string): ToolDiagnostic[] {
-  const lines = new LineCounter();
-  const parsed = parseDocument(text, { lineCounter: lines, uniqueKeys: true });
-  return parsed.errors.map((error) => {
-    const position = lines.linePos(error.pos[0]);
-    return {
-      severity: 'error' as const,
-      path: '/project.yaml',
-      sourcePath: 'project.yaml',
-      line: position.line,
-      column: position.col,
-      category: 'Project source syntax',
-      message: error.message,
-    };
-  });
 }
 
 export class ProjectCandidateRepairService {
@@ -618,7 +601,7 @@ export class ProjectCandidateRepairService {
     const before = await this.read(id);
     if (before.revision !== expectedRevision)
       throw new Error(
-        'Manifest changed on disk. Copy your edits and inspect the disk version before saving.',
+        'Manifest changed on disk. Your edits are preserved. Compare the disk version before saving.',
       );
     const staged = `${session.manifestPath}.${randomUUID()}.tmp`;
     try {

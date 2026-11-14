@@ -31,7 +31,7 @@ it does not test click placement, dialogs, editor focus, or text usability.
 
 | Journey | Automated evidence | Interactive acceptance |
 | --- | --- | --- |
-| Canonical Project, damaged Room/owner, malformed/missing manifest, partial repair | `native-candidate-repair-reopen.test.ts`, `project-candidate-repair.test.ts`, `native-authoring-reconciliation.test.ts`, native CLI repair suite | **Pending**: normal desktop Open, Fix it, raw Save, diagnostics, explicit Open Project |
+| Canonical Project, damaged Room/owner, malformed/missing manifest, partial repair | `native-candidate-repair-reopen.test.ts`, `project-candidate-repair.test.ts`, `native-authoring-reconciliation.test.ts`, native CLI repair suite | **Pending**: normal desktop Open, Fix/Manual Edit, raw Save, diagnostics, automatic Open after validated Save |
 | Incumbent/terminal/buffers survive failed candidate, late changes cannot activate it | Packaged `candidateRepair` smoke, `project-candidate-revalidation.test.ts`, `candidate-repair-store.test.ts` | **Pending**: active tabs, two candidates, late watch/agent output, Terminal session identity |
 | Standalone relocated `repair project`, strong/weak evidence, atomic Agent Kit, custom AGENTS and ignore preservation, malformed markers, symlinks, rollback | `tests/native_cli/repair_project.py`, `certify-native-cli-public-contracts.mjs` | CLI automation sufficient for this sub-contract; inspect generated files on disposable copy if needed |
 | Scoped Fix/All/All Errors prompt, copy without agent, diagnostic source navigation | `repair-prompt.test.ts`, `repair-prompt-dialog.test.tsx` | **Pending**: visible scopes, editable prompt, Copy when no agent |
@@ -58,9 +58,35 @@ repaired files.
    second copy's `project.yaml` (malformed syntax); separately delete the
    manifest, damage a Room's YAML syntax, and make a recognizable owner
    semantically invalid. Open each candidate normally. Assert source-located
-   diagnostics, Fix it, raw source exactness, source Save, settled recheck, and
-   **explicit** Open Project only when ready. Confirm incumbent tabs and
-   existing PTY are unchanged until explicit activation.
+   diagnostics (one actionable YAML source error and location, not repeated
+   generic native failure details), and the two failure-dialog choices:
+   **Manual Edit** opens the raw YAML source at the reported location,
+   without any Fix/All/All Errors button toolbar;
+   **Fix** (Sparkles icon) opens the candidate AI Repair prompt with Copy and Run.
+   Verify raw source exactness and that YAML syntax markers track the
+   **unsaved buffer** after a short debounce: fixing syntax clears markers
+   without Save; reintroducing it restores markers. Problems must show the
+   same current-buffer syntax diagnostics, immediately hide stale manifest
+   errors while the buffer is edited, and retain independent saved-source
+   errors. Its candidate actions remain one Manual Edit and one AI Fix
+   (Sparkles), with the AI action disabled until unsaved manifest edits
+   have been saved and checked. A subsequent Save/native recheck must not
+   leave markers one revision behind. Use Ctrl+S and the workbench Save
+   command separately; both must persist pending edits before native validation
+   and automatically open the Project when ready. If the source is already saved
+   and native readiness is current, Save may reuse that token rather than
+   repeating validation. The YAML editor has no duplicate Save, Inspect Disk, or Open Project
+   buttons; an actual disk conflict still exposes its disk-version comparison
+   and Use Disk choice. If validation still fails, remain in repair with the
+   remaining diagnostics. After successful admission, the temporary repair
+   tab and its candidate Problems section disappear without entering the
+   recently-closed tab history; unrelated candidate entries remain untouched.
+   Do not automatically activate after a background file update, late validation,
+   continued typing, closing
+   or leaving the repair tab, or a superseding Project switch. Main must
+   independently verify the exact readiness token on admission. Confirm
+   incumbent tabs and the existing PTY are unchanged on failed Open and
+   that any later activation follows the user's current Save request.
 2. In a valid-but-partly-invalid Project, edit and Save an independent Room
    and an invalid source. Reopen; inspect exact authored bytes and diagnostics.
    Confirm dependent validation, Play, authored Test and runtime package/export

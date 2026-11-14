@@ -609,6 +609,74 @@ describe('BottomPanel', () => {
     expect(useRepairPromptStore.getState().draft?.text).not.toContain('Optional warning');
   });
 
+  it('shows live candidate syntax in Problems, not stale native diagnostics after an unsaved edit', () => {
+    const id = 'candidate-live';
+    const broken = 'schema: noveltea.project.workspace\nbroken: [\n';
+    const fixed = 'schema: noveltea.project.workspace\nbroken: []\n';
+    const source = {
+      root: '/broken/live',
+      sourcePath: 'project.yaml' as const,
+      text: broken,
+      revision: `sha256:${'a'.repeat(64)}`,
+      recognition: 'strong' as const,
+    };
+    const stale = {
+      severity: 'error' as const,
+      category: 'Project source syntax',
+      path: '/project.yaml',
+      sourcePath: 'project.yaml',
+      line: 2,
+      column: 9,
+      message: 'Old native YAML error',
+    };
+    const independent = {
+      severity: 'error' as const,
+      path: '/rooms/study',
+      sourcePath: 'records/rooms/study.yaml',
+      line: 8,
+      message: 'Separate saved Room error',
+    };
+    useCandidateRepairStore.getState().register(id, source.root, 'strong', [stale, independent]);
+    useCandidateRepairStore.setState((state) => ({
+      entries: {
+        ...state.entries,
+        [id]: { ...state.entries[id]!, source, buffer: broken },
+      },
+    }));
+    render(<BottomPanel />);
+    expect(screen.getByText('Old native YAML error')).toBeInTheDocument();
+    expect(screen.getByText('Separate saved Room error')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Fix' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Fix All' })).not.toBeInTheDocument();
+
+    act(() => {
+      useCandidateRepairStore.getState().setBuffer(id, fixed);
+    });
+    expect(screen.queryByText('Old native YAML error')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Fix' })).toBeDisabled();
+
+    act(() => {
+      useCandidateRepairStore.getState().setSyntaxDiagnostics(id, fixed, []);
+    });
+    expect(screen.queryByText('Old native YAML error')).not.toBeInTheDocument();
+    expect(screen.getByText('Separate saved Room error')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Fix: / })).not.toBeInTheDocument();
+
+    act(() => {
+      const revisedError = 'schema: noveltea.project.workspace\nbroken: [1\n';
+      useCandidateRepairStore.getState().setBuffer(id, revisedError);
+      useCandidateRepairStore
+        .getState()
+        .setSyntaxDiagnostics(id, revisedError, [
+          { ...stale, message: 'Current unsaved YAML error' },
+        ]);
+    });
+    expect(screen.queryByText('Old native YAML error')).not.toBeInTheDocument();
+    expect(screen.getByText('Current unsaved YAML error')).toBeInTheDocument();
+    expect(screen.getByText('Working state')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Fix' })).toBeDisabled();
+  });
+
   it('keeps the incumbent Project identity when fixing an unopened candidate', () => {
     useCandidateRepairStore.getState().register('candidate-a', '/broken/candidate', 'strong', [
       {
@@ -621,7 +689,11 @@ describe('BottomPanel', () => {
     ]);
     render(<BottomPanel />);
     const projectBefore = useProjectStore.getState().projectInstanceId;
-    fireEvent.click(screen.getByRole('button', { name: 'Fix All Errors' }));
+    const fix = screen.getByRole('button', { name: 'Fix' });
+    expect(fix.querySelector('svg.lucide-sparkles')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Manual Edit' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Fix All Errors' })).not.toBeInTheDocument();
+    fireEvent.click(fix);
     expect(useRepairPromptStore.getState().draft).toMatchObject({
       kind: 'candidate',
       id: 'candidate-a',

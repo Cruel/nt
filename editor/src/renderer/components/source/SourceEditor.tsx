@@ -1,7 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import { basicSetup, EditorView } from 'codemirror';
 import { EditorSelection, EditorState, type Extension } from '@codemirror/state';
-import { linter, type Diagnostic } from '@codemirror/lint';
+import { setDiagnostics, type Diagnostic } from '@codemirror/lint';
 import { css } from '@codemirror/lang-css';
 import { cpp } from '@codemirror/lang-cpp';
 import { html, type TagSpec } from '@codemirror/lang-html';
@@ -105,6 +105,7 @@ export const SourceEditor = forwardRef<SourceEditorHandle, SourceEditorProps>(fu
   const initialValueRef = useRef(value);
   const onChangeRef = useRef(onChange);
   const diagnosticsRef = useRef(diagnostics);
+  const diagnosticsVersion = JSON.stringify(diagnostics);
   onChangeRef.current = onChange;
   diagnosticsRef.current = diagnostics;
 
@@ -169,9 +170,6 @@ export const SourceEditor = forwardRef<SourceEditorHandle, SourceEditorProps>(fu
       doc: initialValueRef.current,
       extensions: [
         basicSetup,
-        linter((view) =>
-          diagnosticsRef.current.map((item) => toCodemirrorDiagnostic(item, view.state.doc.length)),
-        ),
         languageExtensions(language, completionContext),
         sourceEditorThemeExtension(activeTheme),
         EditorView.editable.of(!readOnly),
@@ -202,6 +200,20 @@ export const SourceEditor = forwardRef<SourceEditorHandle, SourceEditorProps>(fu
     if (current === value) return;
     view.dispatch({ changes: { from: 0, to: current.length, insert: value } });
   }, [value]);
+
+  // Diagnostic props are already validated by the owning editor. Unlike
+  // CodeMirror's idle linter, this updates an existing view immediately when
+  // native or local diagnostics change without another document transaction.
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    view.dispatch(
+      setDiagnostics(
+        view.state,
+        diagnosticsRef.current.map((item) => toCodemirrorDiagnostic(item, view.state.doc.length)),
+      ),
+    );
+  }, [diagnosticsVersion, activeTheme, completionContext, language, readOnly]);
 
   return (
     <div
