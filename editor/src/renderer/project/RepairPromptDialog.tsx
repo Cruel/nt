@@ -13,6 +13,8 @@ import { useCandidateRepairStore } from './candidate-repair-store';
 import { useProjectStore } from './project-store';
 import { flushNativeProjectSources } from './project-source-store';
 import { flushNativeFields } from '../commands/native-field-drafts';
+import { useDraftDirtyStore } from '../workbench/draft-dirty-store';
+import { assertNoUnprojectedRendererDrafts } from './agent-working-source-draft-guard';
 import { useWorkspaceStore } from '../stores/workspace-store';
 import { useBottomPanelStore } from '../workbench/bottom-panel-store';
 import { launchWindowRepairTerminal } from '../workbench/terminal-window-host';
@@ -29,6 +31,7 @@ async function prepareAgentWorkingSources(sessionId: string): Promise<void> {
   if (!(await flushNativeFields()))
     throw new Error('Unsaved Project fields have not been acknowledged by native editing.');
   await flushNativeProjectSources();
+  assertNoUnprojectedRendererDrafts(useDraftDirtyStore.getState().entriesByKey);
   await window.noveltea.nativeProjectFlushWorkingSources(sessionId);
 }
 

@@ -16,6 +16,19 @@
 #include <utility>
 #include <vector>
 
+#if defined(_WIN32)
+#include <Windows.h>
+#elif defined(__linux__)
+#include <cerrno>
+#include <fcntl.h>
+#include <linux/fs.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+#elif defined(__APPLE__)
+#include <cerrno>
+#include <cstdio>
+#endif
+
 namespace {
 using Json = jsoncons::ojson;
 using noveltea::authoring::ProjectSession;
@@ -57,6 +70,71 @@ std::string string_arg(napi_env env, napi_value value)
         throw std::runtime_error("Cannot read argument.");
     result.resize(length);
     return result;
+}
+
+// Replace an existing publisher-owned file without losing a concurrent edit.
+// The old file is atomically moved to an inspectable path so the caller can
+// compare its exact bytes *after* the exchange and restore on mismatch.
+// This is deliberately not an arbitrary path mutation exposed to the renderer.
+std::string exchange_working_source(std::string stage_raw, std::string target_raw,
+                                    std::string backup_raw)
+{
+    namespace fs = std::filesystem;
+    const auto utf8_path = [](const std::string& raw) {
+        return fs::path(std::u8string(raw.begin(), raw.end()));
+    };
+    const auto stage = utf8_path(stage_raw);
+    const auto target = utf8_path(target_raw);
+    const auto backup = utf8_path(backup_raw);
+    if (!stage.is_absolute() || !target.is_absolute() || !backup.is_absolute() || stage == target ||
+        stage.parent_path() != target.parent_path() ||
+        backup.parent_path() != target.parent_path() ||
+        !stage.filename().string().starts_with(".working-") ||
+        !backup.filename().string().starts_with(".working-"))
+        throw std::runtime_error("Invalid working-source atomic exchange paths.");
+    for (auto parent = stage.parent_path(); !parent.empty();) {
+        std::error_code ec;
+        const auto state = fs::symlink_status(parent, ec);
+        if (ec || !fs::is_directory(state) || fs::is_symlink(state))
+            throw std::runtime_error("Unsafe working-source exchange parent.");
+        const auto next = parent.parent_path();
+        if (next == parent)
+            break;
+        parent = next;
+    }
+    {
+        std::error_code ec;
+        const auto state = fs::symlink_status(backup, ec);
+        if ((!ec && state.type() != fs::file_type::not_found) ||
+            (ec && ec != std::errc::no_such_file_or_directory))
+            throw std::runtime_error("Working-source exchange backup already exists or is unsafe.");
+    }
+    for (const auto& file : {stage, target}) {
+        std::error_code ec;
+        const auto state = fs::symlink_status(file, ec);
+        if (ec || !fs::is_regular_file(state) || fs::is_symlink(state))
+            throw std::runtime_error("Unsafe or missing working-source exchange file.");
+    }
+#if defined(_WIN32)
+    if (!ReplaceFileW(target.c_str(), stage.c_str(), backup.c_str(),
+                      REPLACEFILE_IGNORE_MERGE_ERRORS, nullptr, nullptr))
+        throw std::runtime_error("Atomic working-source replacement failed (Windows error " +
+                                 std::to_string(GetLastError()) + ").");
+    return backup_raw;
+#elif defined(__linux__)
+    if (::syscall(SYS_renameat2, AT_FDCWD, stage.c_str(), AT_FDCWD, target.c_str(),
+                  RENAME_EXCHANGE) != 0)
+        throw std::runtime_error("Atomic working-source exchange failed (errno " +
+                                 std::to_string(errno) + ").");
+    return stage_raw;
+#elif defined(__APPLE__)
+    if (::renamex_np(stage.c_str(), target.c_str(), RENAME_SWAP) != 0)
+        throw std::runtime_error("Atomic working-source exchange failed (errno " +
+                                 std::to_string(errno) + ").");
+    return stage_raw;
+#else
+    throw std::runtime_error("Working-source atomic exchange is unavailable on this platform.");
+#endif
 }
 
 napi_value js_string(napi_env env, const std::string& value)
@@ -304,6 +382,13 @@ napi_value call(napi_env env, napi_callback_info info)
                 throw std::runtime_error("Expected a source byte Buffer.");
             return js_string(env, noveltea::authoring::exact_source_revision(
                                       std::string_view(static_cast<const char*>(data), size)));
+        }
+        if (name == "exchangeWorkingSource") {
+            if (argc != 3)
+                throw std::runtime_error("Working-source exchange requires three paths.");
+            return js_string(env, exchange_working_source(string_arg(env, argv[0]),
+                                                          string_arg(env, argv[1]),
+                                                          string_arg(env, argv[2])));
         }
         if (name == "open") {
             if (argc != 1)
@@ -991,6 +1076,7 @@ napi_value initialize(napi_env env, napi_value exports)
 {
     static const char* operations[]{"open",
                                     "sourceRevision",
+                                    "exchangeWorkingSource",
                                     "close",
                                     "snapshot",
                                     "validateClean",

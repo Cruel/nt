@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
+import { mkdtemp, mkdir, readFile, rename, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
@@ -16,6 +17,14 @@ import type { z } from 'zod';
 type Snapshot = z.infer<typeof nativeAuthoringSnapshotSchema>;
 const hash = (bytes: Uint8Array) =>
   `xxh3-128:${createHash('sha256').update(bytes).digest('hex').slice(0, 32)}`;
+// The native addon uses an atomic OS exchange. The unit suite models the same
+// retained-old-file result; a separate native-addon test covers the syscall.
+const exchange = async (staged: string, destination: string, backup: string) => {
+  await rename(destination, backup);
+  await rename(staged, destination);
+  await rename(backup, staged);
+  return staged;
+};
 const emptyCheckpoint = (): NativeDirtyCheckpoint => ({
   batches: [],
   textSources: {},
@@ -65,7 +74,7 @@ describe('native working-source publisher (#625)', () => {
         },
       };
       const published = snapshot(state('Working', 'Saved', revision));
-      const publisher = new NativeWorkingSourcePublisher(200, hash);
+      const publisher = new NativeWorkingSourcePublisher(200, hash, exchange);
       publisher.schedule(root, 'project-1', published, checkpoint);
       await publisher.flush();
       const unchanged = await planOfflineWorkingSourceImport(
@@ -133,7 +142,7 @@ describe('native working-source publisher (#625)', () => {
         },
       };
       const published = snapshot(state('Working', 'Saved', revision));
-      const publisher = new NativeWorkingSourcePublisher(200, hash);
+      const publisher = new NativeWorkingSourcePublisher(200, hash, exchange);
       publisher.schedule(root, 'project-1', published, checkpoint);
       await publisher.flush();
       const file = workingPath(root, 'files/records/rooms/hall.yaml');
@@ -190,7 +199,7 @@ describe('native working-source publisher (#625)', () => {
   it('projects only acknowledged dirty Room source and retains authored comments', async () => {
     const { root, room, source, revision } = await fixture();
     try {
-      const publisher = new NativeWorkingSourcePublisher(200, hash);
+      const publisher = new NativeWorkingSourcePublisher(200, hash, exchange);
       const projected = snapshot(state('Working', 'Saved', revision));
       publisher.schedule(root, 'project-1', projected, emptyCheckpoint());
       await publisher.flush();
@@ -213,10 +222,74 @@ describe('native working-source publisher (#625)', () => {
     }
   });
 
+  it('preserves invalid structured values and verbatim malformed staged YAML', async () => {
+    const { root, room, source, revision } = await fixture();
+    try {
+      const publisher = new NativeWorkingSourcePublisher(200, hash, exchange);
+      const invalid = { ...state('', 'Saved', revision), valid: false };
+      publisher.schedule(root, 'project-1', snapshot(invalid), emptyCheckpoint());
+      await publisher.flush();
+      expect(await readFile(workingPath(root, 'files/records/rooms/hall.yaml'), 'utf8')).toContain(
+        'label: "" # note',
+      );
+      const malformed = 'id: hall\nlabel: [\n# unsaved broken source\n';
+      publisher.schedule(root, 'project-1', snapshot(invalid), {
+        ...emptyCheckpoint(),
+        textSources: {
+          'records/rooms/hall.yaml': { text: malformed, diskRevision: revision },
+        },
+      });
+      await publisher.flush();
+      expect(await readFile(workingPath(root, 'files/records/rooms/hall.yaml'), 'utf8')).toBe(
+        malformed,
+      );
+      expect(await readFile(room, 'utf8')).toBe(source);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('updates one owner without rewriting unchanged owners or manifest on an identical flush', async () => {
+    const { root, revision } = await fixture();
+    try {
+      const other = path.join(root, 'records/rooms/second.yaml');
+      const original = 'id: hall\nlabel: Saved\n';
+      await writeFile(other, original);
+      const secondRevision = hash(Buffer.from(original));
+      const makeSnapshot = (first: string) =>
+        ({
+          ...snapshot(state(first, 'Saved', revision)),
+          recordSnapshots: {
+            'rooms/hall': state(first, 'Saved', revision),
+            'rooms/second': state('Second working', 'Saved', secondRevision),
+          },
+        }) as Snapshot;
+      const publisher = new NativeWorkingSourcePublisher(200, hash, exchange);
+      publisher.schedule(root, 'project-1', makeSnapshot('First'), emptyCheckpoint());
+      await publisher.flush();
+      const second = workingPath(root, 'files/records/rooms/second.yaml');
+      const secondBefore = await stat(second);
+      const manifestPath = workingPath(root, 'manifest.json');
+      publisher.schedule(root, 'project-1', makeSnapshot('Next'), emptyCheckpoint());
+      await publisher.flush();
+      const afterUpdate = await readFile(manifestPath);
+      expect((await stat(second)).ino).toBe(secondBefore.ino);
+      expect((await stat(second)).mtimeMs).toBe(secondBefore.mtimeMs);
+      const after = workingSourceManifestSchema.parse(JSON.parse(afterUpdate.toString()));
+      expect(after.publication).toBe(2);
+      publisher.schedule(root, 'project-1', makeSnapshot('Next'), emptyCheckpoint());
+      await publisher.flush();
+      expect(await readFile(manifestPath)).toEqual(afterUpdate);
+      expect(await readFile(second, 'utf8')).toContain('Second working');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('does not clobber an agent edit even if native acknowledgments continue', async () => {
     const { root, revision } = await fixture();
     try {
-      const publisher = new NativeWorkingSourcePublisher(200, hash);
+      const publisher = new NativeWorkingSourcePublisher(200, hash, exchange);
       publisher.schedule(
         root,
         'project-1',
@@ -265,10 +338,112 @@ describe('native working-source publisher (#625)', () => {
     }
   });
 
+  it('restores the exact agent file that wins the native exchange boundary', async () => {
+    const { root, revision } = await fixture();
+    try {
+      const file = workingPath(root, 'files/records/rooms/hall.yaml');
+      let raced = false;
+      const publisher = new NativeWorkingSourcePublisher(
+        200,
+        hash,
+        async (staged, target, backup) => {
+          if (target === file && !raced) {
+            raced = true;
+            await writeFile(target, 'id: hall\nlabel: Agent during swap\n');
+          }
+          return exchange(staged, target, backup);
+        },
+      );
+      publisher.schedule(
+        root,
+        'project-1',
+        snapshot(state('First', 'Saved', revision)),
+        emptyCheckpoint(),
+      );
+      await publisher.flush();
+      const manifestBefore = await readFile(workingPath(root, 'manifest.json'));
+      publisher.schedule(
+        root,
+        'project-1',
+        snapshot(state('Second', 'Saved', revision)),
+        emptyCheckpoint(),
+      );
+      await expect(publisher.flush()).rejects.toThrow(
+        /Externally modified working source during atomic publication/,
+      );
+      expect(raced).toBe(true);
+      expect(await readFile(file, 'utf8')).toContain('Agent during swap');
+      expect(await readFile(workingPath(root, 'manifest.json'))).toEqual(manifestBefore);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it.skipIf(!process.env.NOVELTEA_AUTHORING_NODE_ADDON)(
+    'uses the real native atomic exchange without losing a competing atomic-save rename',
+    async () => {
+      const { root, revision } = await fixture();
+      try {
+        const addonPath = process.env.NOVELTEA_AUTHORING_NODE_ADDON!;
+        const native = createRequire(addonPath)(addonPath) as {
+          exchangeWorkingSource(staged: string, target: string, backup: string): string;
+        };
+        const publisher = new NativeWorkingSourcePublisher(200, hash, (staged, target, backup) =>
+          native.exchangeWorkingSource(staged, target, backup),
+        );
+        publisher.schedule(
+          root,
+          'project-1',
+          snapshot(state('First', 'Saved', revision)),
+          emptyCheckpoint(),
+        );
+        await publisher.flush();
+        publisher.schedule(
+          root,
+          'project-1',
+          snapshot(state('Second', 'Saved', revision)),
+          emptyCheckpoint(),
+        );
+        await publisher.flush();
+        expect(
+          await readFile(workingPath(root, 'files/records/rooms/hall.yaml'), 'utf8'),
+        ).toContain('Second');
+        const file = workingPath(root, 'files/records/rooms/hall.yaml');
+        let collided = false;
+        const raced = new NativeWorkingSourcePublisher(200, hash, (staged, target, backup) => {
+          if (target === file && !collided) {
+            collided = true;
+            const source = 'id: hall\nlabel: Agent atomic replacement\n';
+            // Produce an actual alternate inode, like an agent editor Save.
+            const newPath = path.join(path.dirname(file), '.other-agent-new-source');
+            return writeFile(newPath, source)
+              .then(() => rename(newPath, file))
+              .then(() => native.exchangeWorkingSource(staged, target, backup));
+          }
+          return native.exchangeWorkingSource(staged, target, backup);
+        });
+        const manifest = await readFile(workingPath(root, 'manifest.json'));
+        raced.schedule(
+          root,
+          'project-1',
+          snapshot(state('Third', 'Saved', revision)),
+          emptyCheckpoint(),
+        );
+        await expect(raced.flush()).rejects.toThrow(
+          /Externally modified working source during atomic publication/,
+        );
+        expect(await readFile(file, 'utf8')).toContain('Agent atomic replacement');
+        expect(await readFile(workingPath(root, 'manifest.json'))).toEqual(manifest);
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+  );
+
   it('publishes exact pending source, deletions and multiple independent text owners', async () => {
     const { root, revision, room, source } = await fixture();
     try {
-      const publisher = new NativeWorkingSourcePublisher(200, hash);
+      const publisher = new NativeWorkingSourcePublisher(200, hash, exchange);
       const checkpoint: NativeDirtyCheckpoint = {
         batches: [
           {
@@ -337,7 +512,7 @@ describe('native working-source publisher (#625)', () => {
   it('collapses rapid native edits and prunes only unchanged projected bytes on Undo', async () => {
     const { root, revision } = await fixture();
     try {
-      const publisher = new NativeWorkingSourcePublisher(200, hash);
+      const publisher = new NativeWorkingSourcePublisher(200, hash, exchange);
       publisher.schedule(
         root,
         'project-1',
@@ -383,7 +558,7 @@ describe('native working-source publisher (#625)', () => {
     const { root, revision } = await fixture();
     const outside = await mkdtemp(path.join(tmpdir(), 'noveltea-working-outside-'));
     try {
-      const publisher = new NativeWorkingSourcePublisher(200, hash);
+      const publisher = new NativeWorkingSourcePublisher(200, hash, exchange);
       await mkdir(path.join(root, '.noveltea/editor'), { recursive: true });
       await symlink(outside, path.join(root, '.noveltea/editor/working'));
       publisher.schedule(
@@ -412,7 +587,7 @@ describe('native working-source publisher (#625)', () => {
     const { root, revision, room, source } = await fixture();
     const destination = await mkdtemp(path.join(tmpdir(), 'noveltea-working-copy-'));
     try {
-      const publisher = new NativeWorkingSourcePublisher(200, hash);
+      const publisher = new NativeWorkingSourcePublisher(200, hash, exchange);
       const checkpoint = emptyCheckpoint();
       checkpoint.ownerEvidence = {
         'rooms/hall': {
@@ -467,7 +642,7 @@ describe('native working-source publisher (#625)', () => {
   it('keeps a pending-only draft separately from a clean physical owner', async () => {
     const { root, revision, source, room } = await fixture();
     try {
-      const publisher = new NativeWorkingSourcePublisher(200, hash);
+      const publisher = new NativeWorkingSourcePublisher(200, hash, exchange);
       const checkpoint = emptyCheckpoint();
       checkpoint.pendingFields['/rooms/hall/data/width'] = '-';
       publisher.schedule(
@@ -505,7 +680,7 @@ describe('native working-source publisher (#625)', () => {
       const file = workingPath(root, 'files/records/rooms/hall.yaml');
       await mkdir(path.dirname(file), { recursive: true });
       await writeFile(file, 'id: hall\nlabel: unsafely interrupted publication\n');
-      const publisher = new NativeWorkingSourcePublisher(200, hash);
+      const publisher = new NativeWorkingSourcePublisher(200, hash, exchange);
       publisher.schedule(
         root,
         'project-1',

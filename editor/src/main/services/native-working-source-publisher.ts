@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import {
   cp,
+  link,
   lstat,
   mkdir,
   open,
@@ -9,7 +10,6 @@ import {
   realpath,
   rename,
   rm,
-  unlink,
   writeFile,
 } from 'node:fs/promises';
 import path from 'node:path';
@@ -30,6 +30,11 @@ import type { z } from 'zod';
 type Snapshot = z.infer<typeof nativeAuthoringSnapshotSchema>;
 type SourceSnapshot = NonNullable<Snapshot['recordSnapshots']>[string];
 type Entry = WorkingSourceManifest['entries'][string];
+type NativeFileExchange = (
+  staged: string,
+  destination: string,
+  backup: string,
+) => string | Promise<string>;
 type Projection = {
   representation: Entry['representation'];
   source?: Record<string, unknown>;
@@ -131,7 +136,11 @@ export function nativeWorkingSourceProjection(
         representation: 'deleted',
         bytes: Buffer.from('{"deleted":true}\n'),
         diskRevision: batch.diskPreconditions[owner],
-        checkpointRevision: digest(Buffer.from(JSON.stringify(batch))),
+        // A batched edit may touch other owners. Their new patches must not
+        // cause this deletion marker to be republished on every keystroke.
+        checkpointRevision: digest(
+          Buffer.from(JSON.stringify({ operation, diskRevision: batch.diskPreconditions[owner] })),
+        ),
       });
     }
   }
@@ -255,7 +264,13 @@ async function syncDirectory(dir: string) {
   }
 }
 
-async function atomicWrite(root: string, filename: string, next: Buffer, expected: string | null) {
+async function atomicWrite(
+  root: string,
+  filename: string,
+  next: Buffer,
+  expected: string | null,
+  exchange?: NativeFileExchange,
+) {
   if (next.byteLength > bytesLimit)
     throw new Error(`Working source exceeds size limit: ${filename}`);
   await ensureSafeDirectory(root, path.dirname(filename));
@@ -263,7 +278,12 @@ async function atomicWrite(root: string, filename: string, next: Buffer, expecte
   if ((current ? digest(current) : null) !== expected)
     throw new Error(`Externally modified working source: ${filename}`);
   if (current && current.equals(next)) return;
+  const parent = path.dirname(filename);
+  const directoryBefore = await statSafe(parent);
+  const targetBefore = await statSafe(filename);
   const temporary = path.join(path.dirname(filename), `.working-${randomUUID()}.tmp`);
+  let retainedOriginal: string | null = null;
+  let exchangeAttempted = false;
   try {
     const handle = await open(
       temporary,
@@ -279,18 +299,115 @@ async function atomicWrite(root: string, filename: string, next: Buffer, expecte
     const after = await readSafe(filename);
     if ((after ? digest(after) : null) !== expected)
       throw new Error(`Externally modified working source during publication: ${filename}`);
-    await rename(temporary, filename);
+    const directoryAfter = await statSafe(parent);
+    const targetAfter = await statSafe(filename);
+    if (
+      !directoryBefore ||
+      !directoryAfter ||
+      directoryBefore.ino !== directoryAfter.ino ||
+      directoryBefore.dev !== directoryAfter.dev ||
+      directoryAfter.isSymbolicLink() ||
+      targetBefore?.ino !== targetAfter?.ino ||
+      targetBefore?.dev !== targetAfter?.dev
+    )
+      throw new Error(`Working source path changed during publication: ${filename}`);
+    if (expected === null) {
+      // link(2) creates the first working file with an atomic no-replace
+      // guarantee. An external creator wins, even between checks.
+      try {
+        await link(temporary, filename);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'EEXIST')
+          throw new Error(`Externally created working source during publication: ${filename}`);
+        throw error;
+      }
+    } else {
+      if (!exchange) throw new Error('Native atomic working-source exchange is unavailable.');
+      // Atomic exchange retains the *actual* old target, including a competing
+      // atomic-save rename in the gap after the final preflight hash check.
+      exchangeAttempted = true;
+      const backup = path.join(parent, `.working-${randomUUID()}.backup`);
+      retainedOriginal = await exchange(temporary, filename, backup);
+      if (
+        !retainedOriginal ||
+        path.dirname(retainedOriginal) !== parent ||
+        !path.basename(retainedOriginal).startsWith('.working-')
+      )
+        throw new Error('Native exchange returned an unsafe retained-source path.');
+      const displaced = await readSafe(retainedOriginal);
+      if (!displaced || digest(displaced) !== expected) {
+        // Roll back only if the editor-installed bytes still occupy the path.
+        // Otherwise keep both versions, leaving the old manifest uncommitted.
+        const installed = await readSafe(filename);
+        if (installed?.equals(next)) {
+          const rolledBack = await exchange(
+            retainedOriginal,
+            filename,
+            path.join(parent, `.working-${randomUUID()}.backup`),
+          );
+          const abandoned = await readSafe(rolledBack);
+          if (!abandoned?.equals(next))
+            throw new Error(
+              `Working source changed during rollback; competing bytes retained: ${rolledBack}`,
+            );
+          await rm(rolledBack, { force: true });
+          retainedOriginal = null;
+        }
+        throw new Error(
+          `Externally modified working source during atomic publication: ${filename}`,
+        );
+      }
+      if (!(await readSafe(filename))?.equals(next))
+        throw new Error(
+          `Working source changed after atomic exchange; retained evidence: ${retainedOriginal}`,
+        );
+      await rm(retainedOriginal, { force: true });
+      retainedOriginal = null;
+    }
     await syncDirectory(path.dirname(filename));
   } finally {
-    await rm(temporary, { force: true });
+    // On uncertain exchange failure, the old file may already have moved to
+    // the stage name. Never delete it merely because the native call failed.
+    if (!exchangeAttempted || retainedOriginal === null) await rm(temporary, { force: true });
   }
 }
 
-async function pruneSafe(filename: string, expected: string) {
+async function pruneSafe(root: string, filename: string, expected: string) {
+  await ensureSafeDirectory(root, path.dirname(filename));
+  const parentBefore = await statSafe(path.dirname(filename));
+  const entryBefore = await statSafe(filename);
   const bytes = await readSafe(filename);
   if (!bytes || digest(bytes) !== expected)
     throw new Error(`Externally modified working source cannot be pruned: ${filename}`);
-  await unlink(filename);
+  const parentAfter = await statSafe(path.dirname(filename));
+  const entryAfter = await statSafe(filename);
+  if (
+    !parentBefore ||
+    !parentAfter ||
+    parentBefore.dev !== parentAfter.dev ||
+    parentBefore.ino !== parentAfter.ino ||
+    entryBefore?.ino !== entryAfter?.ino ||
+    entryBefore?.dev !== entryAfter?.dev
+  )
+    throw new Error(`Working source path changed before pruning: ${filename}`);
+  // Move the *actual* entry to a quarantine name first. If an agent atomically
+  // saved between the last comparison and rename, its bytes are retained and
+  // the manifest is left stale rather than deleting its edit.
+  const quarantine = path.join(path.dirname(filename), `.working-${randomUUID()}.pruned`);
+  await rename(filename, quarantine);
+  const displaced = await readSafe(quarantine);
+  if (!displaced || digest(displaced) !== expected) {
+    // Restore only when the original path is still absent; never replace an
+    // agent file created while pruning.
+    try {
+      await link(quarantine, filename);
+      await rm(quarantine, { force: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    }
+    throw new Error(`Externally modified working source cannot be pruned: ${filename}`);
+  }
+  await rm(quarantine, { force: true });
   await syncDirectory(path.dirname(filename));
 }
 
@@ -383,6 +500,7 @@ export class NativeWorkingSourcePublisher {
   constructor(
     private readonly idleMs = 200,
     private readonly sourceRevisionFor?: (bytes: Uint8Array) => string,
+    private readonly exchange?: NativeFileExchange,
   ) {}
 
   schedule(root: string, projectId: string, snapshot: Snapshot, checkpoint: NativeDirtyCheckpoint) {
@@ -456,20 +574,39 @@ export class NativeWorkingSourcePublisher {
       : null;
     if (old && (old.projectRoot !== root || old.projectId !== request.projectId))
       throw new Error('Working source belongs to a different Project identity.');
-    // A manifest hash authorizes publication only while the original immutable
-    // bytes are still available for later external three-way reconciliation.
-    for (const previous of Object.values(old?.entries ?? {})) {
+    // Check evidence for each owner about to change, not every dirty owner on
+    // every keystroke. Import/recovery independently verifies all referenced
+    // evidence before trusting it; untouched owners retain their old ledger.
+    const verifyPreviousEvidence = async (previous: Entry | undefined) => {
+      if (!previous) return;
       for (const revision of [previous.publishedRevision, previous.pendingRevision]) {
         if (!revision) continue;
-        const baseline = await readSafe(path.join(directory, workingSourceBaselinePath(revision)));
+        const baselinePath = path.join(directory, workingSourceBaselinePath(revision));
+        await ensureSafeDirectory(root, path.dirname(baselinePath));
+        const baseline = await readSafe(baselinePath);
         if (!baseline || digest(baseline) !== revision)
           throw new Error('Working-source publisher baseline is damaged or missing.');
       }
-    }
+    };
     const entries: WorkingSourceManifest['entries'] = {};
     for (const [owner, item] of desired) {
       const locations = workingSourcePaths(owner);
       const previous = old?.entries[owner];
+      if (
+        previous &&
+        item.representation !== 'pending-only' &&
+        previous.representation === item.representation &&
+        previous.checkpointRevision === item.checkpointRevision &&
+        previous.diskRevision === item.diskRevision &&
+        previous.pendingRevision === (item.pending ? digest(item.pending) : null) &&
+        !this.adopted.has(owner) &&
+        !this.adoptedPending.has(owner)
+      ) {
+        // No source, baseline or manifest read/write is needed for this owner.
+        entries[owner] = previous;
+        continue;
+      }
+      await verifyPreviousEvidence(previous);
       const main = item.representation === 'deleted' ? locations.deletion : locations.file;
       const mainPath = path.join(directory, main);
       const pendingPath = path.join(directory, locations.pending);
@@ -500,30 +637,34 @@ export class NativeWorkingSourcePublisher {
       const pendingRevision = item.pending ? digest(item.pending) : null;
       if (bytes) {
         const baseline = path.join(directory, workingSourceBaselinePath(publishedRevision!));
+        await ensureSafeDirectory(root, path.dirname(baseline));
         const existing = await readSafe(baseline);
         if (existing && !existing.equals(bytes))
           throw new Error('Working-source baseline was altered.');
-        if (!existing) await atomicWrite(root, baseline, bytes, null);
+        if (!existing) await atomicWrite(root, baseline, bytes, null, this.exchange);
         const expected =
           this.adopted.get(owner) ??
           (previous?.representation === item.representation ? previous.publishedRevision : null);
-        await atomicWrite(root, mainPath, bytes, expected);
+        await atomicWrite(root, mainPath, bytes, expected, this.exchange);
       }
       if (item.pending) {
         const baseline = path.join(directory, workingSourceBaselinePath(pendingRevision!));
+        await ensureSafeDirectory(root, path.dirname(baseline));
         const existing = await readSafe(baseline);
         if (existing && !existing.equals(item.pending))
           throw new Error('Working-source pending baseline was altered.');
-        if (!existing) await atomicWrite(root, baseline, item.pending, null);
+        if (!existing) await atomicWrite(root, baseline, item.pending, null, this.exchange);
         await atomicWrite(
           root,
           pendingPath,
           item.pending,
           this.adoptedPending.get(owner) ?? previous?.pendingRevision ?? null,
+          this.exchange,
         );
       }
       if (previous && previous.representation !== item.representation && previous.publishedRevision)
         await pruneSafe(
+          root,
           path.join(
             directory,
             previous.representation === 'deleted' ? locations.deletion : locations.file,
@@ -531,7 +672,11 @@ export class NativeWorkingSourcePublisher {
           this.adopted.get(owner) ?? previous.publishedRevision,
         );
       if (previous?.pendingRevision && !item.pending)
-        await pruneSafe(pendingPath, this.adoptedPending.get(owner) ?? previous.pendingRevision);
+        await pruneSafe(
+          root,
+          pendingPath,
+          this.adoptedPending.get(owner) ?? previous.pendingRevision,
+        );
       entries[owner] = {
         representation: item.representation,
         publishedRevision: item.representation === 'pending-only' ? null : publishedRevision!,
@@ -543,9 +688,11 @@ export class NativeWorkingSourcePublisher {
     }
     for (const [owner, previous] of Object.entries(old?.entries ?? {})) {
       if (desired.has(owner)) continue;
+      await verifyPreviousEvidence(previous);
       const locations = workingSourcePaths(owner);
       if (previous.publishedRevision)
         await pruneSafe(
+          root,
           path.join(
             directory,
             previous.representation === 'deleted' ? locations.deletion : locations.file,
@@ -554,6 +701,7 @@ export class NativeWorkingSourcePublisher {
         );
       if (previous.pendingRevision)
         await pruneSafe(
+          root,
           path.join(directory, locations.pending),
           this.adoptedPending.get(owner) ?? previous.pendingRevision,
         );
@@ -566,11 +714,20 @@ export class NativeWorkingSourcePublisher {
       entries,
     };
     workingSourceManifestSchema.parse(next);
+    if (
+      old &&
+      Object.keys(old.entries).length === Object.keys(entries).length &&
+      Object.entries(entries).every(
+        ([owner, entry]) => JSON.stringify(old.entries[owner]) === JSON.stringify(entry),
+      )
+    )
+      return;
     await atomicWrite(
       root,
       manifestPath,
       Buffer.from(JSON.stringify(next)),
       oldBytes ? digest(oldBytes) : null,
+      this.exchange,
     );
   }
 }

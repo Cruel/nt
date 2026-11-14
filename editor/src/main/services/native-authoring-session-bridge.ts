@@ -59,7 +59,10 @@ export interface NativeAuthoringSessionOptions {
  * main-owned active session is the only source of the worker's filesystem root.
  */
 export class NativeAuthoringSessionBridge {
-  private sourceHasher?: { sourceRevision(bytes: Buffer): string };
+  private sourceHasher?: {
+    sourceRevision(bytes: Buffer): string;
+    exchangeWorkingSource(stage: string, target: string, backup: string): string;
+  };
   private current: OpenSession | null = null;
   private generation = 0;
   private readonly terminations = new Set<Promise<void>>();
@@ -84,8 +87,19 @@ export class NativeAuthoringSessionBridge {
   sourceRevision(bytes: Uint8Array): string {
     this.sourceHasher ??= createRequire(this.options.addonPath)(this.options.addonPath) as {
       sourceRevision(bytes: Buffer): string;
+      exchangeWorkingSource(stage: string, target: string, backup: string): string;
     };
     return this.sourceHasher.sourceRevision(Buffer.from(bytes));
+  }
+
+  /** Atomic replace-with-retained-old-file for the main-owned working-source
+   * publisher. The renderer never supplies paths or invokes this operation. */
+  exchangeWorkingSource(stage: string, target: string, backup: string): string {
+    this.sourceHasher ??= createRequire(this.options.addonPath)(this.options.addonPath) as {
+      sourceRevision(bytes: Buffer): string;
+      exchangeWorkingSource(stage: string, target: string, backup: string): string;
+    };
+    return this.sourceHasher.exchangeWorkingSource(stage, target, backup);
   }
 
   /** Read only the one admitted text owner being recovered. Native staging

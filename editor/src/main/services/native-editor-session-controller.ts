@@ -73,7 +73,12 @@ export class NativeEditorSessionController {
       'isCurrent' | 'requireActiveProjectRoot'
     >,
     private readonly bridge: Pick<NativeAuthoringSessionBridge, 'close' | 'onFailure'> &
-      Partial<Pick<NativeAuthoringSessionBridge, 'sourceRevision' | 'validationWorkerOptions'>>,
+      Partial<
+        Pick<
+          NativeAuthoringSessionBridge,
+          'sourceRevision' | 'validationWorkerOptions' | 'exchangeWorkingSource'
+        >
+      >,
     private readonly working: Pick<
       NativeAuthoringWorkingProject,
       | 'open'
@@ -100,7 +105,11 @@ export class NativeEditorSessionController {
       'readResult' | 'write'
     > = new NativeDirtyCheckpointStore(),
   ) {
-    this.workingSourcePublisher = new NativeWorkingSourcePublisher(200, this.sourceRevisionFor());
+    this.workingSourcePublisher = new NativeWorkingSourcePublisher(
+      200,
+      this.sourceRevisionFor(),
+      bridge.exchangeWorkingSource?.bind(bridge),
+    );
     this.unsubscribeFailure = bridge.onFailure((error) => {
       const sessionId = this.activeId;
       if (!sessionId) return;

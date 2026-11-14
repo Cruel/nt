@@ -171,6 +171,7 @@ import { NativeEditorObserverWatchService } from './main/services/native-editor-
 import { createNativeEditorProject } from './main/services/native-editor-project-create';
 import { NativeEditorProjectHandoff } from './main/services/native-editor-project-handoff';
 import { NativeEditorSessionController } from './main/services/native-editor-session-controller';
+import { createNativeWorkingSourceExitGuard } from './main/services/native-working-source-exit-guard';
 import { saveNativeProjectCopyAs } from './main/services/native-project-copy-service';
 import {
   exportPackage,
@@ -446,6 +447,26 @@ function closeNativeEditorHandoff(): void {
   if (controller) nativeEditorObservers.get(controller)?.close();
   nativeEditorHandoff?.close();
 }
+const workingSourceExit = createNativeWorkingSourceExitGuard(
+  async () => {
+    const controller = nativeEditorHandoff.current();
+    // Failed-open repair candidates have no admitted Project to publish.
+    if (controller && controller === nativeEditorAdmission) await controller.flushWorkingSources();
+  },
+  async (error) => {
+    const choice = await dialog.showMessageBox({
+      type: 'warning',
+      buttons: ['Keep editor open', 'Close without updated working files'],
+      defaultId: 0,
+      cancelId: 0,
+      message: 'Unsaved working files could not be updated',
+      detail:
+        `${error instanceof Error ? error.message : String(error)}\n\n` +
+        'The acknowledged native recovery checkpoint is still preserved. Closing now may leave agent-editable working files out of date.',
+    });
+    return choice.response === 1;
+  },
+);
 async function refreshNativeCandidateCapabilities(projectSessionId: string): Promise<void> {
   const controller = nativeEditorHandoff.current();
   if (!controller?.isAdmitted(projectSessionId))
@@ -833,6 +854,9 @@ function installApplicationMenu() {
 }
 
 function createWindow(): BrowserWindow {
+  // macOS may keep the app alive after its last window closes; a new window
+  // must establish a fresh publication barrier for its next close.
+  workingSourceExit.reset();
   appWindowExitConfirmed = false;
   operatingSystemShutdown = false;
   const windowSettings = readEditorWindowSettings();
@@ -874,7 +898,15 @@ function createWindow(): BrowserWindow {
   mainWindow.on('move', scheduleBoundsSave);
   mainWindow.on('maximize', scheduleBoundsSave);
   mainWindow.on('unmaximize', scheduleBoundsSave);
-  mainWindow.on('close', () => {
+  mainWindow.on('close', (event) => {
+    if (!workingSourceExit.ready) {
+      event.preventDefault();
+      const windowToClose = mainWindow;
+      workingSourceExit.request(() => {
+        if (windowToClose && !windowToClose.isDestroyed()) windowToClose.close();
+      });
+      return;
+    }
     if (boundsSaveTimer) clearTimeout(boundsSaveTimer);
     saveEditorWindowBounds(mainWindow!);
   });
@@ -2480,7 +2512,12 @@ void app.whenReady().then(async () => {
   });
 });
 
-app.on('before-quit', () => {
+app.on('before-quit', (event) => {
+  if (!workingSourceExit.ready) {
+    event.preventDefault();
+    workingSourceExit.request(() => app.quit());
+    return;
+  }
   void projectCandidateRepairs.revokeAll().catch(() => undefined);
   closeNativeEditorHandoff();
   activeProjectSessions.dispose();
