@@ -1,8 +1,9 @@
 # Agent-editable working sources (#624)
 
-**Status:** contract fixed by #624; source publication is implemented by #625.
-Offline import, observation, standalone validation and prompt integration are
-tracked separately in #626–#629. [ADR 0002](../../adr/0002-agent-editable-working-sources.md)
+**Status:** contract fixed by #624; source publication is implemented by #625,
+and cold-Project admission of external working files by #626. Live observation,
+standalone validation and prompt integration remain separately tracked in
+#627–#629. [ADR 0002](../../adr/0002-agent-editable-working-sources.md)
 records why the interface is file-backed.
 
 ## Authority and layout
@@ -197,6 +198,32 @@ because an unrelated Project symlink exists. The agent runs under the user's
 normal tool permissions; editor containment is enforced only for editor writes.
 
 ## Executable fixtures
+
+Cold admission is implemented by `native-working-source-import.ts` through
+`NativeEditorSessionController.admitFromNative`. It reads only the manifested
+physical owners **after** replaying the native recovery checkpoint and **before**
+scheduling any new projection. The read-only plan checks exact manifest
+Project ID/root, SHA-256 immutable baseline blobs, safe/size-bounded source
+paths and available native owner evidence. A changed valid YAML owner is
+diffed against its last published source bytes, then checked against both
+newer native working fields and the physical saved baseline; disjoint changes
+enter the existing native patch lane. Overlaps are retained in the agent file
+and native `restoreConflicts`, not silently selected for Save. Raw invalid
+YAML, changed deletion markers, lost/replaced paths, unsupported drafts and
+unattributed checkpoint evidence stay untouched with a Project-open warning.
+Text changes stage through native text-source authority, and pending field
+changes remain in native checkpoint state. Only after checkpoint durability
+does the publisher accept an exact, still-current agent-file hash as a CAS
+precondition for refreshing the projection. A later agent write defeats that
+CAS. If any evidence remains unresolved, startup does not republish/prune the
+working tree; other native Save owners remain independent.
+
+The real-native cold restart regression cases live in
+`native-save-integration-608.test.ts` (dirty Room, overlapping later native
+checkpoint, disjoint/overlapping physical disk edits, malformed YAML and
+Lua text). The publisher/import tests cover missing, stale, corrupt and
+cross-Project evidence. The `.noveltea/` watcher exception belongs to #627,
+not to this cold-open admission path.
 
 `editor/src/renderer/test/fixtures/working-source-projection/` pins the
 physical layout, SHA-256 base blobs, an unsaved commented Room, malformed raw

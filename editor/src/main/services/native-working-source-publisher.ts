@@ -377,6 +377,8 @@ export class NativeWorkingSourcePublisher {
     checkpoint: NativeDirtyCheckpoint;
   } | null = null;
   private failure: string | null = null;
+  private readonly adopted = new Map<string, string>();
+  private readonly adoptedPending = new Map<string, string>();
 
   constructor(
     private readonly idleMs = 200,
@@ -399,6 +401,16 @@ export class NativeWorkingSourcePublisher {
     return this.failure;
   }
 
+  /** The native owner has acknowledged the exact agent bytes. The next
+   * publication still CAS-checks those bytes; a subsequent edit is never lost. */
+  adoptExternal(owner: string, observedRevision: string): void {
+    this.adopted.set(owner, observedRevision);
+  }
+
+  adoptExternalPending(owner: string, observedRevision: string): void {
+    this.adoptedPending.set(owner, observedRevision);
+  }
+
   async flush(): Promise<void> {
     if (this.pending) clearTimeout(this.pending);
     this.pending = undefined;
@@ -414,6 +426,8 @@ export class NativeWorkingSourcePublisher {
     try {
       await current;
       this.failure = null;
+      this.adopted.clear();
+      this.adoptedPending.clear();
     } catch (error) {
       this.failure = String(error);
       throw error;
@@ -422,6 +436,8 @@ export class NativeWorkingSourcePublisher {
 
   cancel() {
     this.requested = null;
+    this.adopted.clear();
+    this.adoptedPending.clear();
     if (this.pending) clearTimeout(this.pending);
     this.pending = undefined;
   }
@@ -457,11 +473,19 @@ export class NativeWorkingSourcePublisher {
       const main = item.representation === 'deleted' ? locations.deletion : locations.file;
       const mainPath = path.join(directory, main);
       const pendingPath = path.join(directory, locations.pending);
+      const savedText = item.source
+        ? await readProjectSource(root, owner, item.diskRevision, this.sourceRevisionFor)
+        : undefined;
+      const adoptedText = item.source && this.adopted.has(owner) ? await readSafe(mainPath) : null;
+      if (adoptedText && digest(adoptedText) !== this.adopted.get(owner))
+        throw new Error(`Agent edited accepted working source again: ${owner}`);
       const bytes = item.source
         ? Buffer.from(
             encodeStructuredYaml(
               item.source,
-              await readProjectSource(root, owner, item.diskRevision, this.sourceRevisionFor),
+              adoptedText
+                ? new TextDecoder('utf-8', { fatal: true }).decode(adoptedText)
+                : savedText,
             ),
           )
         : item.bytes;
@@ -481,7 +505,8 @@ export class NativeWorkingSourcePublisher {
           throw new Error('Working-source baseline was altered.');
         if (!existing) await atomicWrite(root, baseline, bytes, null);
         const expected =
-          previous?.representation === item.representation ? previous.publishedRevision : null;
+          this.adopted.get(owner) ??
+          (previous?.representation === item.representation ? previous.publishedRevision : null);
         await atomicWrite(root, mainPath, bytes, expected);
       }
       if (item.pending) {
@@ -490,7 +515,12 @@ export class NativeWorkingSourcePublisher {
         if (existing && !existing.equals(item.pending))
           throw new Error('Working-source pending baseline was altered.');
         if (!existing) await atomicWrite(root, baseline, item.pending, null);
-        await atomicWrite(root, pendingPath, item.pending, previous?.pendingRevision ?? null);
+        await atomicWrite(
+          root,
+          pendingPath,
+          item.pending,
+          this.adoptedPending.get(owner) ?? previous?.pendingRevision ?? null,
+        );
       }
       if (previous && previous.representation !== item.representation && previous.publishedRevision)
         await pruneSafe(
@@ -498,10 +528,10 @@ export class NativeWorkingSourcePublisher {
             directory,
             previous.representation === 'deleted' ? locations.deletion : locations.file,
           ),
-          previous.publishedRevision,
+          this.adopted.get(owner) ?? previous.publishedRevision,
         );
       if (previous?.pendingRevision && !item.pending)
-        await pruneSafe(pendingPath, previous.pendingRevision);
+        await pruneSafe(pendingPath, this.adoptedPending.get(owner) ?? previous.pendingRevision);
       entries[owner] = {
         representation: item.representation,
         publishedRevision: item.representation === 'pending-only' ? null : publishedRevision!,
@@ -520,10 +550,13 @@ export class NativeWorkingSourcePublisher {
             directory,
             previous.representation === 'deleted' ? locations.deletion : locations.file,
           ),
-          previous.publishedRevision,
+          this.adopted.get(owner) ?? previous.publishedRevision,
         );
       if (previous.pendingRevision)
-        await pruneSafe(path.join(directory, locations.pending), previous.pendingRevision);
+        await pruneSafe(
+          path.join(directory, locations.pending),
+          this.adoptedPending.get(owner) ?? previous.pendingRevision,
+        );
     }
     const next: WorkingSourceManifest = {
       schema: WORKING_SOURCE_SCHEMA,

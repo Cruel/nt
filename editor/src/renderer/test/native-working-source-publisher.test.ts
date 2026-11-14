@@ -7,6 +7,7 @@ import {
   NativeWorkingSourcePublisher,
   copyNativeWorkingSourceTree,
 } from '../../main/services/native-working-source-publisher';
+import { planOfflineWorkingSourceImport } from '../../main/services/native-working-source-import';
 import { workingSourceManifestSchema } from '../../shared/project-workspace/working-source-contract';
 import type { NativeDirtyCheckpoint } from '../../main/services/native-authoring-working-project';
 import type { nativeAuthoringSnapshotSchema } from '../../main/services/native-authoring-worker-contract';
@@ -52,6 +53,140 @@ const workingPath = (root: string, relative: string) =>
   path.join(root, '.noveltea/editor/working', relative);
 
 describe('native working-source publisher (#625)', () => {
+  it('plans only genuine agent changes against verified published bytes and checkpoint evidence', async () => {
+    const { root, revision } = await fixture();
+    try {
+      const checkpoint = emptyCheckpoint();
+      checkpoint.ownerEvidence = {
+        'rooms/hall': {
+          diskRevision: revision,
+          baseline: { id: 'hall', label: 'Saved' },
+          working: { id: 'hall', label: 'Working' },
+        },
+      };
+      const published = snapshot(state('Working', 'Saved', revision));
+      const publisher = new NativeWorkingSourcePublisher(200, hash);
+      publisher.schedule(root, 'project-1', published, checkpoint);
+      await publisher.flush();
+      const unchanged = await planOfflineWorkingSourceImport(
+        root,
+        'project-1',
+        published,
+        checkpoint,
+        hash,
+      );
+      expect(unchanged.changes).toEqual([]);
+      expect(unchanged.warnings).toEqual([]);
+
+      const file = workingPath(root, 'files/records/rooms/hall.yaml');
+      await writeFile(
+        file,
+        (await readFile(file, 'utf8')).replace('label: Working', 'label: Agent'),
+      );
+      const imported = await planOfflineWorkingSourceImport(
+        root,
+        'project-1',
+        published,
+        checkpoint,
+        hash,
+      );
+      expect(imported.obstructed).toBe(false);
+      expect(imported.changes).toMatchObject([
+        {
+          owner: 'rooms/hall',
+          patches: [{ op: 'replace', path: '/rooms/hall/label', value: 'Agent' }],
+          conflicts: [],
+        },
+      ]);
+      const mismatched = await planOfflineWorkingSourceImport(
+        root,
+        'another-project',
+        published,
+        checkpoint,
+        hash,
+      );
+      expect(mismatched.obstructed).toBe(true);
+      expect(mismatched.changes).toEqual([]);
+      const noCheckpoint = await planOfflineWorkingSourceImport(
+        root,
+        'project-1',
+        published,
+        null,
+        hash,
+      );
+      expect(noCheckpoint.obstructed).toBe(true);
+      expect(noCheckpoint.changes).toEqual([]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('preserves damaged, renamed and symlinked agent files instead of importing unknown evidence', async () => {
+    const { root, revision } = await fixture();
+    try {
+      const checkpoint = emptyCheckpoint();
+      checkpoint.ownerEvidence = {
+        'rooms/hall': {
+          diskRevision: revision,
+          baseline: { id: 'hall', label: 'Saved' },
+          working: { id: 'hall', label: 'Working' },
+        },
+      };
+      const published = snapshot(state('Working', 'Saved', revision));
+      const publisher = new NativeWorkingSourcePublisher(200, hash);
+      publisher.schedule(root, 'project-1', published, checkpoint);
+      await publisher.flush();
+      const file = workingPath(root, 'files/records/rooms/hall.yaml');
+      const bytes = await readFile(file, 'utf8');
+      await writeFile(file, 'id: hall\nlabel: [\n');
+      const invalid = await planOfflineWorkingSourceImport(
+        root,
+        'project-1',
+        published,
+        checkpoint,
+        hash,
+      );
+      expect(invalid.obstructed).toBe(true);
+      expect(invalid.changes).toEqual([]);
+      expect(await readFile(file, 'utf8')).toBe('id: hall\nlabel: [\n');
+      await rm(file);
+      const missing = await planOfflineWorkingSourceImport(
+        root,
+        'project-1',
+        published,
+        checkpoint,
+        hash,
+      );
+      expect(missing.obstructed).toBe(true);
+      await symlink(workingPath(root, 'manifest.json'), file);
+      const linked = await planOfflineWorkingSourceImport(
+        root,
+        'project-1',
+        published,
+        checkpoint,
+        hash,
+      );
+      expect(linked.obstructed).toBe(true);
+      await rm(file);
+      await writeFile(file, bytes);
+      const manifest = workingSourceManifestSchema.parse(
+        JSON.parse(await readFile(workingPath(root, 'manifest.json'), 'utf8')),
+      );
+      const hashValue = manifest.entries['records/rooms/hall.yaml']!.publishedRevision!;
+      await writeFile(workingPath(root, `baselines/${hashValue.slice(7)}.blob`), 'corrupted');
+      const corrupted = await planOfflineWorkingSourceImport(
+        root,
+        'project-1',
+        published,
+        checkpoint,
+        hash,
+      );
+      expect(corrupted.obstructed).toBe(true);
+      expect(corrupted.changes).toEqual([]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
   it('projects only acknowledged dirty Room source and retains authored comments', async () => {
     const { root, room, source, revision } = await fixture();
     try {
@@ -109,13 +244,29 @@ describe('native working-source publisher (#625)', () => {
       );
       await expect(publisher.flush()).rejects.toThrow(/cannot be pruned/);
       expect(await readFile(file, 'utf8')).toContain('Agent repaired');
+      // Once native admission acknowledged precisely these external bytes,
+      // a later successful Save may prune that owner without dropping edits.
+      publisher.adoptExternal(
+        'records/rooms/hall.yaml',
+        `sha256:${createHash('sha256')
+          .update(await readFile(file))
+          .digest('hex')}`,
+      );
+      publisher.schedule(
+        root,
+        'project-1',
+        snapshot(state('Saved', 'Saved', revision)),
+        emptyCheckpoint(),
+      );
+      await publisher.flush();
+      await expect(readFile(file, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
     } finally {
       await rm(root, { recursive: true, force: true });
     }
   });
 
   it('publishes exact pending source, deletions and multiple independent text owners', async () => {
-    const { root, revision } = await fixture();
+    const { root, revision, room, source } = await fixture();
     try {
       const publisher = new NativeWorkingSourcePublisher(200, hash);
       const checkpoint: NativeDirtyCheckpoint = {
@@ -151,6 +302,29 @@ describe('native working-source publisher (#625)', () => {
           await readFile(workingPath(root, 'pending/records/rooms/hall.yaml.json'), 'utf8'),
         ),
       ).toEqual({ fieldText: { '/rooms/hall/data/width': '-' }, namedText: {} });
+      const pending = workingPath(root, 'pending/records/rooms/hall.yaml.json');
+      const proposed = { fieldText: { '/rooms/hall/data/width': '-1' }, namedText: {} };
+      await writeFile(pending, JSON.stringify(proposed));
+      const admitted = await planOfflineWorkingSourceImport(
+        root,
+        'project-1',
+        snapshot(state('Saved', 'Saved', revision)),
+        checkpoint,
+        hash,
+      );
+      expect(admitted.obstructed).toBe(false);
+      expect(admitted.changes[0]?.pending).toEqual({ '/rooms/hall/data/width': '-1' });
+      await writeFile(room, source.replace('label: Saved', 'label: Disk changed'));
+      const stale = await planOfflineWorkingSourceImport(
+        root,
+        'project-1',
+        snapshot(state('Saved', 'Saved', revision)),
+        checkpoint,
+        hash,
+      );
+      expect(stale.obstructed).toBe(true);
+      expect(stale.changes).toEqual([]);
+      expect(JSON.parse(await readFile(pending, 'utf8'))).toEqual(proposed);
       const manifest = workingSourceManifestSchema.parse(
         JSON.parse(await readFile(workingPath(root, 'manifest.json'), 'utf8')),
       );
@@ -239,11 +413,19 @@ describe('native working-source publisher (#625)', () => {
     const destination = await mkdtemp(path.join(tmpdir(), 'noveltea-working-copy-'));
     try {
       const publisher = new NativeWorkingSourcePublisher(200, hash);
+      const checkpoint = emptyCheckpoint();
+      checkpoint.ownerEvidence = {
+        'rooms/hall': {
+          diskRevision: revision,
+          baseline: { id: 'hall', label: 'Saved' },
+          working: { id: 'hall', label: 'Working' },
+        },
+      };
       publisher.schedule(
         root,
         'project-1',
         snapshot(state('Working', 'Saved', revision)),
-        emptyCheckpoint(),
+        checkpoint,
       );
       await publisher.flush();
       const file = 'files/records/rooms/hall.yaml';
@@ -259,6 +441,23 @@ describe('native working-source publisher (#625)', () => {
       expect(manifest.entries['records/rooms/hall.yaml']!.publishedRevision).not.toBe(
         `sha256:${createHash('sha256').update(agentBytes).digest('hex')}`,
       );
+      // A normal Copy As rebinds the identity to the actual selected destination.
+      // Use the same tree with that identity to certify cold-import eligibility.
+      await writeFile(
+        workingPath(destination, 'manifest.json'),
+        JSON.stringify({ ...manifest, projectRoot: destination }),
+      );
+      const copied = await planOfflineWorkingSourceImport(
+        destination,
+        'project-1',
+        snapshot(state('Working', 'Saved', revision)),
+        checkpoint,
+        hash,
+      );
+      expect(copied.obstructed).toBe(false);
+      expect(copied.changes[0]?.patches).toEqual([
+        { op: 'replace', path: '/rooms/hall/label', value: 'Agent fixed' },
+      ]);
     } finally {
       await rm(root, { recursive: true, force: true });
       await rm(destination, { recursive: true, force: true });

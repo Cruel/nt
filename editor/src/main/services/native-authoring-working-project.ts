@@ -472,6 +472,33 @@ export class NativeAuthoringWorkingProject {
     });
   }
 
+  /** Reuse the native recovery conflict boundary for an externally edited
+   * working projection. Both the native checkpoint and the agent file survive. */
+  async markExternalWorkingConflicts(
+    owner: string,
+    paths: readonly string[],
+  ): Promise<PatchResult> {
+    return this.serial(async () => {
+      if (!this.view) throw new Error('Native working Project has not opened.');
+      const source = owner === 'project' ? this.view : this.view.recordSnapshots?.[owner];
+      if (!source?.dirty || !paths.length)
+        throw new Error(`No dirty native owner to retain working conflict: ${owner}`);
+      const retained = [...new Set([...(source.conflictingPaths ?? []), ...paths])];
+      const result = await this.bridge.request({
+        operation: 'restoreConflicts',
+        expectedRevision: this.view.workingRevision,
+        conflicts: { [owner]: retained },
+      });
+      if (!result || !('accepted' in result) || !result.accepted)
+        throw new Error(
+          `Native working-source conflict admission failed: ${result && 'error' in result ? result.error : 'invalid response'}`,
+        );
+      this.view = this.mergeSnapshot(result.snapshot);
+      this.checkpointDirtyWorkingState();
+      return { ...result, snapshot: this.view };
+    });
+  }
+
   /** Discard exactly one native Save owner's dirty edits and unresolved conflicts. */
   async useDisk(owner: string): Promise<PatchResult> {
     return this.serial(async () => {

@@ -35,6 +35,10 @@ import { nativeAssetContentHashes, verifyNativeSourceBytes } from './native-auth
 import { classifyProjectValidationDiagnostics } from '../../shared/project-schema/project-diagnostic-projection';
 import { validateNativeWorkingStages } from './native-working-stage-validation';
 import { NativeWorkingSourcePublisher } from './native-working-source-publisher';
+import {
+  planOfflineWorkingSourceImport,
+  workingSourceRevision,
+} from './native-working-source-import';
 
 export interface NativeCleanExportAdmission {
   readonly project: AuthoringProject;
@@ -87,6 +91,8 @@ export class NativeEditorSessionController {
       | 'dirtyCheckpoint'
       | 'restoreDirtyCheckpoint'
       | 'reopenAndReplay'
+      | 'markExternalWorkingConflicts'
+      | 'setPendingFieldText'
     >,
     private readonly checkpoints: Pick<
       NativeDirtyCheckpointStore,
@@ -169,6 +175,102 @@ export class NativeEditorSessionController {
   }
 
   private projectIdentity: string | null = null;
+
+  private async importOfflineWorkingSources(
+    root: string,
+    projectId: string,
+    projectSessionId: string,
+    generation: number,
+    checkpoint: NativeDirtyCheckpoint | null,
+  ): Promise<{
+    warnings: { code: string; severity: 'warning'; path: string; message: string }[];
+    blocked: boolean;
+    changed: boolean;
+  }> {
+    const current = this.working.snapshot();
+    if (!current) throw new Error('Native recovery lacks a working snapshot.');
+    const plan = await planOfflineWorkingSourceImport(
+      root,
+      projectId,
+      current,
+      checkpoint,
+      this.sourceRevisionFor(),
+    );
+    const warnings = plan.warnings.map(({ sourcePath, message }) => ({
+      code: 'native.working_source.conflict',
+      severity: 'warning' as const,
+      path: `/${sourcePath}`,
+      message,
+    }));
+    let blocked = plan.obstructed;
+    let acknowledged = false;
+    for (const change of plan.changes) {
+      if (generation !== this.generation || !this.authority.isCurrent(projectSessionId))
+        throw new Error('Offline working-source admission was superseded.');
+      try {
+        const path = change.sourcePath;
+        const artifact =
+          change.sourceChanged || change.text ? `files/${path}` : `pending/${path}.json`;
+        const expected = artifact.startsWith('pending/') ? change.pendingObserved : change.observed;
+        if ((await workingSourceRevision(root, artifact)) !== expected)
+          throw new Error('Agent changed working source during admission.');
+        if (change.patches.length) {
+          const revision = this.working.snapshot()?.workingRevision;
+          if (revision === undefined) throw new Error('Native Project revision is unavailable.');
+          const result = await this.working.applyRevisionedPatches(revision, change.patches);
+          if (!result.accepted) throw new Error(result.error);
+          acknowledged = true;
+        }
+        if (change.text) {
+          const result = await this.working.stageTextSource(
+            path,
+            change.text.value,
+            change.text.diskRevision,
+          );
+          if (!result.accepted) throw new Error(result.error);
+          acknowledged = true;
+        }
+        if (change.pending) {
+          for (const [field, text] of Object.entries(change.pending))
+            this.working.setPendingFieldText(field, text);
+          acknowledged = true;
+        }
+        if (change.conflicts.length) {
+          const result = await this.working.markExternalWorkingConflicts(
+            change.owner,
+            change.conflicts,
+          );
+          if (!result.accepted) throw new Error(result.error);
+          blocked = true;
+          acknowledged = true;
+        }
+        if ((await workingSourceRevision(root, artifact)) !== expected)
+          throw new Error('Agent edited the working file again during admission.');
+        if (!change.conflicts.length) {
+          if (change.pendingObserved)
+            this.workingSourcePublisher.adoptExternalPending(path, change.pendingObserved);
+          if (change.sourceChanged || change.text)
+            this.workingSourcePublisher.adoptExternal(path, change.observed);
+        }
+      } catch (error) {
+        blocked = true;
+        warnings.push({
+          code: 'native.working_source.conflict',
+          severity: 'warning',
+          path: `/${change.sourcePath}`,
+          message: `Working file not fully admitted; external evidence retained: ${String(error)}`,
+        });
+      }
+    }
+    if (acknowledged) {
+      if (generation !== this.generation || !this.authority.isCurrent(projectSessionId))
+        throw new Error('Offline working-source recovery was superseded.');
+      // This is the only promotion boundary: native acknowledgment is durable
+      // before any new working-file publication can run.
+      await this.checkpoints.write(root, projectId, this.working.dirtyCheckpoint());
+    }
+    return { warnings, blocked, changed: acknowledged };
+  }
 
   recoveredContentProject(): AuthoringProject | null {
     return this.recoveredProject;
@@ -284,6 +386,13 @@ export class NativeEditorSessionController {
         throw new Error('Native Project admission was superseded during recovery lookup.');
       let finalRevision = prepared.workingRevision;
       let recoveryDiagnostics: typeof prepared.diagnostics | null = null;
+      let workingImportWarnings: {
+        code: string;
+        severity: 'warning';
+        path: string;
+        message: string;
+      }[] = [];
+      let workingImportBlocked = false;
       if (
         checkpoint &&
         (checkpoint.batches.length ||
@@ -324,6 +433,25 @@ export class NativeEditorSessionController {
           recovery.warning += ` Native replay rejected the retained entries (${error instanceof Error ? error.message : String(error)}); none were restored. The saved Project opened without them.`;
         }
       }
+      const imported = await this.importOfflineWorkingSources(
+        root,
+        native.project.id,
+        projectSessionId,
+        generation,
+        recovery.warning ? null : checkpoint,
+      );
+      workingImportWarnings = imported.warnings;
+      workingImportBlocked = imported.blocked;
+      if (imported.changed || imported.warnings.length) {
+        const refreshed = await this.working.prepareCompleteWorking('', true);
+        if (!refreshed.accepted)
+          throw new Error(
+            `Offline working-source recovery cannot prepare Project: ${refreshed.error}`,
+          );
+        finalRevision = refreshed.workingRevision;
+        this.recoveredProject = projectFromNativeCompletePreparation(refreshed);
+        recoveryDiagnostics = refreshed.diagnostics;
+      }
       this.projectIdentity = native.project.id;
       this.assetStaging = new NativeAssetStagingService(root, this.sourceRevisionFor());
       this.activeId = projectSessionId;
@@ -333,6 +461,7 @@ export class NativeEditorSessionController {
       const recoveredSnapshot = this.working.snapshot();
       const retained = this.working.dirtyCheckpoint();
       if (
+        !workingImportBlocked &&
         recoveredSnapshot &&
         Array.isArray(recoveredSnapshot.dirtyPatches) &&
         (retained.batches.length ||
@@ -345,17 +474,20 @@ export class NativeEditorSessionController {
         revision: finalRevision,
         savedProject: native,
         sourceRevisions: { ...prepared.sourceRevisions },
-        diagnostics: recovery.warning
-          ? [
-              ...(recoveryDiagnostics ?? prepared.diagnostics),
-              {
-                code: 'native.recovery.quarantined',
-                severity: 'warning' as const,
-                path: '/recovery',
-                message: recovery.warning,
-              },
-            ]
-          : (recoveryDiagnostics ?? prepared.diagnostics),
+        diagnostics: [
+          ...(recoveryDiagnostics ?? prepared.diagnostics),
+          ...workingImportWarnings,
+          ...(recovery.warning
+            ? [
+                {
+                  code: 'native.recovery.quarantined',
+                  severity: 'warning' as const,
+                  path: '/recovery',
+                  message: recovery.warning,
+                },
+              ]
+            : []),
+        ],
       };
     } catch (error) {
       if (generation === this.generation) this.close();

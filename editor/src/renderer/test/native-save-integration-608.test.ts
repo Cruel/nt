@@ -51,7 +51,12 @@ async function admit(
   const result = await controller.admitFromNative(id);
   await sessions.acceptNativeProject(id, result.savedProject);
   sessions.commitStagedNativeProject(id, generation);
-  return { id, revision: result.revision, sourceRevisions: result.sourceRevisions };
+  return {
+    id,
+    revision: result.revision,
+    sourceRevisions: result.sourceRevisions,
+    diagnostics: result.diagnostics,
+  };
 }
 
 async function roomBytes(root: string, id: string) {
@@ -218,6 +223,385 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
       expect(finalSave.accepted, finalSave.error).toBe(true);
       expect(await roomBytes(root, roomB)).toContain('Recovered room B');
       expect(await roomBytes(root, roomA)).toContain('Saved only room A');
+    } finally {
+      controller.dispose();
+      sessions.dispose();
+      await removeDisposableProject(root);
+    }
+  }, 120_000);
+
+  it('imports an agent-edited unsaved Room on cold admission without writing the saved YAML', async () => {
+    const root = await disposableProject();
+    const sessions = new ActiveProjectSessionService();
+    let controller = nativeHarness(sessions);
+    const source = path.join(root, `records/rooms/${roomA}.yaml`);
+    const proposed = path.join(root, `.noveltea/editor/working/files/records/rooms/${roomA}.yaml`);
+    try {
+      const initial = await admit(root, sessions, controller);
+      const disk = await readFile(source, 'utf8');
+      const staged = await controller.applyRevisionedPatches(initial.id, initial.revision, [
+        { op: 'replace', path: `/rooms/${roomA}/data/displayName`, value: 'Native unsaved name' },
+      ]);
+      expect(staged.accepted, staged.error).toBe(true);
+      await controller.flushWorkingSources(initial.id);
+      const authored = await readFile(proposed, 'utf8');
+      expect(authored).toContain('Native unsaved name');
+      await writeFile(
+        proposed,
+        `${authored.replace('label: Active Text', 'label: Agent repaired label')}\n# Agent repair context\n`,
+      );
+      controller.dispose();
+      sessions.closeActiveProject();
+      controller = nativeHarness(sessions);
+
+      await admit(root, sessions, controller);
+      expect(controller.recoveredContentProject()?.rooms[roomA]).toMatchObject({
+        label: 'Agent repaired label',
+        data: { displayName: 'Native unsaved name' },
+      });
+      expect(await readFile(source, 'utf8')).toBe(disk);
+      // Close again before the scheduled publisher can advance its manifest:
+      // the second admission must recognize the same already-imported fields.
+      controller.dispose();
+      sessions.closeActiveProject();
+      controller = nativeHarness(sessions);
+      const second = await admit(root, sessions, controller);
+      expect(controller.recoveredConflicts()[`rooms/${roomA}`]).toBeUndefined();
+      expect(controller.recoveredContentProject()?.rooms[roomA]?.label).toBe(
+        'Agent repaired label',
+      );
+      await controller.flushWorkingSources(second.id);
+      expect(await readFile(proposed, 'utf8')).toContain('Agent repaired label');
+      expect(await readFile(proposed, 'utf8')).toContain('# Agent repair context');
+      const saved = await controller.saveUnit(
+        second.id,
+        second.revision,
+        `record:rooms:${roomA}`,
+        {},
+      );
+      expect(saved.accepted, saved.error).toBe(true);
+      expect(await readFile(source, 'utf8')).toContain('Agent repaired label');
+      expect(await readFile(source, 'utf8')).toContain('Native unsaved name');
+    } finally {
+      controller.dispose();
+      sessions.dispose();
+      await removeDisposableProject(root);
+    }
+  }, 120_000);
+
+  it('reopens an unchanged working projection without inventing an agent conflict', async () => {
+    const root = await disposableProject();
+    const sessions = new ActiveProjectSessionService();
+    let controller = nativeHarness(sessions);
+    const saved = path.join(root, `records/rooms/${roomA}.yaml`);
+    try {
+      const first = await admit(root, sessions, controller);
+      const original = await readFile(saved, 'utf8');
+      const changed = await controller.applyRevisionedPatches(first.id, first.revision, [
+        {
+          op: 'replace',
+          path: `/rooms/${roomA}/data/displayName`,
+          value: 'Native only dirty',
+        },
+      ]);
+      expect(changed.accepted, changed.error).toBe(true);
+      await controller.flushWorkingSources(first.id);
+      controller.dispose();
+      sessions.closeActiveProject();
+      controller = nativeHarness(sessions);
+      const opened = await admit(root, sessions, controller);
+      expect(
+        opened.diagnostics.some((item) => item.code === 'native.working_source.conflict'),
+      ).toBe(false);
+      expect(controller.recoveredContentProject()?.rooms[roomA]?.data.displayName).toBe(
+        'Native only dirty',
+      );
+      expect(controller.recoveredConflicts()[`rooms/${roomA}`]).toBeUndefined();
+      expect(await readFile(saved, 'utf8')).toBe(original);
+    } finally {
+      controller.dispose();
+      sessions.dispose();
+      await removeDisposableProject(root);
+    }
+  }, 120_000);
+
+  it('does not trust agent bytes after the native recovery checkpoint was corrupted', async () => {
+    const root = await disposableProject();
+    const sessions = new ActiveProjectSessionService();
+    let controller = nativeHarness(sessions);
+    const proposed = path.join(root, `.noveltea/editor/working/files/records/rooms/${roomA}.yaml`);
+    const saved = path.join(root, `records/rooms/${roomA}.yaml`);
+    try {
+      const first = await admit(root, sessions, controller);
+      const original = await readFile(saved, 'utf8');
+      const changed = await controller.applyRevisionedPatches(first.id, first.revision, [
+        {
+          op: 'replace',
+          path: `/rooms/${roomA}/data/displayName`,
+          value: 'Native retained only',
+        },
+      ]);
+      expect(changed.accepted, changed.error).toBe(true);
+      await controller.flushWorkingSources(first.id);
+      controller.dispose();
+      sessions.closeActiveProject();
+      const agentText = (await readFile(proposed, 'utf8')).replace(
+        'label: Active Text',
+        'label: Agent unattributed repair',
+      );
+      await writeFile(proposed, agentText);
+      await writeFile(path.join(root, '.noveltea/editor/native-dirty-state.json'), '{');
+      controller = nativeHarness(sessions);
+      const reopened = await admit(root, sessions, controller);
+      expect(reopened.diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ code: 'native.working_source.conflict' }),
+          expect.objectContaining({ code: 'native.recovery.quarantined' }),
+        ]),
+      );
+      expect(controller.recoveredContentProject()?.rooms[roomA]?.label).not.toBe(
+        'Agent unattributed repair',
+      );
+      expect(await readFile(proposed, 'utf8')).toBe(agentText);
+      expect(await readFile(saved, 'utf8')).toBe(original);
+    } finally {
+      controller.dispose();
+      sessions.dispose();
+      await removeDisposableProject(root);
+    }
+  }, 120_000);
+
+  it('keeps an overlapping offline agent edit as native conflict and preserves its source bytes', async () => {
+    const root = await disposableProject();
+    const sessions = new ActiveProjectSessionService();
+    let controller = nativeHarness(sessions);
+    const proposed = path.join(root, `.noveltea/editor/working/files/records/rooms/${roomA}.yaml`);
+    try {
+      const first = await admit(root, sessions, controller);
+      const staged = await controller.applyRevisionedPatches(first.id, first.revision, [
+        { op: 'replace', path: `/rooms/${roomA}/data/displayName`, value: 'Native unsaved name' },
+      ]);
+      expect(staged.accepted, staged.error).toBe(true);
+      await controller.flushWorkingSources(first.id);
+      // Advance the durable native checkpoint *after* the last projection.
+      // The newer acknowledged edit has not yet been published to the agent file.
+      const newer = await controller.applyRevisionedPatches(
+        first.id,
+        staged.snapshot.workingRevision,
+        [{ op: 'replace', path: `/rooms/${roomA}/data/displayName`, value: 'Native newer name' }],
+      );
+      expect(newer.accepted, newer.error).toBe(true);
+      const edited = (await readFile(proposed, 'utf8')).replace(
+        'displayName: Native unsaved name',
+        'displayName: Agent competing name',
+      );
+      await writeFile(proposed, edited);
+      controller.dispose();
+      sessions.closeActiveProject();
+      controller = nativeHarness(sessions);
+      const reopened = await admit(root, sessions, controller);
+      expect(controller.recoveredContentProject()?.rooms[roomA]?.data.displayName).toBe(
+        'Native newer name',
+      );
+      expect(controller.recoveredConflicts()[`rooms/${roomA}`]?.paths).toContain(
+        '/data/displayName',
+      );
+      expect(await readFile(proposed, 'utf8')).toBe(edited);
+      const rejected = await controller.saveUnit(
+        reopened.id,
+        reopened.revision,
+        `record:rooms:${roomA}`,
+        {},
+      );
+      expect(rejected.accepted).toBe(false);
+    } finally {
+      controller.dispose();
+      sessions.dispose();
+      await removeDisposableProject(root);
+    }
+  }, 120_000);
+
+  it('detects overlapping offline disk and agent edits without committing either on open', async () => {
+    const root = await disposableProject();
+    const sessions = new ActiveProjectSessionService();
+    let controller = nativeHarness(sessions);
+    const source = path.join(root, `records/rooms/${roomA}.yaml`);
+    const proposed = path.join(root, `.noveltea/editor/working/files/records/rooms/${roomA}.yaml`);
+    try {
+      const first = await admit(root, sessions, controller);
+      const staged = await controller.applyRevisionedPatches(first.id, first.revision, [
+        { op: 'replace', path: `/rooms/${roomA}/data/displayName`, value: 'Native dirty name' },
+      ]);
+      expect(staged.accepted, staged.error).toBe(true);
+      await controller.flushWorkingSources(first.id);
+      await writeFile(
+        proposed,
+        (await readFile(proposed, 'utf8')).replace('label: Active Text', 'label: Agent only label'),
+      );
+      const diskBefore = await readFile(source, 'utf8');
+      controller.dispose();
+      sessions.closeActiveProject();
+      await writeFile(source, diskBefore.replace('label: Active Text', 'label: Disk only label'));
+      // The agent and disk both touched label: this must be an unresolved
+      // field conflict despite the independent dirty displayName in native.
+      controller = nativeHarness(sessions);
+      const overlapping = await admit(root, sessions, controller);
+      expect(controller.recoveredConflicts()[`rooms/${roomA}`]?.paths).toContain('/label');
+      expect(controller.recoveredContentProject()?.rooms[roomA]?.data.displayName).toBe(
+        'Native dirty name',
+      );
+      expect(await readFile(source, 'utf8')).toContain('Disk only label');
+      expect(await readFile(proposed, 'utf8')).toContain('Agent only label');
+      expect(
+        (
+          await controller.saveUnit(
+            overlapping.id,
+            overlapping.revision,
+            `record:rooms:${roomA}`,
+            {},
+          )
+        ).accepted,
+      ).toBe(false);
+    } finally {
+      controller.dispose();
+      sessions.dispose();
+      await removeDisposableProject(root);
+    }
+  }, 120_000);
+
+  it('retains malformed agent YAML across repeated cold opens instead of restoring over it', async () => {
+    const root = await disposableProject();
+    const sessions = new ActiveProjectSessionService();
+    let controller = nativeHarness(sessions);
+    const proposed = path.join(root, `.noveltea/editor/working/files/records/rooms/${roomA}.yaml`);
+    const invalid = 'id: active-text\nlabel: Agent repair in progress\ndata: [\n';
+    try {
+      const first = await admit(root, sessions, controller);
+      const staged = await controller.applyRevisionedPatches(first.id, first.revision, [
+        { op: 'replace', path: `/rooms/${roomA}/data/displayName`, value: 'Native retained name' },
+      ]);
+      expect(staged.accepted, staged.error).toBe(true);
+      await controller.flushWorkingSources(first.id);
+      controller.dispose();
+      sessions.closeActiveProject();
+      await writeFile(proposed, invalid);
+      for (let attempt = 0; attempt < 2; attempt++) {
+        controller = nativeHarness(sessions);
+        const reopened = await admit(root, sessions, controller);
+        expect(controller.recoveredContentProject()?.rooms[roomA]?.data.displayName).toBe(
+          'Native retained name',
+        );
+        expect(reopened.diagnostics).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ code: 'native.working_source.conflict' }),
+          ]),
+        );
+        expect(await readFile(proposed, 'utf8')).toBe(invalid);
+        controller.dispose();
+        sessions.closeActiveProject();
+      }
+    } finally {
+      controller.dispose();
+      sessions.dispose();
+      await removeDisposableProject(root);
+    }
+  }, 120_000);
+
+  it('combines disjoint offline disk, agent and native edits into one dirty Room', async () => {
+    const root = await disposableProject();
+    const sessions = new ActiveProjectSessionService();
+    let controller = nativeHarness(sessions);
+    const source = path.join(root, `records/rooms/${roomA}.yaml`);
+    const proposed = path.join(root, `.noveltea/editor/working/files/records/rooms/${roomA}.yaml`);
+    try {
+      const first = await admit(root, sessions, controller);
+      const staged = await controller.applyRevisionedPatches(first.id, first.revision, [
+        { op: 'replace', path: `/rooms/${roomA}/data/displayName`, value: 'Unsaved native' },
+      ]);
+      expect(staged.accepted, staged.error).toBe(true);
+      await controller.flushWorkingSources(first.id);
+      await writeFile(
+        proposed,
+        (await readFile(proposed, 'utf8')).replace('label: Active Text', 'label: From agent'),
+      );
+      const original = await readFile(source, 'utf8');
+      controller.dispose();
+      sessions.closeActiveProject();
+      await writeFile(
+        source,
+        original.replace(
+          'text: Use Continue and the conversation choices. Reopen Feature Lab for check instructions.',
+          'text: Independent disk edit',
+        ),
+      );
+      controller = nativeHarness(sessions);
+      const reopened = await admit(root, sessions, controller);
+      expect(controller.recoveredConflicts()[`rooms/${roomA}`]).toBeUndefined();
+      expect(controller.recoveredContentProject()?.rooms[roomA]).toMatchObject({
+        label: 'From agent',
+        data: {
+          displayName: 'Unsaved native',
+          description: { source: { text: 'Independent disk edit' } },
+        },
+      });
+      expect(await readFile(source, 'utf8')).not.toContain('From agent');
+      await controller.flushWorkingSources(reopened.id);
+      const save = await controller.saveUnit(
+        reopened.id,
+        reopened.revision,
+        `record:rooms:${roomA}`,
+        {},
+      );
+      expect(save.accepted, save.error).toBe(true);
+      expect(await readFile(source, 'utf8')).toContain('From agent');
+      expect(await readFile(source, 'utf8')).toContain('Independent disk edit');
+      expect(await readFile(source, 'utf8')).toContain('Unsaved native');
+    } finally {
+      controller.dispose();
+      sessions.dispose();
+      await removeDisposableProject(root);
+    }
+  }, 120_000);
+
+  it('imports an exact unsaved Lua text overlay without changing saved Lua until Save', async () => {
+    const root = await disposableProject();
+    const sessions = new ActiveProjectSessionService();
+    let controller = nativeHarness(sessions);
+    const relative = 'scripts/notice-board.lua';
+    const savedPath = path.join(root, relative);
+    const proposed = path.join(root, `.noveltea/editor/working/files/${relative}`);
+    try {
+      const first = await admit(root, sessions, controller);
+      const disk = await readFile(savedPath, 'utf8');
+      const originalRevision = controller.sourceRevisionFor()!(Buffer.from(disk));
+      const staged = await controller.stageText(
+        first.id,
+        first.revision,
+        relative,
+        originalRevision,
+        `${disk}\n-- Native dirty\n`,
+      );
+      expect(staged.accepted, staged.error).toBe(true);
+      await controller.flushWorkingSources(first.id);
+      const agentText = `${disk}\n-- Agent fixed this\n`;
+      await writeFile(proposed, agentText);
+      controller.dispose();
+      sessions.closeActiveProject();
+      controller = nativeHarness(sessions);
+      const reopened = await admit(root, sessions, controller);
+      expect(controller.recoveredTextSources()[relative]?.text).toBe(agentText);
+      expect(await readFile(savedPath, 'utf8')).toBe(disk);
+      await controller.flushWorkingSources(reopened.id);
+      expect(await readFile(proposed, 'utf8')).toBe(agentText);
+      const save = await controller.saveText(
+        reopened.id,
+        reopened.revision,
+        relative,
+        originalRevision,
+        agentText,
+      );
+      expect(save.accepted, save.error).toBe(true);
+      expect(await readFile(savedPath, 'utf8')).toBe(agentText);
     } finally {
       controller.dispose();
       sessions.dispose();
