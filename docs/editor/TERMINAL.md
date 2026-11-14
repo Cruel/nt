@@ -61,9 +61,18 @@ AI edits; there is no separate agent-job or review system.
 The Run selector also offers **Default** or a per-harness explicit model override, with optional
 manual model ID entry. Default passes no model flag and preserves the harness's configured model.
 Chosen harness and model IDs persist in the editor-wide shared user preferences (not Project
-source, checkpoint, or browser-local settings). Host-side catalog discovery is bounded and cached:
-OpenCode uses its installed `models` command; Codex uses a short-lived `app-server`
-`initialize`/`model/list` JSONL exchange; Claude uses `supportedModels()` only when the optional
+source, checkpoint, or browser-local settings). The editor starts an asynchronous, editor-wide
+installed-tool and model-catalog preload at startup, before Repair is opened.
+The compact Repair dialog uses the shared Select controls in
+two aligned rows above its editable Prompt. Every open re-probes installed tools and requests a
+fresh catalog in the background, bypassing the native 60-second catalog TTL while retaining the
+last usable catalog and selected model until replacement results arrive. A transient failed
+refresh does not replace usable cached model choices; actual removals and successfully changed
+catalogs update the selectors in place without a loading/reset state.
+
+Host-side catalog discovery is bounded and cached: OpenCode uses its installed `models` command;
+Codex uses a short-lived `app-server` `initialize`/`model/list` JSONL exchange;
+Claude uses `supportedModels()` only when the optional
 local Claude Agent SDK module is already resolvable. NovelTea does not install the SDK, start a
 Claude turn, or contact provider APIs itself to populate the picker. When any catalog is unavailable,
 Default and manual entry remain available; previously chosen IDs are preserved across availability

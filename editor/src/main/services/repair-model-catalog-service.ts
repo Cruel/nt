@@ -253,20 +253,33 @@ const catalogCache = new Map<
   string,
   {
     expires: number;
+    pending: boolean;
     request: Promise<RepairModelCatalog>;
   }
 >();
 
-export function getRepairModelCatalog(harness: RepairHarness): Promise<RepairModelCatalog> {
+export function getRepairModelCatalog(
+  harness: RepairHarness,
+  refresh = false,
+): Promise<RepairModelCatalog> {
   const current = catalogCache.get(harness);
-  if (current && current.expires > Date.now()) return current.request;
-  const request = discoverRepairModels(harness).then((result) => {
-    const entry = catalogCache.get(harness);
-    if (entry?.request === request)
-      entry.expires =
-        Date.now() + (result.status === 'available' ? SUCCESS_TTL_MS : FAILURE_TTL_MS);
-    return result;
+  if (current && (current.pending || (!refresh && current.expires > Date.now())))
+    return current.request;
+  const request = discoverRepairModels(harness)
+    .catch((): RepairModelCatalog => ({ harness, status: 'unavailable', models: [] }))
+    .then((result) => {
+      const entry = catalogCache.get(harness);
+      if (entry?.request === request) {
+        entry.pending = false;
+        entry.expires =
+          Date.now() + (result.status === 'available' ? SUCCESS_TTL_MS : FAILURE_TTL_MS);
+      }
+      return result;
+    });
+  catalogCache.set(harness, {
+    request,
+    pending: true,
+    expires: Date.now() + CATALOG_TIMEOUT_MS + 1_000,
   });
-  catalogCache.set(harness, { request, expires: Date.now() + CATALOG_TIMEOUT_MS + 1_000 });
   return request;
 }

@@ -50,6 +50,7 @@ interface NovelTeaElectronApiContract {
   probeRepairHarnesses(): Promise<import('./repair-harness').RepairHarness[]>;
   repairModelCatalog(
     harness: import('./repair-harness').RepairHarness,
+    refresh?: boolean,
   ): Promise<import('./repair-harness').RepairModelCatalog>;
   launchRepairHarness(
     request: import('./repair-harness').RepairHarnessLaunchRequest,

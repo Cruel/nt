@@ -102,9 +102,9 @@ import {
   stagePlatformExportArgumentsSchema,
   terminalCloseArgumentsSchema,
   terminalNotificationArgumentsSchema,
+  terminalRepairModelCatalogArgumentsSchema,
   terminalResizeArgumentsSchema,
   terminalSessionArgumentsSchema,
-  terminalRepairHarnessArgumentsSchema,
   terminalWriteArgumentsSchema,
   validateDirectoryArgumentsSchema,
 } from './main/editor-ipc-trust-boundary';
@@ -1257,8 +1257,8 @@ void app.whenReady().then(async () => {
 
   guardedIpc.handle(
     IPC_CHANNELS.REPAIR_MODEL_CATALOG,
-    (arguments_) => terminalRepairHarnessArgumentsSchema.parse(arguments_),
-    (harness) => getRepairModelCatalog(harness),
+    (arguments_) => terminalRepairModelCatalogArgumentsSchema.parse(arguments_),
+    (...[harness, refresh]) => getRepairModelCatalog(harness, refresh),
   );
 
   guardedIpc.handle(

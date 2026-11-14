@@ -894,6 +894,10 @@ export const cancelImageThumbnailPrewarmArgumentsSchema = z.tuple([
 const terminalSessionIdSchema = z.string().uuid().max(TERMINAL_LIMITS.sessionIdLength);
 export const terminalSessionArgumentsSchema = z.tuple([terminalSessionIdSchema]);
 export const terminalRepairHarnessArgumentsSchema = z.tuple([z.enum(REPAIR_HARNESSES)]);
+export const terminalRepairModelCatalogArgumentsSchema = z.tuple([
+  z.enum(REPAIR_HARNESSES),
+  z.boolean().optional(),
+]);
 export const repairHarnessLaunchArgumentsSchema = z.tuple([
   z
     .object({

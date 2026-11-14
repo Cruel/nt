@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { RepairPromptDialog } from '../project/RepairPromptDialog';
+import { useRepairToolCatalogStore } from '../project/repair-tool-catalog-store';
 import { useCandidateRepairStore } from '../project/candidate-repair-store';
 import { useRepairPromptStore, repairPromptRunAuthorized } from '../project/repair-prompt-store';
 import { useBottomPanelStore } from '../workbench/bottom-panel-store';
@@ -27,6 +29,7 @@ const launchRepairHarness = vi.fn();
 
 beforeEach(() => {
   usePreferencesStore.getState().resetToDefaults();
+  useRepairToolCatalogStore.setState({ harnesses: [], catalogs: {}, probed: false });
   useBottomPanelStore.setState({ activePanelId: 'problems', visible: true });
   vi.mocked(window.noveltea.probeRepairHarnesses).mockResolvedValue([]);
   vi.mocked(window.noveltea.repairModelCatalog).mockImplementation(async (harness) => ({
@@ -73,7 +76,77 @@ function showPrompt() {
   });
 }
 
+async function selectRepairOption(label: string, option: string) {
+  const user = userEvent.setup();
+  await user.click(screen.getByRole('combobox', { name: label }));
+  await user.click(await screen.findByRole('option', { name: option }));
+}
+
 describe('RepairPromptDialog', () => {
+  it('uses the compact two-row shadcn selector layout above the editable prompt', () => {
+    useRepairToolCatalogStore.setState({
+      harnesses: ['codex'],
+      probed: true,
+      catalogs: { codex: { harness: 'codex', status: 'available', models: ['gpt-6-luna'] } },
+    });
+    render(<RepairPromptDialog />);
+    showPrompt();
+    const title = screen.getByRole('heading', { name: 'Repair' });
+    const harness = screen.getByRole('combobox', { name: 'AI tool' });
+    const model = screen.getByRole('combobox', { name: 'Model' });
+    const prompt = screen.getByRole('textbox', { name: 'Prompt' });
+    expect(title).toBeInTheDocument();
+    expect(screen.queryByText(/Review and edit the scoped prompt/)).not.toBeInTheDocument();
+    expect(harness).toHaveAttribute('data-slot', 'select-trigger');
+    expect(model).toHaveAttribute('data-slot', 'select-trigger');
+    expect(harness.compareDocumentPosition(model) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(model.compareDocumentPosition(prompt) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(model).toHaveTextContent('Default (tool settings)');
+  });
+
+  it('shows warm selections immediately and refreshes models without a loading flash or changing the selection', async () => {
+    usePreferencesStore.getState().setRepairHarness('codex');
+    usePreferencesStore.getState().setRepairModel('codex', 'gpt-6-luna');
+    useRepairToolCatalogStore.setState({
+      harnesses: ['codex'],
+      probed: true,
+      catalogs: { codex: { harness: 'codex', status: 'available', models: ['gpt-6-luna'] } },
+    });
+    let finishProbe!: (installed: ('codex' | 'opencode')[]) => void;
+    vi.mocked(window.noveltea.probeRepairHarnesses).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishProbe = resolve;
+        }),
+    );
+    vi.mocked(window.noveltea.repairModelCatalog).mockImplementation(async (harness) => ({
+      harness,
+      status: 'available',
+      models: ['gpt-6-luna', 'gpt-6-high'],
+    }));
+
+    render(<RepairPromptDialog />);
+    showPrompt();
+    const tool = screen.getByRole('combobox', { name: 'AI tool' });
+    const model = screen.getByRole('combobox', { name: 'Model' });
+    expect(tool).toHaveTextContent('Codex');
+    expect(model).toHaveTextContent('gpt-6-luna');
+    expect(screen.queryByText('Loading models…')).not.toBeInTheDocument();
+    expect(useRepairToolCatalogStore.getState().catalogs.codex?.models).toEqual(['gpt-6-luna']);
+
+    await act(async () => finishProbe(['codex']));
+    await waitFor(() =>
+      expect(useRepairToolCatalogStore.getState().catalogs.codex?.models).toEqual([
+        'gpt-6-luna',
+        'gpt-6-high',
+      ]),
+    );
+    expect(model).toHaveTextContent('gpt-6-luna');
+    expect(usePreferencesStore.getState().repair.modelByHarness.codex).toBe('gpt-6-luna');
+    expect(window.noveltea.repairModelCatalog).toHaveBeenCalledWith('codex', true);
+    await selectRepairOption('Model', 'gpt-6-high');
+    expect(model).toHaveTextContent('gpt-6-high');
+  });
   it('retries failed publication on Regenerate at the same native revision', async () => {
     const beforeProject = useProjectStore.getState();
     const beforeWorkspace = useWorkspaceStore.getState();
@@ -161,7 +234,7 @@ describe('RepairPromptDialog', () => {
           scope: 'errors',
         });
       });
-      const prompt = await screen.findByRole('textbox', { name: 'Editable repair prompt' });
+      const prompt = await screen.findByRole('textbox', { name: 'Prompt' });
       await waitFor(() =>
         expect((prompt as HTMLTextAreaElement).value).toContain(
           '.noveltea/editor/working/files/records/rooms/hall.yaml',
@@ -247,7 +320,7 @@ describe('RepairPromptDialog', () => {
   it('copies the edited prompt when Run has no installed executable', async () => {
     render(<RepairPromptDialog />);
     showPrompt();
-    const textarea = await screen.findByRole('textbox', { name: 'Editable repair prompt' });
+    const textarea = await screen.findByRole('textbox', { name: 'Prompt' });
     expect((textarea as HTMLTextAreaElement).value).toContain('Project root: /candidate');
     fireEvent.change(textarea, { target: { value: 'user-modified prompt\nline 2' } });
     fireEvent.click(screen.getByRole('button', { name: 'Copy prompt' }));
@@ -278,15 +351,15 @@ describe('RepairPromptDialog', () => {
     launchRepairHarness.mockResolvedValue({ sessions: [], selectedSessionId: 'new-terminal' });
     render(<RepairPromptDialog />);
     showPrompt();
-    fireEvent.change(await screen.findByRole('textbox', { name: 'Editable repair prompt' }), {
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Prompt' }), {
       target: { value: "repair diagnostic 'text'\nsecond line ; && $(touch /tmp/no)" },
     });
     fireEvent.click(screen.getByRole('checkbox', { name: /only weak Project evidence/i }));
     fireEvent.click(screen.getByRole('checkbox', { name: /Potential data loss/i }));
-    expect(await screen.findByRole('option', { name: 'Codex' })).toBeInTheDocument();
-    fireEvent.change(screen.getByRole('combobox', { name: 'Installed AI tool' }), {
-      target: { value: 'opencode' },
-    });
+    await waitFor(() =>
+      expect(screen.getByRole('combobox', { name: 'AI tool' })).toHaveTextContent('Codex'),
+    );
+    await selectRepairOption('AI tool', 'OpenCode');
     fireEvent.click(screen.getByRole('button', { name: 'Run' }));
     await waitFor(() =>
       expect(launchRepairHarness).toHaveBeenCalledWith({
@@ -339,10 +412,10 @@ describe('RepairPromptDialog', () => {
     showPrompt();
     fireEvent.click(screen.getByRole('checkbox', { name: /only weak Project evidence/i }));
     fireEvent.click(screen.getByRole('checkbox', { name: /Potential data loss/i }));
-    await screen.findByRole('option', { name: 'gpt-6-high' });
-    fireEvent.change(screen.getByRole('combobox', { name: 'Model' }), {
-      target: { value: 'gpt-6-high' },
-    });
+    await waitFor(() =>
+      expect(screen.getByRole('combobox', { name: 'AI tool' })).toHaveTextContent('Codex'),
+    );
+    await selectRepairOption('Model', 'gpt-6-high');
     expect(usePreferencesStore.getState().repair).toMatchObject({
       preferredHarness: null,
       modelByHarness: { codex: 'gpt-6-high', claude: '', opencode: '' },
@@ -364,9 +437,7 @@ describe('RepairPromptDialog', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: /only weak Project evidence/i }));
     fireEvent.click(screen.getByRole('checkbox', { name: /Potential data loss/i }));
     expect(await screen.findByText(/Catalog unavailable/)).toBeInTheDocument();
-    fireEvent.change(screen.getByRole('combobox', { name: 'Model' }), {
-      target: { value: '__manual__' },
-    });
+    await selectRepairOption('Model', 'Enter model ID…');
     fireEvent.change(screen.getByRole('textbox', { name: 'Model ID override' }), {
       target: { value: 'bad model with spaces' },
     });
@@ -417,7 +488,7 @@ describe('RepairPromptDialog', () => {
   it('retains the edited text but blocks stale copies until regeneration against current diagnostics', async () => {
     render(<RepairPromptDialog />);
     showPrompt();
-    fireEvent.change(await screen.findByRole('textbox', { name: 'Editable repair prompt' }), {
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Prompt' }), {
       target: { value: 'preserve this edit' },
     });
     act(() => {
@@ -437,14 +508,11 @@ describe('RepairPromptDialog', () => {
         .some((alert) => alert.textContent?.includes('Project source or diagnostics changed')),
     ).toBe(true);
     expect(screen.getByRole('button', { name: 'Copy prompt' })).toBeDisabled();
-    expect(screen.getByRole('textbox', { name: 'Editable repair prompt' })).toHaveValue(
-      'preserve this edit',
-    );
+    expect(screen.getByRole('textbox', { name: 'Prompt' })).toHaveValue('preserve this edit');
     fireEvent.click(screen.getByRole('button', { name: 'Regenerate from current diagnostics' }));
     expect(screen.getByRole('button', { name: 'Copy prompt' })).toBeEnabled();
     expect(
-      (screen.getByRole('textbox', { name: 'Editable repair prompt' }) as HTMLTextAreaElement)
-        .value,
+      (screen.getByRole('textbox', { name: 'Prompt' }) as HTMLTextAreaElement).value,
     ).toContain('Changed diagnostic');
   });
 });

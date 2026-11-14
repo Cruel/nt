@@ -7,7 +7,10 @@ import {
   repairHarnessCommand,
   resolveRepairExecutionEnvironment,
 } from '../../main/services/repair-harness-service';
-import { repairHarnessLaunchArgumentsSchema } from '../../main/editor-ipc-trust-boundary';
+import {
+  repairHarnessLaunchArgumentsSchema,
+  terminalRepairModelCatalogArgumentsSchema,
+} from '../../main/editor-ipc-trust-boundary';
 
 describe('repair harness host boundary', () => {
   it('probes executable identity and excludes absent/non-executable/unrelated files', async () => {
@@ -151,6 +154,19 @@ describe('repair harness host boundary', () => {
     ).toThrow();
     expect(() =>
       repairHarnessLaunchArgumentsSchema.parse([{ ...request, prompt: 'x\0y' }]),
+    ).toThrow();
+  });
+
+  it('authenticates background model-catalog refresh flags without accepting arbitrary inputs', () => {
+    expect(terminalRepairModelCatalogArgumentsSchema.parse(['codex'])).toEqual(['codex']);
+    expect(terminalRepairModelCatalogArgumentsSchema.parse(['codex', true])).toEqual([
+      'codex',
+      true,
+    ]);
+    expect(() => terminalRepairModelCatalogArgumentsSchema.parse(['codex', 'refresh'])).toThrow();
+    expect(() => terminalRepairModelCatalogArgumentsSchema.parse(['bash', true])).toThrow();
+    expect(() =>
+      terminalRepairModelCatalogArgumentsSchema.parse(['codex', true, '/tmp']),
     ).toThrow();
   });
 });

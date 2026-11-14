@@ -8,6 +8,7 @@ import { initEditorI18n } from './i18n';
 import './index.css';
 import { startAuthoringDependencyGraphService } from './project/authoring-dependency-graph-runtime';
 import { startToolingActivityCapture } from './workbench/tooling-activity-store';
+import { refreshRepairToolCatalog } from './project/repair-tool-catalog-store';
 
 declare module '@tanstack/react-router' {
   interface Register {
@@ -18,6 +19,7 @@ declare module '@tanstack/react-router' {
 const rootEl = document.getElementById('root');
 startAuthoringDependencyGraphService();
 startToolingActivityCapture();
+void refreshRepairToolCatalog();
 if (rootEl) {
   void initEditorI18n().then(() => {
     createRoot(rootEl).render(
