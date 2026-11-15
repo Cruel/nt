@@ -105,6 +105,7 @@ enum class WorkCounter : std::size_t {
     TransactionFileSyncMicros,
     TransactionDirectorySyncMicros,
     NativeScopedSaveMicros,
+    ProjectPatchBaselineReuses,
     Count
 };
 
@@ -245,7 +246,8 @@ public:
             "transactionCleanupMicros",
             "transactionFileSyncMicros",
             "transactionDirectorySyncMicros",
-            "nativeScopedSaveMicros"};
+            "nativeScopedSaveMicros",
+            "projectPatchBaselineReuses"};
         std::array<std::pair<std::string_view, std::size_t>, work_counter_count> result{};
         for (std::size_t index = 0; index < names.size(); ++index)
             result[index] = {names[index], value(index)};

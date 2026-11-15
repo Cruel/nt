@@ -4446,6 +4446,7 @@ RoomSessionResult ProjectSession::publish_material_compiler_result(
         auto validated = validate_material_shader_compiler_result(native_tool_result_json,
                                                                   material_id, *effective);
         material_compiler_results_.insert_or_assign(std::string(material_id), std::move(validated));
+        patch_published_snapshot_.reset();
         validation_snapshot_.reset();
         validation_contributions_.erase("materials/" + std::string(material_id));
         response.accepted = true;
@@ -4706,6 +4707,7 @@ ProjectSession::reconciliation_disk_record_snapshots() const
 
 RoomSessionResult ProjectSession::inspect_record(std::string_view owner)
 {
+    patch_published_snapshot_.reset();
     RoomSessionResult result;
     try {
         const auto name = std::string(owner);
@@ -6110,7 +6112,21 @@ ProjectSession::patch(std::uint64_t revision, const std::vector<RoomPatch>& patc
                       const std::map<std::string, std::string>& layout_copy_sources)
 {
     RoomSessionResult response;
-    response.snapshot = snapshot();
+    // A previous Patch already produced the complete diagnostic baseline.
+    // Reuse it only if the synchronous native watcher proves that no physical
+    // source (including Asset membership) changed since that publication.
+    // Revision checks alone would miss inspections and external edits.
+    const auto* revisions = source_authority_->verified_revisions_view();
+    const bool same_generation = patch_published_snapshot_ &&
+                                 patch_published_snapshot_->working_revision == working_revision_ &&
+                                 patch_published_watch_epoch_ == source_authority_->watch_epoch() &&
+                                 revisions && *revisions == patch_published_revisions_ &&
+                                 source_authority_->fence() &&
+                                 patch_published_watch_epoch_ == source_authority_->watch_epoch();
+    if (same_generation)
+        count_validation_work<WorkCounter::ProjectPatchBaselineReuses>();
+    response.snapshot = same_generation ? *patch_published_snapshot_ : snapshot();
+    patch_published_snapshot_.reset();
     if (revision != working_revision_) {
         response.error = "Stale working revision.";
         return response;
@@ -6587,10 +6603,22 @@ ProjectSession::patch(std::uint64_t revision, const std::vector<RoomPatch>& patc
     response.accepted = true;
     response.affected_records.assign(affected.begin(), affected.end());
     response.snapshot = snapshot();
+    if (const auto* verified = source_authority_->verified_revisions_view()) {
+        // Do not run an extra physical fence solely to retain a cache entry:
+        // it may revoke source authority needed by a subsequent Save. The
+        // next Patch fences before accepting this purely optional reuse.
+        patch_published_revisions_ = *verified;
+        patch_published_watch_epoch_ = source_authority_->watch_epoch();
+        patch_published_snapshot_ = response.snapshot;
+    }
     if (!localization_source_lock_ && localization_cache_ && localization_cache_->accepted) {
         const auto model = Json::parse(localization_cache_->effective_json);
-        if (!model.at("sourceLocaleLock").is_null())
+        if (!model.at("sourceLocaleLock").is_null()) {
             localization_source_lock_ = model.at("sourceLocaleLock").as<std::string>();
+            // Lock admission is another same-revision session input. Never
+            // reuse a snapshot that preceded its first publication.
+            patch_published_snapshot_.reset();
+        }
     }
     diagnostic_delta(response, before);
     return response;
@@ -6763,7 +6791,16 @@ RoomSessionSnapshot RoomSession::snapshot() const
     if (disk_revision_ != "absent") {
         if (!state.dirty && state.valid)
             state.normalized_baseline_json = state.normalized_json;
-        else {
+        else if (snapshot_cache_ && !snapshot_cache_->normalized_baseline_json.empty() &&
+                 snapshot_cache_->disk_source_revision == disk_revision_ &&
+                 snapshot_cache_->baseline_json == disk_json_ &&
+                 (record_family_ != "layouts" || snapshot_layout_companions_ == companions)) {
+            // Mutating the working JSON does not mutate its admitted baseline.
+            // Keep a previously validated effective baseline until its
+            // physical inputs change. An empty baseline may instead mean a
+            // clean record failed local semantics; prove its schema afresh.
+            state.normalized_baseline_json = snapshot_cache_->normalized_baseline_json;
+        } else {
             const auto baseline =
                 validate_source(disk_json_, record_family_ == "layouts" ? &companions : nullptr);
             if (baseline.accepted)
@@ -6858,9 +6895,16 @@ RoomSessionResult RoomSession::patch(std::uint64_t expected_working_revision,
         Json next = Json::parse(working_json_);
         std::vector<RoomPatch> resolved;
         const auto baseline = Json::parse(disk_json_);
-        const auto baseline_validation = validate_source(disk_json_);
+        // snapshot() already validated the unchanged disk baseline. Do not
+        // revalidate it for every keystroke merely to project sparse defaults.
+        // Absent sources have no saved baseline and retain the explicit path.
+        const auto baseline_json =
+            disk_revision_ != "absent" ? previous.normalized_baseline_json : std::string{};
+        const auto baseline_validation =
+            baseline_json.empty() ? validate_source(disk_json_) : ValidationResult{};
         const auto baseline_effective =
-            baseline_validation.accepted
+            !baseline_json.empty() ? std::optional<Json>{Json::parse(baseline_json)}
+            : baseline_validation.accepted
                 ? std::optional<Json>{Json::parse(baseline_validation.effective_json)}
                 : std::nullopt;
         // A RoomEditor whole-data replacement is an effective-model edit:
@@ -6900,9 +6944,8 @@ RoomSessionResult RoomSession::patch(std::uint64_t expected_working_revision,
                 // Normalization expands compact reference IDs into $ref
                 // objects. Editor commands can replace either the expanded
                 // reference or its ID child; the sparse YAML owns a string.
-                const auto effective = snapshot();
-                if (!effective.normalized_json.empty()) {
-                    const auto normalized = Json::parse(effective.normalized_json);
+                if (!previous.normalized_json.empty()) {
+                    const auto normalized = Json::parse(previous.normalized_json);
                     const auto suffix = std::string("/$ref/id");
                     if (concrete.path.ends_with(suffix)) {
                         const auto parent =
@@ -6979,12 +7022,10 @@ RoomSessionResult RoomSession::patch(std::uint64_t expected_working_revision,
             // restores the implicit baseline value, omit the field again.
             if (concrete.operation == RoomPatch::Operation::Replace) {
                 const auto current = at_pointer(next, concrete.path);
-                const auto baseline = Json::parse(disk_json_);
                 const auto original = at_pointer(baseline, concrete.path);
                 if (!current) {
-                    const auto effective = snapshot();
-                    if (effective.normalized_json.empty() ||
-                        !at_pointer(Json::parse(effective.normalized_json), concrete.path))
+                    if (previous.normalized_json.empty() ||
+                        !at_pointer(Json::parse(previous.normalized_json), concrete.path))
                         throw std::runtime_error(
                             "Normalized patch path cannot be projected to sparse source.");
                     const auto parent_path = concrete.path.substr(0, concrete.path.rfind('/'));
@@ -6993,16 +7034,15 @@ RoomSessionResult RoomSession::patch(std::uint64_t expected_working_revision,
                     // parent shells, as for an Add, before projecting the
                     // authored child into sparse YAML.
                     if (!is_project_ && !at_pointer(next, parent_path))
-                        materialize_implicit_parents(next, Json::parse(effective.normalized_json),
+                        materialize_implicit_parents(next, Json::parse(previous.normalized_json),
                                                      concrete, resolved);
                     if (!at_pointer(next, parent_path))
                         throw std::runtime_error(
                             "Normalized patch requires unsupported source parent projection.");
                     concrete.operation = RoomPatch::Operation::Add;
                 } else if (!original && !is_project_) {
-                    const auto baseline_effective = validate_source(disk_json_);
-                    if (baseline_effective.accepted &&
-                        at_pointer(Json::parse(baseline_effective.effective_json), concrete.path) ==
+                    if (baseline_effective &&
+                        at_pointer(*baseline_effective, concrete.path) ==
                             std::optional<Json>{Json::parse(concrete.value_json)}) {
                         concrete.operation = RoomPatch::Operation::Remove;
                         concrete.value_json.clear();
@@ -7022,15 +7062,14 @@ RoomSessionResult RoomSession::patch(std::uint64_t expected_working_revision,
         // records must be diagnosable without obligating a Save.
         working_json_ = next.to_string();
         unsaved_patches_.insert(unsaved_patches_.end(), resolved.begin(), resolved.end());
-        if (Json::parse(working_json_) == Json::parse(disk_json_))
+        if (next == baseline)
             unsaved_patches_.clear();
         // A user may resolve a conflicting field by editing back to the
         // verified disk value, without explicitly invoking Use Disk.
         conflicting_paths_.erase(
             std::remove_if(conflicting_paths_.begin(), conflicting_paths_.end(),
                            [&](const std::string& path) {
-                               return at_pointer(Json::parse(working_json_), path) ==
-                                      at_pointer(Json::parse(disk_json_), path);
+                               return at_pointer(next, path) == at_pointer(baseline, path);
                            }),
             conflicting_paths_.end());
         ++working_revision_;

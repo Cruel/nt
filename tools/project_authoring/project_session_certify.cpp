@@ -354,7 +354,8 @@ Json profile_presentation_edit(const std::filesystem::path& fixture)
 // Unsaved, repeated edits are the editor's actual hot path; Save between
 // Patches changes SourceAuthority's observed disk generation and deliberately
 // invalidates the retained localization baseline.
-Json profile_unsaved_room_patches(const std::filesystem::path& fixture)
+Json profile_unsaved_room_patches(const std::filesystem::path& fixture,
+                                  std::size_t additional_inspected = 0)
 {
     TemporaryProject temp(fixture);
     const auto measure = [&](const std::string& pointer) {
@@ -362,10 +363,25 @@ Json profile_unsaved_room_patches(const std::filesystem::path& fixture)
         auto project = ProjectSession::open(temp.root, error);
         require(project && project->inspect_record("rooms/properties-and-traits").accepted,
                 "Cannot profile dirty Room Patches: " + error);
+        if (additional_inspected) {
+            std::vector<std::string> owners;
+            for (const auto& source :
+                 std::filesystem::directory_iterator(temp.root / "records/rooms"))
+                if (source.is_regular_file() && source.path().extension() == ".yaml" &&
+                    source.path().stem() != "properties-and-traits")
+                    owners.push_back("rooms/" + source.path().stem().string());
+            std::sort(owners.begin(), owners.end());
+            require(owners.size() >= additional_inspected,
+                    "Requested additional inspected Rooms must exist");
+            for (std::size_t i = 0; i < additional_inspected; ++i)
+                require(project->inspect_record(owners[i]).accepted,
+                        "Additional Room inspection must succeed");
+        }
         std::vector<double> samples;
         std::size_t full_contracts = 0, message_checks = 0, translation_checks = 0, yaml_reads = 0,
                     projector_us = 0, fragments_us = 0, model_us = 0, contract_us = 0,
-                    dependent_us = 0, cues_us = 0, snapshots_us = 0;
+                    dependent_us = 0, cues_us = 0, snapshots_us = 0, snapshot_count = 0,
+                    baseline_reuses = 0;
         for (int i = 0; i < 20; ++i) {
             ValidationWorkCounters work;
             const auto start = std::chrono::steady_clock::now();
@@ -395,6 +411,8 @@ Json profile_unsaved_room_patches(const std::filesystem::path& fixture)
             dependent_us += localization.dependent_validation_micros;
             cues_us += localization.cue_validation_micros;
             snapshots_us += work.get<WorkCounter::ProjectSnapshotMicros>();
+            snapshot_count += work.get<WorkCounter::ProjectSnapshotAssemblies>();
+            baseline_reuses += work.get<WorkCounter::ProjectPatchBaselineReuses>();
         }
         std::sort(samples.begin(), samples.end());
         Json summary = Json::object();
@@ -413,9 +431,12 @@ Json profile_unsaved_room_patches(const std::filesystem::path& fixture)
         summary["meanTranslationDependencyMs"] = dependent_us / (samples.size() * 1000.0);
         summary["meanDialogueCueMs"] = cues_us / (samples.size() * 1000.0);
         summary["meanProjectSnapshotsMs"] = snapshots_us / (samples.size() * 1000.0);
+        summary["projectSnapshotAssemblies"] = snapshot_count;
+        summary["projectPatchBaselineReuses"] = baseline_reuses;
         return summary;
     };
     Json result = Json::object();
+    result["additionalInspected"] = additional_inspected;
     result["roomDisplayName"] = measure("/rooms/properties-and-traits/data/displayName");
     result["roomDescription"] =
         measure("/rooms/properties-and-traits/data/description/source/text");
@@ -2280,6 +2301,117 @@ void path_precise_room_mutations(const std::filesystem::path& fixture)
             "Repairing the Room reference retracts stale dependent diagnostics");
 }
 
+void patch_publication_differential(const std::filesystem::path& fixture)
+{
+    TemporaryProject temp(fixture);
+    std::string error;
+    auto project = ProjectSession::open(temp.root, error);
+    require(project && project->inspect_record("rooms/properties-and-traits").accepted,
+            "Patch publication fixture admits a Room: " + error);
+    const auto display = std::string("/rooms/properties-and-traits/data/displayName");
+    const auto description =
+        std::string("/rooms/properties-and-traits/data/description/source/text");
+    const auto signature = [](const std::vector<Diagnostic>& diagnostics) {
+        std::vector<std::string> result;
+        for (const auto& diagnostic : diagnostics)
+            result.push_back(diagnostic.path + "|" + diagnostic.code + "|" + diagnostic.message +
+                             "|" + diagnostic.severity + "|" + diagnostic.source_path);
+        return result;
+    };
+    const auto assert_snapshot = [&](const RoomSessionSnapshot& actual) {
+        const auto fresh = project->snapshot();
+        require(actual.working_revision == fresh.working_revision &&
+                    actual.source_json == fresh.source_json &&
+                    actual.normalized_json == fresh.normalized_json &&
+                    actual.baseline_json == fresh.baseline_json && actual.dirty == fresh.dirty &&
+                    actual.valid == fresh.valid &&
+                    actual.conflicting_paths == fresh.conflicting_paths &&
+                    signature(actual.diagnostics) == signature(fresh.diagnostics),
+                "Cached native Patch publication must equal a fresh Project snapshot");
+    };
+    const auto patch = [&](const std::vector<RoomPatch>& changes, bool expect_reuse) {
+        const auto before = project->snapshot();
+        ValidationWorkCounters work;
+        RoomSessionResult result;
+        {
+            ScopedValidationWork measured(work);
+            result = project->patch(project->working_revision(), changes);
+        }
+        require(result.accepted, "Patch publication fixture mutation accepted: " + result.error);
+        if (expect_reuse && project->source_watcher_proof_available())
+            require(work.get<WorkCounter::ProjectPatchBaselineReuses>() == 1,
+                    "Second unsaved Patch reuses source-proven publication baseline");
+        assert_snapshot(result.snapshot);
+        const auto before_sig = signature(before.diagnostics);
+        const auto after_sig = signature(result.snapshot.diagnostics);
+        std::vector<std::string> added, removed;
+        for (const auto& current : after_sig)
+            if (std::find(before_sig.begin(), before_sig.end(), current) == before_sig.end())
+                added.push_back(current);
+        for (const auto& prior : before_sig)
+            if (std::find(after_sig.begin(), after_sig.end(), prior) == after_sig.end())
+                removed.push_back(prior);
+        require(signature(result.diagnostics_added) == added &&
+                    signature(result.diagnostics_removed) == removed,
+                "Cached native Patch diagnostic deltas agree with fresh before/after snapshots");
+        return result;
+    };
+
+    const auto first =
+        patch({{RoomPatch::Operation::Replace, display, "\"Publication one\""}}, false);
+    const auto second =
+        patch({{RoomPatch::Operation::Replace, description, "\"Publication two\""}}, true);
+    require(second.snapshot.working_revision == first.snapshot.working_revision + 1,
+            "Successive Room fields preserve exact native revisions");
+    const auto invalid = patch({{RoomPatch::Operation::Replace, display, "7"}}, true);
+    require(!invalid.snapshot.valid && !invalid.diagnostics_added.empty(),
+            "Invalid but editable Room Patch adds diagnostics");
+    const auto fixed = patch({{RoomPatch::Operation::Replace, display, "\"Repaired\""}}, true);
+    require(fixed.snapshot.valid && !fixed.diagnostics_removed.empty(),
+            "Repair retracts exactly the old Room diagnostics");
+    const auto same = patch({{RoomPatch::Operation::Replace, display, "\"Repaired\""}}, false);
+    require(same.snapshot.working_revision == fixed.snapshot.working_revision,
+            "No-op Patch preserves working revision");
+
+    require(project->inspect_record("rooms/feature-lab-home").accepted,
+            "Second Room can be inspected between Patch commands");
+    const auto after_inspection =
+        patch({{RoomPatch::Operation::Replace, description, "\"After inspect\""}}, false);
+    require(after_inspection.snapshot.working_revision == fixed.snapshot.working_revision + 1,
+            "Inspection does not consume a mutation revision");
+    const auto inverse =
+        patch({{RoomPatch::Operation::Replace, description, "\"Publication two\""}}, true);
+    require(inverse.snapshot.valid, "Undo-style inverse Patch restores the edited Room value");
+
+    const auto prior = project->snapshot();
+    const auto failed =
+        project->patch(project->working_revision(),
+                       {{RoomPatch::Operation::Replace, display, "\"Must roll back\""},
+                        {RoomPatch::Operation::Replace,
+                         "/rooms/not-an-admitted-room/data/displayName", "\"Cannot commit\""}});
+    require(!failed.accepted && failed.snapshot.working_revision == prior.working_revision,
+            "Failed multi-owner batch is atomic");
+    assert_snapshot(failed.snapshot);
+
+    // A physical mutation revokes even an otherwise eligible publication
+    // baseline. The existing source CAS must reject an edit against old YAML.
+    const auto room_path = temp.root / "records/rooms/properties-and-traits.yaml";
+    write(room_path, read(room_path) + "\n# external edit\n");
+    ValidationWorkCounters external_work;
+    RoomSessionResult conflicted;
+    {
+        ScopedValidationWork measured(external_work);
+        conflicted =
+            project->patch(project->working_revision(),
+                           {{RoomPatch::Operation::Replace, description, "\"Stale source\""}});
+    }
+    require(!conflicted.accepted &&
+                conflicted.error.find("External source conflict") != std::string::npos &&
+                external_work.get<WorkCounter::ProjectPatchBaselineReuses>() == 0,
+            "External source edit invalidates reused baseline and preserves source CAS");
+    assert_snapshot(conflicted.snapshot);
+}
+
 void typed_reference_invalidation_roundtrip(const std::filesystem::path& fixture)
 {
     const auto typed = semantic_graph_record_dependencies(
@@ -4037,6 +4169,11 @@ int main(int argc, char** argv)
             std::cout << "Native typed path-precise mutation certification passed.\n";
             return 0;
         }
+        if (argc == 3 && std::string_view(argv[1]) == "--patch-publication") {
+            patch_publication_differential(argv[2]);
+            std::cout << "Source-proven Patch publication differential passed.\n";
+            return 0;
+        }
         if (argc == 3 && std::string_view(argv[1]) == "--path-precise-room") {
             path_precise_room_mutations(argv[2]);
             std::cout << "Native typed path-precise Room certification passed.\n";
@@ -4048,6 +4185,10 @@ int main(int argc, char** argv)
         }
         if (argc == 3 && std::string_view(argv[1]) == "--profile-unsaved-room-patches") {
             std::cout << profile_unsaved_room_patches(argv[2]).to_string() << '\n';
+            return 0;
+        }
+        if (argc == 3 && std::string_view(argv[1]) == "--profile-unsaved-room-patches-17") {
+            std::cout << profile_unsaved_room_patches(argv[2], 16).to_string() << '\n';
             return 0;
         }
         if (argc == 2 && (std::string_view(argv[1]) == "--validate" ||

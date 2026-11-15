@@ -3500,3 +3500,92 @@ independently measured phases, not an exhaustive CPU breakdown of the whole
 Patch. Further latency reduction should target Project snapshot publication
 and record patch preparation separately; do not remove source-authority or
 cross-fragment validation fences to gain another few milliseconds.
+
+### #636: Source-proven Patch publication and immutable record baseline reuse
+
+After #635, the unsaved-Project Patch path still assembled the complete editor
+Project snapshot at both entry and publication, validated a Room's unchanged
+disk baseline repeatedly, and reparsed working/baseline JSON for sparse
+effective-field projection and conflict cleanup. #636 reuses the preceding
+Patch's published snapshot **only as the next diagnostic baseline**, when the
+native source-authority fence proves the same physical generation, the
+working revision is identical, and no intervening inspection/compiler
+publication changed the editor view. Every changed Patch still assembles a
+fresh post-mutation Project snapshot with the full cross-owner validation and
+diagnostics. Recovery, structural batches, source conflicts, watcher-uncertain
+sessions, and non-Patch mutations retain their existing conservative paths.
+
+The reuse proof runs at the *next Patch's entry*, not when the preceding Patch
+finishes. An eager extra fence after Patch was tried and rejected: it consumed
+tracked filesystem changes and inadvertently revoked authority for subsequent
+scoped Saves. The native Project and structural journal tests caught that
+regression; keeping publication side-effect-free restored both tests.
+
+`RoomSession::patch` now uses its prior effective working/baseline values for
+ordinary projection, retaining explicit validation when baseline evidence is
+unavailable. `RoomSession::snapshot` also retains the immutable normalized
+disk baseline across changes to working JSON, provided its exact disk
+revision and Layout companion inputs match. Sparse default reconstruction,
+typed reference projection, editable-invalid records, source CAS and atomic
+multi-owner rollback are exercised by
+`native_authoring_patch_publication` and the existing native session suites.
+
+**Release, same development host, Feature Lab disposable copies.** Each
+measurement is 20 Patches with the first excluded, reported as median / p95
+in milliseconds. The before-#636 figures were remeasured on #635's parent
+implementation using the *same unsaved-patch workload*, not the older
+save-between-patches profile.
+
+| Workload | After #635, before #636 | After #636 |
+| --- | ---: | ---: |
+| C++ Room display-name, one inspected | 15.48 / 17.40 | **9.77 / 11.41** |
+| C++ Room description, one inspected | 14.85 / 16.07 | **10.00 / 11.68** |
+| C++ Room display-name, 17 inspected | Not recorded | **10.39 / 12.14** |
+| C++ Room description, 17 inspected | Not recorded | **10.39 / 11.32** |
+| Real Node addon Room display-name, one inspected | 19.97 / 21.49 | **14.02 / 15.16** |
+| Real Node addon Room description, one inspected | 20.31 / 23.96 | **13.48 / 16.03** |
+| Real Node addon Room display-name, 17 inspected | Not recorded | **14.84 / 15.74** |
+| Real Node addon Room description, 17 inspected | Not recorded | **14.65 / 15.42** |
+| Real Node addon Project title, one / 17 inspected | Not recorded | **17.51 / 19.54**; **18.70 / 20.50** |
+| Real Node addon Room exit target, one / 17 inspected | Not recorded | **67.29 / 69.53**; **75.33 / 86.96** |
+| Real Node addon Room + Project batch, one / 17 inspected | Not recorded | **25.63 / 27.33**; **26.89 / 32.32** |
+| Real Node addon Room inverse Patch, one / 17 inspected | Not recorded | **14.17 / 15.56**; **14.47 / 15.41** |
+
+The warm C++ profile now observes **19 Project snapshot assemblies and
+19 source-proven baseline reuses per 19 Patches** (one assembly instead of
+two). Mean cumulative Project snapshot assembly time is about **5.25–5.81 ms
+per Patch**, versus **7.6–8.0 ms** after #635 and before #636. Incremental
+localization still performs one changed-Message check per Patch; it performs
+**zero full localization-model validations and zero physical localization YAML
+reads** for these warmed, unchanged-source Room edits. Structured-source
+projection averages about 0.62–0.64 ms and translated-dependent checks about
+0.14–0.15 ms. Physical exact-revision CAS checks remain mandatory and are not
+counted as localization YAML reads.
+
+An exploratory `perf record -g` on the C++ profile attributed significant
+sample overhead to string comparison (`memcmp`), allocator traffic and
+JSON parsing/validation. Those samples include benchmark setup and are
+*not* an isolated Patch-only allocation census. The remaining one-snapshot
+Project assembly and record patch/validation costs account for the measured
+gap without attributing unmeasured milliseconds to specific functions.
+
+Reproduce using:
+
+```sh
+build/issue-601-release-ninja/tools/project_authoring/noveltea-project-session-certify --profile-unsaved-room-patches tests/projects/feature-lab
+build/issue-601-release-ninja/tools/project_authoring/noveltea-project-session-certify --profile-unsaved-room-patches-17 tests/projects/feature-lab
+node editor/scripts/benchmark-native-localization-patches.mjs build/native-authoring-host/noveltea-authoring-node.node
+node editor/scripts/benchmark-native-localization-patches.mjs build/native-authoring-host/noveltea-authoring-node.node --additional-inspected=16
+```
+
+**Target status:** on this run, the one-inspected C++ display-name median
+meets 10 ms, description is approximately at the threshold, and 17-inspected
+medians remain about 0.4 ms above it; all common Room p95 values are under
+20 ms. Real addon Room p95 values are also under 20 ms. A prior run saw a
+single >20 ms native p95 outlier under different host load; these are
+non-deterministic local measurements, not CI performance assertions.
+Dependency edits and broad batches intentionally retain full semantic work
+and are separately reported rather than classified as presentation edits.
+The addon inverse benchmark measures native Patch/ack serialization, **not**
+renderer draft flushing or complete Ctrl+Z-to-visible-update latency; #602
+owns that renderer pipeline and needs independent interactive measurement.

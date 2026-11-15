@@ -657,6 +657,13 @@ private:
     mutable std::uint64_t localization_source_path_cache_hits_ = 0;
     std::shared_ptr<CompleteProjectCache> complete_project_cache_;
     std::map<std::string, ValidationResult> material_compiler_results_;
+    // Previous Patch publication may serve as the next command's diagnostic
+    // baseline only while native source authority still proves its generation.
+    // Inspections and compiler results can change the editor view without a
+    // working-revision increment and explicitly discard this shortcut.
+    std::optional<RoomSessionSnapshot> patch_published_snapshot_;
+    std::map<std::string, std::string> patch_published_revisions_;
+    std::uint64_t patch_published_watch_epoch_ = 0;
     std::uint64_t working_revision_ = 0;
     // Full cross-record resolver analysis is immutable between Project edit
     // generations and inspected-owner inventory changes.
