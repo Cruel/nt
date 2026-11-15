@@ -250,7 +250,7 @@ describe('RepairPromptDialog', () => {
       expect(flush).toHaveBeenCalledWith('active-session');
       writeText.mockClear();
       flush.mockResolvedValue({ 'records/rooms/other.yaml': 'file' });
-      fireEvent.click(screen.getByRole('button', { name: 'Copy prompt' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Copied' }));
       await waitFor(() =>
         expect(screen.getByRole('alert')).toHaveTextContent('Working Project changed'),
       );
@@ -325,9 +325,54 @@ describe('RepairPromptDialog', () => {
     fireEvent.change(textarea, { target: { value: 'user-modified prompt\nline 2' } });
     fireEvent.click(screen.getByRole('button', { name: 'Copy prompt' }));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('user-modified prompt\nline 2'));
-    expect(screen.getByRole('status')).toHaveTextContent('No Project files were changed');
+    expect(screen.getByRole('button', { name: 'Copied' })).toBeEnabled();
+    expect(screen.queryByText('No Project files were changed')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Run' })).toBeDisabled();
     expect(screen.getByTitle(/Install Claude Code, Codex or OpenCode/)).toBeInTheDocument();
+  });
+
+  it('keeps the Copy prompt label on a failed clipboard write and shows the error', async () => {
+    writeText.mockRejectedValueOnce(new Error('Clipboard access denied'));
+    render(<RepairPromptDialog />);
+    showPrompt();
+    fireEvent.click(screen.getByRole('button', { name: 'Copy prompt' }));
+    await waitFor(() => expect(screen.getByText('Clipboard access denied')).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'Copy prompt' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Copied' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copy prompt' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Copied' })).toBeEnabled());
+    expect(screen.queryByText('Clipboard access denied')).not.toBeInTheDocument();
+  });
+
+  it('restores the Copy prompt label after two seconds and clears it when the prompt changes', async () => {
+    render(<RepairPromptDialog />);
+    showPrompt();
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Copy prompt' }));
+        await Promise.resolve();
+      });
+      expect(screen.getByRole('button', { name: 'Copied' })).toBeEnabled();
+
+      act(() => {
+        vi.advanceTimersByTime(2000);
+      });
+      expect(screen.getByRole('button', { name: 'Copy prompt' })).toBeEnabled();
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Copy prompt' }));
+        await Promise.resolve();
+      });
+      expect(screen.getByRole('button', { name: 'Copied' })).toBeEnabled();
+      fireEvent.change(screen.getByRole('textbox', { name: 'Prompt' }), {
+        target: { value: 'A revised repair prompt' },
+      });
+      expect(screen.getByRole('button', { name: 'Copy prompt' })).toBeEnabled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('warns and requires separate affirmative authorization for weak and newer-format Run', async () => {

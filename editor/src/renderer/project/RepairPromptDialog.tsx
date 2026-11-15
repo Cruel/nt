@@ -63,7 +63,7 @@ export function RepairPromptDialog() {
   useProjectStore((state) => state.projectSessionId);
   useCommandStore((state) => state.nativeWorkingRevision);
   useCandidateRepairStore((state) => state.entries);
-  const [copyMessage, setCopyMessage] = useState<'copied' | 'failed' | null>(null);
+  const [copyMessage, setCopyMessage] = useState<'copied' | null>(null);
   const repairPreferences = usePreferencesStore((state) => state.repair);
   const harnesses = useRepairToolCatalogStore((state) => state.harnesses);
   const catalogs = useRepairToolCatalogStore((state) => state.catalogs);
@@ -153,8 +153,17 @@ export function RepairPromptDialog() {
   }, [visible]);
 
   useEffect(() => {
-    if (!visible) setManualOverride(null);
+    if (!visible) {
+      setManualOverride(null);
+      setCopyMessage(null);
+    }
   }, [visible]);
+
+  useEffect(() => {
+    if (copyMessage !== 'copied') return;
+    const timeout = window.setTimeout(() => setCopyMessage(null), 2000);
+    return () => window.clearTimeout(timeout);
+  }, [copyMessage]);
 
   const storedModel = harness ? repairPreferences.modelByHarness[harness] : '';
   const listedModel =
@@ -223,10 +232,11 @@ export function RepairPromptDialog() {
       if (!currentDraft || !repairPromptIsCurrent(currentDraft))
         throw new Error('Project diagnostics changed before Copy.');
       await navigator.clipboard.writeText(currentDraft.text);
+      setRunError(null);
       setCopyMessage('copied');
     } catch (error) {
-      setRunError(error instanceof Error ? error.message : String(error));
-      setCopyMessage('failed');
+      setRunError(error instanceof Error ? error.message : t('repairPrompt.failed'));
+      setCopyMessage(null);
     }
   }
 
@@ -435,19 +445,17 @@ export function RepairPromptDialog() {
           </p>
         ) : null}
         <DialogFooter className="items-center">
-          {copyMessage ? (
-            <span role="status" className="text-xs text-muted-foreground">
-              {t(`repairPrompt.${copyMessage}`)}
-            </span>
-          ) : null}
           <Button variant="outline" onClick={close}>
             {t('repairPrompt.close')}
           </Button>
           <Button
+            className="min-w-24"
             disabled={!draft || !current || !projectionReady || !draft.text.trim()}
             onClick={() => void copy()}
           >
-            {t('repairPrompt.copy')}
+            <span aria-live="polite">
+              {copyMessage === 'copied' ? t('repairPrompt.copied') : t('repairPrompt.copy')}
+            </span>
           </Button>
           <span title={harnesses.length === 0 ? t('repairPrompt.noHarnessTooltip') : undefined}>
             <Button

@@ -27,7 +27,7 @@
     "noHarnessTooltip": "Install Claude Code, Codex or OpenCode on your system PATH to use Run. Copy prompt remains available.",
     "runFailed": "Could not launch the AI repair. Review the Project and retry.",
     "close": "Close",
-    "copied": "Prompt copied. No Project files were changed.",
+    "copied": "Copied",
     "failed": "Could not copy. Select and copy the prompt text manually.",
     "outdated": "Project source or diagnostics changed after this prompt was generated. Your edits are preserved, but the prompt cannot be copied until you choose a current scope.",
     "candidateRefresh": "Save changes or wait for validation.",
