@@ -258,6 +258,11 @@ describe('WorkspacePage new project modal', () => {
     expect(
       screen.queryByRole('dialog', { name: 'External changes conflict with unsaved edits' }),
     ).toBeNull();
+    const conflictProblems = () =>
+      useWorkspaceStore
+        .getState()
+        .diagnostics.filter((entry) => entry.code === 'editor.external-change.conflict');
+    expect(conflictProblems()).toHaveLength(1);
     expect(useProjectStore.getState().document).toMatchObject({
       project: { name: 'Updated local name' },
     });
@@ -282,6 +287,7 @@ describe('WorkspacePage new project modal', () => {
     expect(useProjectStore.getState().document).toMatchObject({
       project: { name: 'Revised after continuing' },
     });
+    expect(conflictProblems()).toHaveLength(1);
     fireEvent.keyDown(document.body, { key: 's', ctrlKey: true });
     expect(
       await screen.findByRole('dialog', { name: 'External changes conflict with unsaved edits' }),
@@ -289,6 +295,59 @@ describe('WorkspacePage new project modal', () => {
     expect(useProjectStore.getState().document).toMatchObject({
       project: { name: 'Revised after continuing' },
     });
+  });
+
+  it('closes orphaned Room tabs when Undo removes a duplicated Room', async () => {
+    const project = createAuthoringProject({ id: 'tab-undo', name: 'Tab Undo' });
+    project.rooms.hall = { id: 'hall', label: 'Hall', data: defaultRoomData('Hall') };
+    admitNativeRendererCommandFixture(project, 'duplicate-undo-tabs');
+    render(<WorkspacePage />);
+    await act(async () => {
+      const duplicate = await useCommandStore.getState().executeCommandAsync({
+        type: 'entity.duplicateRecord',
+        label: 'Duplicate Room',
+        payload: { collection: 'rooms', sourceId: 'hall', targetId: 'hall-copy' },
+        originSaveUnitId: 'structure:rooms',
+        persistencePolicy: 'auto-commit',
+      });
+      expect(duplicate.ok).toBe(true);
+    });
+    expect(
+      (useProjectStore.getState().document as typeof project).rooms['hall-copy'],
+    ).toBeDefined();
+    act(() => {
+      useWorkbenchStore.getState().openTab(buildRoomDetailTabForRecord('hall', 'Original Room'));
+      useWorkbenchStore.getState().openTab(buildRoomDetailTabForRecord('hall-copy', 'Room Copy'));
+    });
+    expect(
+      Object.values(useWorkbenchStore.getState().tabsById).filter(
+        (tab) => tab.resource?.collection === 'rooms' && tab.resource.entityId === 'hall-copy',
+      ),
+    ).toHaveLength(1);
+    await act(async () => {
+      const undone = await useCommandStore.getState().undoAsync();
+      expect(undone.ok).toBe(true);
+    });
+    await waitFor(() => {
+      expect(
+        (useProjectStore.getState().document as typeof project).rooms['hall-copy'],
+      ).toBeUndefined();
+      expect(
+        Object.values(useWorkbenchStore.getState().tabsById).filter(
+          (tab) => tab.resource?.collection === 'rooms' && tab.resource.entityId === 'hall-copy',
+        ),
+      ).toHaveLength(0);
+    });
+    expect(
+      Object.values(useWorkbenchStore.getState().tabsById).some(
+        (tab) => tab.resource?.collection === 'rooms' && tab.resource.entityId === 'hall',
+      ),
+    ).toBe(true);
+    expect(
+      useWorkbenchStore
+        .getState()
+        .recentlyClosedTabs.some((entry) => entry.tab.resource?.entityId === 'hall-copy'),
+    ).toBe(false);
   });
 
   it('offers one dismissible media batch, preserves manual discovery, and notifies on new revisions', async () => {

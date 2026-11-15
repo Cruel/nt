@@ -187,8 +187,19 @@ function collectWorkspaceProjectDiagnostics(
   persistentDiagnostics: readonly ToolDiagnostic[] = [],
   _nativeSession = useProjectStore.getState().nativeSession,
 ): ToolDiagnostic[] {
+  // A deferred Use Disk / Keep Mine conflict is part of the current recovery
+  // state, not a transient watcher event. Always include it in every Problems
+  // projection, including debounced native validation and metadata refreshes.
+  const unresolvedConflicts = Object.entries(
+    editorProjectStateFromProject(document).recovery.saveUnitsById,
+  )
+    .filter(([, entry]) => entry.externalConflict)
+    .map(([id, entry]) => externalConflictDiagnostic(id, entry.externalConflict!));
   return mergeEditorValidationDiagnostics(
-    [...persistentDiagnostics, ...currentNativeProjectDiagnostics()],
+    mergeEditorValidationDiagnostics(
+      [...persistentDiagnostics, ...currentNativeProjectDiagnostics()],
+      unresolvedConflicts,
+    ),
     collectPendingInputDiagnostics(usePendingInputStore.getState()),
   );
 }
@@ -330,6 +341,7 @@ export function WorkspacePage() {
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
   const projectSessionId = useProjectStore((state) => state.projectSessionId);
   const projectRevision = useProjectStore((state) => state.projectRevision);
+  const mutationPublication = useProjectStore((state) => state.lastMutationPublication);
   const projectDirty = useProjectStore(selectProjectDirty);
   const sourceBuffersById = useProjectSourceStore((state) => state.buffersById);
   const hasSourceDirty = Object.values(sourceBuffersById).some((buffer) => buffer.dirty);
@@ -2239,6 +2251,45 @@ export function WorkspacePage() {
     projectSessionId,
     setStatusMessage,
   ]);
+
+  // An acknowledged structural Undo/Redo can remove a record while its tab
+  // remains open. Only prune tabs for full-record removals from the actual
+  // command publication; invalid/temporarily omitted native projections and
+  // project admission must not silently close editing tabs.
+  useLayoutEffect(() => {
+    if (!mutationPublication?.previousProject) return;
+    const { kind, affectedPaths } = mutationPublication.changeSet;
+    if (kind !== 'undo' && kind !== 'redo' && kind !== 'command') return;
+    const before = mutationPublication.previousProject as Record<string, unknown>;
+    const after = mutationPublication.project as Record<string, unknown>;
+    const workbench = useWorkbenchStore.getState();
+    for (const [groupId, group] of Object.entries(workbench.groupsById)) {
+      const removed = group.tabIds.filter((tabId) => {
+        const resource = workbench.tabsById[tabId]?.resource;
+        if (resource?.kind !== 'record' || !resource.collection || !resource.entityId) return false;
+        const recordPath = `/${resource.collection}/${resource.entityId}`;
+        if (
+          !affectedPaths.includes(recordPath) &&
+          !affectedPaths.includes(`/${resource.collection}`)
+        )
+          return false;
+        const previousRecords = before[resource.collection];
+        const currentRecords = after[resource.collection];
+        return (
+          !!previousRecords &&
+          typeof previousRecords === 'object' &&
+          Object.prototype.hasOwnProperty.call(previousRecords, resource.entityId) &&
+          (!currentRecords ||
+            typeof currentRecords !== 'object' ||
+            !Object.prototype.hasOwnProperty.call(currentRecords, resource.entityId))
+        );
+      });
+      if (removed.length) {
+        for (const tabId of removed) useDraftDirtyStore.getState().clearDraftDirtyForTab(tabId);
+        useWorkbenchStore.getState().discardTabs(groupId, removed);
+      }
+    }
+  }, [mutationPublication]);
 
   const nativeProjectDiagnostics = useNativeProjectDiagnostics();
   useEffect(() => {
