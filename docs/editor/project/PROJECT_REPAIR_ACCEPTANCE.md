@@ -412,6 +412,41 @@ The Xvfb/IPC smoke is useful automated evidence, **not** a substitute for
 human focus, dialog and TUI acceptance. Keep #622 **open** until those
 specified checks are recorded.
 
+## November 14, 2026 — user-confirmed manual acceptance
+
+The user explicitly confirmed that they **verified all five outstanding manual
+workflows** identified in the final #622 review. This is user-reported
+interactive desktop acceptance; no screenshots, exact test commands, package
+identity, or platform details were supplied with the confirmation, so none
+are inferred here:
+
+1. **AI candidate repair and admission:** native readiness, the Project-ready
+   confirmation and explicit Open, including the case where a different
+   Project is already open.
+2. **Offline recovery:** external changes across editor close/reopen,
+   including disjoint edits surviving and overlapping edits producing
+   conflicts.
+3. **Conflict controls:** Continue Editing, field-scoped Use Disk and
+   stale-revision Keep Mine rejection.
+4. **Interactive agent lifecycle:** authenticated OpenCode/Codex repair,
+   including execution and cancellation.
+5. **Recovery safety:** damaged checkpoints and deleted sources do not
+   destroy recoverable user changes.
+
+The user also reported that their **editor test run passed**. This statement
+is recorded separately from the exact command/results already captured in
+earlier automated runs, and does not claim a fresh CI, CLI, or packaged test
+execution. The previously reported intermittent aggregate debounce test is
+not claimed to have been fixed by this certification.
+
+The previously certified Linux native CLI, real-addon, CTest, packaged
+Electron/PTY and live working-source checks remain the automated evidence.
+All #611–#621 and #624–#629 prerequisite issues are closed. Windows/macOS
+packaged GUI execution and unavailable harness combinations remain **not
+run**, not silently promoted to passed. This project-wide certification
+closes on the Linux native and user-confirmed desktop evidence; it does not
+claim cross-platform release qualification. Parent #610 remains unchanged.
+
 ## Feature Lab and documentation
 
 Feature Lab: **already covered as a valid authored reference**; use only a
