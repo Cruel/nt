@@ -1,4 +1,8 @@
 import type { NativeSemanticGraph } from './native-authoring-worker-contract';
+import {
+  authoringCollectionKeys,
+  type AuthoringCollectionKey,
+} from '../../shared/project-schema/authoring-collections';
 
 type NodeKey = NativeSemanticGraph['nodes'][number]['key'];
 type Edge = NativeSemanticGraph['edges'][number];
@@ -78,6 +82,36 @@ export function nativeGraphUsageCounts(
     possible: usages.possible.length,
     recognized: usages.recognized.length,
   };
+}
+
+/** An incomplete record can be removed without losing incoming evidence from
+ * complete owners. Other incomplete owners may hide references to the target,
+ * so deleting in that case requires explicit Force Delete authorization.
+ * Callers must first verify the partial graph is revision-matched and that all
+ * incomplete owners are record-scoped (not source or Project-global failures).
+ */
+export function nativeGraphAllowsIncompleteTargetDeletion(
+  graph: NativeSemanticGraph,
+  target: NodeKey,
+  force = false,
+): boolean {
+  return (
+    target.kind === 'record' &&
+    !graph.complete &&
+    graph.incompleteOwners.length > 0 &&
+    graph.incompleteOwners.every((owner) => {
+      const separator = owner.indexOf('/');
+      return (
+        separator > 0 &&
+        separator === owner.lastIndexOf('/') &&
+        owner.length > separator + 1 &&
+        authoringCollectionKeys.includes(owner.slice(0, separator) as AuthoringCollectionKey)
+      );
+    }) &&
+    (force ||
+      graph.incompleteOwners.every((owner) => owner === `${target.collection}/${target.id}`)) &&
+    Boolean(graph.sourceRevisions['project.yaml'])
+  );
 }
 
 export function requireNativeGraphPreflight(

@@ -22,7 +22,14 @@ import {
   diagnosticCountsForCollection,
   diagnosticSeverityForRecord,
 } from '@/diagnostics/project-diagnostic-severity';
-import { useCurrentAuthoringDependencyGraphSnapshot } from '@/project/authoring-dependency-graph-runtime';
+import {
+  currentAuthoringDeletionGraphSnapshot,
+  refreshAuthoringDependencyGraphProjectSources,
+  useAuthoringDependencyGraphError,
+  useCurrentAuthoringDependencyGraphSnapshot,
+  useDisplayedAuthoringDependencyGraphSnapshot,
+  useScopedAuthoringDeletionGraphSnapshot,
+} from '@/project/authoring-dependency-graph-runtime';
 import { semanticUsagesForTarget } from '@/project/authoring-graph-consumers';
 import {
   authoringRepairEdgesForTarget,
@@ -30,6 +37,8 @@ import {
   recordTarget,
 } from '@/project/authoring-repair';
 import { referenceTargetFromEntity } from '@/project/entity-operations';
+import { nativeGraphUsages } from '../../main/services/native-semantic-graph-queries';
+import type { NativeRendererGraphSnapshot } from '@/project/native-authoring-graph-projection';
 import { useEntityUsagesStore } from '@/project/entity-usages-store';
 import { buildJsonPointer, hasJsonAtPointer } from '@/project/json-pointer';
 import { buildNativeProjectSearchIndex } from '@/project/native-project-search';
@@ -180,6 +189,29 @@ function withExplorerPlacement(tab: WorkbenchTab, explorerNodeId: string): Workb
   };
 }
 
+/** Compare only the evidence an author is approving, not graph refresh tokens.
+ * Background refreshes can change generation or unrelated sources without
+ * altering any incoming reference or the proposed atomic repair.
+ */
+function deletionReviewFingerprint(
+  snapshot: NativeRendererGraphSnapshot,
+  target: ReturnType<typeof recordTarget>,
+  plan: ReturnType<typeof generateAuthoringRepairPlan>,
+): string {
+  const usages = nativeGraphUsages(snapshot.nativeGraph, target);
+  return JSON.stringify({
+    incompleteOwners: [...snapshot.nativeGraph.incompleteOwners].sort(),
+    confirmed: usages.confirmed.map((edge) => JSON.stringify(edge)).sort(),
+    occurrences: [...usages.possible, ...usages.recognized]
+      .map((occurrence) => JSON.stringify(occurrence))
+      .sort(),
+    plan:
+      plan.status === 'ready'
+        ? { patches: plan.plan.patches, preview: plan.plan.preview, warnings: plan.plan.warnings }
+        : { status: plan.status, reason: plan.reason },
+  });
+}
+
 function EntityOperationDialog({
   state,
   project,
@@ -190,7 +222,24 @@ function EntityOperationDialog({
   onClose: () => void;
 }) {
   const executeCommand = projectEdits.execute;
-  const graphSnapshot = useCurrentAuthoringDependencyGraphSnapshot();
+  const [forceDelete, setForceDelete] = useState(false);
+  const fullGraphSnapshot = useCurrentAuthoringDependencyGraphSnapshot();
+  const lastDisplayedGraphSnapshot = useDisplayedAuthoringDependencyGraphSnapshot();
+  const graphError = useAuthoringDependencyGraphError();
+  const scopedDeletionSnapshot = useScopedAuthoringDeletionGraphSnapshot(
+    state?.collection ?? '',
+    state?.entityId ?? '',
+    forceDelete,
+  );
+  const graphSnapshot = fullGraphSnapshot ?? scopedDeletionSnapshot;
+  // Background requery must not change the review surface or action state.
+  // The current revision is reverified at confirmation, not on every render.
+  const displayedGraphSnapshot = lastDisplayedGraphSnapshot ?? graphSnapshot;
+  const unknownReferencesFromInvalidRecords = Boolean(
+    displayedGraphSnapshot?.nativeGraph.incompleteOwners.some(
+      (owner) => owner !== `${state?.collection}/${state?.entityId}`,
+    ),
+  );
   const projectDocument = useProjectStore((store) => store.document);
   const projectInstanceId = useProjectStore((store) => store.projectInstanceId);
   const projectRevision = useProjectStore((store) => store.projectRevision);
@@ -200,7 +249,6 @@ function EntityOperationDialog({
   const [description, setDescription] = useState('');
   const [tags, setTags] = useState<string[]>([]);
   const [color, setColor] = useState('');
-  const [forceDelete, setForceDelete] = useState(false);
   const [replacementByEdgeId, setReplacementByEdgeId] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -253,34 +301,37 @@ function EntityOperationDialog({
       ? recordTarget(activeState.collection, deleteEntityId)
       : null;
   const deleteRepairEdges = deleteTarget
-    ? authoringRepairEdgesForTarget(graphSnapshot, deleteTarget)
+    ? authoringRepairEdgesForTarget(displayedGraphSnapshot, deleteTarget)
     : [];
   const replacementRequirements = deleteRepairEdges.filter(
     (edge) => edge.repair.kind === 'replacement-required',
   );
-  const deleteRepairPlan =
-    activeState.action === 'delete' && activeState.entityId
-      ? (() => {
-          const deletePath = buildJsonPointer([activeState.collection, activeState.entityId]);
-          const metadataPath = buildJsonPointer([
-            'editor',
-            'recordMetadata',
-            activeState.collection,
-            activeState.entityId,
-          ]);
-          return generateAuthoringRepairPlan({
-            snapshot: graphSnapshot,
-            projectInstanceId,
-            projectRevision,
-            target: recordTarget(activeState.collection, activeState.entityId),
-            deletePath,
-            ...(projectDocument && hasJsonAtPointer(projectDocument, metadataPath)
-              ? { metadataPath }
-              : {}),
-            replacements: replacementByEdgeId,
-          });
-        })()
-      : null;
+  const buildDeleteRepairPlan = (snapshot: typeof graphSnapshot, revision: number) => {
+    if (activeState.action !== 'delete' || !activeState.entityId) return null;
+    const deletePath = buildJsonPointer([activeState.collection, activeState.entityId]);
+    const metadataPath = buildJsonPointer([
+      'editor',
+      'recordMetadata',
+      activeState.collection,
+      activeState.entityId,
+    ]);
+    return generateAuthoringRepairPlan({
+      snapshot,
+      projectInstanceId,
+      projectRevision: revision,
+      target: recordTarget(activeState.collection, activeState.entityId),
+      deletePath,
+      ...(projectDocument && hasJsonAtPointer(projectDocument, metadataPath)
+        ? { metadataPath }
+        : {}),
+      replacements: replacementByEdgeId,
+      force: forceDelete,
+    });
+  };
+  const displayedRepairPlan = buildDeleteRepairPlan(
+    displayedGraphSnapshot,
+    displayedGraphSnapshot?.projectRevision ?? projectRevision,
+  );
 
   async function finish(resultPromise: ReturnType<typeof executeCommand>, success: () => void) {
     const result = await resultPromise;
@@ -386,6 +437,46 @@ function EntityOperationDialog({
           },
         );
       } else if (state.action === 'delete' && state.entityId) {
+        const target = recordTarget(state.collection, state.entityId);
+        if (!displayedGraphSnapshot || displayedRepairPlan?.status !== 'ready') {
+          setError('Reference information is not ready to confirm deletion.');
+          return;
+        }
+        const reviewed = deletionReviewFingerprint(
+          displayedGraphSnapshot,
+          target,
+          displayedRepairPlan,
+        );
+        // Recheck only when the user confirms, not on each background refresh.
+        // Do not silently commit if new incoming references or required repairs
+        // differ from the review the user actually accepted.
+        await refreshAuthoringDependencyGraphProjectSources();
+        const currentProject = useProjectStore.getState();
+        if (
+          currentProject.projectInstanceId !== projectInstanceId ||
+          currentProject.projectRevision !== projectRevision
+        ) {
+          setError('The Project changed. Review the updated references before deleting.');
+          return;
+        }
+        const verifiedSnapshot = currentAuthoringDeletionGraphSnapshot(
+          state.collection,
+          state.entityId,
+          forceDelete,
+        );
+        const verifiedPlan = buildDeleteRepairPlan(verifiedSnapshot, projectRevision);
+        if (!verifiedSnapshot || !verifiedPlan) {
+          setError('References could not be verified. Deletion was not performed.');
+          return;
+        }
+        if (deletionReviewFingerprint(verifiedSnapshot, target, verifiedPlan) !== reviewed) {
+          setError('References changed. Review the updated repairs and confirm Delete again.');
+          return;
+        }
+        if (verifiedPlan.status !== 'ready') {
+          setError(verifiedPlan.reason);
+          return;
+        }
         // A confirmed structural deletion owns this record. Drop local drafts first
         // so their recovery overlay cannot recreate the removed record.
         discardRecordDrafts(state.collection, state.entityId);
@@ -476,10 +567,9 @@ function EntityOperationDialog({
           ) : null}
           {state.action === 'delete' ? (
             <div className="space-y-3 text-sm">
-              {!graphSnapshot ? (
-                <p className="rounded border border-warning/40 bg-warning/10 p-2 text-xs text-warning-foreground">
-                  Dependency analysis is updating. Delete is unavailable until the current graph is
-                  ready.
+              {!displayedGraphSnapshot ? (
+                <p className="rounded border p-2 text-xs text-muted-foreground">
+                  {graphError ? 'Reference list unavailable.' : 'Checking references…'}
                 </p>
               ) : deleteRepairEdges.length > 0 ? (
                 <div className="rounded border p-2 text-xs">
@@ -494,33 +584,25 @@ function EntityOperationDialog({
                       </div>
                     ))}
                   </div>
-                  <label className="mt-3 flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={forceDelete}
-                      onChange={(event) => setForceDelete(event.currentTarget.checked)}
-                    />
-                    Force delete and let validation report missing references
-                  </label>
-                  {!forceDelete && deleteRepairPlan?.status === 'ready' ? (
+                  {!forceDelete && displayedRepairPlan?.status === 'ready' ? (
                     <div className="mt-3 space-y-1">
                       <div className="font-medium">
-                        Planned repairs ({deleteRepairPlan.plan.preview.length})
+                        Planned repairs ({displayedRepairPlan.plan.preview.length})
                       </div>
-                      {deleteRepairPlan.plan.preview.map((item) => (
+                      {displayedRepairPlan.plan.preview.map((item) => (
                         <div key={item.edgeId}>
                           {item.action}: {item.sourcePath}
                         </div>
                       ))}
-                      {deleteRepairPlan.plan.warnings.map((warning) => (
+                      {displayedRepairPlan.plan.warnings.map((warning) => (
                         <div key={warning} className="text-warning-foreground">
                           {warning}
                         </div>
                       ))}
                     </div>
-                  ) : !forceDelete && deleteRepairPlan?.status !== 'ready' ? (
+                  ) : !forceDelete && displayedRepairPlan?.status !== 'ready' ? (
                     <p className="mt-3 text-warning-foreground">
-                      {deleteRepairPlan?.reason ?? 'Repair planning is unavailable.'}
+                      {displayedRepairPlan?.reason ?? 'Repair planning is unavailable.'}
                     </p>
                   ) : null}
                   {!forceDelete
@@ -560,9 +642,33 @@ function EntityOperationDialog({
                 </div>
               ) : (
                 <p className="rounded border p-2 text-xs text-muted-foreground">
-                  No references point to this record.
+                  {unknownReferencesFromInvalidRecords
+                    ? 'No references from valid records are known to point to this record.'
+                    : 'No references point to this record.'}
                 </p>
               )}
+              {unknownReferencesFromInvalidRecords && !forceDelete ? (
+                <p className="text-xs text-warning-foreground">
+                  Another record is invalid, so its references cannot be verified. Force Delete is
+                  available, but may leave references to this record that must be repaired later.
+                </p>
+              ) : null}
+              {(deleteRepairEdges.length > 0 || unknownReferencesFromInvalidRecords) && (
+                <label className="flex items-center gap-2 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={forceDelete}
+                    onChange={(event) => setForceDelete(event.currentTarget.checked)}
+                  />
+                  Force delete and let validation report missing references
+                </label>
+              )}
+              {unknownReferencesFromInvalidRecords && forceDelete ? (
+                <p className="text-xs text-warning-foreground">
+                  Invalid records may still reference this record. Force Delete does not repair
+                  those unknown references.
+                </p>
+              ) : null}
             </div>
           ) : (
             <>
@@ -627,12 +733,7 @@ function EntityOperationDialog({
             variant={state.action === 'delete' ? 'destructive' : 'default'}
             onClick={submit}
             disabled={
-              submitting ||
-              (state.action === 'delete' &&
-                (!graphSnapshot ||
-                  (!forceDelete &&
-                    deleteRepairPlan !== null &&
-                    deleteRepairPlan.status !== 'ready')))
+              submitting || (state.action === 'delete' && displayedRepairPlan?.status !== 'ready')
             }
           >
             {submitting ? 'Saving…' : state.action === 'delete' ? 'Delete' : 'Apply'}

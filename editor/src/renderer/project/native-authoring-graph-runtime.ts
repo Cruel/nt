@@ -1,4 +1,5 @@
 import { useCommandStore } from '../commands/command-store';
+import { nativeGraphAllowsIncompleteTargetDeletion } from '../../main/services/native-semantic-graph-queries';
 import { useProjectStore } from './project-store';
 import {
   projectNativeGraphForRenderer,
@@ -41,6 +42,7 @@ class NativeRendererGraphService {
   private readonly listeners = new Set<() => void>();
   private current: NativeRendererGraphSnapshot | null = null;
   private previewCurrent: NativeRendererGraphSnapshot | null = null;
+  private displayed: NativeRendererGraphSnapshot | null = null;
   private previous: NativeRendererGraphSnapshot | null = null;
   private requested: Identity | null = null;
   private token = 0;
@@ -77,6 +79,39 @@ class NativeRendererGraphService {
       ? this.previewCurrent
       : null;
   }
+  deletionSnapshot(
+    collection: string,
+    entityId: string,
+    force = false,
+  ): NativeRendererGraphSnapshot | null {
+    const complete = this.currentSnapshot();
+    if (complete) return complete;
+    const partial = this.previewSnapshot();
+    return partial &&
+      nativeGraphAllowsIncompleteTargetDeletion(
+        partial.nativeGraph,
+        {
+          kind: 'record',
+          collection,
+          id: entityId,
+        },
+        force,
+      )
+      ? partial
+      : null;
+  }
+  /** Last admitted graph for display only. It can be a prior revision during
+   * native mutation/requery and must never authorize destructive commands.
+   * Project identity is checked even when the command store is temporarily
+   * unable to expose a mutation-ready identity.
+   */
+  displayedSnapshot(): NativeRendererGraphSnapshot | null {
+    const project = useProjectStore.getState();
+    return this.displayed?.projectInstanceId === project.projectInstanceId &&
+      this.displayed.nativeGraph.projectSessionId === project.projectSessionId
+      ? this.displayed
+      : null;
+  }
   previousSnapshot() {
     const identity = currentIdentity();
     return identity && this.previous?.projectInstanceId === identity.instance
@@ -89,6 +124,14 @@ class NativeRendererGraphService {
   refresh() {
     const identity = currentIdentity();
     if (!identity) {
+      const project = useProjectStore.getState();
+      if (
+        this.displayed?.projectInstanceId !== project.projectInstanceId ||
+        this.displayed.nativeGraph.projectSessionId !== project.projectSessionId
+      ) {
+        this.displayed = null;
+        this.lastError = null;
+      }
       this.token++;
       this.current = null;
       this.previewCurrent = null;
@@ -97,14 +140,22 @@ class NativeRendererGraphService {
       this.notify();
       return Promise.resolve();
     }
-    if (!sameIdentity(identity, this.requested)) {
+    const revisionChanged = !sameIdentity(identity, this.requested);
+    if (revisionChanged) {
       if (this.current?.projectInstanceId === identity.instance) this.previous = this.current;
       else this.previous = null;
+      if (
+        identity.instance !== this.requested?.instance ||
+        identity.session !== this.requested?.session
+      )
+        this.lastError = null;
     }
     this.requested = identity;
+    // Re-query invalidates mutation authority, but never the visible review.
+    // This also protects other commands that do not use Delete's click-time
+    // revalidation from relying on physical sources being rechecked.
     this.current = null;
     this.previewCurrent = null;
-    this.lastError = null;
     const token = ++this.token;
     this.notify();
     return Promise.resolve()
@@ -126,10 +177,26 @@ class NativeRendererGraphService {
         );
         const projected = { ...snapshot, graphRevision: ++this.graphRevision };
         this.previewCurrent = projected;
-        if (graph.complete && graph.incompleteOwners.length === 0) this.current = projected;
-        else
+        // A failed/incomplete global scan is not a new reference summary.
+        // Keep the last verified content until a usable projection arrives.
+        const firstIncompleteOwner = graph.incompleteOwners[0]?.split('/');
+        const recordScopedPartial =
+          firstIncompleteOwner?.length === 2 &&
+          nativeGraphAllowsIncompleteTargetDeletion(
+            graph,
+            { kind: 'record', collection: firstIncompleteOwner[0]!, id: firstIncompleteOwner[1]! },
+            true,
+          );
+        if ((graph.complete && graph.incompleteOwners.length === 0) || recordScopedPartial)
+          this.displayed = projected;
+        if (graph.complete && graph.incompleteOwners.length === 0) {
+          this.current = projected;
+          this.lastError = null;
+        } else {
+          this.current = null;
           this.lastError =
             'Native semantic graph is incomplete; unsafe editor actions are blocked.';
+        }
         this.notify();
       })
       .catch((error: unknown) => {

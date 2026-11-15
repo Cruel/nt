@@ -14,6 +14,7 @@ import {
   moveWorkbenchTabWithinGroup,
   openWorkbenchTab,
   reopenLastClosedWorkbenchTab,
+  resolveWorkbenchTabTitle,
   restoreProjectWorkbenchState,
   restoreProjectWorkbenchStatePreservingGlobalTabs,
   restoreShellWorkbenchState,
@@ -538,6 +539,19 @@ describe('workbench model', () => {
     const stale = restoreProjectWorkbenchState(serialized ?? undefined, { room: {} });
     expect(stale.tabsById).toEqual({});
     expect(stale.groupsById[ROOT_GROUP_ID]?.tabIds).toEqual([]);
+  });
+
+  it('rehydrates restored record titles from current Project labels, not saved tab titles', () => {
+    const tab = rawTab('foyer');
+    const state = openWorkbenchTab(createInitialWorkbenchState(), { ...tab, title: 'Old Room' });
+    const serialized = serializeProjectWorkbenchState(state);
+    const project = { room: { foyer: { id: 'foyer', label: 'Renamed Room', data: {} } } };
+    const restored = restoreProjectWorkbenchState(serialized ?? undefined, project);
+    expect(restored.tabsById[tab.id]?.title).toBe('Renamed Room');
+    expect(resolveWorkbenchTabTitle(tab, project)).toBe('Renamed Room');
+    project.room.foyer.label = 'Changed Again';
+    expect(resolveWorkbenchTabTitle(restored.tabsById[tab.id]!, project)).toBe('Changed Again');
+    expect(resolveWorkbenchTabTitle(tab, {})).toBe('foyer');
   });
 
   it('merges tool-only local shell state with project-restored tabs', () => {

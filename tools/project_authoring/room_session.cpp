@@ -6060,6 +6060,15 @@ ProjectSession::save_owners(std::uint64_t revision, const std::vector<std::strin
                                              });
                 it != prepared.targets.end()) {
                 deleted_records_.erase(owner);
+                // The physical record is gone. Do not retain its previously
+                // invalid editor RoomSession as a live semantic graph owner.
+                // A later Undo can recreate it from the command's inverse.
+                records_.erase(owner);
+                // Our own committed write is consumed by SourceAuthority and
+                // will not appear in its next external-change delta. Feed the
+                // physical deletion into incremental validation explicitly so
+                // its prior invalid disk contribution is evicted as well.
+                validation_pending_source_revisions_.insert_or_assign(relative, "absent");
                 response.affected_records.push_back(owner);
                 if (!source_authority_->acknowledge_own_write(relative, "absent"))
                     source_authority_->coverage_lost();

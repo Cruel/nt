@@ -431,6 +431,20 @@ function cloneTabForProjectPersistence(tab: WorkbenchTab): WorkbenchTab | null {
   };
 }
 
+/** Record labels are authoring data; saved tab titles are only fallbacks for missing records. */
+export function resolveWorkbenchTabTitle(tab: WorkbenchTab, project: unknown): string {
+  const resource = tab.resource;
+  if (resource?.kind !== 'record' || !resource.collection || !resource.entityId) return tab.title;
+  if (typeof project !== 'object' || project === null || Array.isArray(project)) return tab.title;
+  const collection = (project as Record<string, unknown>)[resource.collection];
+  if (typeof collection !== 'object' || collection === null || Array.isArray(collection))
+    return tab.title;
+  const record = (collection as Record<string, unknown>)[resource.entityId];
+  if (typeof record !== 'object' || record === null || Array.isArray(record)) return tab.title;
+  const label = (record as Record<string, unknown>).label;
+  return typeof label === 'string' && label.length > 0 ? label : resource.entityId;
+}
+
 function projectHasResource(project: unknown, tab: WorkbenchTab): boolean {
   const resource = tab.resource;
   if (!resource) return false;
@@ -559,7 +573,11 @@ export function restoreShellWorkbenchState(
     if (projectHasResource(project, tab)) {
       tabEntries.push([
         tabId,
-        { ...tab, resource: tab.resource ? { ...tab.resource } : undefined },
+        {
+          ...tab,
+          title: resolveWorkbenchTabTitle(tab, project),
+          resource: tab.resource ? { ...tab.resource } : undefined,
+        },
       ]);
     }
   }
@@ -671,7 +689,14 @@ export function restoreProjectWorkbenchState(
       .filter(([, tab]) => projectHasResource(project, tab as WorkbenchTab))
       .map(
         ([tabId, tab]) =>
-          [tabId, { ...tab, resource: tab.resource ? { ...tab.resource } : undefined }] as const,
+          [
+            tabId,
+            {
+              ...tab,
+              title: resolveWorkbenchTabTitle(tab as WorkbenchTab, project),
+              resource: tab.resource ? { ...tab.resource } : undefined,
+            },
+          ] as const,
       ),
   );
   if (Object.keys(tabsById).length === 0) return createInitialWorkbenchState();

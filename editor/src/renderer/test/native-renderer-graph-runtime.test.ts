@@ -48,6 +48,29 @@ afterEach(() => {
 });
 
 describe('admitted native renderer graph lifecycle', () => {
+  it('retains presentation evidence across pending mutations without exposing it for commands or other projects', async () => {
+    openNative();
+    Object.defineProperty(window.noveltea, 'nativeProjectSemanticGraph', {
+      configurable: true,
+      value: vi.fn(async () => nativeGraph(0)),
+    });
+    const stop = startAuthoringDependencyGraphService();
+    try {
+      await nativeRendererGraphService.refresh();
+      const shown = nativeRendererGraphService.displayedSnapshot();
+      expect(shown).not.toBeNull();
+      expect(nativeRendererGraphService.currentSnapshot()).toBe(shown);
+
+      useCommandStore.setState({ nativeMutationPending: true });
+      expect(nativeRendererGraphService.currentSnapshot()).toBeNull();
+      expect(nativeRendererGraphService.displayedSnapshot()).toBe(shown);
+
+      useProjectStore.getState().clearProject();
+      expect(nativeRendererGraphService.displayedSnapshot()).toBeNull();
+    } finally {
+      stop();
+    }
+  });
   it('never builds the TypeScript semantic graph and accepts only the latest working revision', async () => {
     openNative();
     let resolveOlder!: (value: ReturnType<typeof nativeGraph>) => void;

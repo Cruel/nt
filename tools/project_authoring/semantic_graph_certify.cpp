@@ -262,6 +262,9 @@ int main(int argc, char** argv)
         const auto invalid_graph = query(*invalid, 1);
         require(!invalid_graph.at("complete").as<bool>() && invalid_graph.at("nodes").size() > 25,
                 "Invalid dirty owner must mark incomplete while preserving other graph nodes.");
+        require(invalid_graph.at("incompleteOwners").size() == 1 &&
+                    invalid_graph.at("incompleteOwners")[0] == "rooms/active-text",
+                "An invalid dirty record must not mark the independently valid Project manifest incomplete.");
 
         // Two Script records can refer to the same physical text. A literal
         // recognized in that shared file has precise source provenance but

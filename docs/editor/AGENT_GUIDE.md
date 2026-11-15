@@ -120,6 +120,12 @@ The latest repository-level certification record is
 
 ### Tab State
 
+Record tab titles resolve from the current record label, including when tabs
+restore from an earlier session or an external edit updates a record. Serialized
+titles are only fallback display text; a record's stable resource identity owns
+the tab. A Room editor with no valid restored category opens on General, while a
+previously selected category is restored for that tab.
+
 Open tabs should preserve expected user-facing state: scroll positions, source-editor selection/scroll, selected panels, split sizes, graph viewports, and similar state. See the editor agent guide before changing tab mounting, restoration, or preview ownership.
 
 For any tab with a collapsible preview widget, preview collapse is tab-scoped view state. Collapsing

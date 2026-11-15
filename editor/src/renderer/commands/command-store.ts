@@ -1,4 +1,5 @@
 import {
+  currentAuthoringDeletionGraphSnapshot,
   currentAuthoringGraphSnapshot,
   isAuthoringDependencyGraphServiceStarted,
 } from '@/project/authoring-dependency-graph-runtime';
@@ -13,11 +14,12 @@ import {
   parseJsonPointer,
 } from '@/project/json-pointer';
 import type { JsonValue } from '@/project/json-value';
-import { jsonValuesEqual } from '@/project/json-value';
+import { cloneJsonValue, jsonValuesEqual } from '@/project/json-value';
 import { confirmProjectComments } from '@/project/project-comment-confirmation';
 import { useProjectStore } from '@/project/project-store';
 import { useProjectSourceStore } from '@/project/project-source-store';
 import { nativeSaveUnitForPath } from '@/project/native-external-projection';
+import { recordSaveUnitId } from '@/project/save-unit-registry';
 import { remapRecoveryForAutoCommit } from '@/project/structural-command-persistence';
 import {
   buildEditorProjectStateSnapshot,
@@ -433,7 +435,27 @@ async function submitNativeCommand(
     // edits in the same record. Preserve the owner's saved baseline rather
     // than letting an auto-commit absorb an unrelated dirty buffer.
     let overlap: string | null = null;
+    const discardedRecordValues = new Map<string, JsonValue>();
     for (const patch of patches) {
+      // Deleting a record intentionally discards its unsaved working value.
+      // The saved baseline supplies the inverse for disk/Undo; no other
+      // overlapping Save unit is exempt from this guard.
+      const deletedRecord =
+        kind === 'command' &&
+        plan.commandType === 'entity.deleteRecord' &&
+        patch.op === 'remove' &&
+        /^\/([a-z][a-z0-9-]*)\/([a-z][a-z0-9-]*)$/u.exec(patch.path);
+      if (
+        deletedRecord &&
+        plan.discardRecoverySaveUnitIds.includes(
+          recordSaveUnitId(deletedRecord[1]!, deletedRecord[2]!),
+        )
+      ) {
+        const savedValue = getJsonAtPointer(project.savedDocument, patch.path);
+        if (!jsonValuesEqual(getJsonAtPointer(project.document!, patch.path), savedValue))
+          discardedRecordValues.set(patch.path, cloneJsonValue(savedValue));
+        continue;
+      }
       const full = patch.path.endsWith('/-') ? patch.path.slice(0, -2) : patch.path;
       const workingHas = hasJsonAtPointer(project.document!, full);
       const savedHas = hasJsonAtPointer(project.savedDocument, full);
@@ -451,6 +473,33 @@ async function submitNativeCommand(
       return nativeOnlyResult(
         `Native structural auto-commit overlaps unsaved edits at ${overlap}.`,
       );
+    if (discardedRecordValues.size && effectiveProposal.historyEntry) {
+      // Undo re-creates the last saved record, not the invalid/unsaved value
+      // deliberately discarded by Delete. Otherwise Undo's auto-commit could
+      // write that invalid working value into the physical YAML source.
+      const entry = effectiveProposal.historyEntry;
+      const revisedEntry = {
+        ...entry,
+        inversePatches: entry.inversePatches.map((inverse) =>
+          inverse.op === 'add' && discardedRecordValues.has(inverse.path)
+            ? { ...inverse, value: cloneJsonValue(discardedRecordValues.get(inverse.path)!) }
+            : inverse,
+        ),
+      };
+      effectiveProposal = {
+        ...effectiveProposal,
+        historyEntry: revisedEntry,
+        state: {
+          ...effectiveProposal.state,
+          history: {
+            ...effectiveProposal.state.history,
+            entries: effectiveProposal.state.history.entries.map((candidate) =>
+              candidate.id === revisedEntry.id ? revisedEntry : candidate,
+            ),
+          },
+        },
+      };
+    }
   }
   if (plan) {
     try {
@@ -726,14 +775,32 @@ async function submitNativeCommand(
   }
 }
 
-function busStateFromStores(history: CommandHistoryState): CommandBusState {
+function busStateFromStores(
+  history: CommandHistoryState,
+  request?: CommandRequest,
+): CommandBusState {
   const project = useProjectStore.getState();
+  const deletePayload =
+    request?.type === 'entity.deleteRecord' &&
+    request.payload &&
+    typeof request.payload === 'object' &&
+    !Array.isArray(request.payload)
+      ? (request.payload as Record<string, unknown>)
+      : null;
+  const deleteCollection = deletePayload?.collection;
+  const deleteEntityId = deletePayload?.entityId;
   return {
     document: project.document,
     savedDocument: project.savedDocument,
     history,
     graphSnapshot: isAuthoringDependencyGraphServiceStarted()
-      ? currentAuthoringGraphSnapshot()
+      ? typeof deleteCollection === 'string' && typeof deleteEntityId === 'string'
+        ? currentAuthoringDeletionGraphSnapshot(
+            deleteCollection,
+            deleteEntityId,
+            deletePayload?.force === true,
+          )
+        : currentAuthoringGraphSnapshot()
       : null,
     projectInstanceId: project.projectInstanceId,
     projectRevision: project.projectRevision,
@@ -1104,7 +1171,10 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
         return Promise.resolve(
           nativeOnlyResult('Resolve incomplete field input before changing its Save unit.'),
         );
-      const proposal = executeCommandCore(busStateFromStores(get().history), resolvedRequest);
+      const proposal = executeCommandCore(
+        busStateFromStores(get().history, resolvedRequest),
+        resolvedRequest,
+      );
       return submitNativeCommand(
         proposal,
         proposal.historyEntry?.patches ?? [],

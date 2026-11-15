@@ -3,6 +3,8 @@ import { X } from 'lucide-react';
 import type { ToolSeverity } from '../../shared/editor-tooling';
 import { editorIconClassNameForTab, editorIconForType } from './editor-registry';
 import { workbenchTabDndId } from './WorkbenchTabDndContext';
+import { useProjectStore } from '@/project/project-store';
+import { resolveWorkbenchTabTitle } from './workbench-model';
 import type { WorkbenchTab } from './workbench-types';
 
 interface WorkbenchTabItemProps {
@@ -26,6 +28,7 @@ export function WorkbenchTabItem({
   onActivate,
   onRequestClose,
 }: WorkbenchTabItemProps) {
+  const title = useProjectStore((state) => resolveWorkbenchTabTitle(tab, state.document));
   const Icon = editorIconForType(tab.editorType);
   const activeChrome =
     index === 0
@@ -80,7 +83,7 @@ export function WorkbenchTabItem({
         />
         <span className={`truncate ${diagnosticClass}`}>
           {dirty ? '● ' : ''}
-          {tab.title}
+          {title}
         </span>
       </button>
       <button
@@ -88,7 +91,7 @@ export function WorkbenchTabItem({
         className={`ml-1 inline-flex h-5 w-5 shrink-0 items-center justify-center self-center rounded leading-none opacity-0 hover:bg-muted hover:opacity-100 focus-visible:opacity-100 ${
           active ? 'opacity-70' : 'group-hover/tab:opacity-60'
         }`}
-        aria-label={`Close ${tab.title}`}
+        aria-label={`Close ${title}`}
         onClick={onRequestClose}
       >
         <X className="h-3.5 w-3.5" />

@@ -18,6 +18,8 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { editorIconClassNameForTab, editorIconForType } from './editor-registry';
 import { useOptionalPersistentEditorLayoutCoordinator } from './persistent-editor-host';
+import { useProjectStore } from '@/project/project-store';
+import { resolveWorkbenchTabTitle } from './workbench-model';
 import { useWorkbenchStore } from './workbench-store';
 import type { WorkbenchState, WorkbenchTab } from './workbench-types';
 
@@ -354,11 +356,12 @@ function dropTargetFromEvent(
 }
 
 function WorkbenchTabDragPreview({ tab }: { tab: WorkbenchTab }) {
+  const title = useProjectStore((state) => resolveWorkbenchTabTitle(tab, state.document));
   const Icon = editorIconForType(tab.editorType);
   return (
     <div className="pointer-events-none flex h-8 min-w-28 max-w-52 items-center gap-1 rounded-t border bg-background px-1.5 text-xs text-foreground opacity-50 shadow-lg ring-1 ring-primary/30">
       <Icon className={`h-3.5 w-3.5 shrink-0 ${editorIconClassNameForTab(tab)}`} />
-      <span className="truncate">{tab.title}</span>
+      <span className="truncate">{title}</span>
     </div>
   );
 }

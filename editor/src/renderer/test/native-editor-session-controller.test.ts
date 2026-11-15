@@ -1436,6 +1436,14 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
         dirty: true,
         valid: false,
       });
+      const graphWhileInvalid = await controller.semanticGraph(
+        id,
+        patched.snapshot.workingRevision,
+      );
+      expect(graphWhileInvalid.incompleteOwners).toEqual([
+        'rooms/director-completion-demo',
+        'rooms/properties-and-traits',
+      ]);
       controller.dispose();
       await controller.waitForPublicationDrain();
       sessions.closeActiveProject();
@@ -1565,6 +1573,106 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
       await controller.waitForPublicationDrain();
       sessions.dispose();
       await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    }
+  }, 120_000);
+
+  it('deletes an invalid Room and an unrelated Room through native structural Save without committing the invalid draft', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'native-invalid-room-delete-'));
+    await cp(path.resolve(process.cwd(), '../tests/projects/feature-lab'), root, {
+      recursive: true,
+    });
+    const sessions = new ActiveProjectSessionService();
+    const bridge = new NativeAuthoringSessionBridge(sessions, {
+      addonPath: nativeAddon!,
+      workerScript: path.resolve(
+        process.cwd(),
+        'dist-electron/authoring-worker/native-authoring-worker.cjs',
+      ),
+      pollIntervalMs: 100,
+    });
+    const controller = new NativeEditorSessionController(
+      sessions,
+      bridge,
+      new NativeAuthoringWorkingProject(bridge),
+    );
+    try {
+      const { id, admitted } = await admitNativeSession(sessions, controller, root);
+      const dirty = await controller.applyRevisionedPatches(id, admitted.revision, [
+        {
+          op: 'replace',
+          path: '/rooms/properties-and-traits/data/description/source/kind',
+          value: 'localized',
+        },
+        { op: 'remove', path: '/rooms/properties-and-traits/data/description/source/text' },
+        { op: 'add', path: '/rooms/properties-and-traits/data/description/source/key', value: '' },
+        {
+          op: 'add',
+          path: '/rooms/properties-and-traits/data/description/markup',
+          value: 'active-text',
+        },
+      ]);
+      expect(dirty.accepted, dirty.error).toBe(true);
+      const graph = await controller.semanticGraph(id, dirty.snapshot.workingRevision);
+      expect(graph.incompleteOwners).toEqual(['rooms/properties-and-traits']);
+      const unrelated = await controller.applyRevisionedPatches(
+        id,
+        dirty.snapshot.workingRevision,
+        [{ op: 'remove', path: '/rooms/director-completion-demo' }],
+      );
+      expect(unrelated.accepted, unrelated.error).toBe(true);
+      const savedUnrelated = await controller.saveUnit(id, unrelated.snapshot.workingRevision, [], {
+        comments: 'remove',
+        structuralPathsByOwner: { 'rooms/director-completion-demo': ['/'] },
+      });
+      expect(savedUnrelated.accepted, savedUnrelated.error).toBe(true);
+      await expect(
+        readFile(path.join(root, 'records/rooms/director-completion-demo.yaml')),
+      ).rejects.toMatchObject({ code: 'ENOENT' });
+      const remaining = await controller.semanticGraph(id, savedUnrelated.snapshot.workingRevision);
+      expect(remaining.incompleteOwners).toEqual(['rooms/properties-and-traits']);
+      const removedInvalid = await controller.applyRevisionedPatches(
+        id,
+        savedUnrelated.snapshot.workingRevision,
+        [{ op: 'remove', path: '/rooms/properties-and-traits' }],
+      );
+      expect(removedInvalid.accepted, removedInvalid.error).toBe(true);
+      const savedInvalid = await controller.saveUnit(
+        id,
+        removedInvalid.snapshot.workingRevision,
+        [],
+        { comments: 'remove', structuralPathsByOwner: { 'rooms/properties-and-traits': ['/'] } },
+      );
+      expect(savedInvalid.accepted, savedInvalid.error).toBe(true);
+      await expect(
+        readFile(path.join(root, 'records/rooms/properties-and-traits.yaml')),
+      ).rejects.toMatchObject({ code: 'ENOENT' });
+      const after = await controller.semanticGraph(id, savedInvalid.snapshot.workingRevision);
+      expect(after.incompleteOwners).toEqual([]);
+      // The renderer's persisted Undo restores this last saved Room value,
+      // rather than committing the invalid draft discarded during deletion.
+      const restored = await controller.applyRevisionedPatches(
+        id,
+        savedInvalid.snapshot.workingRevision,
+        [
+          {
+            op: 'add',
+            path: '/rooms/properties-and-traits',
+            value: toJsonValue(admitted.savedProject.rooms['properties-and-traits']),
+          },
+        ],
+      );
+      expect(restored.accepted, restored.error).toBe(true);
+      const savedRestored = await controller.saveUnit(id, restored.snapshot.workingRevision, [], {
+        structuralPathsByOwner: { 'rooms/properties-and-traits': ['/'] },
+      });
+      expect(savedRestored.accepted, savedRestored.error).toBe(true);
+      const afterUndo = await controller.semanticGraph(id, savedRestored.snapshot.workingRevision);
+      expect(afterUndo.incompleteOwners).toEqual([]);
+    } finally {
+      controller.dispose();
+      await controller.waitForPublicationDrain();
+      sessions.dispose();
+      await rm(root, { recursive: true, force: true });
     }
   }, 120_000);
 

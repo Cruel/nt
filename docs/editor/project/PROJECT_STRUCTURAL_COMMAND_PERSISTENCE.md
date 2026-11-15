@@ -40,7 +40,13 @@ approval cannot overwrite an agent edit made while the dialog was open. Explorer
 physical persistence completed. The dialog then closes and obsolete record tabs are discarded;
 it does not wait for a separate legacy persistence-result event. YAML comment-impact approval
 uses the shared Project confirmation dialog while that transaction is pending. Cancellation or
-Save rejection keeps the record and restores editor drafts.
+Save rejection keeps the record and restores editor drafts. A confirmed
+record deletion intentionally discards that record's outstanding unsaved
+working edits, including invalid localized text. This exact target-root
+removal is exempt from the normal unrelated-dirty-overlap rejection; repaired
+references and other owners remain subject to that protection. Persisted Undo
+recreates the record from its saved baseline, not the invalid working value
+that deletion discarded, and Redo deletes it again.
 
 ## Classified auto-commit mutations
 

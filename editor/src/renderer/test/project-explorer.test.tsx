@@ -28,6 +28,7 @@ import {
 import { useProjectExplorerStore } from '@/workspace/project-explorer-store';
 import { startAuthoringDependencyGraphService } from '@/project/authoring-dependency-graph-runtime';
 import { publishNativeViewGraphFixture } from '../test-support/native-renderer-graph-fixture';
+import { nativeRendererGraphService } from '@/project/native-authoring-graph-runtime';
 import { admitNativeRendererCommandFixture } from '../test-support/native-acknowledged-command-fixture';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 
@@ -504,6 +505,314 @@ describe('ProjectExplorer', () => {
     ).toBeInTheDocument();
     await user.click(forceDelete);
     expect(screen.getByRole('button', { name: /^delete$/i })).toBeEnabled();
+  });
+
+  it('rechecks references on confirmation and refuses to delete if new repairs need review', async () => {
+    const user = userEvent.setup();
+    stopGraphService = startAuthoringDependencyGraphService();
+    const project = createAuthoringProject();
+    project.rooms.target = { id: 'target', label: 'Target', data: defaultRoomData('Target') };
+    project.rooms.other = { id: 'other', label: 'Other', data: defaultRoomData('Other') };
+    loadProject(project);
+    await publishNativeViewGraphFixture();
+
+    render(<ProjectExplorer nodes={[]} />);
+    await user.click(screen.getByRole('button', { name: /^rooms/i }));
+    const target = screen.getByText('Target').closest('button');
+    if (!target) throw new Error('Missing target Room');
+    fireEvent.contextMenu(target);
+    await user.click(screen.getByRole('button', { name: /^delete$/i }));
+    expect(screen.getByText('No references point to this record.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^delete$/i })).toBeEnabled();
+
+    const graph = await window.noveltea.nativeProjectSemanticGraph(
+      useProjectStore.getState().projectSessionId!,
+      useCommandStore.getState().nativeWorkingRevision!,
+    );
+    const read = vi.fn(async () => ({
+      ...graph,
+      edges: [
+        {
+          id: 'new-incoming-ref',
+          source: { kind: 'record' as const, collection: 'rooms', id: 'other' },
+          target: { kind: 'record' as const, collection: 'rooms', id: 'target' },
+          sourcePath: '/rooms/other/data/exits/0/destination',
+          targetPath: '/rooms/target',
+          role: 'explicit-ref',
+          facets: ['reference-integrity'],
+          targetImpactPaths: ['/rooms/target'],
+          repair: { kind: 'blocked' as const, reason: 'Manual repair required.' },
+        },
+      ],
+    }));
+    Object.defineProperty(window.noveltea, 'nativeProjectSemanticGraph', {
+      configurable: true,
+      value: read,
+    });
+    await user.click(screen.getByRole('button', { name: /^delete$/i }));
+    expect(read).toHaveBeenCalled();
+    expect(screen.getByText(/References changed. Review the updated repairs/)).toBeInTheDocument();
+    expect(screen.getByText(/Referenced by 1 semantic usage/)).toBeInTheDocument();
+    expect((useProjectStore.getState().document as AuthoringProject).rooms.target).toBeDefined();
+    expect(window.noveltea.nativeProjectSaveUnit).not.toHaveBeenCalled();
+  });
+
+  it('keeps a delete dialog reference summary stable during a native graph refresh, then updates inline', async () => {
+    const user = userEvent.setup();
+    stopGraphService = startAuthoringDependencyGraphService();
+    const project = createAuthoringProject();
+    project.rooms.target = { id: 'target', label: 'Target', data: defaultRoomData('Target') };
+    project.rooms.other = { id: 'other', label: 'Other', data: defaultRoomData('Other') };
+    loadProject(project);
+    await publishNativeViewGraphFixture();
+
+    render(<ProjectExplorer nodes={[]} />);
+    await user.click(screen.getByRole('button', { name: /^rooms/i }));
+    const target = screen.getByText('Target').closest('button');
+    if (!target) throw new Error('Missing target Room');
+    fireEvent.contextMenu(target);
+    await user.click(screen.getByRole('button', { name: /^delete$/i }));
+    expect(screen.getByText('No references point to this record.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^delete$/i })).toBeEnabled();
+
+    const currentGraph = await window.noveltea.nativeProjectSemanticGraph(
+      useProjectStore.getState().projectSessionId!,
+      useCommandStore.getState().nativeWorkingRevision!,
+    );
+    let resolveGraph!: (value: typeof currentGraph) => void;
+    const pending = new Promise<typeof currentGraph>((resolve) => {
+      resolveGraph = resolve;
+    });
+    Object.defineProperty(window.noveltea, 'nativeProjectSemanticGraph', {
+      configurable: true,
+      value: vi.fn(() => pending),
+    });
+    let refresh!: Promise<void>;
+    await act(async () => {
+      refresh = nativeRendererGraphService.refresh();
+      await Promise.resolve();
+    });
+    expect(screen.getByText('No references point to this record.')).toBeInTheDocument();
+    expect(screen.queryByText(/Dependency analysis is updating or incomplete/)).toBeNull();
+    expect(screen.queryByText('Checking references…')).toBeNull();
+    // A routine background requery must not disable the reviewed action.
+    // Click-time revalidation still guards the actual native command.
+    expect(screen.getByRole('button', { name: /^delete$/i })).toBeEnabled();
+
+    await act(async () => {
+      resolveGraph({
+        ...currentGraph,
+        edges: [
+          {
+            id: 'native-refresh:target',
+            source: { kind: 'record', collection: 'rooms', id: 'other' },
+            target: { kind: 'record', collection: 'rooms', id: 'target' },
+            sourcePath: '/rooms/other/data/exits/0/destination',
+            targetPath: '/rooms/target',
+            role: 'explicit-ref',
+            facets: ['reference-integrity'],
+            targetImpactPaths: ['/rooms/target'],
+            repair: { kind: 'blocked', reason: 'Reference must be repaired manually.' },
+          },
+        ],
+      });
+      await refresh;
+    });
+    expect(screen.getByText(/Referenced by 1 semantic usage/)).toBeInTheDocument();
+    expect(screen.queryByText('No references point to this record.')).toBeNull();
+    expect(screen.getByRole('button', { name: /^delete$/i })).toBeDisabled();
+  });
+
+  it('preserves the reference summary and explains a real graph failure without flickering on retry', async () => {
+    const user = userEvent.setup();
+    stopGraphService = startAuthoringDependencyGraphService();
+    const project = createAuthoringProject();
+    project.rooms.target = { id: 'target', label: 'Target', data: defaultRoomData('Target') };
+    loadProject(project);
+    await publishNativeViewGraphFixture();
+
+    render(<ProjectExplorer nodes={[]} />);
+    await user.click(screen.getByRole('button', { name: /^rooms/i }));
+    const target = screen.getByText('Target').closest('button');
+    if (!target) throw new Error('Missing target Room');
+    fireEvent.contextMenu(target);
+    await user.click(screen.getByRole('button', { name: /^delete$/i }));
+    expect(screen.getByText('No references point to this record.')).toBeInTheDocument();
+
+    const graph = await window.noveltea.nativeProjectSemanticGraph(
+      useProjectStore.getState().projectSessionId!,
+      useCommandStore.getState().nativeWorkingRevision!,
+    );
+    Object.defineProperty(window.noveltea, 'nativeProjectSemanticGraph', {
+      configurable: true,
+      value: vi.fn(async () => ({
+        ...graph,
+        complete: false,
+        incompleteOwners: ['i18n/messages.yaml'],
+      })),
+    });
+    await act(async () => {
+      await nativeRendererGraphService.refresh();
+    });
+    expect(screen.getByText('No references point to this record.')).toBeInTheDocument();
+    expect(screen.queryByText(/Reference analysis is unavailable/)).toBeNull();
+    expect(screen.getByRole('button', { name: /^delete$/i })).toBeEnabled();
+
+    let resolveGraph!: (value: typeof graph) => void;
+    const pending = new Promise<typeof graph>((resolve) => {
+      resolveGraph = resolve;
+    });
+    Object.defineProperty(window.noveltea, 'nativeProjectSemanticGraph', {
+      configurable: true,
+      value: vi.fn(() => pending),
+    });
+    let refresh!: Promise<void>;
+    await act(async () => {
+      refresh = nativeRendererGraphService.refresh();
+      await Promise.resolve();
+    });
+    expect(screen.getByText('No references point to this record.')).toBeInTheDocument();
+    expect(screen.queryByText(/Reference analysis is unavailable/)).toBeNull();
+    expect(screen.getByRole('button', { name: /^delete$/i })).toBeEnabled();
+
+    await act(async () => {
+      resolveGraph(graph);
+      await refresh;
+    });
+    expect(screen.getByText('No references point to this record.')).toBeInTheDocument();
+    expect(screen.queryByText(/Reference analysis is unavailable/)).toBeNull();
+    expect(screen.getByRole('button', { name: /^delete$/i })).toBeEnabled();
+  });
+
+  it('deletes an invalid record when it is the only incomplete dependency owner', async () => {
+    const user = userEvent.setup();
+    stopGraphService = startAuthoringDependencyGraphService();
+    const project = createAuthoringProject();
+    project.rooms.target = { id: 'target', label: 'Target', data: defaultRoomData('Target') };
+    loadProject(project);
+    await publishNativeViewGraphFixture({
+      complete: false,
+      incompleteOwners: ['rooms/target'],
+    });
+
+    render(<ProjectExplorer nodes={[]} />);
+    await user.click(screen.getByRole('button', { name: /^rooms/i }));
+    const target = screen.getByText('Target').closest('button');
+    if (!target) throw new Error('Missing target Room');
+    fireEvent.contextMenu(target);
+    await user.click(screen.getByRole('button', { name: /^delete$/i }));
+    expect(screen.getByText('No references point to this record.')).toBeInTheDocument();
+    const deleteButton = screen.getByRole('button', { name: /^delete$/i });
+    expect(deleteButton).toBeEnabled();
+    await user.click(deleteButton);
+    await waitFor(() =>
+      expect(
+        (useProjectStore.getState().document as AuthoringProject).rooms.target,
+      ).toBeUndefined(),
+    );
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  });
+
+  it('deletes an invalid Room with a dirty localized-key edit instead of rejecting its own unsaved changes', async () => {
+    const user = userEvent.setup();
+    stopGraphService = startAuthoringDependencyGraphService();
+    const project = createAuthoringProject();
+    project.rooms.target = { id: 'target', label: 'Target', data: defaultRoomData('Target') };
+    loadProject(project);
+    const edit = await useCommandStore.getState().executeCommandAsync({
+      type: 'project.replaceAtPath',
+      payload: {
+        path: '/rooms/target/data/description',
+        value: { markup: 'active-text', source: { kind: 'localized', key: '' } },
+      },
+      originSaveUnitId: 'record:rooms:target',
+      persistencePolicy: 'manual-save',
+    });
+    expect(edit.ok, JSON.stringify(edit.diagnostics)).toBe(true);
+    await publishNativeViewGraphFixture({ complete: false, incompleteOwners: ['rooms/target'] });
+
+    render(<ProjectExplorer nodes={[]} />);
+    await user.click(screen.getByRole('button', { name: /^rooms/i }));
+    const target = screen.getByText('Target').closest('button');
+    if (!target) throw new Error('Missing target Room');
+    fireEvent.contextMenu(target);
+    await user.click(screen.getByRole('button', { name: /^delete$/i }));
+    expect(screen.getByRole('button', { name: /^delete$/i })).toBeEnabled();
+    await user.click(screen.getByRole('button', { name: /^delete$/i }));
+    await waitFor(() =>
+      expect(
+        (useProjectStore.getState().document as AuthoringProject).rooms.target,
+      ).toBeUndefined(),
+    );
+    expect(window.noveltea.nativeProjectSaveUnit).toHaveBeenCalled();
+    let undo: Awaited<ReturnType<ReturnType<typeof useCommandStore.getState>['undoAsync']>>;
+    await act(async () => {
+      undo = await useCommandStore.getState().undoAsync();
+    });
+    expect(undo!.ok, JSON.stringify(undo!.diagnostics)).toBe(true);
+    expect((useProjectStore.getState().document as AuthoringProject).rooms.target).toMatchObject({
+      data: { description: project.rooms.target!.data.description },
+    });
+    await act(async () => {
+      const redo = await useCommandStore.getState().redoAsync();
+      expect(redo.ok, JSON.stringify(redo.diagnostics)).toBe(true);
+    });
+    expect((useProjectStore.getState().document as AuthoringProject).rooms.target).toBeUndefined();
+  });
+
+  it('offers explicit Force Delete when a different invalid record may hold unknown references', async () => {
+    const user = userEvent.setup();
+    stopGraphService = startAuthoringDependencyGraphService();
+    const project = createAuthoringProject();
+    project.rooms.target = { id: 'target', label: 'Target', data: defaultRoomData('Target') };
+    loadProject(project);
+    await publishNativeViewGraphFixture({
+      complete: false,
+      incompleteOwners: ['rooms/unrelated'],
+    });
+
+    render(<ProjectExplorer nodes={[]} />);
+    await user.click(screen.getByRole('button', { name: /^rooms/i }));
+    const target = screen.getByText('Target').closest('button');
+    if (!target) throw new Error('Missing target Room');
+    fireEvent.contextMenu(target);
+    await user.click(screen.getByRole('button', { name: /^delete$/i }));
+    expect(screen.getByText(/Another record is invalid/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^delete$/i })).toBeDisabled();
+    await user.click(
+      screen.getByLabelText(/Force delete and let validation report missing references/),
+    );
+    expect(screen.getByText(/Invalid records may still reference this record/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^delete$/i })).toBeEnabled();
+    await user.click(screen.getByRole('button', { name: /^delete$/i }));
+    await waitFor(() =>
+      expect(
+        (useProjectStore.getState().document as AuthoringProject).rooms.target,
+      ).toBeUndefined(),
+    );
+  });
+
+  it('keeps Force Delete blocked when incomplete evidence is not record-scoped', async () => {
+    const user = userEvent.setup();
+    stopGraphService = startAuthoringDependencyGraphService();
+    const project = createAuthoringProject();
+    project.rooms.target = { id: 'target', label: 'Target', data: defaultRoomData('Target') };
+    loadProject(project);
+    await publishNativeViewGraphFixture({
+      complete: false,
+      incompleteOwners: ['i18n/messages.yaml'],
+    });
+
+    render(<ProjectExplorer nodes={[]} />);
+    await user.click(screen.getByRole('button', { name: /^rooms/i }));
+    const target = screen.getByText('Target').closest('button');
+    if (!target) throw new Error('Missing target Room');
+    fireEvent.contextMenu(target);
+    await user.click(screen.getByRole('button', { name: /^delete$/i }));
+    expect(screen.getByRole('button', { name: /^delete$/i })).toBeDisabled();
+    expect(
+      screen.queryByLabelText(/Force delete and let validation report missing references/),
+    ).toBeNull();
   });
 
   it.each(['rooms', 'layouts'] as const)(

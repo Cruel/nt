@@ -928,7 +928,10 @@ std::string ProjectSession::semantic_graph(std::uint64_t expected_revision)
             }
         }
     }
-    const auto manifest = snapshot();
+    // ProjectSession::snapshot() aggregates validation of all working records.
+    // A malformed Room must not make manifest-owned references appear
+    // incomplete: the manifest has its own independent validation state.
+    const auto manifest = source_->snapshot();
     if (!manifest.valid)
         incomplete.push_back("project");
     if (!manifest.source_json.empty()) {

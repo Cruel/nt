@@ -878,7 +878,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   const [activeCategory, setActiveCategory] = useState<RoomEditorCategory>(() => {
     const savedState = useWorkbenchTabStateStore.getState().tabStatesById[tab.id];
     const parsed = savedState ? parseRoomEditorTabState(savedState) : null;
-    return parsed?.activeCategory ?? 'composition';
+    return parsed?.activeCategory ?? 'general';
   });
   const [presentationMode, setPresentationMode] = useState<RoomPresentationMode>(() => {
     const savedState = useWorkbenchTabStateStore.getState().tabStatesById[tab.id];

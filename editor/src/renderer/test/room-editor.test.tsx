@@ -52,7 +52,15 @@ const tab: WorkbenchTab = {
     entityId: 'foyer',
   },
 };
-function renderEditor(strict = false, editorTab: WorkbenchTab = tab) {
+function renderEditor(
+  strict = false,
+  editorTab: WorkbenchTab = tab,
+  initialCategory: 'composition' | null = 'composition',
+) {
+  // Composition scenarios opt into their category rather than depending on
+  // the Room editor's new General default.
+  if (initialCategory && !useWorkbenchTabStateStore.getState().tabStatesById[editorTab.id])
+    setRoomTabPresentationMode('edit', initialCategory, editorTab.id);
   const content = (
     <MaterialPreviewProjectProvider>
       <AuthoringWebGlGroupProvider>
@@ -73,10 +81,11 @@ function selectRoomCategory(
 function setRoomTabPresentationMode(
   presentationMode: 'edit' | 'preview',
   activeCategory?: 'general' | 'composition',
+  tabId = tab.id,
 ) {
   const resolvedActiveCategory =
     activeCategory ?? (presentationMode === 'edit' ? 'composition' : 'general');
-  useWorkbenchTabStateStore.getState().setTabState(tab.id, {
+  useWorkbenchTabStateStore.getState().setTabState(tabId, {
     schema: 'noveltea.editor.tab-state.room',
     payload: {
       activeCategory: resolvedActiveCategory,
@@ -124,6 +133,19 @@ beforeEach(() => {
   });
 });
 describe('RoomEditor', () => {
+  it('opens on General without a previously saved Room section', () => {
+    const project = createAuthoringProject();
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    admitNativeRendererCommandFixture(project);
+    renderEditor(false, tab, null);
+
+    const navigation = screen.getByRole('navigation', { name: 'Room editor categories' });
+    expect(within(navigation).getByRole('button', { name: 'General' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    expect(screen.getByRole('heading', { name: 'General' })).toBeInTheDocument();
+  });
   it('preserves the Room while a localized Description key is temporarily invalid', async () => {
     const project = createAuthoringProject();
     project.assets.image = {
@@ -2451,7 +2473,7 @@ describe('RoomEditor', () => {
 
     renderEditor();
 
-    expect(screen.getByRole('heading', { name: 'Composition' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'General' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Edit' })).toHaveAttribute('aria-pressed', 'true');
   });
   it('keeps precision Edit navigation tab-scoped across reduced-motion Preview round trips', () => {
@@ -4209,6 +4231,19 @@ describe('RoomEditor', () => {
     const right = within(screen.getByTestId('right-room-editor'));
     fireEvent.click(left.getByRole('button', { name: 'Edit' }));
     fireEvent.click(right.getByRole('button', { name: 'Edit' }));
+    fireEvent.click(
+      within(left.getByRole('navigation', { name: 'Room editor categories' })).getByRole('button', {
+        name: 'Composition',
+      }),
+    );
+    fireEvent.click(
+      within(right.getByRole('navigation', { name: 'Room editor categories' })).getByRole(
+        'button',
+        {
+          name: 'Composition',
+        },
+      ),
+    );
     fireEvent.click(left.getByRole('button', { name: /Layout · Desk UI/i }));
     fireEvent.click(right.getByRole('button', { name: /Layout · Desk UI/i }));
 

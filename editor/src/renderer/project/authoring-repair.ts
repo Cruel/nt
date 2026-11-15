@@ -7,6 +7,7 @@ import type { JsonPatchOperation } from './json-patch';
 import { parseJsonPointer, type JsonPointer } from './json-pointer';
 import type { JsonValue } from './json-value';
 import {
+  nativeGraphAllowsIncompleteTargetDeletion,
   nativeGraphUsages,
   requireNativeGraphPreflight,
 } from '../../main/services/native-semantic-graph-queries';
@@ -245,15 +246,27 @@ export function generateAuthoringRepairPlan(input: {
   if ('nativeGraph' in input.snapshot) {
     const native = (input.snapshot as NativeRendererGraphSnapshot).nativeGraph;
     try {
-      requireNativeGraphPreflight(
-        native,
-        native.projectSessionId,
-        native.workingRevision,
-        native.generation,
-      );
+      if (!nativeGraphAllowsIncompleteTargetDeletion(native, input.target, input.force)) {
+        requireNativeGraphPreflight(
+          native,
+          native.projectSessionId,
+          native.workingRevision,
+          native.generation,
+        );
+      }
     } catch {
       return { status: 'blocked', reason: 'Native graph evidence is incomplete.' };
     }
+    if (
+      native.incompleteOwners.some(
+        (owner) =>
+          input.target.kind !== 'record' ||
+          owner !== `${input.target.collection}/${input.target.id}`,
+      )
+    )
+      warnings.push(
+        'Other invalid records may contain unverified references to the deleted record.',
+      );
     const sources = nativeGraphUsages(native, input.target);
     if (!input.force && sources.recognized.length > 0)
       return {

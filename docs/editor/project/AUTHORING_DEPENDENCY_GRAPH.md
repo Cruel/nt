@@ -93,7 +93,17 @@ returned native DTO in `native-authoring-graph-projection.ts` without re-running
 TypeScript semantic derivation or source analysis. The
 `native-authoring-graph-runtime.ts` service rejects superseded Project/session/
 working-revision replies, retains the prior graph for old/new preview closure,
-and publishes only a complete revision-matched projection.
+and publishes only a complete revision-matched projection. The Explorer deletion
+modal retains the last Project/session-matched reference review during native
+graph refreshes without altering the visible Delete control or injecting
+transient warnings. Background refreshes invalidate mutation authority but
+not the displayed review; an incomplete or failed scan never becomes
+mutation-ready. A known review remains visually actionable
+across transient failures, but Delete always performs a new native graph query
+when clicked, rejects missing evidence, and demands renewed confirmation if
+the target's references, invalid owners, or repair plan changed. This separates
+visual stability from mutation authority. The native writer still enforces
+physical source preconditions. Restored graph evidence never crosses Projects.
 
 The existing hook, command-bus, structural repair, editor reference panels,
 Project Explorer, and focused Room preview receive indexed native edges and
@@ -101,7 +111,21 @@ source occurrences in the previous **presentation** shape. Physical source
 occurrences are not JSON authoring patches: exact/native rewriteable evidence
 remains manual pending an explicit source-transaction editor, and
 `possible-lexical` findings remain warnings. Graph unavailability or
-incomplete owner proof blocks destructive operations. Native-mode Project
+incomplete owner proof blocks destructive operations, except deletion of the
+sole incomplete record owner: a revision-matched partial native graph retains
+proven incoming references from complete owners, and deletion removes the
+incomplete owner's own outgoing references. The same native repair planner
+remains authoritative. If another record is incomplete, ordinary deletion
+remains blocked, but authors may explicitly Force Delete with a warning that
+unknown references could remain. Non-record incomplete owners, including
+physical or Project-global sources, still block deletion even when forced.
+Native graph construction distinguishes the manifest's own validity from the
+aggregate Project-session validation status. An invalid localized Room key
+must report only its Room owner, not also an invented incomplete `project`
+owner. After a native structural deletion commits its physical YAML removal,
+the session drops that record's working source and injects the absent revision
+into incremental validation, preventing stale invalid-owner graph evidence.
+Native-mode Project
 sessions can safely rename confirmed structured `/$ref`, typed Variable `/$var`,
 and Project entrypoint fields even if those references cannot be automatically
 repaired for deletion. Native rename preflight is independent of deletion
