@@ -872,3 +872,118 @@ Packaged Windows/macOS native-addon, actual power-loss filesystem behavior,
 and interactive editor latency remain unverified; these are not inferred
 from passing Linux process-crash tests. #601 integration and #522 product
 acceptance remain separate from #633's native performance qualification.
+
+## #601 integrated native-authoring acceptance (2026-11-15)
+
+The native C++ incremental authoring workstream is integrated on the `9775ca1e`
+code tree, including completed #630 (revision/affected-owner publication),
+#631 (typed semantic dependencies), #632 (verified source-localization reuse),
+#633 (instrumented durable Save), and follow-up #634–#636 (safe single-file
+Save, incremental dirty-Room localization and source-fenced post-Save Patch
+reuse). This section is the **parent integration gate**, not an additional
+performance optimization or a substitute for #522's installed-editor tests.
+
+### Reproducible integration matrix
+
+Environment: Debian Linux 6.1 x86_64, ext4
+(`/dev/mapper/cluster0--vg-root`), GCC 12, CMake/Ninja Release
+`-O3 -DNDEBUG`, Node 24.16.0. The actual Node-API addon is
+`build/native-authoring-host/noveltea-authoring-node.node`, SHA-256
+`cdfed8f7968cca503a77301a0874df41ff485777421806823cd9219efe36d6ba`.
+The source fixture `tests/projects/feature-lab` remains unchanged: all
+benchmarks and editable Project tests use disposable independent copies.
+Run these commands separately to avoid performance contamination from
+concurrent compilation or CTests:
+
+```sh
+ctest --test-dir build/native-authoring-host --output-on-failure -j 3 \
+  -R '^native_authoring_(project_session|presentation_edit|single_file_save|project_validation|typed_reference_invalidation|dependency_mutation_graph|source_watcher_races|malformed_sibling_scoped_read|working_preparation|localization|yaml_transaction)$'
+
+build/native-authoring-host/noveltea-project-session-certify \
+  --profile-presentation-edit tests/projects/feature-lab
+build/native-authoring-host/noveltea-project-session-certify \
+  --profile-unsaved-room-patches tests/projects/feature-lab
+node editor/scripts/benchmark-native-addon-publication.mjs \
+  build/native-authoring-host/noveltea-authoring-node.node --single-record
+node editor/scripts/benchmark-native-addon-publication.mjs \
+  build/native-authoring-host/noveltea-authoring-node.node --additional-inspected=16
+
+pnpm -C editor run build:electron
+NOVELTEA_AUTHORING_NODE_ADDON="$PWD/build/native-authoring-host/noveltea-authoring-node.node" \
+  pnpm -C editor exec vitest run \
+  src/renderer/test/native-authoring-reconciliation.test.ts \
+  src/renderer/test/native-authoring-worker.test.ts
+pnpm -C editor run check
+pnpm -C editor run test
+```
+
+**Integrated Release native C++ host profile**, 22 warm real Patch→Save
+cycles per owner (first iteration excluded), median / p95 in milliseconds:
+
+| Operation | Patch | Save |
+| --- | ---: | ---: |
+| Room displayName | **10.05 / 11.29** | 31.83 / 34.12 |
+| Room description | **9.97 / 11.16** | 31.61 / 33.69 |
+| Project title | 16.65 / 17.68 | 95.42 / 101.03 |
+
+The independent 19-warm unsaved Room Patch profile is 9.95 / 10.64 ms
+for displayName and 9.87 / 10.79 ms for description. For 22 warm
+post-Save Room displayName Patches, the profiler counts **22 Project
+snapshot assemblies, 22 incremental Message validations, zero full
+localization contracts** and zero localization physical YAML reads.
+This proves the accepted local Text change does not rebuild unrelated
+source-localization contributions. A full Project validation, selected
+disk-CAS check and journal recovery remain distinct explicit operations.
+
+The real Release addon with a single inspected Room had already measured
+displayName Patch **17.27 / 19.03 ms** and scoped Save
+**37.67 / 40.02 ms** (22 warm, after the #633 final patch), including
+Node-API result publication. On this final code tree, an additional
+multi-tab stress case with **16 other inspected Rooms** completed all
+reopen, conflict, malformed/repair and exact-readback assertions: addon
+displayName Patch **18.29 / 24.09 ms**, scoped Save **37.82 / 42.62 ms**;
+Room-description Patch **19.34 / 29.71 ms**, Save **40.89 / 54.76 ms**.
+Its single-record independent in-memory Patch profile was
+**15.63 / 17.52 ms**. The multi-tab p95 values are above the single-owner
+addon profile and are reported explicitly; the issue's native C++ Room
+target (~10 ms median, <=20 ms p95) and real-addon scoped Room Save
+median (<50 ms) are met, not asserted as universal cross-host limits.
+Project-title Save is journaled and is separately slower on this host,
+as documented in #633; there is no unsafe fast-path substitution.
+
+### Integrated safety and completeness gates
+
+- #630's revision-specific native/Node-API publication emits the affected
+  Room rather than rebuilding all other inspected record snapshots, with
+  one addon result serialization per command. The 16-inspected stress run
+  verifies no other record is spuriously included in the changed-owner list.
+- #631 tests prove sparse/defaulted effective semantic comparisons and
+  typed Feature, Variable, Trait, Test/Interaction and reference invalidation
+  with cold-vs-incremental diagnostic parity through invalid/repair cases.
+  The separate profiler showed **1 changed local contribution and no
+  consumer invalidations** for Room displayName, versus the earlier 84/83.
+- #632's unchanged physical YAML sources reuse the authoritative observed
+  generation, not an unverified timestamp/watch hint. The post-Save rebase
+  is restricted to the exact acknowledged Room revision with all other
+  source revisions unchanged; external changes force ordinary reconciliation.
+- #633/#634's explicit one-physical-owner Save retains its 2 file/3
+  directory syncs, exact CAS, writer lock and safe staging/rename semantics.
+  Save All, even with only one dirty record, and every multi-target/Asset/
+  Layout/text transaction remain journaled. Native crash-phase tests and
+  the real worker tests check rollback/roll-forward, ownership, external
+  races and no false durable acknowledgement.
+
+The **11/11 targeted Linux native CTests passed** on this integrated tree.
+The current rebuilt Electron worker and real native addon passed **7/7
+worker tests and 51/51 active reconciliation tests (1 skipped)**, including
+multi-owner Save, retained recovery, invalid→repair and exact conflicts.
+The previous full editor run on this same code passed **323 files / 2,472
+tests**, with 14 files / 214 tests skipped; editor lint, typecheck and
+format verification passed. Pinned clang-format 18.1.8 checked the native
+code; no new C++ code was introduced by this parent integration review.
+
+**Acceptance boundary:** no GitHub Actions CI jobs were triggered because
+CI usage quota was exhausted. Consequently Windows/macOS packaged native
+addon, actual power-loss recovery and human interactive editor input-to-paint
+are **not certified here**. Those are separately tracked by #522 and the
+editor-side #602/#609 gates and are not implied by closing native #601.
