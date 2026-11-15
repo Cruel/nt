@@ -37,6 +37,10 @@ import type { MaterialPreviewResource } from '@/material-preview/material-previe
 import type { MaterialApplication } from '../../../shared/project-schema/authoring-material-applications';
 import type { AuthoringProject } from '../../../shared/project-schema/authoring-project';
 import type { RoomData } from '../../../shared/project-schema/authoring-rooms';
+import { diffJsonDocuments } from '../../project/project-external-reconciliation';
+import { getJsonAtPointer, hasJsonAtPointer } from '../../project/json-pointer';
+import { jsonValuesEqual, toJsonValue } from '../../project/json-value';
+import type { JsonPatchOperation } from '../../project/json-patch';
 import {
   resizeRoomSelectionData,
   translateRoomSelectionData,
@@ -117,6 +121,24 @@ type RoomEditDirectGesture =
       handle: RoomEditResizeHandle;
       bounds: { x: number; y: number; width: number; height: number };
     };
+
+interface PendingRoomDrop {
+  token: number;
+  room: RoomData;
+  changes: JsonPatchOperation[];
+}
+
+/** Only release the visual drop when the acknowledged Room reflects the
+ * exact changed fields. Unrelated Project renders must not snap it back. */
+function roomReflectsDrop(room: RoomData, changes: readonly JsonPatchOperation[]): boolean {
+  const current = toJsonValue(room);
+  return changes.every((patch) => {
+    const exists = hasJsonAtPointer(current, patch.path);
+    if (patch.op === 'remove') return !exists;
+    if (!exists) return false;
+    return jsonValuesEqual(getJsonAtPointer(current, patch.path), patch.value);
+  });
+}
 
 interface PreparedVisual {
   texture: AuthoringWebGlTextureResource | null;
@@ -557,11 +579,11 @@ export function RoomEditSurface({
   onTranslateSelection?: (
     selection: readonly RoomEditSelection[],
     delta: { x: number; y: number },
-  ) => void;
+  ) => Promise<{ ok: boolean; projectChanged: boolean }> | void;
   onResizeSelection?: (
     selection: RoomEditSelection,
     bounds: { x: number; y: number; width: number; height: number },
-  ) => void;
+  ) => Promise<{ ok: boolean; projectChanged: boolean }> | void;
   addActions?: readonly { id: string; label: string; disabled?: boolean }[];
   pendingAddActionId?: string | null;
   onPendingAddActionCancel?: () => void;
@@ -591,6 +613,8 @@ export function RoomEditSurface({
   const pointerInsideRef = useRef(false);
   const suppressSelectionClickRef = useRef(false);
   const directGestureRef = useRef<RoomEditDirectGesture | null>(null);
+  const pendingDropTokenRef = useRef(0);
+  const [pendingDrop, setPendingDrop] = useState<PendingRoomDrop | null>(null);
   const occurrenceEpochsRef = useRef<Map<string, RoomEditOccurrenceEpoch>>(new Map());
   const [castIdleElapsedSeconds, setCastIdleElapsedSeconds] = useState<ReadonlyMap<string, number>>(
     () => new Map(),
@@ -634,12 +658,19 @@ export function RoomEditSurface({
       ),
     [referenceResolution, room.presentationSpace],
   );
+  const pendingDropReflected = pendingDrop ? roomReflectsDrop(room, pendingDrop.changes) : false;
+  const visibleRoom = pendingDrop && !pendingDropReflected ? pendingDrop.room : room;
+  useEffect(() => {
+    if (pendingDrop && pendingDropReflected)
+      setPendingDrop((current) => (current?.token === pendingDrop.token ? null : current));
+  }, [pendingDrop, pendingDropReflected]);
+
   const committedProjections = useMemo(
     () =>
       resolveRoomEditProjectionPair({
         project,
         roomId,
-        room,
+        room: visibleRoom,
         viewport: referenceResolution,
         backgroundImageSize,
         resolvedVisibility,
@@ -651,7 +682,7 @@ export function RoomEditSurface({
       project,
       referenceResolution,
       resolvedVisibility,
-      room,
+      visibleRoom,
       roomId,
     ],
   );
@@ -666,7 +697,7 @@ export function RoomEditSurface({
           committedProjections.display,
           projectionNavigationRef.current,
         );
-        return translateRoomSelectionData(room, gesture.selection, delta) ?? room;
+        return translateRoomSelectionData(visibleRoom, gesture.selection, delta) ?? visibleRoom;
       }
       if (gesture?.kind === 'resize') {
         const delta = pointerDeltaToNormalized(
@@ -678,11 +709,11 @@ export function RoomEditSurface({
           projectionNavigationRef.current,
         );
         const bounds = resizeNormalizedBounds(gesture.bounds, delta, gesture.handle);
-        return resizeRoomSelectionData(room, gesture.selection, bounds) ?? room;
+        return resizeRoomSelectionData(visibleRoom, gesture.selection, bounds) ?? visibleRoom;
       }
-      return room;
+      return visibleRoom;
     },
-    [committedProjections.display, room],
+    [committedProjections.display, visibleRoom],
   );
   const draftRoom = useMemo(() => {
     void directGestureVersion;
@@ -798,6 +829,7 @@ export function RoomEditSurface({
     suppressSelectionClickRef.current = false;
     if (gesture) setPanning(false);
     if (directGesture) setDirectGestureVersion((value) => value + 1);
+    setPendingDrop(null);
   }, [gestureCancellationToken, interactionEnabled]);
 
   useEffect(() => {
@@ -912,6 +944,27 @@ export function RoomEditSurface({
     [onSelectionChange, viewportPoint],
   );
 
+  const holdDropUntilApplied = useCallback(
+    (
+      droppedRoom: RoomData,
+      execute: () => Promise<{ ok: boolean; projectChanged: boolean }> | void,
+    ) => {
+      const changes = diffJsonDocuments(toJsonValue(visibleRoom), toJsonValue(droppedRoom));
+      const token = ++pendingDropTokenRef.current;
+      if (changes.length > 0) setPendingDrop({ token, room: droppedRoom, changes });
+      const clear = () => setPendingDrop((current) => (current?.token === token ? null : current));
+      try {
+        void Promise.resolve(execute()).then((result) => {
+          if (!result?.ok || !result.projectChanged) clear();
+        }, clear);
+      } catch (error) {
+        clear();
+        throw error;
+      }
+    },
+    [visibleRoom],
+  );
+
   const finishDirectGesture = useCallback(
     (event: { clientX: number; clientY: number }) => {
       const direct = directGestureRef.current;
@@ -922,17 +975,17 @@ export function RoomEditSurface({
       suppressSelectionClickRef.current = true;
       if (direct.kind === 'candidate') {
         if (direct.dragging) {
-          onTranslateSelection(
-            direct.selection,
-            pointerDeltaToNormalized(
-              {
-                x: direct.current.x - direct.start.x,
-                y: direct.current.y - direct.start.y,
-              },
-              committedProjections.display,
-              projectionNavigationRef.current,
-            ),
+          const delta = pointerDeltaToNormalized(
+            {
+              x: direct.current.x - direct.start.x,
+              y: direct.current.y - direct.start.y,
+            },
+            committedProjections.display,
+            projectionNavigationRef.current,
           );
+          const droppedRoom = translateRoomSelectionData(visibleRoom, direct.selection, delta);
+          if (droppedRoom)
+            holdDropUntilApplied(droppedRoom, () => onTranslateSelection(direct.selection, delta));
         } else {
           onSelectionChange(
             direct.additive
@@ -970,13 +1023,19 @@ export function RoomEditSurface({
         const changed = (['x', 'y', 'width', 'height'] as const).some(
           (field) => Math.abs(bounds[field] - direct.bounds[field]) > 1e-9,
         );
-        if (changed) onResizeSelection(direct.selection, bounds);
+        if (changed) {
+          const droppedRoom = resizeRoomSelectionData(visibleRoom, direct.selection, bounds);
+          if (droppedRoom)
+            holdDropUntilApplied(droppedRoom, () => onResizeSelection(direct.selection, bounds));
+        }
       }
       setDirectGestureVersion((value) => value + 1);
       return true;
     },
     [
       committedProjections.display,
+      holdDropUntilApplied,
+      visibleRoom,
       onResizeSelection,
       onSelectionChange,
       onTranslateSelection,

@@ -121,7 +121,8 @@ describe('Room placement commands', () => {
     });
     expect(placed.historyEntry?.affectedPaths).toEqual([
       '/interactableInstances/key',
-      '/rooms/foyer/data',
+      '/rooms/foyer/data/interactables/0',
+      '/rooms/foyer/data/placements/1',
     ]);
     expect(undoCommand(placed.state).document).toEqual(state.document);
   });

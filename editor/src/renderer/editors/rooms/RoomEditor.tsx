@@ -1560,7 +1560,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     label: string,
     payload: Record<string, unknown>,
   ) => {
-    void projectEdits.execute({
+    return projectEdits.execute({
       type,
       label,
       payload: { roomId, ...payload },
@@ -1580,7 +1580,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   })();
   const reorderBulkPresentation = (action: RoomPresentationReorderAction, label: string) => {
     if (!bulkPresentationTargets) return;
-    executeRoomEditCommand('room.reorderPresentationSelection', label, {
+    void executeRoomEditCommand('room.reorderPresentationSelection', label, {
       targets: bulkPresentationTargets,
       action,
     });
@@ -1779,7 +1779,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
         };
         break;
     }
-    executeRoomEditCommand(
+    void executeRoomEditCommand(
       'room.addPresentationContent',
       t('roomEditor.compositionPane.addContent'),
       payload,
@@ -2249,7 +2249,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                           ((field === 'width' || field === 'height') && value <= 0)
                         )
                           return;
-                        executeRoomEditCommand(
+                        void executeRoomEditCommand(
                           'room.setPlacementBounds',
                           t('roomEditor.compositionPane.editor.updatePlacementBounds'),
                           {
@@ -3199,7 +3199,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                     order === presentationOrder.order
                   )
                     return;
-                  executeRoomEditCommand(
+                  void executeRoomEditCommand(
                     'room.setPresentationOrder',
                     t('roomEditor.compositionPane.setOrder'),
                     { target: presentationOrder.target, order },
@@ -4839,7 +4839,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                           numberValue(event.currentTarget.value, entry.order),
                         );
                         if (order === entry.order) return;
-                        executeRoomEditCommand(
+                        void executeRoomEditCommand(
                           'room.setPresentationOrder',
                           t('roomEditor.compositionPane.setOrder'),
                           { target: { kind: 'environment', id: entry.id }, order },

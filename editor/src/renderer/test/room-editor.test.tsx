@@ -3618,6 +3618,7 @@ describe('RoomEditor', () => {
         }),
       });
       const selected = screen.getByTestId('room-edit-selected-placement:edge');
+      const held = holdFirstNativeProjectPatch();
       expect(selected).toHaveClass('pointer-events-auto');
       const initialLeft = Number.parseFloat(selected.style.left);
 
@@ -3635,6 +3636,14 @@ describe('RoomEditor', () => {
       expect(parseRoomData(duringDrag.rooms.foyer?.data)?.placements[0]?.bounds.x).toBe(0.7);
 
       fireEvent.mouseUp(window, { button: 0, clientX: 1000, clientY: 100 });
+      expect(
+        Number.parseFloat(screen.getByTestId('room-edit-selected-placement:edge').style.left),
+      ).toBeCloseTo(draftLeft);
+      await waitFor(() => expect(held.isHeld()).toBe(true));
+      expect(
+        Number.parseFloat(screen.getByTestId('room-edit-selected-placement:edge').style.left),
+      ).toBeCloseTo(draftLeft);
+      await act(async () => held.release());
       await waitFor(() => {
         const committed = useProjectStore.getState().document;
         expect(isAuthoringProject(committed)).toBe(true);
@@ -3643,6 +3652,9 @@ describe('RoomEditor', () => {
           0.8,
         );
       });
+      expect(
+        Number.parseFloat(screen.getByTestId('room-edit-selected-placement:edge').style.left),
+      ).toBeCloseTo(draftLeft);
     } finally {
       window.matchMedia = originalMatchMedia;
     }

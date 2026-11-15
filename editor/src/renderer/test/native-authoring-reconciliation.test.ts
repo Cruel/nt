@@ -8,6 +8,7 @@ import { toJsonValue, type JsonValue } from '../project/json-value';
 import { createDefaultAuthoringRecord } from '../project/entity-operations';
 import { assertNativeProjection } from '../commands/native-command-execution';
 import { replaceRoomDataPatches } from '../project/room-operations';
+import { translateRoomSelectionPatches } from '../project/room-placement-operations';
 import { setProjectEntrypointPatches } from '../project/project-settings-operations';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { parseRoomData, roomDataSchema } from '../../shared/project-schema/authoring-rooms';
@@ -106,6 +107,82 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
     const disk = await readFile(path.join(root, `records/rooms/${room}.yaml`), 'utf8');
     expect(disk).toContain('displayName: "Properties & Traits Updated"');
   }, 120_000);
+  it('moves a sparse Feature Lab Room placement, undoes, and saves without rewriting its cast', async () => {
+    const { root, bridge, working } = await testProject();
+    cleanups.push(async () => {
+      await bridge.closeAndWait();
+      await rm(root, { recursive: true, force: true });
+    });
+    const inspected = await working.inspectRecord(owner);
+    expect(inspected.accepted, inspected.error).toBe(true);
+    const original = inspected.snapshot.recordSnapshots?.[owner]?.normalized;
+    expect(original).toBeDefined();
+    const project = createAuthoringProject();
+    project.rooms[roomId] = original as (typeof project.rooms)[string];
+    const selection = [{ kind: 'placement' as const, id: 'guide' }];
+    const move = translateRoomSelectionPatches(project, {
+      roomId,
+      selection,
+      delta: { x: 0.05, y: 0.03 },
+    });
+    expect(move.diagnostics ?? []).toEqual([]);
+    expect(move.patches.some((patch) => patch.path === `/rooms/${roomId}/data`)).toBe(false);
+    expect(move.patches.some((patch) => patch.path.includes('/data/cast'))).toBe(false);
+    const moved = await working.applyRevisionedPatches(
+      working.snapshot()!.workingRevision,
+      move.patches,
+    );
+    expect(moved.accepted, moved.error).toBe(true);
+    const movedProject = applyJsonPatch(toJsonValue(project), move.patches).document;
+    const reverse = translateRoomSelectionPatches(movedProject, {
+      roomId,
+      selection,
+      delta: { x: -0.05, y: -0.03 },
+    });
+    expect(reverse.diagnostics ?? []).toEqual([]);
+    const undone = await working.applyRevisionedPatches(
+      working.snapshot()!.workingRevision,
+      reverse.patches,
+    );
+    expect(undone.accepted, undone.error).toBe(true);
+    const renamed = await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
+      { op: 'replace', path: `/rooms/${roomId}/data/displayName`, value: 'Retitled after undo' },
+    ]);
+    expect(renamed.accepted, renamed.error).toBe(true);
+    const saved = await working.saveUnit(`record:rooms:${roomId}`);
+    expect(saved.accepted, saved.error).toBe(true);
+    const disk = decodeStructuredYaml(await readFile(path.join(root, roomRelative), 'utf8')) as {
+      data: { displayName: string; cast: Array<{ character: string; placementId: string }> };
+    };
+    expect(disk.data.displayName).toBe('Retitled after undo');
+    expect(disk.data.cast[0]).toMatchObject({
+      character: 'pilot-guide',
+      placementId: 'guide',
+    });
+    const moveAgain = await working.applyRevisionedPatches(
+      working.snapshot()!.workingRevision,
+      move.patches,
+    );
+    expect(moveAgain.accepted, moveAgain.error).toBe(true);
+    const saveMoved = await working.saveUnit(`record:rooms:${roomId}`);
+    expect(saveMoved.accepted, saveMoved.error).toBe(true);
+    const movedDisk = decodeStructuredYaml(
+      await readFile(path.join(root, roomRelative), 'utf8'),
+    ) as {
+      data: {
+        cast: Array<{ character: string; placementId: string }>;
+        placements: Array<{ id: string; bounds: { x: number; y: number } }>;
+      };
+    };
+    expect(movedDisk.data.cast).toEqual(disk.data.cast);
+    expect(
+      movedDisk.data.placements.find((placement) => placement.id === 'guide')?.bounds,
+    ).toMatchObject({
+      x: 0.43,
+      y: 0.21,
+    });
+  }, 120_000);
+
   it('resolves logical Save owners in the native session, not from the editor projection', async () => {
     const { root, bridge, working } = await testProject();
     cleanups.push(async () => {

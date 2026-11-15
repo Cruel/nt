@@ -1,3 +1,4 @@
+import { nativeFieldJsonPatches } from '@/commands/native-field-json-patches';
 import { buildJsonPointer } from '@/project/json-pointer';
 import { toJsonValue } from '@/project/json-value';
 import { resolveGameplayInstanceRecord } from '../../shared/project-schema/authoring-archetypes';
@@ -137,7 +138,11 @@ export function replaceRoomDataPatches(
     };
 
   const patches: JsonPatchOperation[] = [
-    { op: 'replace', path: pathForRoomData(payload.roomId), value: toJsonValue(data) },
+    ...nativeFieldJsonPatches(
+      toJsonValue(record.data),
+      toJsonValue(data),
+      pathForRoomData(payload.roomId),
+    ),
     ...messageIdentity.patches,
   ];
   if (record.archetype)
