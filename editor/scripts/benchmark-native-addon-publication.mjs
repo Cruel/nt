@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
-import { cp, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { cp, mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
@@ -60,7 +60,26 @@ try {
     assert.deepEqual(Object.keys(traits.snapshot.recordSnapshots), ['traits']);
     revision = traits.snapshot.workingRevision;
   }
-  const output = { coldOpenAndSnapshotMs: Number(coldOpenAndSnapshotMs.toFixed(2)) };
+  // A one-owner session cannot expose the cost of reconstructing unrelated
+  // inspected records. Reproduce a multi-tab editing session explicitly.
+  const extraFlag = process.argv.find((argument) => argument.startsWith('--additional-inspected='));
+  const requestedExtra = Number(extraFlag?.split('=')[1] ?? 0);
+  assert.ok(Number.isInteger(requestedExtra) && requestedExtra >= 0 && requestedExtra <= 40);
+  const candidates = (await readdir(path.join(project, 'records/rooms')))
+    .filter((file) => file.endsWith('.yaml') && file !== 'properties-and-traits.yaml')
+    .sort();
+  assert.ok(candidates.length >= requestedExtra);
+  for (const file of candidates.slice(0, requestedExtra)) {
+    const other = `rooms/${file.slice(0, -'.yaml'.length)}`;
+    const inspectedOther = accepted(`inspect ${other}`, binding.inspect(handle, other));
+    assert.deepEqual(inspectedOther.affectedRecords, [other]);
+    assert.deepEqual(Object.keys(inspectedOther.snapshot.recordSnapshots), [other]);
+    revision = inspectedOther.snapshot.workingRevision;
+  }
+  const output = {
+    coldOpenAndSnapshotMs: Number(coldOpenAndSnapshotMs.toFixed(2)),
+    additionalInspected: requestedExtra,
+  };
   for (const [label, target, pointer, yaml] of [
     ['roomDisplayName', owner, `/${owner}/data/displayName`, `records/${owner}.yaml`],
     ['roomDescription', owner, `/${owner}/data/description/source/text`, `records/${owner}.yaml`],
