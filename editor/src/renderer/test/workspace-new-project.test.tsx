@@ -1,5 +1,5 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { WorkspacePage } from '@/routes/workspace';
 import { useCommandStore } from '@/commands/command-store';
 import { useComfyUiStore } from '@/comfyui/comfyui-store';
@@ -86,6 +86,11 @@ function dispatchOpenProject(projectPath: string) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(window.noveltea.saveProjectEditorMetadata).mockResolvedValue({
+    ok: true,
+    success: true,
+    diagnostics: [],
+  });
   localStorage.clear();
   useProjectStore.getState().clearProject();
   useCandidateRepairStore.setState({ entries: {} });
@@ -193,6 +198,17 @@ beforeEach(() => {
     ok: true,
     success: true,
     diagnostics: [],
+  });
+});
+
+// Workspace operations can still be awaiting a native mock after their first
+// visible state change. Unmount before resetting shared stores/mocks for the
+// next case, then let queued promise continuations settle against the same
+// test's Project identity.
+afterEach(async () => {
+  cleanup();
+  await act(async () => {
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
   });
 });
 
