@@ -647,6 +647,15 @@ void recover_journals(const fs::path& root)
         const auto name = entry.path().filename().string();
         if (name == lock_name || name == guard_name || name.starts_with(".writer-lock.claimed-"))
             continue;
+        if (std::regex_match(name, std::regex(R"(^\.single-file-[0-9-]+\.tmp$)"))) {
+            // Stages are never recovery authority: only a complete, renamed
+            // YAML file is an installed single-file Save. A crashed stage is
+            // safe to remove, but never follow a replaced stage symlink.
+            if (entry.is_symlink() || !entry.is_regular_file())
+                throw std::runtime_error("WORKSPACE_TRANSACTION_RECOVERY_CONFLICT: unsafe stage");
+            unpublished.push_back(entry.path());
+            continue;
+        }
         if (!path_safe(name) || !entry.is_directory() || entry.is_symlink())
             throw std::runtime_error("WORKSPACE_TRANSACTION_RECOVERY_CONFLICT: invalid journal");
         if (name.starts_with(".preparing-")) {
@@ -658,7 +667,10 @@ void recover_journals(const fs::path& root)
         journals.push_back(entry.path());
     }
     for (const auto& directory : unpublished) {
-        fs::remove_all(directory);
+        if (fs::is_directory(directory))
+            fs::remove_all(directory);
+        else
+            fs::remove(directory);
         sync_directory(transactions);
     }
     std::sort(journals.begin(), journals.end());
@@ -708,6 +720,31 @@ void recover_journals(const fs::path& root)
             throw std::runtime_error("WORKSPACE_TRANSACTION_RECOVERY_CONFLICT: " +
                                      directory.filename().string() + ": " + e.what());
         }
+    }
+}
+
+// The approval, invalid-source fence, and byte-exact CAS checks are shared by
+// journaled and single-file Save. Preparation may have rebased disjoint edits;
+// always verify the final prepared baseline, not the caller's older baseline.
+void verify_commit_preconditions(const fs::path& root,
+                                 const std::vector<std::string>& blocked_paths,
+                                 const PreparedYamlTransaction& prepared)
+{
+    std::set<std::string> paths;
+    ScopedValidationStageTime<WorkCounter::TransactionPreconditionsMicros> phase;
+    for (const auto& target : prepared.targets) {
+        if (!paths.insert(target.path).second ||
+            std::any_of(blocked_paths.begin(), blocked_paths.end(), [&](const auto& path) {
+                return path_prefix(target.path, path) || path_prefix(path, target.path);
+            }))
+            throw std::runtime_error("WORKSPACE_INVALID_SOURCE_DEPENDENCY: " + target.path);
+        const auto capture = capture_exact_source(safe_source_path(root, target.path));
+        if (capture.revision != target.before_revision ||
+            (target.before_revision != "absent" && capture.bytes != target.before_source))
+            throw std::runtime_error("WORKSPACE_REVISION_CONFLICT: " + target.path);
+        if ((target.erase && target.after_revision != "absent") ||
+            (!target.erase && !source_revision_matches(target.after_source, target.after_revision)))
+            throw std::runtime_error("Stale YAML transaction approval payload.");
     }
 }
 
@@ -1119,6 +1156,98 @@ YamlTransactionResult YamlTransactionService::recover()
     return result;
 }
 
+bool YamlTransactionService::single_file_eligible(const PreparedYamlTransaction& prepared)
+{
+    return prepared.targets.size() == 1 && !prepared.targets.front().erase &&
+           prepared.targets.front().before_revision != "absent" &&
+           prepared.targets.front().after_revision != "absent" &&
+           std::regex_match(
+               prepared.targets.front().path,
+               std::regex(R"(^records/(?!layouts/)[a-z]+/[a-z][a-z0-9]*(?:-[a-z0-9]+)*\.yaml$)"));
+}
+
+YamlTransactionResult
+YamlTransactionService::commit_single_file(const PreparedYamlTransaction& prepared,
+                                           TransactionDecision decision)
+{
+    ScopedValidationStageTime<WorkCounter::TransactionCommitMicros> timer;
+    YamlTransactionResult result;
+    if (!prepared.accepted || decision == TransactionDecision::Cancel ||
+        prepared.decision != decision || prepared.approval != approval_for(prepared)) {
+        result.error = "Stale or canceled YAML comment/deletion approval.";
+        return result;
+    }
+    if (structural_uncertainty_) {
+        result.error = "WORKSPACE_INVALID_SOURCE_DEPENDENCY: unknown source owner.";
+        return result;
+    }
+    // The fast operation is deliberately narrower than arbitrary YAML commits.
+    // A solitary Layout may still own sidecars, and creation/deletion requires
+    // journaled structural semantics even when it has just one physical target.
+    if (!single_file_eligible(prepared)) {
+        result.error = "Single-file Save is not eligible for an atomic record replacement.";
+        return result;
+    }
+    try {
+        const auto& target = prepared.targets.front();
+        WriterLock lock(root_, "native explicit single-file Save", std::nullopt);
+        if (!lock.acquired()) {
+            result.error = lock.busy_error();
+            return result;
+        }
+        recover_journals(root_);
+        verify_commit_preconditions(root_, blocked_paths_, prepared);
+        const auto path = checked_path(target.path);
+        const auto stage = root_ / journal_root / (".single-file-" + token() + ".tmp");
+        try {
+            {
+                std::ofstream file(stage, std::ios::binary | std::ios::trunc);
+                if (!file ||
+                    !file.write(target.after_source.data(),
+                                static_cast<std::streamsize>(target.after_source.size())) ||
+                    !file.flush())
+                    throw std::runtime_error("Cannot stage single-file Project Save.");
+            }
+            if (single_file_hook_)
+                single_file_hook_(YamlSingleFilePhase::BeforeStageSync);
+            sync_file(stage);
+            if (single_file_hook_)
+                single_file_hook_(YamlSingleFilePhase::Staged);
+            // Reject non-cooperating edits that occurred after preparation,
+            // including symlink replacement. Cooperating writers are already
+            // serialized by WriterLock across both persistence protocols.
+            const auto latest = capture_exact_source(checked_path(target.path));
+            if (latest.revision != target.before_revision || latest.bytes != target.before_source)
+                throw std::runtime_error("WORKSPACE_REVISION_CONFLICT: " + target.path);
+#ifdef _WIN32
+            if (!MoveFileExW(stage.c_str(), path.c_str(),
+                             MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+                throw std::runtime_error("Cannot atomically replace single-file Project source.");
+#else
+            fs::rename(stage, path);
+#endif
+            if (single_file_hook_)
+                single_file_hook_(YamlSingleFilePhase::Installed);
+            if (single_file_hook_)
+                single_file_hook_(YamlSingleFilePhase::BeforeDirectorySync);
+            sync_directory(path.parent_path());
+            if (single_file_hook_)
+                single_file_hook_(YamlSingleFilePhase::DirectorySynced);
+        } catch (...) {
+            std::error_code ignored;
+            fs::remove(stage, ignored);
+            throw;
+        }
+        result.accepted = true;
+        result.changed_paths.push_back(target.path);
+    } catch (const std::exception& e) {
+        // A post-rename failure is an indeterminate acknowledgment, not
+        // permission to roll back newly installed bytes over external edits.
+        result.error = e.what();
+    }
+    return result;
+}
+
 YamlTransactionResult YamlTransactionService::commit(const PreparedYamlTransaction& prepared,
                                                      TransactionDecision decision)
 {
@@ -1146,27 +1275,7 @@ YamlTransactionResult YamlTransactionService::commit(const PreparedYamlTransacti
             return result;
         }
         recover_journals(root_);
-        std::set<std::string> paths;
-        {
-            ScopedValidationStageTime<WorkCounter::TransactionPreconditionsMicros> phase;
-            for (const auto& target : prepared.targets) {
-                if (!paths.insert(target.path).second ||
-                    std::any_of(
-                        blocked_paths_.begin(), blocked_paths_.end(), [&](const auto& path) {
-                            return path_prefix(target.path, path) || path_prefix(path, target.path);
-                        }))
-                    throw std::runtime_error("WORKSPACE_INVALID_SOURCE_DEPENDENCY: " + target.path);
-                const auto absolute = checked_path(target.path);
-                const auto capture = capture_exact_source(absolute);
-                if (capture.revision != target.before_revision ||
-                    (target.before_revision != "absent" && capture.bytes != target.before_source))
-                    throw std::runtime_error("WORKSPACE_REVISION_CONFLICT: " + target.path);
-                if ((target.erase && target.after_revision != "absent") ||
-                    (!target.erase &&
-                     !source_revision_matches(target.after_source, target.after_revision)))
-                    throw std::runtime_error("Stale YAML transaction approval payload.");
-            }
-        }
+        verify_commit_preconditions(root_, blocked_paths_, prepared);
         const auto directory = root_ / journal_root / id;
         const auto preparation = root_ / journal_root / (".preparing-" + id);
         if (!fs::create_directory(preparation))

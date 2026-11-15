@@ -464,6 +464,7 @@ export const nativeAuthoringCommandSchema = z.discriminatedUnion('operation', [
     .object({
       requestId: z.number().int().positive(),
       operation: z.literal('saveOwners'),
+      saveMode: z.enum(['journaled', 'explicit-single-file']).optional(),
       owners: z.array(z.string().min(1).max(2048)).max(2100),
       expectedRevision: z.number().int().nonnegative(),
       keepMine: z.boolean(),

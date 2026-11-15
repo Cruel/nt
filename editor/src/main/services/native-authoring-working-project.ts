@@ -583,6 +583,7 @@ export class NativeAuthoringWorkingProject {
       textContents?: Record<string, string>;
       expectedRevision?: number;
       assetTransition?: import('./native-authoring-worker-contract').NativeAssetTransition;
+      saveMode?: 'journaled' | 'explicit-single-file';
     } = {},
   ): Promise<PatchResult> {
     for (const owner of owners)
@@ -621,6 +622,7 @@ export class NativeAuthoringWorkingProject {
         expectedRevision: this.view.workingRevision,
         keepMine: options.keepMine ?? false,
         comments: options.comments ?? 'keep',
+        saveMode: options.saveMode ?? 'journaled',
         ...(options.pathsByOwner ? { pathsByOwner: options.pathsByOwner } : {}),
         ...(options.textPaths ? { textPaths: options.textPaths } : {}),
         ...(options.assetTransition ? { assetTransition: options.assetTransition } : {}),
@@ -675,6 +677,7 @@ export class NativeAuthoringWorkingProject {
       comments?: 'keep' | 'remove' | 'cancel' | 'perEdit';
       textPaths?: string[];
       textContents?: Record<string, string>;
+      saveMode?: 'journaled' | 'explicit-single-file';
     } = {},
     expectedRevision?: number,
   ): Promise<PatchResult> {

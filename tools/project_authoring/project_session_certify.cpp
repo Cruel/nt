@@ -198,6 +198,51 @@ void presentation_edit_roundtrip(const std::filesystem::path& fixture)
             "Reopening must read the final saved Room display name");
 }
 
+void single_file_save_intent_roundtrip(const std::filesystem::path& fixture)
+{
+    TemporaryProject temp(fixture);
+    std::string error;
+    auto project = ProjectSession::open(temp.root, error);
+    const std::string owner = "rooms/properties-and-traits";
+    const std::string pointer = "/rooms/properties-and-traits/data/displayName";
+    const auto physical = temp.root / "records/rooms/properties-and-traits.yaml";
+    require(project && project->inspect_record(owner).accepted,
+            "Single-file Save fixture must admit an existing Room");
+    const auto save_once = [&](std::string_view text, ProjectSession::SaveIntent intent) {
+        const auto patched =
+            project->patch(project->working_revision(),
+                           {{RoomPatch::Operation::Replace, pointer, Json(text).to_string()}});
+        require(patched.accepted && patched.snapshot.valid && patched.snapshot.dirty,
+                "A valid Room edit remains unsaved before explicit Save");
+        ValidationWorkCounters work;
+        RoomSessionResult saved;
+        {
+            ScopedValidationWork measurement(work);
+            saved = project->save_owners(project->working_revision(), {owner}, false,
+                                         TransactionDecision::KeepComments, {}, {}, std::nullopt,
+                                         intent);
+        }
+        require(saved.accepted && saved.snapshot.valid && !saved.snapshot.dirty &&
+                    saved.affected_records == std::vector<std::string>{owner} &&
+                    read(physical).find(text) != std::string::npos,
+                "Native Save acknowledges the exact persisted Room source");
+        return work.get<WorkCounter::TransactionJournalWrites>();
+    };
+    require(save_once("Fast path persists", ProjectSession::SaveIntent::ExplicitSingleFile) == 0,
+            "Explicit solitary existing Room Save never writes a journal");
+    require(save_once("Save All persists", ProjectSession::SaveIntent::Journaled) == 2,
+            "Journaled Save with exactly one dirty Room retains multi-file durability protocol");
+    require(save_once("Undo-like return", ProjectSession::SaveIntent::ExplicitSingleFile) == 0,
+            "Returning to an earlier value remains independently saveable");
+    project.reset();
+    auto reopened = ProjectSession::open(temp.root, error);
+    require(reopened && reopened->inspect_record(owner).accepted &&
+                Json::parse(reopened->record_snapshots().at(owner).normalized_json)
+                        .at("data")
+                        .at("displayName") == "Undo-like return",
+            "Reopening after a fast Save reads the exact committed Room revision");
+}
+
 // Standalone, host-dependent native measurement. Use the same disposable
 // Project copy, warm iteration policy and real Save/readback for each owner;
 // this is evidence, not a cross-host wall-clock CI gate.
@@ -208,7 +253,9 @@ Json profile_presentation_edit(const std::filesystem::path& fixture)
     auto project = ProjectSession::open(temp.root, error);
     require(project && project->inspect_record("rooms/properties-and-traits").accepted,
             "Cannot admit benchmark Room: " + error);
-    const auto measure = [&](std::string owner, std::string pointer, std::filesystem::path yaml) {
+    const auto measure = [&](std::string owner, std::string pointer, std::filesystem::path yaml,
+                             ProjectSession::SaveIntent intent =
+                                 ProjectSession::SaveIntent::Journaled) {
         std::vector<double> patch_ms, save_ms, combined_ms;
         std::size_t local_rechecked = 0, local_reused = 0;
         std::size_t physical_yaml_opens = 0, physical_yaml_reads = 0, physical_yaml_parses = 0,
@@ -220,7 +267,7 @@ Json profile_presentation_edit(const std::filesystem::path& fixture)
         std::size_t incremental_message_validations = 0, incremental_translation_checks = 0,
                     full_contract_validations = 0;
         std::map<std::string, std::size_t> transaction_work;
-        for (int i = 0; i < 20; ++i) {
+        for (int i = 0; i < 23; ++i) {
             const auto value = "Native benchmark " + owner + " " + std::to_string(i);
             const auto start = std::chrono::steady_clock::now();
             ValidationWorkCounters patch_work;
@@ -268,7 +315,8 @@ Json profile_presentation_edit(const std::filesystem::path& fixture)
             {
                 ScopedValidationWork measurement(save_work);
                 saved = project->save_owners(project->working_revision(), {owner}, false,
-                                             TransactionDecision::KeepComments);
+                                             TransactionDecision::KeepComments, {}, {},
+                                             std::nullopt, intent);
             }
             const auto saved_at = std::chrono::steady_clock::now();
             require(saved.accepted && saved.snapshot.valid && !saved.snapshot.dirty &&
@@ -311,7 +359,7 @@ Json profile_presentation_edit(const std::filesystem::path& fixture)
         Json transaction_phase_mean_ms = Json::object();
         for (const auto& [name, value] : transaction_work) {
             if (name.ends_with("Micros"))
-                transaction_phase_mean_ms[name] = value / (19.0 * 1000.0);
+                transaction_phase_mean_ms[name] = value / (22.0 * 1000.0);
             else
                 transaction_counts[name] = value;
         }
@@ -333,7 +381,7 @@ Json profile_presentation_edit(const std::filesystem::path& fixture)
             result["localizationFullContractValidations"] = full_contract_validations;
             Json localization_phase_means = Json::object();
             for (const auto& [name, micros] : localization_phases)
-                localization_phase_means[name] = micros / (19.0 * 1000.0);
+                localization_phase_means[name] = micros / (22.0 * 1000.0);
             result["localizationPhaseMeanMs"] = std::move(localization_phase_means);
             result["totalPatchFileByteReads"] = patch_file_reads;
             result["totalPatchParsedYaml"] = patch_yaml_parses;
@@ -343,10 +391,15 @@ Json profile_presentation_edit(const std::filesystem::path& fixture)
     Json output = Json::object();
     output["roomDisplayName"] =
         measure("rooms/properties-and-traits", "/rooms/properties-and-traits/data/displayName",
+                temp.root / "records/rooms/properties-and-traits.yaml",
+                ProjectSession::SaveIntent::ExplicitSingleFile);
+    output["roomDisplayNameJournaled"] =
+        measure("rooms/properties-and-traits", "/rooms/properties-and-traits/data/displayName",
                 temp.root / "records/rooms/properties-and-traits.yaml");
     output["roomDescription"] = measure("rooms/properties-and-traits",
                                         "/rooms/properties-and-traits/data/description/source/text",
-                                        temp.root / "records/rooms/properties-and-traits.yaml");
+                                        temp.root / "records/rooms/properties-and-traits.yaml",
+                                        ProjectSession::SaveIntent::ExplicitSingleFile);
     output["projectTitle"] = measure("project", "/project/name", temp.root / "project.yaml");
     return output;
 }
@@ -4265,6 +4318,11 @@ int main(int argc, char** argv)
         if (argc == 3 && std::string_view(argv[1]) == "--presentation-edit") {
             presentation_edit_roundtrip(argv[2]);
             std::cout << "Native Room presentation edit certification passed.\n";
+            return 0;
+        }
+        if (argc == 3 && std::string_view(argv[1]) == "--single-file-save") {
+            single_file_save_intent_roundtrip(argv[2]);
+            std::cout << "Explicit single-file and one-target journaled Save certified.\n";
             return 0;
         }
         if (argc == 3 && std::string_view(argv[1]) == "--path-precise-mutations") {

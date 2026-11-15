@@ -30,12 +30,12 @@ function accepted(label, text) {
 
 function summary(values) {
   const warm = values.slice(1).sort((a, b) => a - b);
-  assert.equal(warm.length, 19);
+  assert.ok(warm.length >= 19);
   return {
     count: warm.length,
-    medianMs: Number(warm[9].toFixed(2)),
-    p95Ms: Number(warm[17].toFixed(2)),
-    maxMs: Number(warm[18].toFixed(2)),
+    medianMs: Number(warm[Math.floor(warm.length / 2)].toFixed(2)),
+    p95Ms: Number(warm[Math.ceil(warm.length * 0.95) - 1].toFixed(2)),
+    maxMs: Number(warm.at(-1).toFixed(2)),
   };
 }
 
@@ -82,6 +82,8 @@ try {
     additionalInspected: requestedExtra,
   };
   const validateWorking = process.argv.includes('--validate-working');
+  const journaledSave = process.argv.includes('--journaled-save');
+  output.saveMode = journaledSave ? 'journaled' : 'explicit-single-file (Room only)';
   for (const [label, target, pointer, yaml] of [
     ['roomDisplayName', owner, `/${owner}/data/displayName`, `records/${owner}.yaml`],
     ['roomDescription', owner, `/${owner}/data/description/source/text`, `records/${owner}.yaml`],
@@ -92,7 +94,7 @@ try {
       combinedTimes = [],
       staleTimes = [],
       validationTimes = [];
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 23; i++) {
       const value = `Addon publication ${label} ${i}`;
       const beforeDisk = await readFile(path.join(project, yaml), 'utf8');
       const start = performance.now();
@@ -122,7 +124,9 @@ try {
         assert.equal(validated.valid, true, JSON.stringify(validated.diagnostics));
       }
 
-      const saveStarted = validateWorking ? performance.now() : afterPatch;
+      // Start after all unrelated disk-readback and patch assertions. The
+      // previous timer included readFile/stat work not attributable to Save.
+      const saveStarted = performance.now();
       const saved = accepted(
         'scoped Save',
         binding.saveOwners(
@@ -131,6 +135,10 @@ try {
           JSON.stringify([target]),
           false,
           'keep',
+          '{}',
+          '[]',
+          '',
+          journaledSave || target === 'project' ? 'journaled' : 'explicit-single-file',
         ),
       );
       const afterSave = performance.now();
@@ -152,7 +160,7 @@ try {
       assert.equal(rejected.snapshot.workingRevision, revision);
       assert.deepEqual(rejected.affectedRecords, []);
 
-      if (i === 19) {
+      if (i === 22) {
         // Full snapshot is a distinct explicit query. Its Project fields must
         // agree with both the saved result and the stale-CAS failure result.
         const full = JSON.parse(binding.snapshot(handle));

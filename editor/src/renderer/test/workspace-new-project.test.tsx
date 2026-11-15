@@ -2060,6 +2060,7 @@ describe('WorkspacePage new project modal', () => {
     expect(apply).toHaveBeenCalledOnce();
     expect(native.save).toHaveBeenCalledWith('opened-project-session', 1, 'project:settings', {
       comments: 'keep',
+      saveMode: 'explicit-single-file',
     });
     expect(window.noveltea.saveProjectContent).not.toHaveBeenCalled();
     expect(useDraftDirtyStore.getState().entriesByKey).not.toHaveProperty('tab:settings:draft');

@@ -184,6 +184,211 @@ void certify(const fs::path& executable)
                 "Save must avoid redundant target reads while retaining all durable publication "
                 "phases");
     }
+    {
+        TemporaryProject fast;
+        const auto path = fast.root / "records/rooms/fast.yaml";
+        const std::string original = "id: fast\nlabel: Old # retain\n";
+        write(path, original);
+        YamlTransactionService writer(fast.root);
+        const auto prepared =
+            writer.prepare({change("records/rooms/fast.yaml", original, "/label", "\"New\"")},
+                           TransactionDecision::KeepComments);
+        require(prepared.accepted && prepared.targets.size() == 1,
+                "Existing Room qualifies for explicit atomic Save");
+        ValidationWorkCounters work;
+        YamlTransactionResult result;
+        {
+            ScopedValidationWork track(work);
+            result = writer.commit_single_file(prepared, TransactionDecision::KeepComments);
+        }
+        require(result.accepted && read(path) == "id: fast\nlabel: New # retain\n" &&
+                    work.get<WorkCounter::TransactionJournalWrites>() == 0 &&
+                    work.get<WorkCounter::TransactionFileSyncs>() == 2 &&
+                    work.get<WorkCounter::TransactionDirectorySyncs>() <= 5 &&
+                    writer.recover().accepted,
+                "Explicit single-file Save replaces durable YAML without a journal");
+        const auto rejected =
+            writer.commit_single_file(prepared, TransactionDecision::KeepComments);
+        require(!rejected.accepted && rejected.error.starts_with("WORKSPACE_REVISION_CONFLICT") &&
+                    read(path) == "id: fast\nlabel: New # retain\n",
+                "Reusing an approved old revision never overwrites newly installed YAML");
+    }
+    {
+        TemporaryProject competing;
+        const auto path = competing.root / "records/rooms/fast.yaml";
+        const std::string before = "id: fast\nlabel: Old\n";
+        write(path, before);
+        YamlTransactionService writer(competing.root);
+        const auto plan =
+            writer.prepare({change("records/rooms/fast.yaml", before, "/label", "\"New\"")},
+                           TransactionDecision::KeepComments);
+        require(plan.accepted, "Contention probe prepares a real existing source");
+        writer.set_single_file_hook_for_certification([&](YamlSingleFilePhase phase) {
+            if (phase != YamlSingleFilePhase::Staged)
+                return;
+            require(probe_competing_writer(executable, competing.root),
+                    "A competing journal writer cannot enter during single-file Save");
+            write(path, "id: fast\nlabel: External\n");
+        });
+        const auto rejected = writer.commit_single_file(plan, TransactionDecision::KeepComments);
+        require(!rejected.accepted && rejected.error.starts_with("WORKSPACE_REVISION_CONFLICT") &&
+                    read(path) == "id: fast\nlabel: External\n" && writer.recover().accepted,
+                "A replacement between preparation and rename retains external bytes");
+        require(fs::directory_iterator(competing.root / ".noveltea/transactions") ==
+                    fs::directory_iterator{},
+                "Rejected Save cleans its temporary stage without leaving a journal");
+    }
+    {
+        TemporaryProject missing;
+        const auto path = missing.root / "records/rooms/fast.yaml";
+        const std::string original = "id: fast\nlabel: Old\n";
+        write(path, original);
+        YamlTransactionService writer(missing.root);
+        const auto prepared =
+            writer.prepare({change("records/rooms/fast.yaml", original, "/label", "\"New\"")},
+                           TransactionDecision::KeepComments);
+        require(prepared.accepted, "Missing-file probe prepares a valid existing source");
+        fs::remove(path);
+        const auto gone = writer.commit_single_file(prepared, TransactionDecision::KeepComments);
+        require(!gone.accepted && gone.error.starts_with("WORKSPACE_REVISION_CONFLICT") &&
+                    !fs::exists(path),
+                "Single-file Save cannot recreate a removed external source");
+#ifndef _WIN32
+        const auto outside = missing.root / "unrelated.yaml";
+        write(outside, "id: unrelated\nlabel: User bytes\n");
+        fs::create_symlink(outside, path);
+        const auto replaced =
+            writer.commit_single_file(prepared, TransactionDecision::KeepComments);
+        require(!replaced.accepted && !replaced.error.empty() && fs::is_symlink(path) &&
+                    read(outside) == "id: unrelated\nlabel: User bytes\n",
+                "Single-file Save rejects symlink replacement without following user data");
+#endif
+        const std::string malformed = "id: [not closed\n";
+        fs::remove(path);
+        write(path, malformed);
+        const auto bad_plan =
+            writer.prepare({change("records/rooms/fast.yaml", malformed, "/label", "\"New\"")},
+                           TransactionDecision::KeepComments);
+        require(
+            !bad_plan.accepted &&
+                !writer.commit_single_file(bad_plan, TransactionDecision::KeepComments).accepted &&
+                read(path) == malformed,
+            "Malformed original YAML cannot bypass semantic and comment preparation");
+    }
+    for (const auto phase :
+         {YamlSingleFilePhase::BeforeStageSync, YamlSingleFilePhase::Staged,
+          YamlSingleFilePhase::Installed, YamlSingleFilePhase::BeforeDirectorySync,
+          YamlSingleFilePhase::DirectorySynced}) {
+        TemporaryProject failed;
+        const auto path = failed.root / "records/rooms/fast.yaml";
+        const std::string original = "id: fast\nlabel: Old\n";
+        write(path, original);
+        YamlTransactionService writer(failed.root);
+        const auto plan =
+            writer.prepare({change("records/rooms/fast.yaml", original, "/label", "\"New\"")},
+                           TransactionDecision::KeepComments);
+        require(plan.accepted, "Failure injection prepares a valid Room Save");
+        writer.set_single_file_hook_for_certification([phase](YamlSingleFilePhase hit) {
+            if (hit == phase)
+                throw std::runtime_error("Injected single-file failure");
+        });
+        const auto rejected = writer.commit_single_file(plan, TransactionDecision::KeepComments);
+        const bool installed = phase == YamlSingleFilePhase::Installed ||
+                               phase == YamlSingleFilePhase::BeforeDirectorySync ||
+                               phase == YamlSingleFilePhase::DirectorySynced;
+        require(!rejected.accepted && rejected.error == "Injected single-file failure" &&
+                    read(path) == (installed ? "id: fast\nlabel: New\n" : original) &&
+                    writer.recover().accepted &&
+                    fs::directory_iterator(failed.root / ".noveltea/transactions") ==
+                        fs::directory_iterator{},
+                "Failure around file and directory sync retains old or new entire bytes");
+    }
+#ifndef _WIN32
+    for (const auto phase :
+         {YamlSingleFilePhase::Staged, YamlSingleFilePhase::Installed,
+          YamlSingleFilePhase::BeforeDirectorySync, YamlSingleFilePhase::DirectorySynced}) {
+        TemporaryProject crashed;
+        const auto path = crashed.root / "records/rooms/fast.yaml";
+        const std::string original = "id: fast\nlabel: Old\n";
+        write(path, original);
+        YamlTransactionService writer(crashed.root);
+        const auto plan =
+            writer.prepare({change("records/rooms/fast.yaml", original, "/label", "\"New\"")},
+                           TransactionDecision::KeepComments);
+        require(plan.accepted, "Crash injection prepares existing YAML");
+        const auto child = fork();
+        require(child >= 0, "Fork single-file crash probe");
+        if (child == 0) {
+            YamlTransactionService dying(crashed.root);
+            dying.set_single_file_hook_for_certification([phase](YamlSingleFilePhase hit) {
+                if (hit == phase)
+                    _exit(93);
+            });
+            (void)dying.commit_single_file(plan, TransactionDecision::KeepComments);
+            _exit(94);
+        }
+        int status = 0;
+        require(waitpid(child, &status, 0) == child && WIFEXITED(status) &&
+                    WEXITSTATUS(status) == 93,
+                "Single-file crash probe exits at requested boundary");
+        require(writer.recover().accepted,
+                "Recovery reclaims crashed writer and orphan single-file stage");
+        const bool installed = phase != YamlSingleFilePhase::Staged;
+        require(read(path) == (installed ? "id: fast\nlabel: New\n" : original) &&
+                    fs::directory_iterator(crashed.root / ".noveltea/transactions") ==
+                        fs::directory_iterator{},
+                "Crash leaves a complete old/new YAML source and no orphan stage");
+    }
+    {
+        TemporaryProject abandoned;
+        const auto a = abandoned.root / "records/rooms/a.yaml";
+        const auto b = abandoned.root / "records/rooms/b.yaml";
+        const auto c = abandoned.root / "records/rooms/c.yaml";
+        const std::string original_a = "id: a\nlabel: Old A\n";
+        const std::string original_b = "id: b\nlabel: Old B\n";
+        const std::string original_c = "id: c\nlabel: Old C\n";
+        write(a, original_a);
+        write(b, original_b);
+        write(c, original_c);
+        YamlTransactionService writer(abandoned.root);
+        const auto journal =
+            writer.prepare({change("records/rooms/a.yaml", original_a, "/label", "\"New A\""),
+                            change("records/rooms/b.yaml", original_b, "/label", "\"New B\"")},
+                           TransactionDecision::KeepComments);
+        require(journal.accepted, "Abandoned multi-target journal prepares correctly");
+        const auto child = fork();
+        require(child >= 0, "Fork abandoned journal probe");
+        if (child == 0) {
+            YamlTransactionService dying(abandoned.root);
+            dying.set_durability_hook_for_certification([](YamlDurabilityPhase phase) {
+                if (phase == YamlDurabilityPhase::PreparedPublished)
+                    _exit(95);
+            });
+            (void)dying.commit(journal, TransactionDecision::KeepComments);
+            _exit(96);
+        }
+        int status = 0;
+        require(waitpid(child, &status, 0) == child && WIFEXITED(status) &&
+                    WEXITSTATUS(status) == 95,
+                "Abandoned journal probe leaves a real prepared transaction");
+        const auto fast_plan =
+            writer.prepare({change("records/rooms/c.yaml", original_c, "/label", "\"New C\"")},
+                           TransactionDecision::KeepComments);
+        require(fast_plan.accepted,
+                "Fast Save prepares an independent source after crashed journal");
+        const auto fast_commit =
+            writer.commit_single_file(fast_plan, TransactionDecision::KeepComments);
+        require(fast_commit.accepted,
+                "Fast Save reclaims abandoned journal writer: " + fast_commit.error);
+        require(read(a) == original_a, "Abandoned multi-owner target A changed: " + read(a));
+        require(read(b) == original_b, "Abandoned multi-owner target B changed: " + read(b));
+        require(read(c).find("New C") != std::string::npos,
+                "Fast Save did not install independent source C: " + read(c));
+        const auto recovered = writer.recover();
+        require(recovered.accepted,
+                "Recovered fast Save leaves no stale journal: " + recovered.error);
+    }
+#endif
 #ifndef _WIN32
     // The writer process dies at every durable journal boundary. Recovery
     // must roll back prepared generations, roll forward committed generations,

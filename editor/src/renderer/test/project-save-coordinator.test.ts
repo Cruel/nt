@@ -298,6 +298,7 @@ describe('project save coordinator', () => {
     expect(result).toMatchObject({ success: true, status: 'saved' });
     expect(nativeSave).toHaveBeenNthCalledWith(2, 'test-project-session', 0, 'record:rooms:foyer', {
       comments: 'remove',
+      saveMode: 'explicit-single-file',
     });
     Reflect.deleteProperty(window.noveltea, 'nativeProjectSaveUnit');
   });
@@ -442,6 +443,7 @@ describe('project save coordinator', () => {
     });
     expect(nativeSave).toHaveBeenCalledWith('test-project-session', 0, 'record:rooms:foyer', {
       comments: 'keep',
+      saveMode: 'explicit-single-file',
     });
     expect(window.noveltea.saveProjectContent).not.toHaveBeenCalled();
     const state = useProjectStore.getState();
@@ -1010,6 +1012,7 @@ describe('project save coordinator', () => {
       'project:platform-export-profiles',
       {
         comments: 'keep',
+        saveMode: 'explicit-single-file',
       },
     );
     expect(useProjectStore.getState().savedDocument).toMatchObject({
@@ -1055,6 +1058,7 @@ describe('project save coordinator', () => {
     });
     expect(nativeSave).toHaveBeenCalledWith('test-project-session', 0, 'record:rooms:foyer', {
       comments: 'keep',
+      saveMode: 'explicit-single-file',
     });
     const persistedEditor = buildEditorProjectStateSnapshot();
     expect(persistedEditor.recovery.saveUnitsById).toHaveProperty('record:rooms:kitchen');
@@ -1142,6 +1146,7 @@ describe('project save coordinator', () => {
     expect(result.success).toBe(true);
     expect(nativeSave).toHaveBeenCalledWith('test-project-session', 0, 'project:tags', {
       comments: 'keep',
+      saveMode: 'explicit-single-file',
     });
     const state = useProjectStore.getState();
     expect((state.savedDocument as typeof working).editor.tags.records.story?.color).toBe(
@@ -1250,6 +1255,7 @@ describe('project save coordinator', () => {
     });
     expect(nativeSave).toHaveBeenCalledWith('test-project-session', 0, 'record:rooms:foyer', {
       comments: 'keep',
+      saveMode: 'explicit-single-file',
     });
     expect(window.noveltea.saveProjectContent).not.toHaveBeenCalled();
     Reflect.deleteProperty(window.noveltea, 'nativeProjectSaveUnit');
@@ -1322,6 +1328,7 @@ describe('project save coordinator', () => {
     expect(nativeSave).toHaveBeenCalledWith('test-project-session', 0, 'record:rooms:foyer', {
       comments: 'keep',
       keepMine: true,
+      saveMode: 'explicit-single-file',
     });
     expect((useProjectStore.getState().savedDocument as typeof saved).rooms.foyer!.label).toBe(
       'Local Foyer',
@@ -1523,6 +1530,7 @@ describe('project save coordinator', () => {
     expect(result.status).toBe('saved');
     expect(nativeSave).toHaveBeenCalledWith('test-project-session', 0, 'record:rooms:foyer', {
       comments: 'keep',
+      saveMode: 'explicit-single-file',
     });
     expect((useProjectStore.getState().savedDocument as typeof saved).rooms.kitchen!.label).toBe(
       '',
@@ -1599,6 +1607,7 @@ describe('project save coordinator', () => {
     });
     expect(nativeSave).toHaveBeenCalledWith('test-project-session', 0, 'project:settings', {
       comments: 'keep',
+      saveMode: 'explicit-single-file',
     });
     expect(window.noveltea.saveProjectContent).not.toHaveBeenCalled();
     Reflect.deleteProperty(window.noveltea, 'nativeProjectSaveUnit');
@@ -1640,7 +1649,7 @@ describe('project save coordinator', () => {
       'test-project-session',
       0,
       ['record:rooms:foyer', 'record:rooms:kitchen'],
-      { comments: 'keep' },
+      { comments: 'keep', saveMode: 'explicit-single-file' },
     );
     expect(window.noveltea.saveProjectContent).not.toHaveBeenCalled();
     Reflect.deleteProperty(window.noveltea, 'nativeProjectSaveUnit');

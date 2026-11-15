@@ -93,6 +93,7 @@ interface CommandStoreState {
       comments?: 'keep' | 'remove' | 'cancel' | 'perEdit';
       textPaths?: string[];
       textContents?: Record<string, string>;
+      saveMode?: 'journaled' | 'explicit-single-file';
     },
     onAcknowledged?: (
       result: import('../../main/services/native-authoring-worker-contract').NativeAuthoringPatchResult,

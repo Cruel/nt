@@ -394,8 +394,8 @@ Session& session_arg(napi_env env, napi_value value)
 napi_value call(napi_env env, napi_callback_info info)
 {
     void* callback_data = nullptr;
-    napi_value argv[8]{};
-    std::size_t argc = 8;
+    napi_value argv[9]{};
+    std::size_t argc = 9;
     if (napi_get_cb_info(env, info, &argc, argv, nullptr, &callback_data) != napi_ok)
         return nullptr;
     const std::string name(static_cast<const char*>(callback_data));
@@ -660,7 +660,7 @@ napi_value call(napi_env env, napi_callback_info info)
             return js_string(env, result_string(*session.project, result));
         }
         if (name == "saveOwners") {
-            if (argc < 5 || argc > 8)
+            if (argc < 5 || argc > 9)
                 throw std::runtime_error("saveOwners needs revision, owners, keepMine, comments.");
             std::int64_t revision = -1;
             bool keep_mine = false;
@@ -701,7 +701,7 @@ napi_value call(napi_env env, napi_callback_info info)
                     text_paths.push_back(path.as<std::string>());
             }
             std::optional<noveltea::authoring::ProjectAssetTransition> assets;
-            if (argc == 8) {
+            if (argc >= 8 && !string_arg(env, argv[7]).empty()) {
                 const auto value = Json::parse(string_arg(env, argv[7]));
                 if (!value.is_object() || !value.contains("kind") || !value.at("kind").is_string())
                     throw std::runtime_error("Invalid native Asset transition.");
@@ -774,9 +774,16 @@ napi_value call(napi_env env, napi_callback_info info)
                     throw std::runtime_error("Unsupported native Asset transition.");
                 assets = std::move(selected_assets);
             }
-            const auto saved =
-                session.project->save_owners(static_cast<std::uint64_t>(revision), selected,
-                                             keep_mine, decision, paths, text_paths, assets);
+            const auto intent =
+                argc == 9 && string_arg(env, argv[8]) == "explicit-single-file"
+                    ? noveltea::authoring::ProjectSession::SaveIntent::ExplicitSingleFile
+                    : noveltea::authoring::ProjectSession::SaveIntent::Journaled;
+            if (argc == 9 && string_arg(env, argv[8]) != "explicit-single-file" &&
+                string_arg(env, argv[8]) != "journaled")
+                throw std::runtime_error("Invalid native Save intent.");
+            const auto saved = session.project->save_owners(static_cast<std::uint64_t>(revision),
+                                                            selected, keep_mine, decision, paths,
+                                                            text_paths, assets, intent);
             auto response = result_json(*session.project, saved);
             if (saved.accepted && !text_paths.empty()) {
                 response["textSourceDiskRevisions"] = Json::object();

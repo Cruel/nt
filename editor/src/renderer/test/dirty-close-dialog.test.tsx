@@ -590,6 +590,7 @@ describe('dirty tab close guard', () => {
 
     expect(native.save).toHaveBeenCalledWith('test-project-session', 1, 'record:rooms:foyer', {
       comments: 'keep',
+      saveMode: 'explicit-single-file',
     });
     expect(window.noveltea.saveProjectContent).not.toHaveBeenCalled();
     expect(useProjectStore.getState().savedDocument).toMatchObject({
@@ -628,6 +629,7 @@ describe('dirty tab close guard', () => {
 
     expect(native.save).toHaveBeenCalledWith('test-project-session', 1, 'record:rooms:foyer', {
       comments: 'keep',
+      saveMode: 'explicit-single-file',
     });
     expect(window.noveltea.saveProjectContent).not.toHaveBeenCalled();
     expect(useWorkbenchStore.getState().tabsById[tab.id]).toBeUndefined();

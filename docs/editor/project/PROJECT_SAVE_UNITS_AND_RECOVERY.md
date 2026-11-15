@@ -828,6 +828,33 @@ The #522 manual acceptance cases remain separate and open.
 
 - Save and `Ctrl+S` commit only the active tab's logical save unit. Source-file tabs participate in
   this same coordinator through `source-file:<path>` units rather than a toolbar-only save path.
+- An **explicit active-tab Save** passes the `explicit-single-file` intent through renderer,
+  main, worker, and native ProjectSession. Native preparation still performs source-aware YAML
+  comment review, scoped semantic validation, exact source revisions, invalid-source fences,
+  and writer-lock admission. Only an existing ordinary `records/<family>/<id>.yaml` record,
+  whose final prepared transaction has exactly one physical non-deletion target (no Layout,
+  creation, deletion, companion, Asset transition, or mixed text source), uses the fast path.
+  It stages the complete replacement in `.noveltea/transactions`, flushes the file, rechecks
+  the exact disk revision, atomically replaces the source, and flushes the target directory.
+  The shared writer lock serializes it against journal writers and abandoned journal recovery;
+  startup/recovery removes only uncommitted `.single-file-*.tmp` stages. It never attempts to
+  roll an installed file back after an ambiguous post-rename failure. The editor keeps its
+  dirty recovery overlay unless native Save acknowledges the exact successful revision.
+- **Save All always uses the journal**, even if only one dirty physical owner remains. The
+  same applies to structural/automatic commits, multi-owner/atomic-group operations, Layout
+  companions, record create/delete, source text and Asset moves, and other callers without an
+  explicit single-file intent. They retain the existing crash-recoverable multi-target journal
+  and complete-group rollback/roll-forward behavior; the fast path is never inferred from a
+  mere `targets.size() == 1`.
+- Durability boundary: on Linux/macOS the fast path flushes staged bytes and the destination
+  directory after rename; an interrupted pre-directory-sync rename can yield either *complete*
+  old or new bytes, but never a partially overwritten YAML source. On Windows the existing
+  native durability primitives use `FlushFileBuffers` and `MoveFileExW` with replace and
+  write-through, while directory flushes are not available in this implementation; power-loss
+  guarantees therefore depend on filesystem/host behavior and need packaged Windows/macOS
+  acceptance rather than extrapolating from Linux process-crash certification. As with all
+  exact-revision writes, noncooperating external writers must be reconciled through source
+  observation and conflicts; the cross-process lock only serializes NovelTea writers.
 - Save All attempts every dirty unit, including dirty source-file buffers, writes the maximal
   independently valid set, and leaves
   blocked units dirty with their recovery overlays intact. It intentionally has no shortcut that
@@ -937,6 +964,35 @@ concurrency is expressed through exact physical revisions at transaction, watche
 recovery boundaries. Aggregate `workspaceRevision` remains an internal stateless/cold-workspace
 primitive where independently useful, not an active-editor synchronization token. External rebase/
 conflict semantics are documented in `PROJECT_EXTERNAL_CHANGES_AND_CONFLICTS.md`.
+
+### Explicit single-file Save qualification (#634, 2026-11-15)
+
+Measured on the Linux development host, with a disposable Feature Lab Room,
+Release native C++ and the Release Node-API addon. Both modes use the **same
+real ProjectSession**, 23 saves per workload (the first is warmup; 22 measured),
+source revision checks, comment-aware YAML preparation, real disk writes and
+native publication. The addon timer starts **immediately before** `saveOwners`
+and stops at its return, excluding post-Save readback assertions.
+
+| Workload | Save p50 | Save p95 | Durable file / directory syncs per Save |
+| --- | ---: | ---: | ---: |
+| Native C++, explicit Room | 28.77 ms | 33.84 ms | 2 / 3 |
+| Native C++, journaled Room | 49.25 ms | 52.07 ms | 6 / 8 |
+| Node addon, explicit Room | 33.50 ms | 36.67 ms | 2 / 3 |
+| Node addon, journaled Room | 53.54 ms | 56.43 ms | 6 / 8 |
+
+Native fast-path mean phase cost: YAML preparation **4.42 ms**, commit
+**16.01 ms**, file syncs **6.20 ms**, directory syncs **8.81 ms** (sync time is
+included within commit/lock), plus roughly **7–8 ms** for the two required
+project snapshot publications. This removed nine durability syncs and both
+journal writes while retaining exact CAS (three checks) and recovery fencing.
+Against the pre-change 48.68–48.83 ms native Room median, the 28.77 ms result
+is about a **41% reduction**; compared with the same-run journaled baseline,
+the improvement is **42%**. The aspirational 20 ms median / 30 ms p95 target
+is **not met** on this host. The remaining lock owner and release syncs support
+cross-process safety; they were not elided for a faster benchmark. The Project
+manifest's journaled Save and its validation work are unchanged. This Linux
+measurement is not Windows/macOS power-loss or packaged-editor certification.
 
 ## Registered editor mapping
 

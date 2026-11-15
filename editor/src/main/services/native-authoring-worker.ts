@@ -42,6 +42,7 @@ interface NativeBinding {
     paths?: string,
     textPaths?: string,
     assetTransition?: string,
+    saveMode?: string,
   ): string;
   mutateSourceDirectory(
     handle: unknown,
@@ -407,20 +408,10 @@ parent.on('message', (raw: unknown) => {
                 JSON.stringify(command.owners),
                 command.keepMine,
                 command.comments,
-                ...(command.assetTransition
-                  ? [
-                      JSON.stringify(command.pathsByOwner ?? {}),
-                      JSON.stringify(command.textPaths ?? []),
-                      JSON.stringify(command.assetTransition),
-                    ]
-                  : command.textPaths
-                    ? [
-                        JSON.stringify(command.pathsByOwner ?? {}),
-                        JSON.stringify(command.textPaths),
-                      ]
-                    : command.pathsByOwner
-                      ? [JSON.stringify(command.pathsByOwner)]
-                      : []),
+                JSON.stringify(command.pathsByOwner ?? {}),
+                JSON.stringify(command.textPaths ?? []),
+                command.assetTransition ? JSON.stringify(command.assetTransition) : '',
+                command.saveMode ?? 'journaled',
               ),
             ),
           ),

@@ -670,6 +670,7 @@ export const nativeProjectSaveUnitArgumentsSchema = z
       .object({
         keepMine: z.boolean().optional(),
         comments: z.enum(['keep', 'remove', 'cancel', 'perEdit']).optional(),
+        saveMode: z.enum(['journaled', 'explicit-single-file']).optional(),
         structuralPathsByOwner: z
           .record(
             z

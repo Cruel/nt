@@ -5216,10 +5216,12 @@ RoomSessionResult ProjectSession::mutate_source_directory(std::uint64_t revision
     return result;
 }
 
-RoomSessionResult ProjectSession::save_owners(
-    std::uint64_t revision, const std::vector<std::string>& owners, bool keep_mine,
-    TransactionDecision comments, const std::map<std::string, std::vector<std::string>>& paths,
-    const std::vector<std::string>& text_paths, const std::optional<ProjectAssetTransition>& assets)
+RoomSessionResult
+ProjectSession::save_owners(std::uint64_t revision, const std::vector<std::string>& owners,
+                            bool keep_mine, TransactionDecision comments,
+                            const std::map<std::string, std::vector<std::string>>& paths,
+                            const std::vector<std::string>& text_paths,
+                            const std::optional<ProjectAssetTransition>& assets, SaveIntent intent)
 {
     ScopedValidationStageTime<WorkCounter::NativeScopedSaveMicros> total_save;
     RoomSessionResult response;
@@ -5980,7 +5982,16 @@ RoomSessionResult ProjectSession::save_owners(
                 throw std::runtime_error("Save projection differs from the working Project at " +
                                          differences.front().path + ".");
         }
-        const auto committed = writer.commit(prepared, comments);
+        // Save All is always journaled, including a single dirty record.
+        // Only an explicitly requested ordinary record Save with no linked
+        // physical operations may bypass the multi-file recovery journal.
+        const bool solitary_existing_record =
+            intent == SaveIntent::ExplicitSingleFile && selected.size() == 1 && deletions.empty() &&
+            text_paths.empty() && !assets && targets.size() == 1 &&
+            YamlTransactionService::single_file_eligible(prepared);
+        const auto committed = solitary_existing_record
+                                   ? writer.commit_single_file(prepared, comments)
+                                   : writer.commit(prepared, comments);
         if (!committed.accepted) {
             source_authority_->coverage_lost();
             throw std::runtime_error(committed.error);

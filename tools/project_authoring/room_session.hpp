@@ -194,6 +194,10 @@ private:
 // use one revision and one atomic generic patch batch. Production still uses TS.
 class ProjectSession {
 public:
+    enum class SaveIntent {
+        Journaled,
+        ExplicitSingleFile
+    };
     ~ProjectSession();
     static std::unique_ptr<ProjectSession> open(const std::filesystem::path& root,
                                                 std::string& error);
@@ -429,7 +433,8 @@ public:
                 TransactionDecision comments,
                 const std::map<std::string, std::vector<std::string>>& paths = {},
                 const std::vector<std::string>& text_paths = {},
-                const std::optional<ProjectAssetTransition>& assets = std::nullopt);
+                const std::optional<ProjectAssetTransition>& assets = std::nullopt,
+                SaveIntent intent = SaveIntent::Journaled);
     // Empty Project Explorer folders have no YAML or byte targets. Their
     // single-entry mkdir/rename/rmdir remains native-session-revision checked.
     RoomSessionResult mutate_source_directory(std::uint64_t revision, std::string_view kind,

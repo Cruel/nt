@@ -200,6 +200,7 @@ async function commitSelectedNativeSaveUnits(
   candidateContent: JsonValue,
   sourceIds: readonly string[] = [],
   keepMine = false,
+  explicitSingleFile = false,
 ): Promise<ProjectSaveCoordinatorResult> {
   const current = useProjectStore.getState();
   const remaining = uniqueSorted([
@@ -248,6 +249,7 @@ async function commitSelectedNativeSaveUnits(
       current.projectRevision,
       {
         comments,
+        ...(explicitSingleFile ? { saveMode: 'explicit-single-file' as const } : {}),
         ...(keepMine ? { keepMine: true } : {}),
         ...(sourceIds.length
           ? {
@@ -548,6 +550,7 @@ export async function saveActiveSaveUnit(
       candidateContent,
       [],
       options.allowExternalConflict ?? false,
+      true,
     );
   } catch (error) {
     const diagnostic = createProjectValidationDiagnostic({

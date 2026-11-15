@@ -950,6 +950,7 @@ export class NativeEditorSessionController {
       textContents?: Record<string, string>;
       structuralPathsByOwner?: Record<string, string[]>;
       assetTransition?: import('../../shared/editor-tooling').ProjectWorkspaceCommitOptions['assetTransition'];
+      saveMode?: 'journaled' | 'explicit-single-file';
     },
   ) {
     if (!this.isAdmitted(projectSessionId))

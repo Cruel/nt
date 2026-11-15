@@ -77,6 +77,15 @@ enum class YamlDurabilityPhase {
     CleanupComplete
 };
 
+// Certification hooks for the non-journaled, single-file replacement.
+enum class YamlSingleFilePhase {
+    BeforeStageSync,
+    Staged,
+    Installed,
+    BeforeDirectorySync,
+    DirectorySynced
+};
+
 // Host-only parallel native equivalent of workspace transaction ownership.
 // The user-facing comment approval occurs before this boundary: Prepare records
 // what the user reviewed, and Commit rejects a stale approval/physical revision.
@@ -88,6 +97,11 @@ public:
                                     TransactionDecision decision) const;
     YamlTransactionResult commit(const PreparedYamlTransaction& prepared,
                                  TransactionDecision decision);
+    // Explicit, existing, solitary record source only. The caller must have
+    // classified the user's intent; callers of commit() remain journaled.
+    YamlTransactionResult commit_single_file(const PreparedYamlTransaction& prepared,
+                                             TransactionDecision decision);
+    static bool single_file_eligible(const PreparedYamlTransaction& prepared);
     YamlTransactionResult recover();
 
     // When an invalid source has an attributable owner, only dependent paths
@@ -104,6 +118,10 @@ public:
     {
         durability_hook_ = std::move(hook);
     }
+    void set_single_file_hook_for_certification(std::function<void(YamlSingleFilePhase)> hook)
+    {
+        single_file_hook_ = std::move(hook);
+    }
 
 private:
     std::filesystem::path checked_path(std::string_view relative) const;
@@ -112,6 +130,7 @@ private:
     bool structural_uncertainty_ = false;
     std::function<void(std::size_t)> after_target_hook_;
     std::function<void(YamlDurabilityPhase)> durability_hook_;
+    std::function<void(YamlSingleFilePhase)> single_file_hook_;
 };
 
 } // namespace noveltea::authoring

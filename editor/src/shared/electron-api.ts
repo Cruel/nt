@@ -121,6 +121,7 @@ interface NovelTeaElectronApiContract {
       textContents?: Record<string, string>;
       structuralPathsByOwner?: Record<string, string[]>;
       assetTransition?: import('./editor-tooling').ProjectWorkspaceCommitOptions['assetTransition'];
+      saveMode?: 'journaled' | 'explicit-single-file';
     },
   ): Promise<
     import('../main/services/native-authoring-worker-contract').NativeAuthoringPatchResult
