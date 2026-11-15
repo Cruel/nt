@@ -234,13 +234,45 @@ void single_file_save_intent_roundtrip(const std::filesystem::path& fixture)
             "Journaled Save with exactly one dirty Room retains multi-file durability protocol");
     require(save_once("Undo-like return", ProjectSession::SaveIntent::ExplicitSingleFile) == 0,
             "Returning to an earlier value remains independently saveable");
+    // Save All with multiple dirty records must still be one journaled group,
+    // rather than a series of independently installed single-file writes.
+    const std::string second_owner = "rooms/room-lifecycle-start";
+    const auto second_physical = temp.root / "records/rooms/room-lifecycle-start.yaml";
+    require(project->inspect_record(second_owner).accepted,
+            "Multi-owner Save All fixture must admit a second existing Room");
+    const auto first_patch =
+        project->patch(project->working_revision(),
+                       {{RoomPatch::Operation::Replace, pointer, "\"Multi-owner first\""}});
+    const auto second_patch = project->patch(
+        project->working_revision(),
+        {{RoomPatch::Operation::Replace, "/rooms/room-lifecycle-start/data/displayName",
+          "\"Multi-owner second\""}});
+    require(first_patch.accepted && second_patch.accepted && second_patch.snapshot.dirty,
+            "Two independent Rooms are dirty before Save All");
+    ValidationWorkCounters grouped_work;
+    RoomSessionResult grouped;
+    {
+        ScopedValidationWork measurement(grouped_work);
+        grouped = project->save_owners(project->working_revision(), {owner, second_owner}, false,
+                                       TransactionDecision::KeepComments, {}, {}, std::nullopt,
+                                       ProjectSession::SaveIntent::Journaled);
+    }
+    require(grouped.accepted && !grouped.snapshot.dirty &&
+                grouped_work.get<WorkCounter::TransactionJournalWrites>() == 2 &&
+                read(physical).find("Multi-owner first") != std::string::npos &&
+                read(second_physical).find("Multi-owner second") != std::string::npos,
+            "Save All with two dirty records commits one durable multi-file journal");
     project.reset();
     auto reopened = ProjectSession::open(temp.root, error);
     require(reopened && reopened->inspect_record(owner).accepted &&
                 Json::parse(reopened->record_snapshots().at(owner).normalized_json)
                         .at("data")
-                        .at("displayName") == "Undo-like return",
-            "Reopening after a fast Save reads the exact committed Room revision");
+                        .at("displayName") == "Multi-owner first" &&
+                reopened->inspect_record(second_owner).accepted &&
+                Json::parse(reopened->record_snapshots().at(second_owner).normalized_json)
+                        .at("data")
+                        .at("displayName") == "Multi-owner second",
+            "Reopening after fast and grouped Saves reads both committed Room revisions");
 }
 
 // Standalone, host-dependent native measurement. Use the same disposable
