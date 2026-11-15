@@ -3,6 +3,7 @@
 #include "contracts.hpp"
 #include "source_analysis.hpp"
 
+#include <cstddef>
 #include <filesystem>
 #include <map>
 #include <optional>
@@ -10,6 +11,19 @@
 #include <vector>
 
 namespace noveltea::authoring {
+// Reusable, source-local Message contributions. The identity of a disk entry
+// is determined from its currently observed revision or freshly read bytes;
+// the cache is never a substitute for source authority or a physical read.
+struct NativeStructuredSourcesCache {
+    struct Entry {
+        std::string source_identity;
+        std::map<std::string, std::string> messages;
+    };
+    std::map<std::string, Entry> records;
+    std::size_t reused = 0;
+    std::size_t rechecked = 0;
+};
+
 struct NativeLocalizationTrackingOccurrence {
     std::size_t ordinal = 0;
     std::string structural_fingerprint;
@@ -56,5 +70,6 @@ ValidationResult
 validate_project_localization(const std::filesystem::path& project_root,
                               const std::map<std::string, std::string>& source_overlays = {},
                               const std::map<std::string, std::string>& record_overlays = {},
-                              const std::map<std::string, SourceAnalysis>& working_sources = {});
+                              const std::map<std::string, SourceAnalysis>& working_sources = {},
+                              NativeStructuredSourcesCache* structured_cache = nullptr);
 } // namespace noveltea::authoring

@@ -4573,7 +4573,13 @@ ValidationResult ProjectSession::validate_working_localization() const
                                 (owner.starts_with("layouts/") ? "/layout.yaml" : ".yaml"),
                             session->snapshot().source_json);
     }
-    return validate_project_localization(root_, localization, records, source_analyses());
+    for (const auto& [owner, _] : deleted_records_)
+        if (localization_record_owner(owner))
+            records.insert_or_assign("records/" + owner +
+                                         (owner.starts_with("layouts/") ? "/layout.yaml" : ".yaml"),
+                                     "null");
+    return validate_project_localization(root_, localization, records, source_analyses(),
+                                         &localization_structured_sources_);
 }
 
 std::map<std::string, RoomSessionSnapshot> ProjectSession::validated_disk_record_snapshots() const

@@ -99,6 +99,11 @@ void presentation_edit_roundtrip(const std::filesystem::path& fixture)
                     updated.affected_records == std::vector<std::string>{id} &&
                     read(room_path) == saved_before_edit,
                 "A Room display-name edit only changes the unsaved Room working state");
+        const auto [rechecked_sources, reused_sources] =
+            project->localization_structured_source_work();
+        require(rechecked_sources == 1 && reused_sources > 0,
+                "Room display-name mutation must update only its own structured Message "
+                "contributions while retaining unchanged source contributions");
         const auto edited = project->record_snapshots().at(id);
         const auto data = Json::parse(edited.normalized_json).at("data");
         const auto saved = Json::parse(edited.normalized_baseline_json).at("data");
@@ -118,6 +123,76 @@ void presentation_edit_roundtrip(const std::filesystem::path& fixture)
                     .at("data")
                     .at("displayName") == "Presentation edit 2",
             "Reopening must read the final saved Room display name");
+}
+
+// Standalone, host-dependent native measurement. Use the same disposable
+// Project copy, warm iteration policy and real Save/readback for each owner;
+// this is evidence, not a cross-host wall-clock CI gate.
+Json profile_presentation_edit(const std::filesystem::path& fixture)
+{
+    TemporaryProject temp(fixture);
+    std::string error;
+    auto project = ProjectSession::open(temp.root, error);
+    require(project && project->inspect_record("rooms/properties-and-traits").accepted,
+            "Cannot admit benchmark Room: " + error);
+    const auto measure = [&](std::string owner, std::string pointer, std::filesystem::path yaml) {
+        std::vector<double> patch_ms, save_ms, combined_ms;
+        std::size_t local_rechecked = 0, local_reused = 0;
+        for (int i = 0; i < 20; ++i) {
+            const auto value = "Native benchmark " + owner + " " + std::to_string(i);
+            const auto start = std::chrono::steady_clock::now();
+            const auto patched =
+                project->patch(project->working_revision(),
+                               {{RoomPatch::Operation::Replace, pointer, Json(value).to_string()}});
+            const auto patched_at = std::chrono::steady_clock::now();
+            require(patched.accepted && patched.snapshot.valid, "Benchmark patch rejected");
+            if (owner.starts_with("rooms/")) {
+                const auto [checked, reused] = project->localization_structured_source_work();
+                if (i > 0) {
+                    local_rechecked += checked;
+                    local_reused += reused;
+                }
+            }
+            const auto saved = project->save_owners(project->working_revision(), {owner}, false,
+                                                    TransactionDecision::KeepComments);
+            const auto saved_at = std::chrono::steady_clock::now();
+            require(saved.accepted && saved.snapshot.valid && !saved.snapshot.dirty &&
+                        read(yaml).find(value) != std::string::npos,
+                    "Benchmark scoped Save/readback failed");
+            if (i > 0) {
+                patch_ms.push_back(
+                    std::chrono::duration<double, std::milli>(patched_at - start).count());
+                save_ms.push_back(
+                    std::chrono::duration<double, std::milli>(saved_at - patched_at).count());
+                combined_ms.push_back(
+                    std::chrono::duration<double, std::milli>(saved_at - start).count());
+            }
+        }
+        const auto summarize = [](std::vector<double>& samples) {
+            std::sort(samples.begin(), samples.end());
+            Json summary = Json::object();
+            summary["warmCount"] = samples.size();
+            summary["medianMs"] = samples[samples.size() / 2];
+            summary["p95Ms"] = samples[(95 * samples.size() + 99) / 100 - 1];
+            summary["maxMs"] = samples.back();
+            return summary;
+        };
+        Json result = Json::object();
+        result["patch"] = summarize(patch_ms);
+        result["save"] = summarize(save_ms);
+        result["combined"] = summarize(combined_ms);
+        if (owner.starts_with("rooms/")) {
+            result["structuredSourcesRechecked"] = local_rechecked;
+            result["structuredSourcesReused"] = local_reused;
+        }
+        return result;
+    };
+    Json output = Json::object();
+    output["roomDisplayName"] =
+        measure("rooms/properties-and-traits", "/rooms/properties-and-traits/data/displayName",
+                temp.root / "records/rooms/properties-and-traits.yaml");
+    output["projectTitle"] = measure("project", "/project/name", temp.root / "project.yaml");
+    return output;
 }
 
 Json roundtrip(const std::filesystem::path& fixture, bool verify)
@@ -3537,6 +3612,10 @@ int main(int argc, char** argv)
         if (argc == 3 && std::string_view(argv[1]) == "--presentation-edit") {
             presentation_edit_roundtrip(argv[2]);
             std::cout << "Native Room presentation edit certification passed.\n";
+            return 0;
+        }
+        if (argc == 3 && std::string_view(argv[1]) == "--profile-presentation-edit") {
+            std::cout << profile_presentation_edit(argv[2]).to_string() << '\n';
             return 0;
         }
         if (argc == 2 && (std::string_view(argv[1]) == "--validate" ||

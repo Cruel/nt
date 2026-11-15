@@ -177,6 +177,71 @@ and coalesced native synchronization instead of waiting for worker acknowledgmen
 Do not mark #522 human or end-to-end UI-performance acceptance as passing until
 those are implemented and qualified on an interactive installed editor.
 
+### #601 native follow-up: source-local reuse and journal preparation (2026-11-14)
+
+The candidate native implementation adds exact-content-identified, per-record
+structured Message contributions to resident localization validation. Each
+changed Room contributor is decoded and projected once per new source identity;
+unchanged contributors reuse their source-local projections. Without a verified
+source observation, unchanged files are still read and exactly fingerprinted:
+this is **not** a watcher-bypass or a substitute for source authority. The
+working overlay includes staged additions and removals; a deleted source cannot
+continue contributing text. Regression coverage checks cold/incremental
+diagnostic parity and a same-size external source edit with its timestamp reset.
+
+The native YAML transaction now writes and syncs blobs directly in its
+unpublished staging directory, syncs the blob directories before publication,
+and eliminates intermediate `writing` and per-target journal manifests. The
+durable `prepared` journal contains the full exact-revision transaction;
+recovery rolls back any incomplete target sequence. The durable `committed`
+marker is still published after every target replacement. A real child-process
+crash after the first rename certifies replay from a `prepared` manifest without
+per-target progress markers. No durability, source revision, or writer lock
+requirements are relaxed.
+
+The repeatable native `noveltea-project-session-certify
+--profile-presentation-edit tests/projects/feature-lab` mode measures 20 actual
+patch + scoped Save/readback cycles, discards the first cycle, and reports
+warm median/p95/max per owner plus structured Message work counts. It runs
+against a disposable Feature Lab copy and does not stand in for the packaged
+Electron input-to-paint or addon-worker benchmark. This step alone does **not**
+complete #601: typed semantic invalidation, revision-aware Project snapshot
+publication, the full Release-addon target, and human editor acceptance remain
+independent gates. Do not infer #522 or #609 closure from these native tests.
+
+The initial candidate measurement was taken on a Linux 6.1 x64 Debian host
+(GCC 12.2, Ryzen 7 5700G), optimized `-O3 -DNDEBUG` native test executable,
+against base HEAD `353c7aed` plus the uncommitted changes described here.
+Command: `build/issue-601-release-ninja/tools/project_authoring/noveltea-project-session-certify
+--profile-presentation-edit tests/projects/feature-lab`. Each row contains 19
+warm iterations; metrics are **milliseconds, median / p95 / maximum**.
+
+| Native operation | Patch | Scoped Save | Combined |
+| --- | --- | --- | --- |
+| Room display name | 52.51 / 59.40 / 59.40 | 57.36 / 81.58 / 81.58 | 109.18 / 135.01 / 135.01 |
+| Project title | 25.56 / 28.59 / 28.59 | 100.80 / 127.65 / 127.65 | 127.87 / 153.25 / 153.25 |
+
+The Room's 19 warm updates rechecked 19 structured-source owners and reused
+2,717 unchanged source-local contributors. Every measured cycle was a real
+native mutation and durable owner Save with YAML readback. The new executable
+does not run through the earlier Node-API addon, and no same-host **previous
+revision** was measured through this identical command. Therefore these values
+do **not** establish a controlled before/after speedup against the 2026-11-11
+120.8/75.2-ms addon baseline. The Room patch exceeds the desired 10-ms median
+and 20-ms p95, and its 57.36-ms Save median exceeds the provisional 50-ms
+budget; the Project title Save remains substantially slower. This is a partial
+performance improvement candidate, **not an accepted #601 performance gate**.
+
+Local verification: Linux native Project-session, Room presentation, typed
+reference invalidation, dependency mutation graph, project validation, working
+preparation, source watcher races, localization and YAML transaction recovery
+CTests passed (including real crash/restart journal replay); the pinned C++
+clang-format check passed all 730 files. `pnpm -C editor run check` passed
+formatting, lint, TypeScript and schema/contract checks, with a Node engine
+warning for installed 24.16.0 versus required 24.18.0. Packaged-addon/renderer
+performance, Windows/macOS native regression, and physical UI acceptance were
+**not** rerun for this isolated native C++ candidate.
+
 ## #609 packaged editing performance gate (2026-11-12; NOT CERTIFIED)
 
 **Automated Linux/Xvfb evidence only. None of the eight human Feature Lab

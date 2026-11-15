@@ -1,6 +1,7 @@
 #pragma once
 
 #include "contracts.hpp"
+#include "localization_semantics.hpp"
 #include "semantic_graph_dependencies.hpp"
 #include "source_authority.hpp"
 #include "source_analysis.hpp"
@@ -339,6 +340,11 @@ public:
     {
         return localization_source_path_cache_hits_;
     }
+    std::pair<std::size_t, std::size_t> localization_structured_source_work() const noexcept
+    {
+        return {localization_structured_sources_.rechecked,
+                localization_structured_sources_.reused};
+    }
     const std::map<std::string, std::string>& text_source_overlays() const
     {
         return text_source_overlays_;
@@ -651,6 +657,7 @@ private:
     // Reuse unchanged localization fragments across unrelated Project snapshots;
     // only native i18n edits and observed i18n source changes invalidate them.
     mutable std::optional<ValidationResult> localization_cache_;
+    mutable NativeStructuredSourcesCache localization_structured_sources_;
     // An effective lock materialized from sparse disk content is still a
     // working-session invariant, even before the policy YAML is next saved.
     std::optional<std::string> localization_source_lock_;

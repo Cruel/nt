@@ -539,6 +539,20 @@ void certify(const fs::path& executable)
             "Crash fault occurs after first physical rename while lock/journal remain");
     require(read(first) != crash_before_a && read(second) == crash_before_b,
             "Crash left a physically partial group for journal recovery");
+    // The entire target list was durable before any physical write. A crash
+    // after the first rename must be recoverable without a per-target journal
+    // rewrite or a separately persisted "writing" state.
+    std::size_t prepared_journals = 0;
+    for (const auto& entry : fs::directory_iterator(temp.root / ".noveltea/transactions")) {
+        if (!entry.is_directory() || !fs::is_regular_file(entry.path() / "manifest.json"))
+            continue;
+        const auto manifest = read(entry.path() / "manifest.json");
+        if (manifest.find("\"state\":\"prepared\"") != std::string::npos &&
+            manifest.find("\"completedTargets\":[]") != std::string::npos)
+            ++prepared_journals;
+    }
+    require(prepared_journals == 1,
+            "Crash recovery must not depend on eagerly persisted progress markers");
     require(writer.recover().accepted && read(first) == crash_before_a &&
                 read(second) == crash_before_b,
             "Dead writer lock is reclaimed and incomplete journal rolled back exactly");

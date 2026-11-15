@@ -190,6 +190,22 @@ void write_atomic(const fs::path& path, std::string_view contents)
     }
 }
 
+// Blobs in an unpublished .preparing-* directory have no readers and cannot
+// be replayed until the whole directory has been durably renamed. They do not
+// need a second, per-blob atomic rename; the journal publication is the commit
+// boundary. The caller syncs the blob directories before that publication.
+void write_prepared_blob(const fs::path& path, std::string_view contents)
+{
+    fs::create_directories(path.parent_path());
+    {
+        std::ofstream file(path, std::ios::binary | std::ios::trunc);
+        if (!file || !file.write(contents.data(), static_cast<std::streamsize>(contents.size())) ||
+            !file.flush())
+            throw std::runtime_error("Cannot stage Project transaction blob.");
+    }
+    sync_file(path);
+}
+
 // Approval tokens are cryptographic authorization evidence, not source revisions.
 std::string approval_sha256(std::string_view source)
 {
@@ -1133,12 +1149,15 @@ YamlTransactionResult YamlTransactionService::commit(const PreparedYamlTransacti
                                              : "before/" + std::to_string(i);
                 const auto after_blob = target.erase ? std::string{} : "after/" + std::to_string(i);
                 if (!before_blob.empty())
-                    write_atomic(preparation / before_blob, target.before_source);
+                    write_prepared_blob(preparation / before_blob, target.before_source);
                 if (!after_blob.empty())
-                    write_atomic(preparation / after_blob, target.after_source);
+                    write_prepared_blob(preparation / after_blob, target.after_source);
                 journal.targets.push_back({target.path, target.before_revision,
                                            target.after_revision, before_blob, after_blob});
             }
+            for (const char* subdirectory : {"before", "after"})
+                if (fs::is_directory(preparation / subdirectory))
+                    sync_directory(preparation / subdirectory);
             sync_directory(preparation);
             write_journal(preparation, journal);
             fs::rename(preparation, directory);
@@ -1149,15 +1168,18 @@ YamlTransactionResult YamlTransactionService::commit(const PreparedYamlTransacti
                     throw std::runtime_error(
                         "WORKSPACE_REVISION_CONFLICT: target changed after staging: " +
                         target.path);
-            journal.state = "writing";
-            write_journal(directory, journal);
+            // The durable "prepared" manifest already contains every target
+            // and both revisions. Recovery detects applied writes from their
+            // exact on-disk revisions, so a second "writing" journal and a
+            // manifest rewrite after each target add only durability barriers.
+            // If the process dies before "committed", replay rolls the group
+            // back, whether zero or all target renames have occurred.
             for (std::size_t index = 0; index < journal.targets.size(); ++index) {
                 const auto& target = journal.targets[index];
                 apply_target(root_, directory, target, true);
                 if (after_target_hook_)
                     after_target_hook_(index);
                 journal.completed.push_back(target.path);
-                write_journal(directory, journal);
             }
             journal.state = "committed";
             write_journal(directory, journal);

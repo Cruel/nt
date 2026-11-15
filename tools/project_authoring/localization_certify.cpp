@@ -68,6 +68,53 @@ void certify(const std::filesystem::path& source)
             std::cerr << issue.path << " " << issue.message << "\n";
     require(initial.accepted, "Existing split Feature Lab localization is valid");
     {
+        Fixture incremental(source);
+        NativeStructuredSourcesCache cache;
+        const auto cold = validate_project_localization(incremental.root, {}, {}, {}, &cache);
+        require(cold.accepted && cache.rechecked > 0 && cache.reused == 0,
+                "Initial localization builds its structured-source contributions");
+        const auto unchanged = validate_project_localization(incremental.root, {}, {}, {}, &cache);
+        require(unchanged.accepted && cache.rechecked == 0 && cache.reused > 0 &&
+                    unchanged.effective_json == cold.effective_json,
+                "Unchanged structured-source contributions are reused exactly");
+
+        // A same-size source edit with restored timestamp must not reuse a
+        // stale cached contribution when no physical observation is active.
+        const auto room = incremental.root / "records/rooms/properties-and-traits.yaml";
+        const auto old_timestamp = std::filesystem::last_write_time(room);
+        auto yaml = contents(room);
+        const auto at = yaml.find("displayName: Properties & Traits");
+        require(at != std::string::npos, "Expected Room display-name contributor");
+        yaml.replace(at, std::string("displayName: Properties & Traits").size(),
+                     "displayName: Properties & TraitS");
+        std::ofstream(room, std::ios::trunc) << yaml;
+        std::filesystem::last_write_time(room, old_timestamp);
+        const auto changed = validate_project_localization(incremental.root, {}, {}, {}, &cache);
+        const auto fresh = validate_project_localization(incremental.root);
+        require(cache.rechecked == 1 && cache.reused > 0 && changed.accepted == fresh.accepted &&
+                    changed.effective_json == fresh.effective_json &&
+                    changed.diagnostics.size() == fresh.diagnostics.size(),
+                "Exact physical source content invalidates only its own localization contribution");
+        for (std::size_t i = 0; i < changed.diagnostics.size(); ++i)
+            require(changed.diagnostics[i].path == fresh.diagnostics[i].path &&
+                        changed.diagnostics[i].code == fresh.diagnostics[i].code &&
+                        changed.diagnostics[i].message == fresh.diagnostics[i].message,
+                    "Incremental localization diagnostics equal cold source validation");
+
+        std::map<std::string, std::string> working{
+            {"records/rooms/cache-new-room.yaml", R"({"data":{"displayName":"Unsaved Room"}})"}};
+        (void)validate_project_localization(incremental.root, {}, working, {}, &cache);
+        require(cache.records.contains("records/rooms/cache-new-room.yaml") &&
+                    cache.records.at("records/rooms/cache-new-room.yaml")
+                            .messages.at("/rooms/cache-new-room/data/displayName") ==
+                        "Unsaved Room",
+                "New unsaved Room contributes structured localization sources before Save");
+        working.insert_or_assign("records/rooms/properties-and-traits.yaml", "null");
+        (void)validate_project_localization(incremental.root, {}, working, {}, &cache);
+        require(cache.records.at("records/rooms/properties-and-traits.yaml").messages.empty(),
+                "Removed working Room stops contributing saved structured Messages");
+    }
+    {
         Fixture contributors(source);
         const auto locale_path = contributors.root / "i18n/locales/fr.yaml";
         const auto parsed = open_yaml_source(contents(locale_path));

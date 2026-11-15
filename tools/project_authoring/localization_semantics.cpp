@@ -152,8 +152,10 @@ std::optional<Json> working_record(const std::filesystem::path& root,
 {
     const auto name = "records/" + std::string(family) + "/" + std::string(id) +
                       (family == "layouts" ? "/layout.yaml" : ".yaml");
-    if (const auto it = overlays.find(name); it != overlays.end())
-        return Json::parse(it->second);
+    if (const auto it = overlays.find(name); it != overlays.end()) {
+        auto value = Json::parse(it->second);
+        return value.is_null() ? std::nullopt : std::optional<Json>(std::move(value));
+    }
     if (const auto* source = observed_project_source(root / name); source && source->yaml)
         return source->yaml->accepted ? std::optional<Json>(Json::parse(source->yaml->source_json))
                                       : std::nullopt;
@@ -411,9 +413,15 @@ const ManagedSourceOccurrence* tracked_occurrence(const Json& entry, const Json&
 
 std::map<std::string, std::string>
 structured_sources(const std::filesystem::path& root,
-                   const std::map<std::string, std::string>& record_overlays)
+                   const std::map<std::string, std::string>& record_overlays,
+                   NativeStructuredSourcesCache* cache = nullptr)
 {
     std::map<std::string, std::string> messages;
+    std::set<std::string> present_records;
+    if (cache) {
+        cache->reused = 0;
+        cache->rechecked = 0;
+    }
     for (const auto* family : {"characters", "rooms", "interactables", "dialogues", "scenes",
                                "verbs", "interactions", "maps"}) {
         const auto normalized_path = std::string("records/") + family;
@@ -428,15 +436,78 @@ structured_sources(const std::filesystem::path& root,
                     if (entry.is_regular_file() && entry.path().extension() == ".yaml")
                         ids.insert(entry.path().stem().string());
         }
+        // Staged new records have no physical path yet. A deletion overlay
+        // replaces a still-present disk record with a null working source.
+        for (const auto& [path, _] : record_overlays) {
+            const auto relative = std::filesystem::path(path);
+            if (relative.parent_path().generic_string() == normalized_path &&
+                relative.extension() == ".yaml")
+                ids.insert(relative.stem().string());
+        }
         for (const auto& id : ids) {
-            const auto record = working_record(root, record_overlays, family, id);
-            if (!record || !record->contains("data") || !record->at("data").is_object())
-                continue;
-            const auto base = "/" + std::string(family) + "/" + escape(id) + "/data";
-            collect_top_level_strings(record->at("data"), base, messages);
-            collect_structured_sources(record->at("data"), base, messages);
+            const auto relative = normalized_path + "/" + id + ".yaml";
+            if (cache)
+                present_records.insert(relative);
+            std::optional<Json> record;
+            std::string identity;
+            std::string disk_bytes;
+            const auto overlay = record_overlays.find(relative);
+            const VerifiedProjectSource* observed = nullptr;
+            if (cache) {
+                if (overlay != record_overlays.end()) {
+                    identity = "working:" + exact_source_revision(overlay->second);
+                } else if ((observed = observed_project_source(root / relative)) &&
+                           observed->yaml) {
+                    identity = "observed:" + observed->revision;
+                } else {
+                    const auto path = root / relative;
+                    if (std::filesystem::is_regular_file(path)) {
+                        std::ifstream input(path, std::ios::binary);
+                        disk_bytes.assign(std::istreambuf_iterator<char>{input},
+                                          std::istreambuf_iterator<char>{});
+                        if (!input.bad())
+                            identity = "disk:" + exact_source_revision(disk_bytes);
+                    }
+                }
+                const auto previous = cache->records.find(relative);
+                if (!identity.empty() && previous != cache->records.end() &&
+                    previous->second.source_identity == identity) {
+                    messages.insert(previous->second.messages.begin(),
+                                    previous->second.messages.end());
+                    ++cache->reused;
+                    continue;
+                }
+                ++cache->rechecked;
+                if (overlay != record_overlays.end())
+                    record = Json::parse(overlay->second);
+                else if (observed && observed->yaml && observed->yaml->accepted)
+                    record = Json::parse(observed->yaml->source_json);
+                else if (!identity.empty()) {
+                    const auto decoded = open_yaml_source(disk_bytes);
+                    if (decoded.accepted)
+                        record = Json::parse(decoded.source_json);
+                }
+            } else {
+                record = working_record(root, record_overlays, family, id);
+            }
+            std::map<std::string, std::string> contributions;
+            if (record && record->contains("data") && record->at("data").is_object()) {
+                const auto base = "/" + std::string(family) + "/" + escape(id) + "/data";
+                collect_top_level_strings(record->at("data"), base, contributions);
+                collect_structured_sources(record->at("data"), base, contributions);
+            }
+            if (cache && !identity.empty())
+                cache->records.insert_or_assign(relative, NativeStructuredSourcesCache::Entry{
+                                                              std::move(identity), contributions});
+            messages.insert(contributions.begin(), contributions.end());
         }
     }
+    if (cache)
+        for (auto it = cache->records.begin(); it != cache->records.end();)
+            if (!present_records.contains(it->first))
+                it = cache->records.erase(it);
+            else
+                ++it;
     return messages;
 }
 
@@ -1058,7 +1129,8 @@ ValidationResult
 validate_project_localization(const std::filesystem::path& project_root,
                               const std::map<std::string, std::string>& source_overlays,
                               const std::map<std::string, std::string>& record_overlays,
-                              const std::map<std::string, SourceAnalysis>& working_sources)
+                              const std::map<std::string, SourceAnalysis>& working_sources,
+                              NativeStructuredSourcesCache* structured_cache)
 {
     ValidationResult result;
     try {
@@ -1098,7 +1170,8 @@ validate_project_localization(const std::filesystem::path& project_root,
         const auto physical_messages = model.at("messages");
         const auto physical_ids = model.at("structuredMessageIds");
         static const std::regex placeholder(R"(\{([A-Za-z_][A-Za-z0-9_-]*)\})");
-        for (const auto& [path, source_text] : structured_sources(project_root, record_overlays)) {
+        for (const auto& [path, source_text] :
+             structured_sources(project_root, record_overlays, structured_cache)) {
             const auto id = physical_ids.contains(path) ? physical_ids.at(path).as<std::string>()
                                                         : derived_message_id(path);
             model["structuredMessageIds"].insert_or_assign(path, id);
