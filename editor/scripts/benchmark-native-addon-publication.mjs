@@ -80,6 +80,7 @@ try {
     coldOpenAndSnapshotMs: Number(coldOpenAndSnapshotMs.toFixed(2)),
     additionalInspected: requestedExtra,
   };
+  const validateWorking = process.argv.includes('--validate-working');
   for (const [label, target, pointer, yaml] of [
     ['roomDisplayName', owner, `/${owner}/data/displayName`, `records/${owner}.yaml`],
     ['roomDescription', owner, `/${owner}/data/description/source/text`, `records/${owner}.yaml`],
@@ -88,7 +89,8 @@ try {
     const patchTimes = [],
       saveTimes = [],
       combinedTimes = [],
-      staleTimes = [];
+      staleTimes = [],
+      validationTimes = [];
     for (let i = 0; i < 20; i++) {
       const value = `Addon publication ${label} ${i}`;
       const beforeDisk = await readFile(path.join(project, yaml), 'utf8');
@@ -111,6 +113,15 @@ try {
       );
       assert.equal(await readFile(path.join(project, yaml), 'utf8'), beforeDisk);
 
+      if (validateWorking) {
+        const validationStarted = performance.now();
+        const validated = JSON.parse(binding.validateWorking(handle, revision));
+        validationTimes.push(performance.now() - validationStarted);
+        assert.equal(validated.workingRevision, revision);
+        assert.equal(validated.valid, true, JSON.stringify(validated.diagnostics));
+      }
+
+      const saveStarted = validateWorking ? performance.now() : afterPatch;
       const saved = accepted(
         'scoped Save',
         binding.saveOwners(
@@ -160,7 +171,7 @@ try {
       }
 
       patchTimes.push(afterPatch - start);
-      saveTimes.push(afterSave - afterPatch);
+      saveTimes.push(afterSave - saveStarted);
       combinedTimes.push(afterSave - start);
     }
     output[label] = {
@@ -169,6 +180,7 @@ try {
       rejectedCAS: summary(staleTimes),
       combined: summary(combinedTimes),
     };
+    if (validateWorking) output[label].validateWorking = summary(validationTimes);
   }
   const beforeInvalid = JSON.parse(binding.snapshot(handle));
   const description = beforeInvalid.recordSnapshots[owner].source.data.description;

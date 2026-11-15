@@ -229,6 +229,28 @@ std::set<std::string> semantic_changed_paths(const std::string& owner, const std
     return changed;
 }
 
+bool record_presentation_only_change(std::string_view owner, const std::set<std::string>& changed)
+{
+    if (changed.empty() || (!owner.starts_with("rooms/") && !owner.starts_with("maps/")))
+        return false;
+    // Room/Map presentation changes affect their own diagnostics, localized
+    // text, and serialized working values, but not the reference-dependent
+    // *semantics* of another record. In particular, a broad explicit-ref edge
+    // to /data must not turn /data/displayName into a transitive graph change.
+    // The Project's independent text/localization and resource stages still
+    // run when those inputs change.
+    const auto root = "/" + std::string(owner);
+    const auto under = [](std::string_view child, std::string_view parent) {
+        return child == parent || (child.size() > parent.size() && child.starts_with(parent) &&
+                                   child[parent.size()] == '/');
+    };
+    for (const auto& path : changed)
+        if (!under(path, root + "/label") && !under(path, root + "/description") &&
+            !under(path, root + "/data/displayName") && !under(path, root + "/data/description"))
+            return false;
+    return true;
+}
+
 bool overlapping_semantic_paths(std::string_view changed, std::string_view consumed)
 {
     const auto ancestor = [](std::string_view path, std::string_view other) {
@@ -2041,9 +2063,33 @@ RoomSessionSnapshot ProjectSession::validate_project(bool observed_at_entry,
     }
 
     const auto directly_invalidated_owners = validation_invalidated_owners_;
-    if (validation_invalidated_owners_.contains("project") ||
+    // A Project name/author/description edit changes the admitted manifest
+    // snapshot, but cannot change the identity, references or effective
+    // configuration of any authored record. Previously *every* Project edit
+    // revalidated all 294 Feature Lab records, even a title keystroke. Match
+    // only normalized effective paths and retain the existing conservative
+    // behavior for settings, entrypoint, structural edits and uncertain input.
+    const bool manifest_metadata_only = [&] {
+        if (!validation_invalidated_owners_.contains("project") || !validation_snapshot_ ||
+            !validation_snapshot_->valid)
+            return false;
+        const auto current = source_->snapshot();
+        if (!current.valid || current.normalized_json.empty() ||
+            validation_snapshot_->normalized_json.empty())
+            return false;
+        const auto changes = semantic_changed_paths(
+            "project", validation_snapshot_->normalized_json, current.normalized_json);
+        static const std::set<std::string> presentation_paths = {
+            "/project/project/name", "/project/project/author", "/project/project/description"};
+        // A saved formatting/comment-only rewrite has no changed effective
+        // paths, but still needs its own disk/source-location observation.
+        return std::all_of(changes.begin(), changes.end(), [&](const std::string& path) {
+            return presentation_paths.contains(path);
+        });
+    }();
+    if ((validation_invalidated_owners_.contains("project") && !manifest_metadata_only) ||
         validation_invalidated_owners_.contains("traits")) {
-        if (validation_invalidated_owners_.contains("project"))
+        if (validation_invalidated_owners_.contains("project") && !manifest_metadata_only)
             validation_work_.semantic_fallback_reasons.insert("manifest-global-input");
         if (validation_invalidated_owners_.contains("traits"))
             validation_work_.semantic_fallback_reasons.insert("trait-schema-global-input");
@@ -2080,7 +2126,9 @@ RoomSessionSnapshot ProjectSession::validate_project(bool observed_at_entry,
                 changes.insert("/" + owner + "/data/contentHash");
                 changes.insert("/" + owner + "/data/source");
             }
-            if (!changes.empty())
+            validation_work_.typed_change_paths += changes.size();
+            count_validation_work<WorkCounter::TypedChangePaths>(changes.size());
+            if (!changes.empty() && !record_presentation_only_change(owner, changes))
                 pending.emplace_back(owner, std::move(changes));
         }
         std::set<std::string> processed;
@@ -2099,13 +2147,18 @@ RoomSessionSnapshot ProjectSession::validate_project(bool observed_at_entry,
                 if (found == reverse.end())
                     return;
                 for (const auto& [consumer, paths] : found->second) {
+                    ++validation_work_.typed_edges_considered;
+                    count_validation_work<WorkCounter::TypedEdgesConsidered>();
                     if (std::any_of(paths.begin(), paths.end(), [&](const std::string& path) {
                             return std::any_of(changes.begin(), changes.end(),
                                                [&](const std::string& changed) {
                                                    return overlapping_semantic_paths(changed, path);
                                                });
                         })) {
-                        validation_invalidated_owners_.insert(consumer);
+                        if (validation_invalidated_owners_.insert(consumer).second) {
+                            ++validation_work_.typed_consumer_invalidations;
+                            count_validation_work<WorkCounter::TypedConsumerInvalidations>();
+                        }
                         if (!processed_derived.contains(consumer))
                             pending.emplace_back(consumer, std::set<std::string>{"/" + consumer});
                     }
@@ -2174,25 +2227,37 @@ RoomSessionSnapshot ProjectSession::validate_project(bool observed_at_entry,
                                current != validation_normalized_records_.end() &&
                                previous->second == current->second.normalized_json;
                     });
+    // The global Interaction/Inventory/Project policy stages do not consume
+    // the admitted Project's display name, author or description. Retain
+    // their diagnostic generation for a metadata-only mutation, but never
+    // across another changed physical source or an invalidated dependent.
+    const bool manifest_presentation_global =
+        manifest_metadata_only &&
+        validation_invalidated_owners_ == std::set<std::string>{"project"} &&
+        std::all_of(validation_pending_source_revisions_.begin(),
+                    validation_pending_source_revisions_.end(),
+                    [](const auto& entry) { return entry.first == "project.yaml"; });
     reuse_validation_global_contribution_ =
-        validation_snapshot_ && (text_only_updates || !presentation_only_updates.empty()) &&
+        validation_snapshot_ &&
+        (text_only_updates || manifest_presentation_global || !presentation_only_updates.empty()) &&
         !validation_pending_uncertain_ &&
         (observation.authoritative || observation.scoped_authority) &&
-        (text_only_updates || validation_invalidated_owners_ == presentation_only_updates) &&
+        (text_only_updates || manifest_presentation_global ||
+         validation_invalidated_owners_ == presentation_only_updates) &&
         (validation_pending_asset_owners_.empty() ||
          (!validation_pending_source_revisions_.empty() &&
           std::all_of(validation_pending_source_revisions_.begin(),
                       validation_pending_source_revisions_.end(),
                       [](const auto& entry) { return analyzable_text_path(entry.first); }))) &&
         validation_shader_overlays_ == shader_overlays_ && localization_cache_ &&
-        (text_only_updates ||
+        (text_only_updates || manifest_presentation_global ||
          std::all_of(presentation_only_updates.begin(), presentation_only_updates.end(),
                      [](const std::string& owner) {
                          // Other families can feed generated localization and
                          // message diagnostics even on a label-only edit.
                          return owner.starts_with("rooms/") || owner.starts_with("maps/");
                      })) &&
-        (text_only_updates ||
+        (text_only_updates || manifest_presentation_global ||
          std::all_of(validation_pending_source_revisions_.begin(),
                      validation_pending_source_revisions_.end(), [&](const auto& entry) {
                          const auto& path = entry.first;
@@ -2941,9 +3006,16 @@ RoomSessionSnapshot ProjectSession::snapshot() const
     // static subject/Feature lookup closure. Do not traverse every authored
     // Interaction for those high-frequency Inventory edits.
     bool changed_subjects = false;
-    if (manifest_dirty && !state.normalized_json.empty() && !state.baseline_json.empty()) {
-        const auto current = Json::parse(state.normalized_json).at("interactableInstances");
-        const auto baseline = Json::parse(state.baseline_json).at("interactableInstances");
+    if (manifest_dirty && !state.normalized_json.empty() &&
+        !state.normalized_baseline_json.empty()) {
+        const auto current_manifest = Json::parse(state.normalized_json);
+        const auto baseline_manifest = Json::parse(state.normalized_baseline_json);
+        const auto current = current_manifest.contains("interactableInstances")
+                                 ? current_manifest.at("interactableInstances")
+                                 : Json::object();
+        const auto baseline = baseline_manifest.contains("interactableInstances")
+                                  ? baseline_manifest.at("interactableInstances")
+                                  : Json::object();
         changed_subjects = current.size() != baseline.size();
         if (!changed_subjects)
             for (const auto& entry : current.object_range()) {
@@ -3068,7 +3140,12 @@ RoomSessionSnapshot ProjectSession::snapshot() const
             std::any_of(records_.begin(), records_.end(), [](const auto& entry) {
                 return entry.first.starts_with("verbs/") && entry.second->snapshot().dirty;
             });
-        if (inspect_dependents)
+        // In the full validation view every authored Interaction is already
+        // a resident validated contributor, and the typed invalidation ledger
+        // has selected which ones require reevaluation. Scanning the physical
+        // collection here would duplicate that work (and apply the older
+        // dirty-flag heuristic instead of the normalized dependency closure).
+        if (inspect_dependents && !validation_view_active_)
             for (const auto& [id, source] : interactions) {
                 if (records_.contains("interactions/" + id))
                     continue;
@@ -3107,13 +3184,15 @@ RoomSessionSnapshot ProjectSession::snapshot() const
             const auto family = entry.first.substr(0, slash);
             if (family == "rooms") {
                 const auto record = entry.second->snapshot();
-                if (record.disk_source_revision != "absent" && !record.baseline_json.empty()) {
-                    auto before = Json::parse(record.baseline_json);
-                    auto after = Json::parse(record.source_json);
-                    // Authored Test dependencies inspect Room references,
-                    // Features, and instance/trait state, not presentation
-                    // strings. Compare exact sparse values, so we only skip
-                    // this scan when no other authored value changed.
+                if (record.disk_source_revision != "absent" &&
+                    !record.normalized_baseline_json.empty() && !record.normalized_json.empty()) {
+                    auto before = Json::parse(record.normalized_baseline_json);
+                    auto after = Json::parse(record.normalized_json);
+                    // Authored Test dependencies inspect effective Room
+                    // references, Features, and instance/Trait state. A
+                    // sparse saved Room and an explicitly defaulted working
+                    // Room can have identical semantics despite differing
+                    // physical YAML shapes. Compare normalized values.
                     const auto remove_presentation = [](Json& value) {
                         if (!value.is_object())
                             return;
@@ -3134,7 +3213,12 @@ RoomSessionSnapshot ProjectSession::snapshot() const
                    family == "characters" || family == "interactables" || family == "variables" ||
                    family == "dialogues" || family == "scenes" || family == "layouts";
         });
-    if (inspect_test_dependents && !state.normalized_json.empty() && !traits_json.empty()) {
+    // The full working-validation view includes all admitted Test contributors.
+    // Its typed reverse edges, including missing/removed targets, are already
+    // invalidated by validate_project(). Only the editor's lazy snapshot
+    // needs this unopened-owner safety fallback.
+    if (inspect_test_dependents && !validation_view_active_ && !state.normalized_json.empty() &&
+        !traits_json.empty()) {
         if (!test_sources_) {
             test_sources_.emplace();
             const auto dir = root_ / "records" / "tests";

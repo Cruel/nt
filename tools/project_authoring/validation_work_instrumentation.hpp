@@ -83,6 +83,9 @@ enum class WorkCounter : std::size_t {
     EditorRecordContributionChecks,
     EditorUnopenedTestChecks,
     EditorUnopenedInteractionChecks,
+    TypedChangePaths,
+    TypedEdgesConsidered,
+    TypedConsumerInvalidations,
     Count
 };
 
@@ -201,7 +204,10 @@ public:
             "addonResultBytesSerialized",
             "editorRecordContributionChecks",
             "editorUnopenedTestChecks",
-            "editorUnopenedInteractionChecks"};
+            "editorUnopenedInteractionChecks",
+            "typedChangePaths",
+            "typedEdgesConsidered",
+            "typedConsumerInvalidations"};
         std::array<std::pair<std::string_view, std::size_t>, work_counter_count> result{};
         for (std::size_t index = 0; index < names.size(); ++index)
             result[index] = {names[index], value(index)};

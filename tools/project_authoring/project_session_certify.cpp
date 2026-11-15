@@ -1923,6 +1923,197 @@ void dependency_mutation_graph_certification()
             "A Room label equal to a target ID is never a graph dependency");
 }
 
+void path_precise_manifest_mutations(const std::filesystem::path& fixture)
+{
+    TemporaryProject temp(fixture);
+    std::string error;
+    auto project = ProjectSession::open(temp.root, error);
+    require(project != nullptr, "Path-precise mutation fixture admits: " + error);
+    require(project->validate_project().valid, "Full baseline manifest validation is valid");
+    const auto initial_revision = project->working_revision();
+    const auto original_source = read(temp.root / "project.yaml");
+
+    const auto changed = project->patch(
+        initial_revision,
+        {{RoomPatch::Operation::Replace, "/project/name", "\"Dependency-local title\""}});
+    require(changed.accepted && changed.snapshot.dirty &&
+                read(temp.root / "project.yaml") == original_source,
+            "Working metadata mutation is not written until Save");
+    const auto working = project->validate_working_project();
+    const auto title_work = project->validation_work();
+    require(working.valid && title_work.invalidated_owners == std::set<std::string>{"project"} &&
+                title_work.rechecked_contributions == 0 &&
+                title_work.retained_contributions > 200 &&
+                title_work.global_stage_executions == 0 && title_work.global_stage_reuses == 1 &&
+                !title_work.semantic_fallback_reasons.contains("manifest-global-input"),
+            "Normalized Project title change retains typed and global contributions");
+
+    const auto unchanged = project->patch(
+        project->working_revision(),
+        {{RoomPatch::Operation::Replace, "/project/name", "\"Dependency-local title\""}});
+    require(unchanged.accepted && unchanged.affected_records.empty() &&
+                unchanged.snapshot.working_revision == changed.snapshot.working_revision,
+            "Repeated effective-value patch is a semantic and revision no-op");
+    require(project->validate_working_project().valid &&
+                project->validation_work().rechecked_contributions == 0 &&
+                project->validation_work().diagnostic_assemblies == 0,
+            "Unchanged normalized value retains the previous validated result");
+
+    const auto saved = project->save_owners(project->working_revision(), {"project"}, false,
+                                            TransactionDecision::KeepComments);
+    require(saved.accepted && !saved.snapshot.dirty,
+            "Scoped metadata Save commits an authoritative physical revision");
+    auto cold = ProjectSession::open(temp.root, error);
+    require(cold != nullptr, "Cold validator opens the saved metadata mutation");
+    const auto cold_saved = cold->validate_project();
+    const auto warm_saved = project->validate_project();
+    const auto diagnostics = [](const RoomSessionSnapshot& snapshot) {
+        std::vector<std::string> entries;
+        for (const auto& issue : snapshot.diagnostics)
+            entries.push_back(issue.code + "|" + issue.path + "|" + issue.message + "|" +
+                              issue.severity + "|" + issue.source_path);
+        return entries;
+    };
+    require(cold_saved.valid && warm_saved.valid &&
+                cold_saved.normalized_json == warm_saved.normalized_json &&
+                diagnostics(cold_saved) == diagnostics(warm_saved),
+            "Incremental and cold Project metadata projections agree after Save");
+
+    // Semantic settings are *not* presentation-only: keep the conservative
+    // graph-wide recheck until their per-consumer roles are fully indexed.
+    const auto semantic = project->patch(
+        project->working_revision(),
+        {{RoomPatch::Operation::Replace, "/settings/titleScreen/showProjectTitle", "false"}});
+    require(semantic.accepted, "Actual manifest setting edit is accepted");
+    require(
+        project->validate_working_project().valid &&
+            project->validation_work().rechecked_contributions > 200 &&
+            project->validation_work().semantic_fallback_reasons.contains("manifest-global-input"),
+        "Manifest semantic mutation still invalidates the conservative dependent set");
+    const auto stale = project->patch(
+        saved.snapshot.working_revision,
+        {{RoomPatch::Operation::Replace, "/project/name", "\"Cannot publish stale\""}});
+    require(!stale.accepted &&
+                stale.snapshot.working_revision == semantic.snapshot.working_revision,
+            "Rejected mutation cannot invalidate the admitted generation");
+}
+
+void path_precise_room_mutations(const std::filesystem::path& fixture)
+{
+    // Exercise the existing typed reverse ledger with unrelated Tests and
+    // Interactions resident in the validated Project. A text-only Room edit
+    // must not invalidate their target-identity contributions.
+    TemporaryProject room_temp(fixture);
+    std::string error;
+    auto room = ProjectSession::open(room_temp.root, error);
+    require(room && room->validate_project().valid,
+            "Independent Room dependency fixture admits with full typed ledger");
+    const auto room_owner = std::string("rooms/properties-and-traits");
+    const auto room_path = room_temp.root / "records/rooms/properties-and-traits.yaml";
+    const auto room_bytes = read(room_path);
+    const auto room_changed =
+        room->patch(room->working_revision(), {{RoomPatch::Operation::Replace,
+                                                "/rooms/properties-and-traits/data/displayName",
+                                                "\"Precise Room presentation\""}});
+    require(room_changed.accepted && read(room_path) == room_bytes,
+            "Room text edit is private to the working generation");
+    const auto room_working = room->validate_working_project();
+    const auto room_work = room->validation_work();
+    std::string invalidated_detail;
+    for (const auto& owner : room_work.invalidated_owners)
+        invalidated_detail += owner + ";";
+    require(room_working.valid && room_work.rechecked_contributions == 1 &&
+                room_work.rechecked_contribution_owners.contains(room_owner) &&
+                room_work.invalidated_owners == std::set<std::string>{room_owner} &&
+                room_work.typed_change_paths > 0 && room_work.typed_consumer_invalidations == 0,
+            "Normalized Room text delta invalidates only local record contribution: " +
+                invalidated_detail +
+                " rechecked=" + std::to_string(room_work.rechecked_contributions) +
+                " paths=" + std::to_string(room_work.typed_change_paths) +
+                " edges=" + std::to_string(room_work.typed_edges_considered) +
+                " invalidations=" + std::to_string(room_work.typed_consumer_invalidations));
+    const auto room_saved = room->save_owners(room->working_revision(), {room_owner}, false,
+                                              TransactionDecision::KeepComments);
+    require(room_saved.accepted, "Scoped Room Save publishes working text");
+    auto cold = ProjectSession::open(room_temp.root, error);
+    require(cold && cold->validate_project().valid &&
+                cold->validate_project().normalized_json ==
+                    room->validate_project().normalized_json,
+            "Saved Room text has the same cold and incremental manifest projection");
+    const auto before_description_bytes = read(room_path);
+    const auto description_changed =
+        room->patch(room->working_revision(),
+                    {{RoomPatch::Operation::Replace,
+                      "/rooms/properties-and-traits/data/description/source/text",
+                      "\"A new localized description for path-precise validation\""}});
+    require(description_changed.accepted && read(room_path) == before_description_bytes,
+            "Structured Room description patch remains an unsaved working change");
+    require(room->validate_working_project().valid &&
+                room->validation_work().rechecked_contributions == 1 &&
+                room->validation_work().typed_consumer_invalidations == 0 &&
+                room->validation_work().invalidated_owners == std::set<std::string>{room_owner},
+            "Structured Room text changes retain unrelated typed consumers");
+    const auto described = room->save_owners(room->working_revision(), {room_owner}, false,
+                                             TransactionDecision::KeepComments);
+    require(described.accepted, "Structured Room description persists via scoped Save");
+    cold = ProjectSession::open(room_temp.root, error);
+    require(cold && cold->validate_project().valid &&
+                cold->validate_project().normalized_json ==
+                    room->validate_project().normalized_json,
+            "Structured Room description retains cold authoritative parity");
+
+    // Sparse default YAML and explicit effective defaults must invalidate
+    // neither typed reference consumers nor the normalized dependency graph.
+    const auto defaulted = room->patch(
+        room->working_revision(),
+        {{RoomPatch::Operation::Add, "/rooms/properties-and-traits/data/features", "[]"}});
+    require(defaulted.accepted, "Empty default Room Features can be made explicit");
+    require(room->validate_working_project().valid &&
+                room->validation_work().typed_consumer_invalidations == 0,
+            "An explicit empty Features default does not invalidate typed consumers");
+
+    // Dirty invalid→repaired reference and cold authoritative parity. The
+    // same missing target is constructed as a physical edit in a second
+    // disposable Project, without treating unsaved YAML as disk authority.
+    TemporaryProject invalid_temp(fixture);
+    auto invalid_room = ProjectSession::open(invalid_temp.root, error);
+    require(invalid_room && invalid_room->validate_project().valid,
+            "Room reference transition begins from an authoritative valid Project");
+    const auto missing_target = invalid_room->patch(
+        invalid_room->working_revision(),
+        {{RoomPatch::Operation::Replace, "/rooms/properties-and-traits/data/exits/0/target",
+          "\"nonexistent-room-ref\""}});
+    require(missing_target.accepted, "Missing Room reference can be staged for repair");
+    const auto invalid_working = invalid_room->validate_working_project();
+    require(!invalid_working.valid, "Missing working Room reference produces a diagnostic");
+    TemporaryProject physical_invalid(invalid_temp.root);
+    const auto physical_path = physical_invalid.root / "records/rooms/properties-and-traits.yaml";
+    auto physical_source = read(physical_path);
+    const auto old_ref = physical_source.find("target: feature-lab-home");
+    require(old_ref != std::string::npos, "Physical Room reference fixture has expected target");
+    physical_source.replace(old_ref, std::strlen("target: feature-lab-home"),
+                            "target: nonexistent-room-ref");
+    write(physical_path, physical_source);
+    auto cold_invalid = ProjectSession::open(physical_invalid.root, error);
+    require(cold_invalid != nullptr, "Physical invalid Project admits for diagnostics: " + error);
+    const auto cold_invalid_result = cold_invalid->validate_project();
+    const auto signatures = [](const RoomSessionSnapshot& snapshot) {
+        std::multiset<std::string> entries;
+        for (const auto& issue : snapshot.diagnostics)
+            entries.insert(issue.code + "|" + issue.path + "|" + issue.severity);
+        return entries;
+    };
+    require(!cold_invalid_result.valid &&
+                signatures(invalid_working) == signatures(cold_invalid_result),
+            "Incremental missing-reference diagnostics agree with cold disk validation");
+    const auto repaired = invalid_room->patch(
+        invalid_room->working_revision(),
+        {{RoomPatch::Operation::Replace, "/rooms/properties-and-traits/data/exits/0/target",
+          "\"feature-lab-home\""}});
+    require(repaired.accepted && invalid_room->validate_working_project().valid,
+            "Repairing the Room reference retracts stale dependent diagnostics");
+}
+
 void typed_reference_invalidation_roundtrip(const std::filesystem::path& fixture)
 {
     const auto typed = semantic_graph_record_dependencies(
@@ -3673,6 +3864,16 @@ int main(int argc, char** argv)
         if (argc == 3 && std::string_view(argv[1]) == "--presentation-edit") {
             presentation_edit_roundtrip(argv[2]);
             std::cout << "Native Room presentation edit certification passed.\n";
+            return 0;
+        }
+        if (argc == 3 && std::string_view(argv[1]) == "--path-precise-mutations") {
+            path_precise_manifest_mutations(argv[2]);
+            std::cout << "Native typed path-precise mutation certification passed.\n";
+            return 0;
+        }
+        if (argc == 3 && std::string_view(argv[1]) == "--path-precise-room") {
+            path_precise_room_mutations(argv[2]);
+            std::cout << "Native typed path-precise Room certification passed.\n";
             return 0;
         }
         if (argc == 3 && std::string_view(argv[1]) == "--profile-presentation-edit") {

@@ -316,6 +316,10 @@ if(BUILD_TESTING)
     add_test(NAME native_authoring_project_session COMMAND noveltea-project-session-certify "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
     add_test(NAME native_authoring_presentation_edit COMMAND noveltea-project-session-certify
         --presentation-edit "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
+    add_test(NAME native_authoring_path_precise_mutations COMMAND noveltea-project-session-certify
+        --path-precise-mutations "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
+    add_test(NAME native_authoring_path_precise_room COMMAND noveltea-project-session-certify
+        --path-precise-room "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
     add_test(NAME native_authoring_structural_records COMMAND noveltea-project-session-certify
         --structural-records "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
     add_test(NAME native_authoring_source_analysis COMMAND noveltea-project-session-certify

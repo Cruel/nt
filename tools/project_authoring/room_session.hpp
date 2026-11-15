@@ -254,6 +254,11 @@ public:
         std::size_t rechecked_contributions = 0;
         std::size_t retained_contributions = 0;
         std::size_t reference_indexed_records = 0;
+        // Effective paths and typed reverse edges traversed for this
+        // generation, including consumers skipped for non-overlapping paths.
+        std::size_t typed_change_paths = 0;
+        std::size_t typed_edges_considered = 0;
+        std::size_t typed_consumer_invalidations = 0;
         std::size_t localization_rebuilds = 0;
         std::size_t global_stage_executions = 0;
         std::size_t global_stage_reuses = 0;
