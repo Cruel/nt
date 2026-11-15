@@ -96,7 +96,8 @@ path-nominated Project authority or a text-read-specific session alias.
 `project/save-unit-registry.ts`; never replace this with a full working-document write. Save All
 selects the maximal stable valid set, writes it once, and leaves blocked units dirty. Save As is a
 copy of the saved baseline plus complete editor metadata and recovery overlays, so it preserves dirty
-work without committing it or changing the active project identity.
+work without committing it, then opens the copy as the active Project. Its new native session and
+path become authoritative for subsequent edits and saves; a rejected Open leaves the original active.
 
 Project and window close flush editor metadata/recovery only. They must not commit content. Closing a
 non-final duplicate tab never prompts; the final dirty view uses the shared Save / Don't Save /

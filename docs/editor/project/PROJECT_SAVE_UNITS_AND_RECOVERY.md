@@ -886,11 +886,14 @@ The #522 manual acceptance cases remain separate and open.
 - Save As and `Ctrl+Shift+S` create a copy from the saved content baseline plus complete editor
   metadata, recovery overlays (including unmounted native field drafts and incomplete numeric input),
   and dirty-only project asset files. An already acknowledged native edit that is not yet content-saved
-  stays in recovery, rather than being copied as committed YAML. The active project identity and
-  dirty state do not change. Unrelated files may already exist at the chosen destination, but Save As
-  rejects pre-existing NovelTea canonical source/state namespaces and exact Asset-path collisions so
-  the copy cannot silently merge stale records, Layout/Script sources, recovery state, or unrelated
-  destination bytes into the copied workspace.
+  stays in recovery, rather than being copied as committed YAML. After a successful copy, the editor
+  opens the destination using normal native Project admission and recovery replay. The new Project
+  becomes active with the same unsaved intent restored from its own checkpoint; subsequent edits and
+  saves target the destination, not the original. If destination Open is rejected, the copy remains
+  on disk and the original Project session stays active. Unrelated files may already exist at the
+  chosen destination, but Save As rejects pre-existing NovelTea canonical source/state namespaces
+  and exact Asset-path collisions so the copy cannot silently merge stale records, Layout/Script
+  sources, recovery state, or unrelated destination bytes into the copied workspace.
 - Dirty source buffers are serialized into editor recovery metadata with their submitted disk
   baseline revision. Reopening restores the local buffer when the baseline still matches, or surfaces
   an external conflict when disk changed or the file disappeared. A successful source save advances

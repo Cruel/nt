@@ -936,16 +936,16 @@ export function WorkspacePage() {
   async function openProject(
     projectPathOverride?: string,
     readyCandidate?: { repairCandidateId: string; readyRevision: string },
-  ) {
+  ): Promise<boolean> {
     beginProjectOpenRequest();
     const dir = projectPathOverride ?? (await window.noveltea.selectProjectDirectory());
-    if (!dir) return;
+    if (!dir) return false;
     setProjectOpening(true);
     let candidateAdmitted = false;
     try {
       // Let the loading indicator render before potentially expensive Project work.
       await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
-      if (!(await flushProjectEditorMetadata('switch-project'))) return;
+      if (!(await flushProjectEditorMetadata('switch-project'))) return false;
       if (Object.keys(useWorkbenchStore.getState().tabsById).length > 0)
         saveLocalEditorSessionSnapshot(projectFilePath ?? null);
       const loaded = await window.noveltea.openProject(readyCandidate ?? dir);
@@ -990,7 +990,7 @@ export function WorkspacePage() {
           repairCandidateId: loaded.repairCandidateId,
           diagnostics: loaded.repairCandidateId ? loaded.diagnostics : undefined,
         });
-        return;
+        return false;
       }
       candidateAdmitted = true;
       await cancelAndClearComfyUiProjectJobs(projectFilePath);
@@ -1066,6 +1066,7 @@ export function WorkspacePage() {
           ? 'Project loaded with diagnostics'
           : 'Project loaded',
       );
+      return true;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Project open failed';
       if (candidateAdmitted) {
@@ -1096,6 +1097,7 @@ export function WorkspacePage() {
         });
       }
       setStatusMessage(message);
+      return false;
     } finally {
       setProjectOpening(false);
     }
@@ -2099,14 +2101,27 @@ export function WorkspacePage() {
       await flushStructuralCommandPersistence();
       await settleProjectEditorMetadataWrites();
       const result = await saveProjectAsCopy();
-      if (result.success && result.response?.projectFilePath) {
-        refreshRecentProjectEntry(
-          useProjectStore.getState().document,
-          result.response.projectPath,
-          result.response.projectFilePath,
-        );
+      const saved = publishSaveResult(result, 'Saved project copy');
+      if (!saved) return false;
+      const destination = result.response?.projectPath;
+      if (!destination) {
+        const message = 'Project copy created, but its destination was not returned.';
+        setProjectSaveError(message);
+        setStatusMessage(message);
+        return false;
       }
-      return publishSaveResult(result, 'Saved project copy');
+      refreshRecentProjectEntry(
+        useProjectStore.getState().document,
+        destination,
+        result.response?.projectFilePath,
+      );
+      // The copy includes a native dirty checkpoint and editor recovery; use
+      // ordinary Project Open to admit a fresh native session rooted at the
+      // destination. Changing only the renderer path would keep Save pointed
+      // at the original files. A rejected Open retains the incumbent session.
+      if (!(await openProject(destination))) return false;
+      setStatusMessage('Saved As and opened copied project');
+      return true;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Save As failed';
       setProjectSaveError(message);

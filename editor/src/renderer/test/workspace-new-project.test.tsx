@@ -6,6 +6,8 @@ import { useComfyUiStore } from '@/comfyui/comfyui-store';
 import { useComfyUiQueueStore } from '@/comfyui/comfyui-queue-store';
 import { useProjectStore } from '@/project/project-store';
 import { refreshNativeProjectDiagnostics } from '@/project/native-project-diagnostics';
+import { saveActiveSaveUnit } from '@/project/project-save-coordinator';
+import { usePendingInputStore } from '@/workbench/pending-input-store';
 import { useCandidateRepairStore } from '@/project/candidate-repair-store';
 import { RepairPromptDialog } from '@/project/RepairPromptDialog';
 import { useRepairPromptStore } from '@/project/repair-prompt-store';
@@ -26,6 +28,7 @@ import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
 import { useDraftDirtyStore } from '@/workbench/draft-dirty-store';
 import {
+  editorProjectStateFromProject,
   mergeEditorProjectState,
   setLoadedEditorProjectState,
 } from '@/workbench/project-editor-state';
@@ -1188,6 +1191,172 @@ describe('WorkspacePage new project modal', () => {
       'transition-none',
     );
     expect(useWorkspaceStore.getState().statusMessage).toBe('Could not open Project');
+  });
+
+  it('Save As makes the copied Project active and restores native dirty recovery', async () => {
+    const saved = createAuthoringProject({ id: 'save-as-story', name: 'Original' });
+    saved.rooms.hall = { id: 'hall', label: 'Original Room', data: defaultRoomData('Hall') };
+    const working = structuredClone(saved);
+    working.rooms.hall!.label = 'Unsaved Room';
+    const editorState = emptyEditorProjectState();
+    editorState.recovery.saveUnitsById['record:rooms:hall'] = {
+      sequence: 1,
+      patches: [{ op: 'replace', path: '/rooms/hall/label', value: 'Unsaved Room' }],
+      affectedPaths: ['/rooms/hall/label'],
+      pendingRawInputByPath: {
+        '/rooms/hall/data/presentationSpace/size/width': { value: '-' },
+      },
+      atomicTransactionGroupIds: [],
+    };
+    const baseline = mergeEditorProjectState(toJsonValue(saved), editorState);
+    const dirty = mergeEditorProjectState(toJsonValue(working), editorState);
+    expect(
+      useProjectStore.getState().loadProjectDocument({
+        document: dirty,
+        savedDocument: baseline,
+        projectPath: '/mock/original',
+        projectFilePath: '/mock/original/project.yaml',
+        projectSessionId: 'source-session',
+        nativeSession: true,
+      }),
+    ).toBe(true);
+    setLoadedEditorProjectState(editorState);
+    useCommandStore.getState().enableNativeCommandMode(2);
+    vi.mocked(window.noveltea.saveProjectCopyAs).mockResolvedValueOnce({
+      ok: true,
+      success: true,
+      projectPath: '/mock/copied-story',
+      projectFilePath: '/mock/copied-story/project.yaml',
+      diagnostics: [],
+    });
+    vi.mocked(window.noveltea.openProject).mockImplementationOnce(async (path) => {
+      expect(path).toBe('/mock/copied-story');
+      const [sourceId, copied] = vi.mocked(window.noveltea.saveProjectCopyAs).mock.calls[0]!;
+      expect(sourceId).toBe('source-session');
+      expect(copied).toMatchObject({
+        rooms: { hall: { label: 'Original Room' } },
+        editor: { recovery: { saveUnitsById: { 'record:rooms:hall': expect.any(Object) } } },
+      });
+      return {
+        ok: true,
+        success: true,
+        projectPath: '/mock/copied-story',
+        projectFilePath: '/mock/copied-story/project.yaml',
+        projectSessionId: 'copied-session',
+        contentProject: stripEditorProjectState(saved),
+        savedContentProject: stripEditorProjectState(saved),
+        nativeRecoveredContentProject: stripEditorProjectState(working),
+        nativeWorkingRevision: 3,
+        editorState: editorProjectStateFromProject(copied),
+        diagnostics: [],
+      };
+    });
+    render(<WorkspacePage />);
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent(WORKSPACE_TOOLBAR_COMMAND_EVENT, { detail: 'save-as' }));
+    });
+    await waitFor(() => {
+      expect(useProjectStore.getState().projectSessionId).toBe('copied-session');
+    });
+    expect(useProjectStore.getState().projectFilePath).toBe('/mock/copied-story/project.yaml');
+    expect(useProjectStore.getState().savedDocument).toMatchObject({
+      rooms: { hall: { label: 'Original Room' } },
+    });
+    expect(useProjectStore.getState().document).toMatchObject({
+      rooms: { hall: { label: 'Unsaved Room' } },
+    });
+    expect(useCommandStore.getState().nativeWorkingRevision).toBe(3);
+    expect(useCommandStore.getState().nativeProjectSessionId).toBe('copied-session');
+    expect(useProjectStore.getState().document).toMatchObject({
+      editor: {
+        recovery: {
+          saveUnitsById: {
+            'record:rooms:hall': {
+              pendingRawInputByPath: {
+                '/rooms/hall/data/presentationSpace/size/width': { value: '-' },
+              },
+            },
+          },
+        },
+      },
+    });
+    expect(window.noveltea.openProject).toHaveBeenCalledTimes(1);
+    expect(window.noveltea.closeActiveProject).not.toHaveBeenCalled();
+    // A subsequent ordinary Save must go to the newly admitted native
+    // session, never to the original Project directory.
+    act(() =>
+      usePendingInputStore
+        .getState()
+        .clearPendingInput('record:rooms:hall', '/rooms/hall/data/presentationSpace/size/width'),
+    );
+    const nativeSave = vi.fn().mockResolvedValue({
+      accepted: true,
+      error: '',
+      snapshot: { workingRevision: 3 },
+      affectedRecords: [],
+      diagnosticsAdded: [],
+      diagnosticsRemoved: [],
+    });
+    Object.defineProperty(window.noveltea, 'nativeProjectSaveUnit', {
+      configurable: true,
+      value: nativeSave,
+    });
+    try {
+      const savedResult = await saveActiveSaveUnit('record:rooms:hall');
+      expect(savedResult.success, JSON.stringify(savedResult.diagnostics)).toBe(true);
+      expect(nativeSave).toHaveBeenCalledWith(
+        'copied-session',
+        3,
+        'record:rooms:hall',
+        expect.any(Object),
+      );
+    } finally {
+      Reflect.deleteProperty(window.noveltea, 'nativeProjectSaveUnit');
+    }
+  });
+
+  it('Save As keeps the original native session if the copied Project cannot open', async () => {
+    const original = createAuthoringProject({ id: 'source', name: 'Source Project' });
+    expect(
+      useProjectStore.getState().loadProjectDocument({
+        document: original,
+        savedDocument: original,
+        projectPath: '/mock/original',
+        projectFilePath: '/mock/original/project.yaml',
+        projectSessionId: 'source-session',
+        nativeSession: true,
+      }),
+    ).toBe(true);
+    useCommandStore.getState().enableNativeCommandMode(2);
+    useWorkbenchStore.getState().openTab(buildProjectSettingsTab());
+    const tabIds = Object.keys(useWorkbenchStore.getState().tabsById);
+    vi.mocked(window.noveltea.saveProjectCopyAs).mockResolvedValueOnce({
+      ok: true,
+      success: true,
+      projectPath: '/mock/copied-story',
+      projectFilePath: '/mock/copied-story/project.yaml',
+      diagnostics: [],
+    });
+    vi.mocked(window.noveltea.openProject).mockResolvedValueOnce({
+      ok: false,
+      success: false,
+      projectPath: '/mock/copied-story',
+      projectFilePath: '/mock/copied-story/project.yaml',
+      diagnostics: [{ severity: 'error', path: '/', message: 'Copied admission rejected' }],
+    });
+    render(<WorkspacePage />);
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent(WORKSPACE_TOOLBAR_COMMAND_EVENT, { detail: 'save-as' }));
+    });
+    await waitFor(() => expect(window.noveltea.openProject).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(useWorkspaceStore.getState().statusMessage).toBe('Copied admission rejected'),
+    );
+    expect(useProjectStore.getState().projectSessionId).toBe('source-session');
+    expect(useProjectStore.getState().projectPath).toBe('/mock/original');
+    expect(useCommandStore.getState().nativeWorkingRevision).toBe(2);
+    expect(Object.keys(useWorkbenchStore.getState().tabsById)).toEqual(tabIds);
+    expect(window.noveltea.closeActiveProject).not.toHaveBeenCalled();
   });
 
   it('retains the incumbent workbench and native session after rejected Open, then switches on success', async () => {

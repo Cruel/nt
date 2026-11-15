@@ -20,7 +20,7 @@ export async function saveNativeProjectCopyAs(
   if (!owner) return { ok: false, success: false, error: 'No editor window is available.' };
   const sourceRoot = await fs.realpath(sourceProjectRoot);
   const selection = await dialog.showOpenDialog(owner, {
-    title: 'Save NovelTea Project Copy',
+    title: 'Save NovelTea Project As',
     defaultPath: sourceRoot,
     properties: ['openDirectory', 'createDirectory'],
   });
