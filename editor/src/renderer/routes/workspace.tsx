@@ -1802,12 +1802,21 @@ export function WorkspacePage() {
     // publishes a change; briefly mixing in Save errors makes Problems flicker.
     // Recovery conflicts are different: they remain actionable diagnostics.
     const recoveryDiagnostics = result.diagnostics.filter(isPersistentRecoveryDiagnostic);
-    if (latestProject && (result.success || recoveryDiagnostics.length > 0)) {
+    // A partially successful Save All contains errors from owners it could not
+    // commit. Those are Save-attempt diagnostics for the status/timeline, not
+    // a new native validation revision; injecting them into Problems causes a
+    // brief duplicate/error flash until the next validation publication.
+    // Only persistent recovery diagnostics may change Problems on Save.
+    if (
+      latestProject &&
+      (recoveryDiagnostics.length > 0 ||
+        (result.success && persistentRecoveryDiagnosticsRef.current.length > 0))
+    ) {
       persistentRecoveryDiagnosticsRef.current = recoveryDiagnostics;
       setDiagnostics(
         collectWorkspaceProjectDiagnostics(latestProject, [
           ...externalSourceDiagnosticsRef.current,
-          ...(result.success ? result.diagnostics : recoveryDiagnostics),
+          ...recoveryDiagnostics,
         ]),
       );
     }

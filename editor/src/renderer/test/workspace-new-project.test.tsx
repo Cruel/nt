@@ -1318,6 +1318,98 @@ describe('WorkspacePage new project modal', () => {
     }
   });
 
+  it('does not flash rejected Save All diagnostics over unchanged native Problems', async () => {
+    const project = createAuthoringProject({ id: 'my-story', name: 'My Story' });
+    project.rooms.hall = { id: 'hall', label: 'Hall', data: defaultRoomData('Hall') };
+    project.rooms.kitchen = { id: 'kitchen', label: 'Kitchen', data: defaultRoomData('Kitchen') };
+    const native = admitNativeRendererCommandFixture(project, 'partial-save-diagnostics');
+    for (const [id, label] of [
+      ['hall', 'Invalid Hall'],
+      ['kitchen', 'Valid Kitchen'],
+    ]) {
+      const command = await useCommandStore.getState().executeCommandAsync({
+        type: 'project.applyPatch',
+        label: `Edit ${id}`,
+        payload: [{ op: 'replace', path: `/rooms/${id}/label`, value: label }],
+        originSaveUnitId: `record:rooms:${id}`,
+        persistencePolicy: 'manual-save',
+      });
+      expect(command.ok).toBe(true);
+    }
+    const diagnostic = {
+      code: 'room.description.key.invalid',
+      severity: 'error' as const,
+      path: '/rooms/hall/data/description/source/key',
+      message: 'String does not match pattern.',
+    };
+    const nativeValidate = vi.fn().mockResolvedValue({ diagnostics: [diagnostic] });
+    const actualSave = window.noveltea.nativeProjectSaveUnit;
+    const nativeSave = vi.fn((...args: Parameters<typeof actualSave>) =>
+      args[2] === 'record:rooms:kitchen'
+        ? actualSave(...args)
+        : Promise.resolve({
+            accepted: false,
+            error:
+              'Cannot save invalid dependent Project record: /rooms/hall/data/description/source/key',
+            diagnosticsAdded: [diagnostic],
+            snapshot: { workingRevision: native.workingRevision(), diagnostics: [diagnostic] },
+          }),
+    );
+    Object.defineProperty(window.noveltea, 'nativeProjectValidate', {
+      configurable: true,
+      value: nativeValidate,
+    });
+    Object.defineProperty(window.noveltea, 'nativeProjectSaveUnit', {
+      configurable: true,
+      value: nativeSave,
+    });
+    try {
+      render(<WorkspacePage />);
+      await waitFor(() =>
+        expect(useWorkspaceStore.getState().diagnostics).toContainEqual(
+          expect.objectContaining({ code: diagnostic.code }),
+        ),
+      );
+      const before = useWorkspaceStore.getState().diagnostics;
+      const changed: (typeof before)[] = [];
+      const unsubscribe = useWorkspaceStore.subscribe((next, previous) => {
+        if (next.diagnostics !== previous.diagnostics) changed.push(next.diagnostics);
+      });
+      try {
+        await act(async () => {
+          window.dispatchEvent(
+            new CustomEvent(WORKSPACE_TOOLBAR_COMMAND_EVENT, { detail: 'save-all' }),
+          );
+        });
+        await waitFor(() => expect(nativeSave).toHaveBeenCalledTimes(3));
+        await waitFor(() =>
+          expect(useWorkspaceStore.getState().statusMessage).toContain('1 blocked or unsaved item'),
+        );
+        expect(
+          changed.every((diagnostics) =>
+            diagnostics.every(
+              (entry) =>
+                !entry.message.includes('Cannot save invalid dependent Project record') &&
+                !entry.message.includes('Owner has unsaved edits'),
+            ),
+          ),
+        ).toBe(true);
+        expect(useWorkspaceStore.getState().diagnostics).toEqual(before);
+        expect(
+          (useProjectStore.getState().savedDocument as typeof project).rooms.kitchen.label,
+        ).toBe('Valid Kitchen');
+        expect((useProjectStore.getState().savedDocument as typeof project).rooms.hall.label).toBe(
+          'Hall',
+        );
+      } finally {
+        unsubscribe();
+      }
+    } finally {
+      Reflect.deleteProperty(window.noveltea, 'nativeProjectValidate');
+      Reflect.deleteProperty(window.noveltea, 'nativeProjectSaveUnit');
+    }
+  });
+
   it('routes Validate through the native revision and does not use legacy Project validation', async () => {
     const project = createAuthoringProject({ id: 'my-story', name: 'My Story' });
     useProjectStore.getState().loadProjectDocument({
