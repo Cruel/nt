@@ -127,10 +127,15 @@ void presentation_edit_roundtrip(const std::filesystem::path& fixture)
         const auto& source_work = project->localization_source_work();
         require(source_work.physical_yaml_reads == 0 && source_work.physical_yaml_parses == 0 &&
                     source_work.observed_reuses == reused_sources && source_work.projections == 1 &&
-                    source_work.localization_model_passes == 1 &&
-                    source_work.dialogue_cue_passes == 1,
+                    ((source_work.full_contract_validations == 1 &&
+                      source_work.localization_model_passes == 1 &&
+                      source_work.dialogue_cue_passes == 1) ||
+                     (source_work.full_contract_validations == 0 &&
+                      source_work.localization_model_passes == 0 &&
+                      source_work.incremental_message_validations == 1 &&
+                      source_work.dialogue_cue_passes == 0)),
                 "Room presentation mutation must use verified unchanged YAML generations "
-                "without reopening or reparsing unrelated source records");
+                "with a full validation after Save or changed-Message-only validation");
         const auto edited = project->record_snapshots().at(id);
         const auto data = Json::parse(edited.normalized_json).at("data");
         const auto saved = Json::parse(edited.normalized_baseline_json).at("data");
@@ -161,6 +166,29 @@ void presentation_edit_roundtrip(const std::filesystem::path& fixture)
                 "Rejected stale patch must publish only its unchanged entry snapshot");
     }
 
+    // Save changes the physical observed generation and intentionally revokes
+    // the retained localization proof. In a real dirty editing sequence with
+    // no intervening Save, the second and later Patches must be incremental.
+    auto patch_only = ProjectSession::open(temp.root, error);
+    require(patch_only && patch_only->inspect_record(id).accepted,
+            "Patch-only Room editing Project must reopen cleanly");
+    for (int i = 0; i < 4; ++i) {
+        const auto value = "Unsaved incremental " + std::to_string(i);
+        const auto changed =
+            patch_only->patch(patch_only->working_revision(),
+                              {{RoomPatch::Operation::Replace, path, Json(value).to_string()}});
+        require(changed.accepted && changed.snapshot.valid && changed.snapshot.dirty,
+                "Unsaved Room edits remain accepted without physical Save");
+        if (i == 0)
+            continue;
+        const auto& work = patch_only->localization_source_work();
+        require(work.full_contract_validations == 0 && work.localization_model_passes == 0 &&
+                    work.incremental_message_validations == 1 &&
+                    work.incremental_model_passes == 1 && work.dialogue_cue_passes == 0 &&
+                    work.physical_yaml_reads == 0,
+                "Consecutive unsaved Room Patches validate only the changed Message");
+    }
+
     auto reopened = ProjectSession::open(temp.root, error);
     require(reopened != nullptr && reopened->inspect_record(id).accepted,
             "Room must reopen after repeated scoped native Saves");
@@ -188,6 +216,9 @@ Json profile_presentation_edit(const std::filesystem::path& fixture)
                     cue_passes = 0, patch_file_reads = 0, patch_yaml_parses = 0;
         std::size_t patch_snapshots = 0, save_snapshots = 0, patch_snapshot_micros = 0,
                     save_snapshot_micros = 0;
+        std::map<std::string, std::size_t> localization_phases;
+        std::size_t incremental_message_validations = 0, incremental_translation_checks = 0,
+                    full_contract_validations = 0;
         std::map<std::string, std::size_t> transaction_work;
         for (int i = 0; i < 20; ++i) {
             const auto value = "Native benchmark " + owner + " " + std::to_string(i);
@@ -216,6 +247,18 @@ Json profile_presentation_edit(const std::filesystem::path& fixture)
                     projections += work.projections;
                     model_passes += work.localization_model_passes;
                     cue_passes += work.dialogue_cue_passes;
+                    incremental_message_validations += work.incremental_message_validations;
+                    incremental_translation_checks += work.incremental_translation_checks;
+                    full_contract_validations += work.full_contract_validations;
+                    for (const auto& [name, micros] : std::map<std::string, std::size_t>{
+                             {"structuredProjection", work.structured_projection_micros},
+                             {"fragments", work.fragment_validation_micros},
+                             {"mergedModel", work.merged_model_micros},
+                             {"contractSerialization", work.contract_serialization_micros},
+                             {"contractValidation", work.contract_validation_micros},
+                             {"dependentValidation", work.dependent_validation_micros},
+                             {"dialogueCues", work.cue_validation_micros}})
+                        localization_phases[name] += micros;
                     patch_file_reads += patch_work.get<WorkCounter::FileByteReads>();
                     patch_yaml_parses += patch_work.get<WorkCounter::ParsedYaml>();
                 }
@@ -285,6 +328,13 @@ Json profile_presentation_edit(const std::filesystem::path& fixture)
             result["localizationProjections"] = projections;
             result["localizationModelPasses"] = model_passes;
             result["localizationCuePasses"] = cue_passes;
+            result["localizationIncrementalMessageValidations"] = incremental_message_validations;
+            result["localizationIncrementalTranslationChecks"] = incremental_translation_checks;
+            result["localizationFullContractValidations"] = full_contract_validations;
+            Json localization_phase_means = Json::object();
+            for (const auto& [name, micros] : localization_phases)
+                localization_phase_means[name] = micros / (19.0 * 1000.0);
+            result["localizationPhaseMeanMs"] = std::move(localization_phase_means);
             result["totalPatchFileByteReads"] = patch_file_reads;
             result["totalPatchParsedYaml"] = patch_yaml_parses;
         }
@@ -299,6 +349,77 @@ Json profile_presentation_edit(const std::filesystem::path& fixture)
                                         temp.root / "records/rooms/properties-and-traits.yaml");
     output["projectTitle"] = measure("project", "/project/name", temp.root / "project.yaml");
     return output;
+}
+
+// Unsaved, repeated edits are the editor's actual hot path; Save between
+// Patches changes SourceAuthority's observed disk generation and deliberately
+// invalidates the retained localization baseline.
+Json profile_unsaved_room_patches(const std::filesystem::path& fixture)
+{
+    TemporaryProject temp(fixture);
+    const auto measure = [&](const std::string& pointer) {
+        std::string error;
+        auto project = ProjectSession::open(temp.root, error);
+        require(project && project->inspect_record("rooms/properties-and-traits").accepted,
+                "Cannot profile dirty Room Patches: " + error);
+        std::vector<double> samples;
+        std::size_t full_contracts = 0, message_checks = 0, translation_checks = 0, yaml_reads = 0,
+                    projector_us = 0, fragments_us = 0, model_us = 0, contract_us = 0,
+                    dependent_us = 0, cues_us = 0, snapshots_us = 0;
+        for (int i = 0; i < 20; ++i) {
+            ValidationWorkCounters work;
+            const auto start = std::chrono::steady_clock::now();
+            RoomSessionResult updated;
+            {
+                ScopedValidationWork measurement(work);
+                updated =
+                    project->patch(project->working_revision(),
+                                   {{RoomPatch::Operation::Replace, pointer,
+                                     Json("Dirty Patch sample " + std::to_string(i)).to_string()}});
+            }
+            const auto elapsed = std::chrono::steady_clock::now() - start;
+            require(updated.accepted && updated.snapshot.valid && updated.snapshot.dirty,
+                    "Unsaved Room Patch benchmark failed");
+            if (i == 0)
+                continue;
+            samples.push_back(std::chrono::duration<double, std::milli>(elapsed).count());
+            const auto& localization = project->localization_source_work();
+            full_contracts += localization.full_contract_validations;
+            message_checks += localization.incremental_message_validations;
+            translation_checks += localization.incremental_translation_checks;
+            yaml_reads += localization.physical_yaml_reads;
+            projector_us += localization.structured_projection_micros;
+            fragments_us += localization.fragment_validation_micros;
+            model_us += localization.merged_model_micros;
+            contract_us += localization.contract_validation_micros;
+            dependent_us += localization.dependent_validation_micros;
+            cues_us += localization.cue_validation_micros;
+            snapshots_us += work.get<WorkCounter::ProjectSnapshotMicros>();
+        }
+        std::sort(samples.begin(), samples.end());
+        Json summary = Json::object();
+        summary["warmCount"] = samples.size();
+        summary["medianMs"] = samples[samples.size() / 2];
+        summary["p95Ms"] = samples[(95 * samples.size() + 99) / 100 - 1];
+        summary["maxMs"] = samples.back();
+        summary["fullContractValidations"] = full_contracts;
+        summary["incrementalMessageValidations"] = message_checks;
+        summary["incrementalTranslationChecks"] = translation_checks;
+        summary["physicalYamlReads"] = yaml_reads;
+        summary["meanStructuredProjectionMs"] = projector_us / (samples.size() * 1000.0);
+        summary["meanFragmentsMs"] = fragments_us / (samples.size() * 1000.0);
+        summary["meanMergedModelMs"] = model_us / (samples.size() * 1000.0);
+        summary["meanContractValidationMs"] = contract_us / (samples.size() * 1000.0);
+        summary["meanTranslationDependencyMs"] = dependent_us / (samples.size() * 1000.0);
+        summary["meanDialogueCueMs"] = cues_us / (samples.size() * 1000.0);
+        summary["meanProjectSnapshotsMs"] = snapshots_us / (samples.size() * 1000.0);
+        return summary;
+    };
+    Json result = Json::object();
+    result["roomDisplayName"] = measure("/rooms/properties-and-traits/data/displayName");
+    result["roomDescription"] =
+        measure("/rooms/properties-and-traits/data/description/source/text");
+    return result;
 }
 
 Json roundtrip(const std::filesystem::path& fixture, bool verify)
@@ -3923,6 +4044,10 @@ int main(int argc, char** argv)
         }
         if (argc == 3 && std::string_view(argv[1]) == "--profile-presentation-edit") {
             std::cout << profile_presentation_edit(argv[2]).to_string() << '\n';
+            return 0;
+        }
+        if (argc == 3 && std::string_view(argv[1]) == "--profile-unsaved-room-patches") {
+            std::cout << profile_unsaved_room_patches(argv[2]).to_string() << '\n';
             return 0;
         }
         if (argc == 2 && (std::string_view(argv[1]) == "--validate" ||

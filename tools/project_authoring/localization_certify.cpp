@@ -177,6 +177,164 @@ void certify(const std::filesystem::path& source)
                 "Reopened source authority safely resumes exact-generation projection reuse");
     }
     {
+        Fixture incremental(source);
+        SourceAuthority authority(incremental.root);
+        std::string error;
+        require(authority.initialize(error),
+                "Incremental localization observer initializes: " + error);
+        NativeStructuredSourcesCache cache;
+        const auto room_path = std::string("records/rooms/properties-and-traits.yaml");
+        const auto room_source = open_yaml_source(contents(incremental.root / room_path));
+        require(room_source.accepted, "Differential Room source decodes");
+        auto room = Json::parse(room_source.source_json);
+        const auto message_id = native_localization_structured_message_id(
+            "/rooms/properties-and-traits/data/displayName");
+        int localization_step = 0;
+        const auto check = [&](const std::map<std::string, std::string>& localization,
+                               const std::map<std::string, std::string>& records,
+                               std::optional<std::size_t> incremental_messages) {
+            ++localization_step;
+            ScopedVerifiedProjectSources verified(authority);
+            const auto current =
+                validate_project_localization(incremental.root, localization, records, {}, &cache);
+            const auto fresh =
+                validate_project_localization(incremental.root, localization, records);
+            require(current.accepted == fresh.accepted &&
+                        current.effective_json == fresh.effective_json &&
+                        current.diagnostics.size() == fresh.diagnostics.size(),
+                    "Incremental localization result equals full validation");
+            for (std::size_t i = 0; i < current.diagnostics.size(); ++i) {
+                const auto& a = current.diagnostics[i];
+                const auto& b = fresh.diagnostics[i];
+                require(a.path == b.path && a.code == b.code && a.message == b.message &&
+                            a.source_path == b.source_path && a.severity == b.severity,
+                        "Incremental localization diagnostics retain exact order and provenance");
+            }
+            if (incremental_messages &&
+                (cache.full_contract_validations != 0 || cache.localization_model_passes != 0 ||
+                 cache.incremental_model_passes != 1 ||
+                 cache.incremental_message_validations != *incremental_messages ||
+                 cache.physical_yaml_reads != 0))
+                std::cerr << "Step " << localization_step << " expected incremental "
+                          << *incremental_messages << ", full=" << cache.full_contract_validations
+                          << ", model=" << cache.localization_model_passes
+                          << ", incrementalPasses=" << cache.incremental_model_passes
+                          << ", messageValidations=" << cache.incremental_message_validations
+                          << ", reason=" << cache.incremental_fallback_reason << "\n";
+            if (incremental_messages)
+                require(cache.full_contract_validations == 0 &&
+                            cache.localization_model_passes == 0 &&
+                            cache.incremental_model_passes == 1 &&
+                            cache.incremental_message_validations == *incremental_messages &&
+                            cache.physical_yaml_reads == 0,
+                        "Incremental Room validates only changed contributions, not merged model");
+            else {
+                if (cache.full_contract_validations != 1)
+                    std::cerr << "Step " << localization_step << " expected full, got "
+                              << cache.full_contract_validations << " full, "
+                              << cache.incremental_model_passes
+                              << " incremental, reason=" << cache.incremental_fallback_reason
+                              << "\n";
+                require(cache.full_contract_validations == 1,
+                        "Changed localization authority or identity must use full validation");
+            }
+            return current;
+        };
+        require(check({}, {}, std::nullopt).accepted,
+                "Full baseline admits localization contributions");
+        room["data"]["displayName"] = "Hello";
+        std::map<std::string, std::string> records{{room_path, room.to_string()}};
+        require(check({}, records, 1).accepted, "Ordinary Room edit uses incremental path");
+
+        const auto fr_source =
+            open_yaml_source(contents(incremental.root / "i18n/locales/fr.yaml"));
+        require(fr_source.accepted, "French translation source decodes");
+        auto fr = Json::parse(fr_source.source_json);
+        auto translation = fr.at("25700000-0000-4000-8000-000000000001");
+        translation["text"] = "Bonjour";
+        fr.insert_or_assign(message_id, std::move(translation));
+        const std::map<std::string, std::string> locales{{"i18n/locales/fr.yaml", fr.to_string()}};
+        require(check(locales, records, std::nullopt).accepted,
+                "Adding a translation invalidates the retained localization baseline");
+        room["data"]["displayName"] = "Hello {name}";
+        records[room_path] = room.to_string();
+        const auto mismatch = check(locales, records, 1);
+        require(!mismatch.accepted &&
+                    diagnostic(mismatch, "/localization/translations/fr/" + message_id + "/text"),
+                "Changed structured Message invalidates its translated consumer");
+        room["data"]["displayName"] = "Hello";
+        records[room_path] = room.to_string();
+        require(check(locales, records, 0).accepted,
+                "Correcting invalid source text restores the retained accepted model");
+        room["data"]["displayName"] = "Hello {name}";
+        records[room_path] = room.to_string();
+        require(!check(locales, records, 1).accepted,
+                "Invalid-fixed-invalid source cycle cannot reuse stale success");
+
+        // Altering a second structured contribution still uses only its own
+        // message schema, with all unrelated generated Messages retained.
+        room["data"]["displayName"] = "Hello";
+        room["data"]["description"]["source"]["text"] = "A {new_placeholder} description";
+        records[room_path] = room.to_string();
+        const auto description = check(locales, records, 1);
+        require(description.accepted, "Incremental validation accepts a two-message recovery edit");
+        room["data"]["description"]["source"]["text"] = "A different description";
+        records[room_path] = room.to_string();
+        require(check(locales, records, 1).accepted,
+                "Description Message revalidates without a full localization pass");
+
+        // A translated consumer may introduce a placeholder unknown to its
+        // unchanged source. Updating that locale must invalidate globally.
+        auto extra_locale = fr;
+        extra_locale[message_id]["text"] = "Bonjour {unknown}";
+        const std::map<std::string, std::string> extra_locale_overlay{
+            {"i18n/locales/fr.yaml", extra_locale.to_string()}};
+        const auto extra = check(extra_locale_overlay, records, std::nullopt);
+        require(!extra.accepted &&
+                    diagnostic(extra, "/localization/translations/fr/" + message_id + "/text"),
+                "Translation with extra arguments is reported on its physical locale owner");
+
+        auto non_text_room = room;
+        non_text_room["label"] = "Non-localized Room change";
+        records[room_path] = non_text_room.to_string();
+        require(check(locales, records, std::nullopt).accepted,
+                "Non-text Room edits must bypass the incremental localization path");
+        records[room_path] = room.to_string();
+        (void)check(locales, records, std::nullopt);
+
+        const auto dialogue_path =
+            std::string("records/dialogues/dialogue-presentation-pilot.yaml");
+        const auto dialogue_source = open_yaml_source(contents(incremental.root / dialogue_path));
+        require(dialogue_source.accepted, "Dialogue cue source decodes");
+        auto dialogue = Json::parse(dialogue_source.source_json);
+        dialogue["data"]["blocks"][0]["segments"][1]["cues"][1]["position"]["offset"] = 41;
+        records[dialogue_path] = dialogue.to_string();
+        (void)check(locales, records, std::nullopt);
+        records.erase(dialogue_path);
+        (void)check(locales, records, std::nullopt);
+
+        const auto physical_message_source =
+            open_yaml_source(contents(incremental.root / "i18n/messages.yaml"));
+        require(physical_message_source.accepted, "Physical Message catalog decodes");
+        auto remapped_messages = Json::parse(physical_message_source.source_json);
+        remapped_messages["structuredMessageIds"]["/rooms/properties-and-traits/data/displayName"] =
+            "25700000-0000-4000-8000-000000000001";
+        auto remapped_locale_overlays = locales;
+        remapped_locale_overlays["i18n/messages.yaml"] = remapped_messages.to_string();
+        (void)check(remapped_locale_overlays, records, std::nullopt);
+        (void)check(locales, records, 0);
+
+        auto changed_locales = locales;
+        changed_locales["i18n/locales/fr.yaml"] = fr_source.source_json;
+        (void)check(changed_locales, records, std::nullopt);
+        records[room_path] = "null";
+        (void)check(changed_locales, records, std::nullopt);
+        records[room_path] = room.to_string();
+        (void)check(changed_locales, records, std::nullopt);
+        authority.coverage_lost();
+        (void)check(changed_locales, records, std::nullopt);
+    }
+    {
         Fixture contributors(source);
         const auto locale_path = contributors.root / "i18n/locales/fr.yaml";
         const auto parsed = open_yaml_source(contents(locale_path));

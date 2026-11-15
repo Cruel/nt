@@ -6,11 +6,13 @@
 #include <cstddef>
 #include <filesystem>
 #include <map>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
 
 namespace noveltea::authoring {
+struct NativeLocalizationRetainedState;
 // Reusable, source-local Message contributions. An observed revision is usable
 // only inside a current, physically verified SourceAuthority observation;
 // otherwise the collector reopens and hashes the YAML itself.
@@ -32,6 +34,21 @@ struct NativeStructuredSourcesCache {
     std::size_t projections = 0;
     std::size_t localization_model_passes = 0;
     std::size_t dialogue_cue_passes = 0;
+    std::size_t incremental_message_validations = 0;
+    std::size_t incremental_model_passes = 0;
+    std::string incremental_fallback_reason;
+    std::size_t incremental_translation_checks = 0;
+    std::size_t full_contract_validations = 0;
+    std::size_t structured_projection_micros = 0;
+    std::size_t fragment_validation_micros = 0;
+    std::size_t merged_model_micros = 0;
+    std::size_t contract_serialization_micros = 0;
+    std::size_t contract_validation_micros = 0;
+    std::size_t dependent_validation_micros = 0;
+    std::size_t cue_validation_micros = 0;
+    // Retained only after complete successful admission of an exact observed
+    // source generation. Not a second source authority.
+    std::shared_ptr<NativeLocalizationRetainedState> retained;
 };
 
 struct NativeLocalizationTrackingOccurrence {

@@ -3419,3 +3419,84 @@ large reductions in physical source work are an end-to-end comparison across
 that range, **not** evidence that #585 alone eliminated those captures. The
 specific #585 avoided work is established by the source-analysis work-count
 certifications, not by attributing all elapsed-time changes to this ticket.
+
+### #635 retained localization validation for dirty Room text (2026-11-15)
+
+**Scope:** native `ProjectSession::patch` on a Room's `data.displayName` or
+inline `data.description.source.text`, before a disk Save. A physical Save
+changes SourceAuthority's admitted generation and is intentionally not covered
+by this warm unsaved-Patch fast path. `Save All` and general validation retain
+their existing whole-Project guarantees.
+
+Previously, every Room Patch invalidated the working localization result. The
+native validator reused unchanged structured-source YAML projections (#632),
+but still assembled, serialized and checked the *whole* generated localization
+model, then rescanned all dialogue cues. The retained cache now remembers a
+fully accepted model, its exact observed physical revisions, i18n overlays,
+dirty record inputs, managed analyzed-source identities and per-record source
+contributions. It reprojects the structured sources (only the edited Room is
+rechecked), identifies changed Message IDs, validates only the changed
+generated Message fragments with the generated contract, and checks only their
+translated consumers using the existing cross-fragment rules. No alternate
+schema or semantic-validator implementation is introduced. Sparse Room
+descriptions also contribute their schema-default `plain` TextContent source.
+
+**Proof / conservative fallbacks:** incremental checking requires an intact,
+complete SourceAuthority revision view, identical observed physical sources,
+unchanged i18n inputs and managed text analyses, and a stable set of
+structured Message IDs. Every dirty record input is compared; changed inputs
+must be existing Rooms whose *only* semantic changes are display-name or inline
+description text. Room changes involving other fields, tracked-source pointers,
+changed source/locale policy, record addition/deletion, changed generated-ID
+membership, non-Room edits or uncertain physical authority fall back to the
+full fragment/model/cue validator. Failed incremental diagnostics never become
+the retained accepted baseline. The emitted diagnostic paths, codes, messages,
+order and source provenance are compared with fresh full validation in
+`native_authoring_localization`, including invalid → fixed → invalid edits,
+translation placeholder mismatch, locale mutations, Room deletion/recreation
+and lost watcher coverage. `native_authoring_presentation_edit` additionally
+proves repeated *unsaved* Room Patches avoid full model/cue work.
+
+**Release measurements** on the development Linux host, Feature Lab copied
+into a disposable directory, 20 repetitions per field (first warm-up excluded):
+
+| Path | Warm median | P95 | Full localization validations | Changed Message checks | Physical localization YAML reads |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Native Room display-name Patch | 15.29 ms | 17.75 ms | 0 / 19 | 19 / 19 | 0 |
+| Native Room description Patch | 15.32 ms | 18.22 ms | 0 / 19 | 19 / 19 | 0 |
+
+Run with `build/issue-601-release-ninja/tools/project_authoring/noveltea-project-session-certify
+--profile-unsaved-room-patches tests/projects/feature-lab`. This profile
+reports `meanStructuredProjectionMs`, `meanTranslationDependencyMs`,
+`meanProjectSnapshotsMs`, and full-versus-incremental work counts. The
+historical 42.48 ms display-name and 42.10 ms description medians came from
+`--profile-presentation-edit`, which **saves after every Patch**. Thus these
+figures describe different workload profiles, and their difference must not be
+presented as a controlled pre/post optimization result. The new unsaved-patch
+profile is the appropriate benchmark for this cache's intended eligibility.
+
+The **real Release Node-API addon** now measures **19.56 ms median / 20.79 ms
+p95** for display-name dirty Patch and **20.44 ms median / 21.58 ms p95** for
+description (19 warm samples each), using
+`node editor/scripts/benchmark-native-localization-patches.mjs
+build/native-authoring-host/noveltea-authoring-node.node`. The issue's earlier
+same-host **patch-only** addon baseline was **43.49 ms median / 45.70 ms p95**
+on one inspected Room. Compared with that workload, the new display-name
+median is approximately **55% lower**, although the separate benchmark harness
+and normal run-to-run noise limit precision. These are latency comparisons,
+not proof that every millisecond was spent inside localization validation.
+
+A repeat after the final translation-rule extraction reported native medians
+**16.41 / 16.87 ms** (display-name / description) and addon medians
+**20.46 / 19.63 ms**. The native description p95 in that repeat was
+**36.89 ms** during concurrent host checks, versus 18.22 ms in the first run.
+Treat these timings as development-host evidence with scheduler noise, not
+deterministic or cross-host CI thresholds.
+
+**Remaining latency:** on the new warm dirty-Patch profile, snapshot
+publication itself averages 7.8–8.1 ms; structured-source projection takes
+about 0.63 ms, and translated-dependent checking about 0.15 ms. These are
+independently measured phases, not an exhaustive CPU breakdown of the whole
+Patch. Further latency reduction should target Project snapshot publication
+and record patch preparation separately; do not remove source-authority or
+cross-fragment validation fences to gain another few milliseconds.

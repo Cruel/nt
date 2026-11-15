@@ -87,6 +87,11 @@ bool has_observed_project_sources() noexcept
     return current_project_sources != nullptr && !current_project_sources->uncertain();
 }
 
+const std::map<std::string, std::string>* observed_project_revisions() noexcept
+{
+    return current_project_sources ? current_project_sources->verified_revisions_view() : nullptr;
+}
+
 namespace {
 using Json = jsoncons::ojson;
 

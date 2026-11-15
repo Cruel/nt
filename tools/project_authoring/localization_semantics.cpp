@@ -9,6 +9,7 @@
 #include <jsoncons/json.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <fstream>
 #include <iomanip>
 #include <iterator>
@@ -21,8 +22,26 @@
 #include <utility>
 
 namespace noveltea::authoring {
+struct NativeLocalizationRetainedState {
+    std::map<std::string, std::string> observed_revisions;
+    std::map<std::string, std::string> localization_overlays;
+    std::map<std::string, std::string> record_overlays;
+    std::map<std::string, std::pair<std::string, std::string>> source_analyses;
+    std::map<std::string, std::string> record_identities;
+    std::map<std::string, std::string> structured_contributions;
+    std::set<std::string> physical_message_ids;
+    jsoncons::ojson normalized_model;
+    std::string effective_json;
+};
 namespace {
 using Json = jsoncons::ojson;
+using Clock = std::chrono::steady_clock;
+
+std::size_t micros_since(Clock::time_point start)
+{
+    return static_cast<std::size_t>(
+        std::chrono::duration_cast<std::chrono::microseconds>(Clock::now() - start).count());
+}
 
 // These counters are observational only. A nested localization validation
 // restores its caller's profiler; source authority remains in SourceAuthority.
@@ -42,6 +61,18 @@ struct ScopedLocalizationWork {
             current->projections = 0;
             current->localization_model_passes = 0;
             current->dialogue_cue_passes = 0;
+            current->incremental_message_validations = 0;
+            current->incremental_model_passes = 0;
+            current->incremental_fallback_reason.clear();
+            current->incremental_translation_checks = 0;
+            current->full_contract_validations = 0;
+            current->structured_projection_micros = 0;
+            current->fragment_validation_micros = 0;
+            current->merged_model_micros = 0;
+            current->contract_serialization_micros = 0;
+            current->contract_validation_micros = 0;
+            current->dependent_validation_micros = 0;
+            current->cue_validation_micros = 0;
         }
     }
     ~ScopedLocalizationWork() { localization_work = previous; }
@@ -142,8 +173,15 @@ void collect_structured_sources(const Json& value, const std::string& path,
                                 std::map<std::string, std::string>& messages)
 {
     if (value.is_object()) {
-        if (value.contains("markup") &&
-            (value.at("markup") == "plain" || value.at("markup") == "active-text") &&
+        // The sparse Room schema defaults description markup to plain. The
+        // source collector must recognize that same canonical TextContent,
+        // not silently omit an authored description from localization checks.
+        const bool sparse_room_description = path.starts_with("/rooms/") &&
+                                             path.ends_with("/data/description") &&
+                                             !value.contains("markup");
+        if ((sparse_room_description ||
+             (value.contains("markup") &&
+              (value.at("markup") == "plain" || value.at("markup") == "active-text"))) &&
             value.contains("source") && value.at("source").is_object()) {
             const auto& source = value.at("source");
             if (source.contains("kind") && source.at("kind") == "inline" &&
@@ -559,6 +597,211 @@ structured_sources(const std::filesystem::path& root,
             else
                 ++it;
     return messages;
+}
+
+std::map<std::string, std::string>
+structured_record_identities(const NativeStructuredSourcesCache& cache)
+{
+    std::map<std::string, std::string> result;
+    for (const auto& [path, entry] : cache.records)
+        result.emplace(path, entry.source_identity);
+    return result;
+}
+
+std::map<std::string, std::pair<std::string, std::string>>
+analyzed_source_identities(const std::map<std::string, SourceAnalysis>& sources)
+{
+    std::map<std::string, std::pair<std::string, std::string>> result;
+    for (const auto& [path, analysis] : sources)
+        result.emplace(path, std::pair{analysis.source_revision, analysis.source_text});
+    return result;
+}
+
+Json generated_structured_message(const std::string& text)
+{
+    static const std::regex placeholder(R"(\{([A-Za-z_][A-Za-z0-9_-]*)\})");
+    Json message = Json::object();
+    message["kind"] = "local";
+    message["source"] = text;
+    Json arguments = Json::object();
+    for (auto it = std::sregex_iterator(text.begin(), text.end(), placeholder);
+         it != std::sregex_iterator(); ++it)
+        arguments.insert_or_assign((*it)[1].str(), "printable");
+    if (!arguments.empty())
+        message["arguments"] = std::move(arguments);
+    return message;
+}
+
+bool only_room_localization_text_changed(const Json& old_record, const Json& new_record)
+{
+    if (!old_record.is_object() || !new_record.is_object() || !old_record.contains("data") ||
+        !new_record.contains("data") || !old_record.at("data").is_object() ||
+        !new_record.at("data").is_object())
+        return false;
+    const auto remove_text = [](Json record) {
+        auto& data = record["data"];
+        data.erase("displayName");
+        if (data.contains("description") && data.at("description").is_object() &&
+            data.at("description").contains("source") &&
+            data.at("description").at("source").is_object() &&
+            data.at("description").at("source").contains("kind") &&
+            data.at("description").at("source").at("kind") == "inline")
+            data["description"]["source"].erase("text");
+        return record;
+    };
+    return remove_text(old_record) == remove_text(new_record);
+}
+
+// A retained full-validation result is reusable only if every externally
+// observed source is still byte-identical, all i18n owners and managed text
+// analyses are unchanged, and the only changed record owners are Rooms. Room
+// Text cannot alter dialogue-cue references; additions/deletions or changes
+// to structured Message identity require the global validator instead.
+std::optional<ValidationResult>
+validate_incremental_room_messages(NativeStructuredSourcesCache& cache,
+                                   const std::filesystem::path& root,
+                                   const std::map<std::string, std::string>& sources,
+                                   const std::map<std::string, std::string>& localization_overlays,
+                                   const std::map<std::string, std::string>& record_overlays,
+                                   const std::map<std::string, SourceAnalysis>& working_sources,
+                                   const std::map<std::string, std::string>& observed_revisions)
+{
+    const auto previous = cache.retained;
+    const auto fallback = [&](std::string reason) -> std::optional<ValidationResult> {
+        cache.incremental_fallback_reason = std::move(reason);
+        return std::nullopt;
+    };
+    if (!previous || previous->observed_revisions != observed_revisions ||
+        previous->localization_overlays != localization_overlays ||
+        previous->source_analyses != analyzed_source_identities(working_sources))
+        return fallback("source generation, i18n overlay, or managed analysis changed");
+
+    // Inspect every dirty owner, not just families represented in the
+    // structured-source cache. A Layout, Script, Asset or Dialogue edit can
+    // change tracked messages/cues without changing structured Room text.
+    std::set<std::string> changed_records;
+    for (const auto& [path, json] : record_overlays)
+        if (!previous->record_overlays.contains(path) || previous->record_overlays.at(path) != json)
+            changed_records.insert(path);
+    for (const auto& [path, _] : previous->record_overlays)
+        if (!record_overlays.contains(path))
+            changed_records.insert(path);
+    for (const auto& path : changed_records) {
+        if (!path.starts_with("records/rooms/") || !path.ends_with(".yaml") ||
+            !record_overlays.contains(path))
+            return fallback("non-Room dirty owner or Room removal");
+        const auto prior = previous->record_overlays.find(path);
+        const auto* observed = observed_project_source(root / path);
+        if (prior == previous->record_overlays.end() &&
+            (!observed || !observed->yaml || !observed->yaml->accepted))
+            return fallback("Room baseline lacks verified source bytes");
+        try {
+            const auto before =
+                Json::parse(prior != previous->record_overlays.end() ? prior->second
+                                                                     : observed->yaml->source_json);
+            const auto after = Json::parse(record_overlays.at(path));
+            if (!only_room_localization_text_changed(before, after))
+                return fallback("Room edit affects fields other than localized text");
+        } catch (const std::exception&) {
+            return fallback("Room record could not be compared structurally");
+        }
+        const auto room_id =
+            path.substr(sizeof("records/rooms/") - 1, path.size() - sizeof("records/rooms/") - 4);
+        const auto pointer_prefix = "/rooms/" + escape(room_id) + "/";
+        const auto owner_key = "record:rooms:" + room_id;
+        for (const auto& tracked :
+             previous->normalized_model.at("sourceMessageTracking").object_range()) {
+            const auto& tracked_source = tracked.value();
+            if (tracked_source.at("ownerKey") == owner_key ||
+                tracked_source.at("sourcePath").as<std::string>().starts_with(pointer_prefix))
+                return fallback("Room text participates in managed source tracking");
+        }
+    }
+
+    const auto identities = structured_record_identities(cache);
+    for (const auto& [path, identity] : identities)
+        if ((!previous->record_identities.contains(path) ||
+             previous->record_identities.at(path) != identity) &&
+            !path.starts_with("records/rooms/"))
+            return fallback("non-Room record changed");
+    for (const auto& [path, _] : previous->record_identities)
+        if (!identities.contains(path) && !path.starts_with("records/rooms/"))
+            return fallback("non-Room record removed");
+    if (sources.size() != previous->structured_contributions.size())
+        return fallback("structured Message identity count changed");
+
+    std::set<std::string> changed_ids;
+    std::set<std::string> all_ids;
+    const auto& ids = previous->normalized_model.at("structuredMessageIds");
+    for (const auto& [path, text] : sources) {
+        const auto prior = previous->structured_contributions.find(path);
+        if (prior == previous->structured_contributions.end() || !ids.contains(path))
+            return fallback("structured Message path changed");
+        const auto id = ids.at(path).as<std::string>();
+        if (!all_ids.insert(id).second && prior->second != text)
+            return fallback("shared generated Message ID changed");
+        if (prior->second != text) {
+            if (previous->physical_message_ids.contains(id))
+                return fallback("physical Message shadows changed generated Message");
+            changed_ids.insert(id);
+        }
+    }
+    // Changed IDs cannot alias another source even when the other source was
+    // unchanged; otherwise re-insertion order affects the winning Message.
+    if (all_ids.size() != sources.size() && !changed_ids.empty())
+        return fallback("generated Message ID collision");
+
+    ValidationResult result;
+    ++cache.incremental_model_passes;
+    Json updated_model = previous->normalized_model;
+    for (const auto& [path, text] : sources) {
+        if (previous->structured_contributions.at(path) == text)
+            continue;
+        const auto id = ids.at(path).as<std::string>();
+        Json chunk = Json::object();
+        chunk["messages"] = Json::object();
+        chunk["messages"].insert_or_assign(id, generated_structured_message(text));
+        chunk["structuredMessageIds"] = Json::object();
+        chunk["structuredMessageIds"].insert_or_assign(path, id);
+        const auto checked = validate_record("WorkspaceLocalizationMessages", chunk.to_string());
+        ++cache.incremental_message_validations;
+        if (!checked.accepted) {
+            for (auto issue : checked.diagnostics) {
+                issue.path = "/localization" + issue.path;
+                issue.source_path = owner_for_path(issue.path);
+                result.diagnostics.push_back(std::move(issue));
+            }
+            result.accepted = false;
+            return result;
+        }
+        updated_model["messages"].insert_or_assign(
+            id, Json::parse(checked.effective_json).at("messages").at(id));
+    }
+    const auto start = Clock::now();
+    std::vector<Diagnostic> diagnostics;
+    validate_changed_localization_translations(updated_model, changed_ids, diagnostics);
+    cache.dependent_validation_micros += micros_since(start);
+    for (const auto& locale : updated_model.at("translations").object_range())
+        for (const auto& id : changed_ids)
+            if (locale.value().contains(id))
+                ++cache.incremental_translation_checks;
+    for (auto& issue : diagnostics) {
+        issue.path = "/localization" + issue.path;
+        issue.source_path = owner_for_path(issue.path);
+        result.diagnostics.push_back(std::move(issue));
+    }
+    result.accepted = result.diagnostics.empty();
+    if (!result.accepted)
+        return result;
+
+    result.effective_json = previous->effective_json;
+    auto retained = std::make_shared<NativeLocalizationRetainedState>(*previous);
+    retained->record_overlays = record_overlays;
+    retained->record_identities = std::move(identities);
+    retained->structured_contributions = sources;
+    retained->normalized_model = std::move(updated_model);
+    cache.retained = std::move(retained);
+    return result;
 }
 
 // A managed Message ID is stored in i18n/tracking.yaml rather than in
@@ -1183,6 +1426,20 @@ validate_project_localization(const std::filesystem::path& project_root,
     ValidationResult result;
     ScopedLocalizationWork measuring(structured_cache);
     try {
+        const auto* observed_revisions = observed_project_revisions();
+        std::optional<std::map<std::string, std::string>> projected_sources;
+        if (structured_cache && structured_cache->retained && observed_revisions) {
+            const auto started = Clock::now();
+            projected_sources = structured_sources(project_root, record_overlays, structured_cache);
+            structured_cache->structured_projection_micros += micros_since(started);
+            if (auto incremental = validate_incremental_room_messages(
+                    *structured_cache, project_root, *projected_sources, source_overlays,
+                    record_overlays, working_sources, *observed_revisions))
+                return std::move(*incremental);
+        } else if (structured_cache && structured_cache->retained && !observed_revisions) {
+            structured_cache->incremental_fallback_reason = "no complete verified SourceAuthority";
+        }
+        const auto fragments_started = Clock::now();
         Json policy, messages, usage, tracking, orphans;
         bool complete = true;
         complete &= fragment(result, project_root, source_overlays, "i18n/project.yaml",
@@ -1203,8 +1460,11 @@ validate_project_localization(const std::filesystem::path& project_root,
                        "WorkspaceLocalizationLocale", "/localization/translations", translations);
         append_locales(result, project_root, source_overlays, "i18n/assets",
                        "WorkspaceLocalizationAssets", "/localization/assets", assets);
+        if (structured_cache)
+            structured_cache->fragment_validation_micros += micros_since(fragments_started);
         if (!complete || !result.diagnostics.empty())
             return result;
+        const auto merged_started = Clock::now();
         Json model = policy;
         for (const auto& entry : messages.object_range())
             model.insert_or_assign(entry.key(), entry.value());
@@ -1218,30 +1478,34 @@ validate_project_localization(const std::filesystem::path& project_root,
         // translation checking, then discard this validation-only projection.
         const auto physical_messages = model.at("messages");
         const auto physical_ids = model.at("structuredMessageIds");
-        static const std::regex placeholder(R"(\{([A-Za-z_][A-Za-z0-9_-]*)\})");
-        for (const auto& [path, source_text] :
-             structured_sources(project_root, record_overlays, structured_cache)) {
+        const auto projection_started = Clock::now();
+        if (!projected_sources)
+            projected_sources = structured_sources(project_root, record_overlays, structured_cache);
+        if (structured_cache)
+            structured_cache->structured_projection_micros += micros_since(projection_started);
+        for (const auto& [path, source_text] : *projected_sources) {
             const auto id = physical_ids.contains(path) ? physical_ids.at(path).as<std::string>()
                                                         : derived_message_id(path);
             model["structuredMessageIds"].insert_or_assign(path, id);
             if (model["messages"].contains(id))
                 continue;
-            Json message = Json::object();
-            message["kind"] = "local";
-            message["source"] = source_text;
-            Json arguments = Json::object();
-            for (auto it =
-                     std::sregex_iterator(source_text.begin(), source_text.end(), placeholder);
-                 it != std::sregex_iterator(); ++it)
-                arguments.insert_or_assign((*it)[1].str(), "printable");
-            if (!arguments.empty())
-                message["arguments"] = std::move(arguments);
-            model["messages"].insert_or_assign(id, std::move(message));
+            model["messages"].insert_or_assign(id, generated_structured_message(source_text));
         }
         add_tracked_messages(model, project_root, record_overlays, working_sources);
-        if (structured_cache)
+        if (structured_cache) {
             ++structured_cache->localization_model_passes;
-        const auto validation = validate_record("WorkspaceLocalization", model.to_string());
+            structured_cache->merged_model_micros += micros_since(merged_started);
+        }
+        const auto serialization_started = Clock::now();
+        const auto model_json = model.to_string();
+        if (structured_cache)
+            structured_cache->contract_serialization_micros += micros_since(serialization_started);
+        const auto validation_started = Clock::now();
+        const auto validation = validate_record("WorkspaceLocalization", model_json);
+        if (structured_cache) {
+            ++structured_cache->full_contract_validations;
+            structured_cache->contract_validation_micros += micros_since(validation_started);
+        }
         for (const auto& issue : validation.diagnostics) {
             auto diagnostic = issue;
             diagnostic.path = "/localization" + diagnostic.path;
@@ -1251,14 +1515,34 @@ validate_project_localization(const std::filesystem::path& project_root,
         if (validation.accepted) {
             if (structured_cache)
                 ++structured_cache->dialogue_cue_passes;
+            const auto cue_started = Clock::now();
             validate_dialogue_cue_translations(result, project_root, model, record_overlays);
+            if (structured_cache)
+                structured_cache->cue_validation_micros += micros_since(cue_started);
         }
         result.accepted = result.diagnostics.empty();
         if (result.accepted) {
             auto effective = Json::parse(validation.effective_json);
+            if (structured_cache && observed_revisions) {
+                auto retained = std::make_shared<NativeLocalizationRetainedState>();
+                retained->observed_revisions = *observed_revisions;
+                retained->localization_overlays = source_overlays;
+                retained->record_overlays = record_overlays;
+                retained->source_analyses = analyzed_source_identities(working_sources);
+                retained->record_identities = structured_record_identities(*structured_cache);
+                retained->structured_contributions = *projected_sources;
+                for (const auto& entry : physical_messages.object_range())
+                    retained->physical_message_ids.insert(std::string(entry.key()));
+                retained->normalized_model = effective;
+                // The working compiled model excludes validation-only
+                // structured contributions, whose authority is the Room YAML.
+                structured_cache->retained = std::move(retained);
+            }
             effective.insert_or_assign("messages", physical_messages);
             effective.insert_or_assign("structuredMessageIds", physical_ids);
             result.effective_json = effective.to_string();
+            if (structured_cache && structured_cache->retained && observed_revisions)
+                structured_cache->retained->effective_json = result.effective_json;
         }
     } catch (const std::exception& error) {
         add(result, "/localization", "localization.source.failure", error.what(),

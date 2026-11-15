@@ -185,5 +185,8 @@ private:
 const VerifiedProjectSource* observed_project_source(const std::filesystem::path& path);
 std::vector<std::string> observed_project_yaml_paths(std::string_view directory);
 bool has_observed_project_sources() noexcept;
+// Whole observed tracked-source generation, only when SourceAuthority proves
+// complete coverage. Consumers must not retain the pointer beyond this scope.
+const std::map<std::string, std::string>* observed_project_revisions() noexcept;
 
 } // namespace noveltea::authoring
