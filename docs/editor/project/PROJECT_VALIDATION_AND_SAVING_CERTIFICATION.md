@@ -568,3 +568,75 @@ measurements. None of the **eight human cases** was performed on a physical
 desktop; no Windows 11/macOS/physical-Linux qualification is available.
 Do not close #609 or its parents until the remaining measurements and
 physical acceptance pass, or the issue owner formally resolves the gate.
+
+## #632 verified native localization source reuse (2026-11-14)
+
+`ProjectSession::patch()` now invokes its **existing** `SourceAuthority` physical
+observation for changes that invalidate localization, then exposes the verified
+generation only while rebuilding the working snapshot. This is a normal
+source observation, **not** a watcher-fence shortcut or a second freshness
+registry. An observed unchanged YAML record supplies the exact source revision
+and already parsed JSON; an unproven generation still requires a fresh file
+read and content revision check. Source-identity keys are identical for
+equal verified and independently reread bytes. External changes to an edited
+owner still lose its exact revision precondition; unrelated observed changes
+are not automatically treated as conflicts with that owner. The usual Save
+CAS and own-write acknowledgment paths are unchanged.
+
+The scoped work counters distinguish physical YAML opens, successful reads,
+parses, exact disk hashes, observed contribution reuses, changed-source
+projections, localization-model passes and dialogue-cue passes. They describe
+the localization collector itself, not the source authority's captures or
+other native patch activity. The existing validation-work profiler separately
+counts physical file reads and YAML parses throughout the patched operation.
+Counters reset on each actual localization validation; a retained localization
+result does not fabricate a validation pass. A warm saved Room text update
+continues to validate the **whole** `WorkspaceLocalization` model and its cue
+contracts: translated Message completeness, duplicate/managed Message IDs,
+structured placeholders, localized references and Dialogue Cue requirements
+cross record boundaries. Reusing per-record extraction cannot bypass those
+checks. Room label-only presentation edits retain the earlier no-rebuild path;
+structured record source-text changes are not classified as presentation-only.
+
+Linux x64 Release `-O3 -DNDEBUG`, same host, same
+`noveltea-project-session-certify --profile-presentation-edit
+tests/projects/feature-lab` command, same disposable Feature Lab fixture,
+first iteration discarded, 19 warm iterations per operation. The before tree
+was `e8249f7a7a61f30158a04b7fc3e7da5f50c01da1`; the after candidate is
+the #632 change set on that parent (exact commit recorded in the issue).
+Times in milliseconds, **median / p95 / max**:
+
+| Operation | Before | After |
+| --- | --- | --- |
+| Room display-name patch | 50.70 / 69.10 / 69.10 | 42.99 / 49.55 / 49.55 |
+| Room display-name scoped Save | 54.32 / 80.36 / 80.36 | 54.57 / 59.92 / 59.92 |
+| Room description patch | 50.36 / 52.96 / 52.96 | 42.62 / 44.56 / 44.56 |
+| Room description scoped Save | 54.32 / 58.04 / 58.04 | 55.05 / 66.04 / 66.04 |
+| Project title patch (control) | 24.41 / 28.10 / 28.10 | 24.80 / 28.52 / 28.52 |
+| Project title scoped Save (control) | 99.08 / 132.86 / 132.86 | 101.16 / 129.67 / 129.67 |
+
+Each of the 19 post-change warm Room display-name patches had **zero**
+localization physical YAML opens, reads, parses or fallback disk hashes:
+2,717 reused observed contributions, 19 changed projections, 19 full
+localization-model checks and 19 Dialogue Cue checks. The before collector
+rehashed physically reread YAML for every unchanged contribution; before
+instrumentation did not separate file opens from contributor reuse. End-to-end
+patch work still measured 76 physical file reads and 57 YAML parses across
+the same 19 operations **outside** the localization collector. No consistent
+Save improvement or 16-ms patch guarantee follows from these noisy timings;
+this work eliminates a verified redundant-I/O source, **not** the remaining
+authoring latency identified in #601. This native CLI profiling is not
+equivalent to packaged-addon, renderer paint, or physical editor acceptance.
+
+Regression tests assert that the new cached projection preserves exact
+cold/effective-Message parity after same-size restored-mtime external edits,
+staged new/deleted records, lost watcher authority and source re-admission;
+the multi-cycle Room presentation Save/reopen test asserts no false uncertain
+authority or stale own-write result. Native source-watcher and YAML transaction
+tests remain independent safety gates. The CTest-registered native Node-addon
+localization-generation regression additionally asserts that translation
+diagnostics appear immediately after a working Character text edit, clear on
+repair, remain cleared after stale revision rejection, survive consecutive
+successful owner Saves, and do not resurface on reopen. The shipped Feature Lab fixture already
+supplies the Room, Dialogue, translated Message and authored content used for
+these certifications; no generated Project files are changed by the tests.

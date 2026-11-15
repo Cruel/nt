@@ -11,9 +11,9 @@
 #include <vector>
 
 namespace noveltea::authoring {
-// Reusable, source-local Message contributions. The identity of a disk entry
-// is determined from its currently observed revision or freshly read bytes;
-// the cache is never a substitute for source authority or a physical read.
+// Reusable, source-local Message contributions. An observed revision is usable
+// only inside a current, physically verified SourceAuthority observation;
+// otherwise the collector reopens and hashes the YAML itself.
 struct NativeStructuredSourcesCache {
     struct Entry {
         std::string source_identity;
@@ -22,6 +22,16 @@ struct NativeStructuredSourcesCache {
     std::map<std::string, Entry> records;
     std::size_t reused = 0;
     std::size_t rechecked = 0;
+    // Per-validation work (not cumulative). Separate physical YAML I/O from
+    // contributor reuse: a hash of freshly reread bytes is not an I/O saving.
+    std::size_t physical_yaml_opens = 0;
+    std::size_t physical_yaml_reads = 0;
+    std::size_t physical_yaml_parses = 0;
+    std::size_t exact_disk_hashes = 0;
+    std::size_t observed_reuses = 0;
+    std::size_t projections = 0;
+    std::size_t localization_model_passes = 0;
+    std::size_t dialogue_cue_passes = 0;
 };
 
 struct NativeLocalizationTrackingOccurrence {

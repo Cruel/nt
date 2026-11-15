@@ -6525,6 +6525,40 @@ ProjectSession::patch(std::uint64_t revision, const std::vector<RoomPatch>& patc
         if (before == after)
             presentation_only.insert(owner);
     }
+    const bool localization_mutation =
+        std::any_of(affected.begin(), affected.end(), [&](const auto& owner) {
+            return (localization_record_owner(owner) && !presentation_only.contains(owner)) ||
+                   owner.starts_with("assets/") || owner.starts_with("i18n/");
+        });
+    std::optional<ScopedVerifiedProjectSources> verified_localization;
+    if (localization_mutation) {
+        // The patch's existing per-owner CAS checks admit the edit, but they
+        // cannot prove unrelated physical localization contributors. Use the
+        // resident SourceAuthority's normal observation (never a watcher-only
+        // fast path) before reprojecting the working localization model.
+        const auto physical = observe_sources();
+        for (const auto& owner : affected) {
+            const auto edited = staged.find(owner);
+            const auto previous = records_.find(owner);
+            const RoomSession* record = edited != staged.end()       ? edited->second.get()
+                                        : previous != records_.end() ? previous->second.get()
+                                                                     : nullptr;
+            if (!record)
+                continue;
+            const auto path = record->source_path().lexically_relative(root_).generic_string();
+            if (physical.delta_revisions.contains(path) &&
+                source_revision_or_absent(record->source_path()) !=
+                    record->snapshot().disk_source_revision) {
+                response.error = "External source conflict for " + owner;
+                response.snapshot = snapshot();
+                return response;
+            }
+        }
+        if (physical.authoritative || physical.scoped_authority)
+            verified_localization.emplace(*source_authority_);
+        // Failed observation deliberately retains the exact-read fallback in
+        // localization_semantics. No stale observed revision is made visible.
+    }
     const auto before = response.snapshot;
     source_ = std::move(manifest);
     records_ = std::move(staged);
@@ -6534,9 +6568,7 @@ ProjectSession::patch(std::uint64_t revision, const std::vector<RoomPatch>& patc
             index_text_owner(owner, records_.contains(owner)
                                         ? records_.at(owner)->snapshot().source_json
                                         : "{}");
-    if (std::any_of(affected.begin(), affected.end(), [&](const auto& owner) {
-            return localization_record_owner(owner) && !presentation_only.contains(owner);
-        }))
+    if (localization_mutation)
         localization_cache_.reset();
     for (const auto& owner : affected)
         if (owner.starts_with("assets/"))

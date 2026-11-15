@@ -124,6 +124,13 @@ void presentation_edit_roundtrip(const std::filesystem::path& fixture)
         require(rechecked_sources == 1 && reused_sources > 0,
                 "Room display-name mutation must update only its own structured Message "
                 "contributions while retaining unchanged source contributions");
+        const auto& source_work = project->localization_source_work();
+        require(source_work.physical_yaml_reads == 0 && source_work.physical_yaml_parses == 0 &&
+                    source_work.observed_reuses == reused_sources && source_work.projections == 1 &&
+                    source_work.localization_model_passes == 1 &&
+                    source_work.dialogue_cue_passes == 1,
+                "Room presentation mutation must use verified unchanged YAML generations "
+                "without reopening or reparsing unrelated source records");
         const auto edited = project->record_snapshots().at(id);
         const auto data = Json::parse(edited.normalized_json).at("data");
         const auto saved = Json::parse(edited.normalized_baseline_json).at("data");
@@ -176,6 +183,9 @@ Json profile_presentation_edit(const std::filesystem::path& fixture)
     const auto measure = [&](std::string owner, std::string pointer, std::filesystem::path yaml) {
         std::vector<double> patch_ms, save_ms, combined_ms;
         std::size_t local_rechecked = 0, local_reused = 0;
+        std::size_t physical_yaml_opens = 0, physical_yaml_reads = 0, physical_yaml_parses = 0,
+                    exact_disk_hashes = 0, observed_reuses = 0, projections = 0, model_passes = 0,
+                    cue_passes = 0, patch_file_reads = 0, patch_yaml_parses = 0;
         std::size_t patch_snapshots = 0, save_snapshots = 0, patch_snapshot_micros = 0,
                     save_snapshot_micros = 0;
         for (int i = 0; i < 20; ++i) {
@@ -196,6 +206,17 @@ Json profile_presentation_edit(const std::filesystem::path& fixture)
                 if (i > 0) {
                     local_rechecked += checked;
                     local_reused += reused;
+                    const auto& work = project->localization_source_work();
+                    physical_yaml_opens += work.physical_yaml_opens;
+                    physical_yaml_reads += work.physical_yaml_reads;
+                    physical_yaml_parses += work.physical_yaml_parses;
+                    exact_disk_hashes += work.exact_disk_hashes;
+                    observed_reuses += work.observed_reuses;
+                    projections += work.projections;
+                    model_passes += work.localization_model_passes;
+                    cue_passes += work.dialogue_cue_passes;
+                    patch_file_reads += patch_work.get<WorkCounter::FileByteReads>();
+                    patch_yaml_parses += patch_work.get<WorkCounter::ParsedYaml>();
                 }
             }
             ValidationWorkCounters save_work;
@@ -242,6 +263,16 @@ Json profile_presentation_edit(const std::filesystem::path& fixture)
         if (owner.starts_with("rooms/")) {
             result["structuredSourcesRechecked"] = local_rechecked;
             result["structuredSourcesReused"] = local_reused;
+            result["localizationPhysicalYamlOpens"] = physical_yaml_opens;
+            result["localizationPhysicalYamlReads"] = physical_yaml_reads;
+            result["localizationPhysicalYamlParses"] = physical_yaml_parses;
+            result["localizationExactDiskHashes"] = exact_disk_hashes;
+            result["localizationObservedReuses"] = observed_reuses;
+            result["localizationProjections"] = projections;
+            result["localizationModelPasses"] = model_passes;
+            result["localizationCuePasses"] = cue_passes;
+            result["totalPatchFileByteReads"] = patch_file_reads;
+            result["totalPatchParsedYaml"] = patch_yaml_parses;
         }
         return result;
     };

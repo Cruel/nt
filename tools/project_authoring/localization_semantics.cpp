@@ -18,10 +18,56 @@
 #include <set>
 #include <stdexcept>
 #include <string_view>
+#include <utility>
 
 namespace noveltea::authoring {
 namespace {
 using Json = jsoncons::ojson;
+
+// These counters are observational only. A nested localization validation
+// restores its caller's profiler; source authority remains in SourceAuthority.
+thread_local NativeStructuredSourcesCache* localization_work = nullptr;
+
+struct ScopedLocalizationWork {
+    NativeStructuredSourcesCache* previous;
+    explicit ScopedLocalizationWork(NativeStructuredSourcesCache* current)
+        : previous(std::exchange(localization_work, current))
+    {
+        if (current) {
+            current->physical_yaml_opens = 0;
+            current->physical_yaml_reads = 0;
+            current->physical_yaml_parses = 0;
+            current->exact_disk_hashes = 0;
+            current->observed_reuses = 0;
+            current->projections = 0;
+            current->localization_model_passes = 0;
+            current->dialogue_cue_passes = 0;
+        }
+    }
+    ~ScopedLocalizationWork() { localization_work = previous; }
+};
+
+std::optional<std::string> read_physical_yaml(const std::filesystem::path& path)
+{
+    if (localization_work)
+        ++localization_work->physical_yaml_opens;
+    std::ifstream stream(path, std::ios::binary);
+    if (!stream)
+        return std::nullopt;
+    std::string bytes{std::istreambuf_iterator<char>{stream}, std::istreambuf_iterator<char>{}};
+    if (stream.bad())
+        return std::nullopt;
+    if (localization_work)
+        ++localization_work->physical_yaml_reads;
+    return bytes;
+}
+
+YamlSourceResult decode_physical_yaml(std::string_view bytes)
+{
+    if (localization_work)
+        ++localization_work->physical_yaml_parses;
+    return open_yaml_source(bytes);
+}
 
 std::string escape(std::string_view name)
 {
@@ -162,10 +208,10 @@ std::optional<Json> working_record(const std::filesystem::path& root,
     const auto file = root / name;
     if (!std::filesystem::is_regular_file(file))
         return std::nullopt;
-    std::ifstream input(file, std::ios::binary);
-    const std::string bytes{std::istreambuf_iterator<char>{input},
-                            std::istreambuf_iterator<char>{}};
-    const auto decoded = open_yaml_source(bytes);
+    const auto bytes = read_physical_yaml(file);
+    if (!bytes)
+        return std::nullopt;
+    const auto decoded = decode_physical_yaml(*bytes);
     if (!decoded.accepted)
         return std::nullopt;
     return Json::parse(decoded.source_json);
@@ -458,15 +504,16 @@ structured_sources(const std::filesystem::path& root,
                     identity = "working:" + exact_source_revision(overlay->second);
                 } else if ((observed = observed_project_source(root / relative)) &&
                            observed->yaml) {
-                    identity = "observed:" + observed->revision;
+                    identity = "source:" + observed->revision;
                 } else {
                     const auto path = root / relative;
                     if (std::filesystem::is_regular_file(path)) {
-                        std::ifstream input(path, std::ios::binary);
-                        disk_bytes.assign(std::istreambuf_iterator<char>{input},
-                                          std::istreambuf_iterator<char>{});
-                        if (!input.bad())
-                            identity = "disk:" + exact_source_revision(disk_bytes);
+                        if (const auto bytes = read_physical_yaml(path)) {
+                            disk_bytes = *bytes;
+                            if (cache)
+                                ++cache->exact_disk_hashes;
+                            identity = "source:" + exact_source_revision(disk_bytes);
+                        }
                     }
                 }
                 const auto previous = cache->records.find(relative);
@@ -475,15 +522,18 @@ structured_sources(const std::filesystem::path& root,
                     messages.insert(previous->second.messages.begin(),
                                     previous->second.messages.end());
                     ++cache->reused;
+                    if (observed)
+                        ++cache->observed_reuses;
                     continue;
                 }
                 ++cache->rechecked;
+                ++cache->projections;
                 if (overlay != record_overlays.end())
                     record = Json::parse(overlay->second);
                 else if (observed && observed->yaml && observed->yaml->accepted)
                     record = Json::parse(observed->yaml->source_json);
                 else if (!identity.empty()) {
-                    const auto decoded = open_yaml_source(disk_bytes);
+                    const auto decoded = decode_physical_yaml(disk_bytes);
                     if (decoded.accepted)
                         record = Json::parse(decoded.source_json);
                 }
@@ -878,15 +928,13 @@ bool fragment(ValidationResult& result, const std::filesystem::path& root,
             }
             value = observed->yaml->source_json;
         } else {
-            std::ifstream input(root / name, std::ios::binary);
-            if (!input) {
+            const auto bytes = read_physical_yaml(root / name);
+            if (!bytes) {
                 add(result, std::string(logical), "localization.source.missing",
                     "Required localization source is missing or unreadable: " + name, name);
                 return false;
             }
-            const std::string bytes{std::istreambuf_iterator<char>{input},
-                                    std::istreambuf_iterator<char>{}};
-            const auto opened = open_yaml_source(bytes);
+            const auto opened = decode_physical_yaml(*bytes);
             if (!opened.accepted) {
                 add(result, std::string(logical), "localization.source.yaml", opened.error, name);
                 return false;
@@ -1133,6 +1181,7 @@ validate_project_localization(const std::filesystem::path& project_root,
                               NativeStructuredSourcesCache* structured_cache)
 {
     ValidationResult result;
+    ScopedLocalizationWork measuring(structured_cache);
     try {
         Json policy, messages, usage, tracking, orphans;
         bool complete = true;
@@ -1190,6 +1239,8 @@ validate_project_localization(const std::filesystem::path& project_root,
             model["messages"].insert_or_assign(id, std::move(message));
         }
         add_tracked_messages(model, project_root, record_overlays, working_sources);
+        if (structured_cache)
+            ++structured_cache->localization_model_passes;
         const auto validation = validate_record("WorkspaceLocalization", model.to_string());
         for (const auto& issue : validation.diagnostics) {
             auto diagnostic = issue;
@@ -1197,8 +1248,11 @@ validate_project_localization(const std::filesystem::path& project_root,
             diagnostic.source_path = owner_for_path(diagnostic.path);
             result.diagnostics.push_back(std::move(diagnostic));
         }
-        if (validation.accepted)
+        if (validation.accepted) {
+            if (structured_cache)
+                ++structured_cache->dialogue_cue_passes;
             validate_dialogue_cue_translations(result, project_root, model, record_overlays);
+        }
         result.accepted = result.diagnostics.empty();
         if (result.accepted) {
             auto effective = Json::parse(validation.effective_json);

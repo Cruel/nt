@@ -241,6 +241,11 @@ if(NOVELTEA_BUILD_AUTHORING_NODE_ADDON)
                 "${CMAKE_CURRENT_SOURCE_DIR}/../../editor/scripts/certify-native-materials.mjs"
                 "$<TARGET_FILE:noveltea-authoring-node>"
                 "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
+        add_test(NAME native_authoring_addon_localization_generations
+            COMMAND "${NOVELTEA_AUTHORING_NODE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/../../editor/scripts/certify-native-localization-generations.mjs"
+                "$<TARGET_FILE:noveltea-authoring-node>"
+                "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
     endif()
 endif()
 # Deliberately no engine/player link or install rule: this is a certification-only host library.

@@ -1,9 +1,11 @@
 #include "localization_semantics.hpp"
 #include "room_session.hpp"
+#include "source_authority.hpp"
 #include "yaml_codec.hpp"
 
 #include <jsoncons/json.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -113,6 +115,66 @@ void certify(const std::filesystem::path& source)
         (void)validate_project_localization(incremental.root, {}, working, {}, &cache);
         require(cache.records.at("records/rooms/properties-and-traits.yaml").messages.empty(),
                 "Removed working Room stops contributing saved structured Messages");
+    }
+    {
+        Fixture proven(source);
+        SourceAuthority authority(proven.root);
+        std::string error;
+        require(authority.initialize(error), "Exact source observer initializes: " + error);
+        NativeStructuredSourcesCache cache;
+        const auto verified = [&] {
+            ScopedVerifiedProjectSources scope(authority);
+            return validate_project_localization(proven.root, {}, {}, {}, &cache);
+        };
+        const auto initial = verified();
+        require(initial.accepted && cache.rechecked > 0 && cache.physical_yaml_reads == 0 &&
+                    cache.physical_yaml_parses == 0,
+                "Initial localization projection uses already admitted exact YAML bytes");
+        const auto warm = verified();
+        require(warm.effective_json == initial.effective_json && cache.rechecked == 0 &&
+                    cache.observed_reuses > 0 && cache.physical_yaml_reads == 0 &&
+                    cache.physical_yaml_parses == 0,
+                "Warm localization reuses unchanged observed records without reopening YAML");
+
+        const auto relative = std::string("records/rooms/properties-and-traits.yaml");
+        const auto room = proven.root / relative;
+        const auto old_timestamp = std::filesystem::last_write_time(room);
+        auto yaml = contents(room);
+        const auto pos = yaml.find("displayName: Properties & Traits");
+        require(pos != std::string::npos, "Observed Room source text exists");
+        yaml.replace(pos, std::string("displayName: Properties & Traits").size(),
+                     "displayName: Properties & TraitS");
+        std::ofstream(room, std::ios::trunc) << yaml;
+        std::filesystem::last_write_time(room, old_timestamp);
+        const auto change = authority.observe();
+        require(change.authoritative &&
+                    std::find(change.delta.changed.begin(), change.delta.changed.end(), relative) !=
+                        change.delta.changed.end(),
+                "An external same-length YAML edit with restored mtime changes exact authority");
+        const auto incremental = verified();
+        const auto cold = validate_project_localization(proven.root);
+        require(incremental.accepted == cold.accepted &&
+                    incremental.effective_json == cold.effective_json &&
+                    incremental.diagnostics.size() == cold.diagnostics.size() &&
+                    cache.rechecked == 1 && cache.observed_reuses > 0 &&
+                    cache.physical_yaml_reads == 0 && cache.physical_yaml_parses == 0,
+                "Exact observer updates one changed contribution with cold localization parity");
+        for (std::size_t i = 0; i < incremental.diagnostics.size(); ++i)
+            require(incremental.diagnostics[i].path == cold.diagnostics[i].path &&
+                        incremental.diagnostics[i].code == cold.diagnostics[i].code,
+                    "Changed observed localization diagnostics match a fresh full validation");
+
+        authority.coverage_lost();
+        const auto uncertain = validate_project_localization(proven.root, {}, {}, {}, &cache);
+        require(uncertain.effective_json == cold.effective_json && cache.physical_yaml_reads > 0 &&
+                    cache.exact_disk_hashes > 0 && cache.observed_reuses == 0,
+                "Without proven source authority localization physically rechecks its YAML");
+        require(authority.observe().authoritative,
+                "Restoring source observer coverage readmits the exact YAML generation");
+        const auto recovered = verified();
+        require(recovered.effective_json == cold.effective_json && cache.physical_yaml_reads == 0 &&
+                    cache.observed_reuses > 0,
+                "Reopened source authority safely resumes exact-generation projection reuse");
     }
     {
         Fixture contributors(source);

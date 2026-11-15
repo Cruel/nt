@@ -350,6 +350,10 @@ public:
         return {localization_structured_sources_.rechecked,
                 localization_structured_sources_.reused};
     }
+    const NativeStructuredSourcesCache& localization_source_work() const noexcept
+    {
+        return localization_structured_sources_;
+    }
     const std::map<std::string, std::string>& text_source_overlays() const
     {
         return text_source_overlays_;
