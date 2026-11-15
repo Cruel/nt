@@ -774,3 +774,101 @@ The subsequent full `pnpm -C editor run test` completed with **323 test
 files passed, 14 skipped; 2,471 tests passed, 214 skipped**, without a failing
 test. The skips include optional native/packaged-host parity qualifications
 that are not implied by the full editor run and are not counted as passed.
+
+### #633 final native Patch/Save budget certification (2026-11-15)
+
+The **historical budget failure above is superseded** by #635/#636's
+incremental Room localization and native Patch publication, #634's durable
+explicit single-file Save, and `b2412cda`'s source-fenced post-Save snapshot
+and localization-generation reuse. The latter requires a verified observation
+of the new persisted source generation; only the saved Room revision may
+advance, the retained working Room must remain semantically identical, and
+all other physical source revisions and managed text analyses must remain
+unchanged. External source mutation, lost watcher coverage, semantic change,
+or inability to rebase falls back to regular validation. Optional cache
+maintenance cannot turn an already durable Save into an error.
+
+Reproducible commands, run **serially** without concurrent test/build work:
+
+```sh
+node editor/scripts/benchmark-native-addon-publication.mjs \
+  build/native-authoring-host/noveltea-authoring-node.node --single-record
+build/native-authoring-host/noveltea-project-session-certify \
+  --profile-presentation-edit tests/projects/feature-lab
+build/native-authoring-host/noveltea-project-session-certify \
+  --profile-unsaved-room-patches tests/projects/feature-lab
+```
+
+Both before and after use Debian Linux 6.1 x86_64, ext4 on
+`/dev/mapper/cluster0--vg-root`, Node 24.16.0 and the same disposable
+unmodified Feature Lab fixture. Compiler: GCC 12, CMake **Release -O3
+-DNDEBUG**. Native addon SHA-256 before the final `b2412cda` change
+(`1b095563` tree):
+`35f61eb79ad67bfc4e0c63dd07d9b047547c8a650d36d36de2029fa34d916b55`;
+after:
+`cdfed8f7968cca503a77301a0874df41ff485777421806823cd9219efe36d6ba`.
+The addon and CLI run the same native `ProjectSession` algorithms, but
+Node-API conversion is included only in the addon measurement. All samples
+are **22 warmed** real Patch→Save/readback iterations per owner (first
+iteration excluded); figures below are p50 / p95 in milliseconds.
+
+| Operation | Real addon before final rebase | Real addon after | Final native C++ |
+| --- | ---: | ---: | ---: |
+| Room displayName Patch after Save | 43.51 / 48.09 | 17.27 / 19.03 | **9.85 / 11.74** |
+| Room displayName scoped Save | 33.27 / 34.70 | **37.67 / 40.02** | 32.08 / 37.86 |
+| Room description Patch after Save | 44.30 / 48.39 | 17.23 / 19.34 | **10.13 / 11.01** |
+| Room description scoped Save | 33.22 / 35.86 | 37.48 / 45.59 | 32.18 / 37.59 |
+| Project title Patch | 20.61 / 21.56 | 20.45 / 24.09 | 16.86 / 21.44 |
+| Project title journaled Save | 102.02 / 111.79 | 101.94 / 118.67 | 99.59 / 111.34 |
+
+The final native Room displayName Patch max was 16.96 ms; Save max
+44.15 ms. The real addon Room Patch max was 21.00 ms; Save max 41.61 ms.
+The **~10 ms native warm Room Patch and <=20 ms p95** and the **<=50 ms
+real-addon scoped Room Save median** targets are satisfied on this host.
+The Project title is a separate, always-journaled, larger YAML workload;
+its ~102 ms addon Save remains a documented residual cost, not a claimed
+Room-budget pass. This does not certify UI input-to-paint or packaged Save.
+
+Across 22 final native displayName Patch→Save cycles, Patch performed
+**22 Project snapshot assemblies, 22 incremental Message validations,
+0 full localization contract validations and 0 localization disk YAML reads**.
+Save performed **44 file syncs, 66 directory syncs, 0 journal writes**:
+exactly 2 file / 3 directory syncs per explicit Room Save, with no
+durability barriers removed by the post-Save reuse. A separate 19-warm
+unsaved Room Patch profile remained ~10.15 / 12.52 ms (displayName) and
+~10.03 / 12.97 ms (description) without full localization validation.
+
+New regression certification verifies reuse of the immediately preceding
+Save's authoritative diagnostic snapshot, incremental localization on the
+first new edit, multi-owner Save All still journaled, and an unexpected
+external disk modification immediately after Save **disabling** reuse and
+rejecting stale writer changes without overwriting those bytes. The
+previous #633/#634 process-kill and journal rollback/roll-forward cases
+remain mandatory. All ten required native CTests passed on this final
+Release build; pinned clang-format 18.1.8 and editor check passed. Full
+editor suite results and final closure provenance are recorded on #633.
+
+The real-addon integration suites passed **7 native worker tests and 51
+reconciliation tests**, with one reconciliation test skipped. Regenerate the
+Electron worker bundle before running them; an older local `dist-electron`
+bundle predating #634 rejects the `saveMode` command field even though the
+current source protocol supports it:
+
+```sh
+pnpm -C editor run build:electron
+NOVELTEA_AUTHORING_NODE_ADDON="$PWD/build/native-authoring-host/noveltea-authoring-node.node" \
+  pnpm -C editor exec vitest run \
+  src/renderer/test/native-authoring-reconciliation.test.ts \
+  src/renderer/test/native-authoring-worker.test.ts
+```
+
+The complete editor suite passed **323 files / 2,472 tests** on its final
+run (14 files / 214 tests skipped). One separate thumbnail prewarm-priority
+test failed on an earlier full-suite run, then passed both its isolated
+25-test rerun and the final full-suite run; it is unrelated to scoped Save.
+
+**Limits:** No GitHub Actions were dispatched (CI quota unavailable).
+Packaged Windows/macOS native-addon, actual power-loss filesystem behavior,
+and interactive editor latency remain unverified; these are not inferred
+from passing Linux process-crash tests. #601 integration and #522 product
+acceptance remain separate from #633's native performance qualification.
