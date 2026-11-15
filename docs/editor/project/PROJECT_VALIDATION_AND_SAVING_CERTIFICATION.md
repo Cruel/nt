@@ -265,7 +265,7 @@ rejections, cold/full snapshot parity, and invalid structured-Message repair.
 Same Debian Linux 6.1 x64 / Ryzen 7 5700G, Node 24.16.0 host, Release builds,
 19 warm iterations, values in milliseconds (median / p95 / max):
 
-| Path and operation | Previously built addon | Rebuilt #630 candidate |
+| Path and operation | Previously built addon (unverified provenance) | Rebuilt #630 candidate |
 | --- | --- | --- |
 | Room display name patch | 122.59 / 128.68 / 141.13 | 55.86 / 67.08 / 69.85 |
 | Room display name Save | 78.33 / 103.09 / 103.20 | 59.65 / 64.94 / 66.82 |
@@ -281,12 +281,106 @@ the candidate was
 The latter hash must be treated as a diagnostic only until the final build
 identity is fixed. The former artifact's exact originating source commit was
 **not independently verified**, so these are useful matched-host/entrypoint
-observations, **not** a certified same-source-baseline speedup. Benchmarks were
+observations, **not** a certified same-source-baseline speedup. **The apparent
+large improvement in this table is superseded by the controlled comparison
+below**; do not use it as the measured benefit of #630. Benchmarks were
 run while the #630 diff was uncommitted on base `2f6d6466`; rerun on a clean
 immutable release commit for formal performance qualification. Neither the
 Room's 10-ms patch target nor end-to-end physical user-input acceptance is
 met. The persisted-source/working-revision distinction, disk-authority checks,
 and independent #601 journal/localization work remain unchanged.
+
+### #630 final source-pinned comparison and closure evidence
+
+Source commits: baseline **`2f6d64668853ce7ad1c072481e113b03e5467cf5`**
+and implementation **`c6866cd347699f9904bf08be2dc8e73f826771d2`**;
+the extended identical-entrypoint benchmark was committed at
+**`1dc678085de4f1070ec0a2690bf96e873e9b044b`**. The baseline source
+was extracted with `git archive 2f6d6466` into a separate temporary source
+directory, with symlinks to the repository's pinned `node_modules` and
+`editor/node_modules`. Both addons used standalone CMake/Ninja
+`-DCMAKE_BUILD_TYPE=Release -DNOVELTEA_BUILD_AUTHORING_NODE_ADDON=ON`,
+GCC 12.2 `-O3 -DNDEBUG`, the Electron 43.1.1 Node-API headers, and the same
+locally downloaded, pinned libfyaml/jsoncons/xxHash source trees. The
+Feature Lab fixture is byte-identical between the two Git commits. The
+benchmark itself and its fixture were not edited between the two timed runs.
+
+Exact Node-addon SHA-256: before
+`5a493d953338c57ef41f2f4ad432fbbad82202179e3d5520045a03e51207a865`;
+after `47946c7c2e941d9f9fd2bb206d75470451eb317a7da5eda5403de7654d49642a`.
+Host: Debian Linux 6.1 x64, Ryzen 7 5700G, Node 24.16.0. Each case uses
+an independent disposable Feature Lab copy per binary, 20 actual patch,
+scoped Save/YAML readback and stale-CAS rejection cycles, discarding the
+first and reporting the 19 warm cycles. Timings include addon-side Project
+work, record serialization, Node-API transport and JSON parse; no renderer
+or physical input latency is inferred. The same command was run sequentially
+for both binaries, not concurrently:
+
+```sh
+node editor/scripts/benchmark-native-addon-publication.mjs "$BASELINE_BUILD/noveltea-authoring-node.node" --single-record
+node editor/scripts/benchmark-native-addon-publication.mjs "$CANDIDATE_BUILD/noveltea-authoring-node.node" --single-record
+node editor/scripts/benchmark-native-addon-publication.mjs "$BASELINE_BUILD/noveltea-authoring-node.node" --additional-inspected=16
+node editor/scripts/benchmark-native-addon-publication.mjs "$CANDIDATE_BUILD/noveltea-authoring-node.node" --additional-inspected=16
+```
+
+**Single inspected Room, warm milliseconds (median / p95 / max):**
+
+| Operation | Before | After |
+| --- | --- | --- |
+| Room display name patch | 54.91 / 57.03 / 59.07 | 55.79 / 63.57 / 76.52 |
+| Room display name Save | 59.91 / 63.55 / 66.73 | 59.70 / 64.28 / 74.99 |
+| Room description patch | 54.62 / 57.04 / 60.12 | 55.49 / 58.80 / 59.16 |
+| Room description Save | 59.73 / 84.15 / 102.63 | 58.88 / 62.56 / 76.24 |
+| Project title patch | 29.08 / 32.14 / 32.27 | 29.17 / 30.61 / 30.76 |
+| Project title Save | 109.01 / 113.92 / 115.72 | 106.61 / 115.34 / 129.51 |
+
+**With 16 additional inspected Rooms plus Traits, warm milliseconds
+(median / p95 / max):**
+
+| Operation | Before | After |
+| --- | --- | --- |
+| Room display name patch | 56.83 / 59.78 / 66.90 | 56.19 / 58.82 / 59.93 |
+| Room display name Save | 62.02 / 66.04 / 79.24 | 62.15 / 81.99 / 103.21 |
+| Room description patch | 56.72 / 67.10 / 70.65 | 56.06 / 57.68 / 58.32 |
+| Room description Save | 60.87 / 64.70 / 65.07 | 60.29 / 64.43 / 80.48 |
+| Project title patch | 30.53 / 34.55 / 37.17 | 30.74 / 32.95 / 34.16 |
+| Project title Save | 108.63 / 114.76 / 118.83 | 110.10 / 117.71 / 125.16 |
+
+Cold open plus explicit full snapshot: 315.17 ms before and 324.49 ms
+after in the single-Room run; 292.74 ms and 307.61 ms with additional
+records configured (the extra inspections occur **after** this measurement).
+Rejected-CAS medians across these cases remained approximately 5–6 ms.
+Both binaries passed identical source readback, full-snapshot parity,
+invalid→repaired working Message, rejected Save and strict validation-DTO
+checks. The native certification further asserts two Project snapshot
+assemblies for an accepted patch (before/after), two for scoped Save
+(working/persisted-source generations), one for rejected stale CAS, one
+record snapshot for an affected-only delta, and zero unopened authored-Test
+or Interaction dependency checks for Room presentation text. The addon
+keeps explicit full-snapshot callers and renderer reconciliation unchanged;
+an opt-in `NOVELTEA_AUTHORING_PROFILE=1` trace with 18 resident owners
+confirmed an explicit full `snapshot` assembles 18 resident record snapshots,
+whereas each `inspect` response and each accepted one-Room patch/Save
+serializes one affected record. Project-only edits and stale-CAS rejections
+assemble zero record snapshots for the delta. All mutation-result responses
+serialize one addon result, without a second full Project snapshot in the
+addon. The opt-in counters remain on stderr, not in the strict IPC DTO.
+The project's internal full validation/diagnostic snapshot work remains
+measurable and is addressed in the subsequent tickets. The real native
+worker/reconciliation tests passed 58 active cases, and the
+editor's full suite previously passed 2,471 active tests. Native
+working-preparation, Project validation, roundtrip, presentation, typed
+invalidation, watcher-race and pinned C++ formatting checks also passed.
+
+**Interpretation:** #630 removes demonstrably redundant resident
+record-snapshot assembly from addon delta publication without a protocol
+or correctness regression. However, the source-pinned end-to-end addon
+comparison does **not** demonstrate a meaningful median latency improvement;
+the old unverified 122.59→55.86-ms comparison must not be cited as one.
+The outstanding semantic dependency invalidation, localization source reads
+and durable Save budgets are explicitly in #631, #632 and #633. The
+10-ms Room patch goal is **not achieved**. Closing the scoped #630
+publication ticket does not accept #601, #609 or #522 performance gates.
 
 ## #609 packaged editing performance gate (2026-11-12; NOT CERTIFIED)
 
