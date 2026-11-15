@@ -2,6 +2,7 @@
 
 #include "contracts.hpp"
 #include "source_authority.hpp"
+#include "validation_work_instrumentation.hpp"
 
 #include <jsoncons/json.hpp>
 #include <jsoncons_ext/jsonpointer/jsonpointer.hpp>
@@ -86,6 +87,8 @@ bool proven_dead(std::uint64_t pid)
 
 void sync_file(const fs::path& path)
 {
+    count_validation_work<WorkCounter::TransactionFileSyncs>();
+    ScopedValidationStageTime<WorkCounter::TransactionFileSyncMicros> timer;
 #ifdef _WIN32
     HANDLE handle = CreateFileW(path.c_str(), GENERIC_WRITE,
                                 FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
@@ -109,6 +112,8 @@ void sync_file(const fs::path& path)
 
 void sync_directory(const fs::path& path)
 {
+    count_validation_work<WorkCounter::TransactionDirectorySyncs>();
+    ScopedValidationStageTime<WorkCounter::TransactionDirectorySyncMicros> timer;
 #ifndef _WIN32
     const int fd = open(path.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
     if (fd < 0)
@@ -124,12 +129,14 @@ void sync_directory(const fs::path& path)
 
 std::string read_source(const fs::path& path)
 {
+    count_validation_work<WorkCounter::TransactionSourceReads>();
     std::ifstream input(path, std::ios::binary);
     if (!input)
         throw std::runtime_error("Cannot read Project transaction source: " + path.string());
     std::string result{std::istreambuf_iterator<char>{input}, std::istreambuf_iterator<char>{}};
     if (input.bad())
         throw std::runtime_error("Cannot finish reading Project transaction source.");
+    count_validation_work<WorkCounter::TransactionSourceBytesRead>(result.size());
     return result;
 }
 
@@ -148,17 +155,28 @@ bool regular_source_exists(const fs::path& path)
     return true;
 }
 
-std::string revision(const fs::path& path)
+struct ExactSourceCapture {
+    std::string revision;
+    std::string bytes;
+};
+
+// A single read establishes both the byte-exact CAS identity and the content
+// subsequently used by YAML preparation / transaction commit. Keep both
+// metadata fences: an in-place write during admission must fail closed.
+ExactSourceCapture capture_exact_source(const fs::path& path)
 {
     if (!regular_source_exists(path))
-        return "absent";
+        return {"absent", {}};
     const auto before = fs::last_write_time(path);
     const auto size = fs::file_size(path);
-    const auto bytes = read_source(path);
+    auto bytes = read_source(path);
     if (bytes.size() != size || fs::last_write_time(path) != before || fs::file_size(path) != size)
         throw std::runtime_error("Project source changed during exact revision read.");
-    return exact_source_revision(bytes);
+    count_validation_work<WorkCounter::TransactionExactChecks>();
+    return {exact_source_revision(bytes), std::move(bytes)};
 }
+
+std::string revision(const fs::path& path) { return capture_exact_source(path).revision; }
 
 void write_atomic(const fs::path& path, std::string_view contents)
 {
@@ -499,6 +517,7 @@ std::pair<std::string, std::uint64_t> read_owner(const fs::path& directory)
 
 void write_journal(const fs::path& directory, const Journal& journal)
 {
+    count_validation_work<WorkCounter::TransactionJournalWrites>();
     write_atomic(directory / "manifest.json", serialize(journal).to_string() + "\n");
 }
 
@@ -588,13 +607,23 @@ bool journal_target_matches(const fs::path& root, const fs::path& directory,
 void apply_target(const fs::path& root, const fs::path& directory, const JournalTarget& target,
                   bool after)
 {
+    count_validation_work<WorkCounter::TransactionTargetApplications>();
     const auto path = safe_source_path(root, target.path);
     const auto& wanted = after ? target.after_revision : target.before_revision;
     // A noncryptographic digest is sufficient to label local source revisions,
-    // but crash recovery must prove the exact stored original bytes.
-    if (journal_target_matches(root, directory, target, after))
+    // but crash recovery must prove the exact stored original bytes. Read the
+    // physical target once for both comparisons; unlike two independent
+    // reads, this cannot accidentally mix different external generations.
+    const auto desired =
+        journal_target_bytes(directory, wanted, after ? target.after_blob : target.before_blob);
+    const auto current =
+        regular_source_exists(path) ? std::optional<std::string>(read_source(path)) : std::nullopt;
+    if (current == desired)
         return;
-    if (!journal_target_matches(root, directory, target, !after))
+    const auto original =
+        journal_target_bytes(directory, after ? target.before_revision : target.after_revision,
+                             after ? target.before_blob : target.after_blob);
+    if (current != original)
         throw std::runtime_error("WORKSPACE_TRANSACTION_RECOVERY_CONFLICT: " + target.path);
     if (wanted == "absent") {
         if (fs::exists(path)) {
@@ -603,12 +632,12 @@ void apply_target(const fs::path& root, const fs::path& directory, const Journal
         }
         return;
     }
-    write_atomic(path, *journal_target_bytes(directory, wanted,
-                                             after ? target.after_blob : target.before_blob));
+    write_atomic(path, *desired);
 }
 
 void recover_journals(const fs::path& root)
 {
+    ScopedValidationStageTime<WorkCounter::TransactionRecoveryMicros> timer;
     const auto transactions = root / journal_root;
     if (!fs::exists(transactions))
         return;
@@ -845,6 +874,7 @@ PreparedYamlTransaction
 YamlTransactionService::prepare(const std::vector<YamlTransactionTarget>& targets,
                                 TransactionDecision decision) const
 {
+    ScopedValidationStageTime<WorkCounter::TransactionPrepareMicros> timer;
     PreparedYamlTransaction result;
     result.decision = decision;
     if (decision == TransactionDecision::Cancel) {
@@ -929,9 +959,9 @@ YamlTransactionService::prepare(const std::vector<YamlTransactionTarget>& target
                 throw std::runtime_error("Semantic compaction requires a whole-source format.");
             if (target.create_source && target.expected_revision != "absent")
                 throw std::runtime_error("New YAML source requires absent expected revision.");
-            const auto current_revision = revision(absolute);
-            const auto current =
-                current_revision == "absent" ? std::string{} : read_source(absolute);
+            const auto capture = capture_exact_source(absolute);
+            const auto& current_revision = capture.revision;
+            const auto& current = capture.bytes;
             if (current_revision != "absent" && !source_revision_matches(current, current_revision))
                 throw std::runtime_error("YAML source changed during preparation.");
             if (current_revision != target.expected_revision) {
@@ -1092,6 +1122,7 @@ YamlTransactionResult YamlTransactionService::recover()
 YamlTransactionResult YamlTransactionService::commit(const PreparedYamlTransaction& prepared,
                                                      TransactionDecision decision)
 {
+    ScopedValidationStageTime<WorkCounter::TransactionCommitMicros> timer;
     YamlTransactionResult result;
     if (!prepared.accepted || decision == TransactionDecision::Cancel ||
         prepared.decision != decision || prepared.approval != approval_for(prepared)) {
@@ -1116,53 +1147,73 @@ YamlTransactionResult YamlTransactionService::commit(const PreparedYamlTransacti
         }
         recover_journals(root_);
         std::set<std::string> paths;
-        for (const auto& target : prepared.targets) {
-            if (!paths.insert(target.path).second ||
-                std::any_of(blocked_paths_.begin(), blocked_paths_.end(), [&](const auto& path) {
-                    return path_prefix(target.path, path) || path_prefix(path, target.path);
-                }))
-                throw std::runtime_error("WORKSPACE_INVALID_SOURCE_DEPENDENCY: " + target.path);
-            const auto absolute = checked_path(target.path);
-            if (revision(absolute) != target.before_revision ||
-                (target.before_revision != "absent" &&
-                 read_source(absolute) != target.before_source))
-                throw std::runtime_error("WORKSPACE_REVISION_CONFLICT: " + target.path);
-            if ((target.erase && target.after_revision != "absent") ||
-                (!target.erase &&
-                 !source_revision_matches(target.after_source, target.after_revision)))
-                throw std::runtime_error("Stale YAML transaction approval payload.");
+        {
+            ScopedValidationStageTime<WorkCounter::TransactionPreconditionsMicros> phase;
+            for (const auto& target : prepared.targets) {
+                if (!paths.insert(target.path).second ||
+                    std::any_of(
+                        blocked_paths_.begin(), blocked_paths_.end(), [&](const auto& path) {
+                            return path_prefix(target.path, path) || path_prefix(path, target.path);
+                        }))
+                    throw std::runtime_error("WORKSPACE_INVALID_SOURCE_DEPENDENCY: " + target.path);
+                const auto absolute = checked_path(target.path);
+                const auto capture = capture_exact_source(absolute);
+                if (capture.revision != target.before_revision ||
+                    (target.before_revision != "absent" && capture.bytes != target.before_source))
+                    throw std::runtime_error("WORKSPACE_REVISION_CONFLICT: " + target.path);
+                if ((target.erase && target.after_revision != "absent") ||
+                    (!target.erase &&
+                     !source_revision_matches(target.after_source, target.after_revision)))
+                    throw std::runtime_error("Stale YAML transaction approval payload.");
+            }
         }
         const auto directory = root_ / journal_root / id;
         const auto preparation = root_ / journal_root / (".preparing-" + id);
         if (!fs::create_directory(preparation))
             throw std::runtime_error("WORKSPACE_BUSY: transaction ID collision.");
-        sync_directory(preparation.parent_path());
+        // The unpublished .preparing-* name is never used for recovery. The
+        // parent fsync after the final journal rename below durably publishes
+        // the prepared transaction; syncing this temporary name adds no proof.
         Journal journal{
             id, "prepared", std::string(lock.owner()), process_id(), "native YAML Project Save",
             {}, {}};
         bool persisted = false;
         try {
-            for (std::size_t i = 0; i < prepared.targets.size(); ++i) {
-                const auto& target = prepared.targets[i];
-                const auto before_blob = target.before_revision == "absent"
-                                             ? std::string{}
-                                             : "before/" + std::to_string(i);
-                const auto after_blob = target.erase ? std::string{} : "after/" + std::to_string(i);
-                if (!before_blob.empty())
-                    write_prepared_blob(preparation / before_blob, target.before_source);
-                if (!after_blob.empty())
-                    write_prepared_blob(preparation / after_blob, target.after_source);
-                journal.targets.push_back({target.path, target.before_revision,
-                                           target.after_revision, before_blob, after_blob});
+            {
+                ScopedValidationStageTime<WorkCounter::TransactionBlobPreparationMicros> phase;
+                for (std::size_t i = 0; i < prepared.targets.size(); ++i) {
+                    const auto& target = prepared.targets[i];
+                    const auto before_blob = target.before_revision == "absent"
+                                                 ? std::string{}
+                                                 : "before/" + std::to_string(i);
+                    const auto after_blob =
+                        target.erase ? std::string{} : "after/" + std::to_string(i);
+                    if (!before_blob.empty())
+                        write_prepared_blob(preparation / before_blob, target.before_source);
+                    if (!after_blob.empty())
+                        write_prepared_blob(preparation / after_blob, target.after_source);
+                    journal.targets.push_back({target.path, target.before_revision,
+                                               target.after_revision, before_blob, after_blob});
+                }
+                for (const char* subdirectory : {"before", "after"})
+                    if (fs::is_directory(preparation / subdirectory))
+                        sync_directory(preparation / subdirectory);
+                // write_journal() immediately fsyncs this same parent directory
+                // after publishing manifest.json. There is no external observer
+                // of a .preparing-* directory before that barrier, so an earlier
+                // fsync of its before/after entries is redundant.
+                if (durability_hook_)
+                    durability_hook_(YamlDurabilityPhase::BlobsDurable);
             }
-            for (const char* subdirectory : {"before", "after"})
-                if (fs::is_directory(preparation / subdirectory))
-                    sync_directory(preparation / subdirectory);
-            sync_directory(preparation);
-            write_journal(preparation, journal);
-            fs::rename(preparation, directory);
-            sync_directory(directory.parent_path());
+            {
+                ScopedValidationStageTime<WorkCounter::TransactionJournalPublicationMicros> phase;
+                write_journal(preparation, journal);
+                fs::rename(preparation, directory);
+                sync_directory(directory.parent_path());
+            }
             persisted = true;
+            if (durability_hook_)
+                durability_hook_(YamlDurabilityPhase::PreparedPublished);
             for (const auto& target : journal.targets)
                 if (revision(checked_path(target.path)) != target.before_revision)
                     throw std::runtime_error(
@@ -1174,15 +1225,25 @@ YamlTransactionResult YamlTransactionService::commit(const PreparedYamlTransacti
             // manifest rewrite after each target add only durability barriers.
             // If the process dies before "committed", replay rolls the group
             // back, whether zero or all target renames have occurred.
-            for (std::size_t index = 0; index < journal.targets.size(); ++index) {
-                const auto& target = journal.targets[index];
-                apply_target(root_, directory, target, true);
-                if (after_target_hook_)
-                    after_target_hook_(index);
-                journal.completed.push_back(target.path);
+            {
+                ScopedValidationStageTime<WorkCounter::TransactionTargetApplicationMicros> phase;
+                for (std::size_t index = 0; index < journal.targets.size(); ++index) {
+                    const auto& target = journal.targets[index];
+                    apply_target(root_, directory, target, true);
+                    if (after_target_hook_)
+                        after_target_hook_(index);
+                    journal.completed.push_back(target.path);
+                }
             }
+            if (durability_hook_)
+                durability_hook_(YamlDurabilityPhase::AllTargetsInstalled);
             journal.state = "committed";
-            write_journal(directory, journal);
+            {
+                ScopedValidationStageTime<WorkCounter::TransactionCommittedMarkerMicros> phase;
+                write_journal(directory, journal);
+            }
+            if (durability_hook_)
+                durability_hook_(YamlDurabilityPhase::CommittedPublished);
             for (const auto& target : journal.targets) {
                 if (target.after_revision != "absent" ||
                     !target.path.starts_with("records/layouts/") ||
@@ -1221,8 +1282,16 @@ YamlTransactionResult YamlTransactionService::commit(const PreparedYamlTransacti
             }
             throw;
         }
-        fs::remove_all(directory);
-        sync_directory(directory.parent_path());
+        {
+            ScopedValidationStageTime<WorkCounter::TransactionCleanupMicros> phase;
+            fs::remove_all(directory);
+            // Save already has a durable committed marker and synced targets.
+            // A crash before this removal persists may replay the committed
+            // journal (idempotently). The writer-lock destructor also fsyncs
+            // the same parent when releasing the lock on the normal path.
+        }
+        if (durability_hook_)
+            durability_hook_(YamlDurabilityPhase::CleanupComplete);
         result.accepted = true;
         for (const auto& target : prepared.targets)
             result.changed_paths.push_back(target.path);

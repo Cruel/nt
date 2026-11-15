@@ -188,6 +188,7 @@ Json profile_presentation_edit(const std::filesystem::path& fixture)
                     cue_passes = 0, patch_file_reads = 0, patch_yaml_parses = 0;
         std::size_t patch_snapshots = 0, save_snapshots = 0, patch_snapshot_micros = 0,
                     save_snapshot_micros = 0;
+        std::map<std::string, std::size_t> transaction_work;
         for (int i = 0; i < 20; ++i) {
             const auto value = "Native benchmark " + owner + " " + std::to_string(i);
             const auto start = std::chrono::steady_clock::now();
@@ -235,6 +236,9 @@ Json profile_presentation_edit(const std::filesystem::path& fixture)
                 save_snapshots += save_work.get<WorkCounter::ProjectSnapshotAssemblies>();
                 patch_snapshot_micros += patch_work.get<WorkCounter::ProjectSnapshotMicros>();
                 save_snapshot_micros += save_work.get<WorkCounter::ProjectSnapshotMicros>();
+                for (const auto& [name, value] : save_work.fields())
+                    if (name.starts_with("transaction") || name == "nativeScopedSaveMicros")
+                        transaction_work[std::string(name)] += value;
                 patch_ms.push_back(
                     std::chrono::duration<double, std::milli>(patched_at - start).count());
                 save_ms.push_back(
@@ -260,6 +264,16 @@ Json profile_presentation_edit(const std::filesystem::path& fixture)
         result["warmSaveProjectSnapshots"] = save_snapshots;
         result["warmPatchSnapshotMs"] = patch_snapshot_micros / 1000.0;
         result["warmSaveSnapshotMs"] = save_snapshot_micros / 1000.0;
+        Json transaction_counts = Json::object();
+        Json transaction_phase_mean_ms = Json::object();
+        for (const auto& [name, value] : transaction_work) {
+            if (name.ends_with("Micros"))
+                transaction_phase_mean_ms[name] = value / (19.0 * 1000.0);
+            else
+                transaction_counts[name] = value;
+        }
+        result["transactionPhaseMeanMs"] = std::move(transaction_phase_mean_ms);
+        result["transactionWorkTotal"] = std::move(transaction_counts);
         if (owner.starts_with("rooms/")) {
             result["structuredSourcesRechecked"] = local_rechecked;
             result["structuredSourcesReused"] = local_reused;

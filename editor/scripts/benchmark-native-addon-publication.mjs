@@ -2,9 +2,10 @@
 // Feature Lab copy. Native work counters can be enabled with
 // NOVELTEA_AUTHORING_PROFILE=1; the addon prints them to stderr, never IPC.
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
-import { cp, mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
+import { cp, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
@@ -232,6 +233,138 @@ try {
   assert.equal('projectSnapshotAssemblies' in (validation.work ?? {}), false);
   assert.equal('addonResultJsonConversions' in (validation.work ?? {}), false);
   output.validationDto = 'passed';
+  const savedRoom = path.join(project, `records/${owner}.yaml`);
+  const patchOnlyTimes = [];
+  const unchangedDisk = await readFile(savedRoom, 'utf8');
+  let patchOnlyRevision = repaired.snapshot.workingRevision;
+  for (let i = 0; i < 20; i++) {
+    const started = performance.now();
+    const updated = accepted(
+      'in-memory-only patch',
+      binding.patch(
+        handle,
+        patchOnlyRevision,
+        JSON.stringify([
+          {
+            operation: 'replace',
+            path: `/${owner}/data/displayName`,
+            value: `Patch-only contributor ${i}`,
+          },
+        ]),
+      ),
+    );
+    patchOnlyTimes.push(performance.now() - started);
+    patchOnlyRevision = updated.snapshot.workingRevision;
+    assert.equal(await readFile(savedRoom, 'utf8'), unchangedDisk);
+  }
+  output.inMemoryRoomPatchOnly = summary(patchOnlyTimes);
+  const unchanged = accepted(
+    'same-value working patch',
+    binding.patch(
+      handle,
+      patchOnlyRevision,
+      JSON.stringify([
+        {
+          operation: 'replace',
+          path: `/${owner}/data/displayName`,
+          value: 'Patch-only contributor 19',
+        },
+      ]),
+    ),
+  );
+  assert.equal(unchanged.snapshot.workingRevision, patchOnlyRevision);
+  assert.deepEqual(unchanged.affectedRecords, []);
+  output.unchangedPatch = 'passed';
+  const committedPatchOnly = accepted(
+    'Save after 20 in-memory-only patches',
+    binding.saveOwners(handle, patchOnlyRevision, JSON.stringify([owner]), false, 'keep'),
+  );
+  assert.match(await readFile(savedRoom, 'utf8'), /Patch-only contributor 19/);
+  output.batchedOwnWrite = 'passed';
+
+  const changedType = accepted(
+    'meaningful Room property-type change',
+    binding.patch(
+      handle,
+      committedPatchOnly.snapshot.workingRevision,
+      JSON.stringify([
+        {
+          operation: 'replace',
+          path: `/${owner}/localProperties/0/type`,
+          value: 'number',
+        },
+      ]),
+    ),
+  );
+  assert.equal(changedType.snapshot.valid, false);
+  assert.deepEqual(
+    changedType.snapshot.diagnostics,
+    JSON.parse(binding.snapshot(handle)).diagnostics,
+  );
+  const repairedType = accepted(
+    'restore Room property type',
+    binding.patch(
+      handle,
+      changedType.snapshot.workingRevision,
+      JSON.stringify([
+        {
+          operation: 'replace',
+          path: `/${owner}/localProperties/0/type`,
+          value: 'string',
+        },
+      ]),
+    ),
+  );
+  assert.equal(repairedType.snapshot.valid, true);
+  assert.deepEqual(
+    repairedType.snapshot.diagnostics,
+    JSON.parse(binding.snapshot(handle)).diagnostics,
+  );
+  output.typedDependencyRepair = 'passed';
+
+  const local = accepted(
+    'local edit before overlapping physical change',
+    binding.patch(
+      handle,
+      repairedType.snapshot.workingRevision,
+      JSON.stringify([
+        {
+          operation: 'replace',
+          path: `/${owner}/data/displayName`,
+          value: 'Unsaved conflicting Room name',
+        },
+      ]),
+    ),
+  );
+  const physical = (await readFile(savedRoom, 'utf8')).replace(
+    /^  displayName:.*$/m,
+    '  displayName: External conflicting Room name',
+  );
+  assert.match(physical, /External conflicting Room name/);
+  await writeFile(savedRoom, physical);
+  const conflict = JSON.parse(
+    binding.saveOwners(
+      handle,
+      local.snapshot.workingRevision,
+      JSON.stringify([owner]),
+      false,
+      'keep',
+    ),
+  );
+  assert.equal(conflict.accepted, false);
+  assert.equal(await readFile(savedRoom, 'utf8'), physical);
+  binding.close(handle);
+  handle = binding.open(project);
+  const recovered = accepted('reopen external physical revision', binding.inspect(handle, owner));
+  assert.equal(
+    recovered.snapshot.recordSnapshots[owner].normalized.data.displayName,
+    'External conflicting Room name',
+  );
+  output.externalConflictAndReopen = 'passed';
+
+  output.sourceCommit = execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], {
+    encoding: 'utf8',
+  }).trim();
   output.addonSha256 = createHash('sha256')
     .update(await readFile(addon))
     .digest('hex');

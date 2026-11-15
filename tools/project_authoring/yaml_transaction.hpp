@@ -67,6 +67,16 @@ struct YamlTransactionResult {
     std::vector<std::string> changed_paths;
 };
 
+// Certification only: crash points on either side of each durable journal
+// publication barrier. They must never skip a sync or change the protocol.
+enum class YamlDurabilityPhase {
+    BlobsDurable,
+    PreparedPublished,
+    AllTargetsInstalled,
+    CommittedPublished,
+    CleanupComplete
+};
+
 // Host-only parallel native equivalent of workspace transaction ownership.
 // The user-facing comment approval occurs before this boundary: Prepare records
 // what the user reviewed, and Commit rejects a stale approval/physical revision.
@@ -90,6 +100,10 @@ public:
     {
         after_target_hook_ = std::move(hook);
     }
+    void set_durability_hook_for_certification(std::function<void(YamlDurabilityPhase)> hook)
+    {
+        durability_hook_ = std::move(hook);
+    }
 
 private:
     std::filesystem::path checked_path(std::string_view relative) const;
@@ -97,6 +111,7 @@ private:
     std::vector<std::string> blocked_paths_;
     bool structural_uncertainty_ = false;
     std::function<void(std::size_t)> after_target_hook_;
+    std::function<void(YamlDurabilityPhase)> durability_hook_;
 };
 
 } // namespace noveltea::authoring

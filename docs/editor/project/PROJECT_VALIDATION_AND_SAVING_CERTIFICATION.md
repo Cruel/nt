@@ -640,3 +640,137 @@ repair, remain cleared after stale revision rejection, survive consecutive
 successful owner Saves, and do not resurface on reopen. The shipped Feature Lab fixture already
 supplies the Room, Dialogue, translated Message and authored content used for
 these certifications; no generated Project files are changed by the tests.
+
+## #633 crash-safe native scoped Save profiling and optimization (2026-11-15)
+
+This is the final **native #601 candidate**, not packaged-editor or #522
+acceptance. Base is `0500ae0fecf624cbc6aa3a568be4929b862733d4`
+(#632); the exact post-change commit is recorded on #633 after committing.
+Host: Debian Linux 6.1 x64, ext4 (`/dev/mapper/cluster0--vg-root`), Ryzen 7
+5700G, Node 24.16.0, GCC 12, CMake/Ninja **Release `-O3 -DNDEBUG`**.
+Addon: `build/native-authoring-host/noveltea-authoring-node.node`.
+Baseline SHA-256:
+`39cad24dbec78609016b6fa6c96ff6e30d7817138cefacf563e78b032eb748e3`;
+candidate SHA-256:
+`ee648836d45300f3d697b366bb5c17a529d2c9218dd3d12bc2dcd88e4bcdb7d6`.
+These are **real native Node-API addon** binaries, built on the same host
+from the pinned native dependency configuration. This benchmark and the CLI
+profile do not include renderer/IPC scheduling or physical UI paint.
+
+### Durability and exact-source changes
+
+`YamlTransactionService::prepare()` now reads one metadata-fenced exact byte
+generation, rather than separately reading once for its revision and again
+for the source content. Commit's selected-target precondition uses the same
+single-read capture. Target installation reads the destination once for the
+before/after comparison and reuses its verified journal blob when replacing.
+No CAS, baseline-byte comparison, symlink containment, journal revision or
+recovery conflict check is omitted. The transaction's original durable
+`prepared` and `committed` states, writer lease, before/after blob fsync,
+target file sync and target-parent sync remain mandatory.
+
+Three **directory** fsyncs were provably redundant: (1) syncing the
+`.preparing-*` name before journal publication (recovery ignores it), (2)
+syncing the unpublished staging-parent entries before `write_journal()`
+immediately fsyncs the **same** directory after publishing the manifest, and
+(3) syncing the parent after deleting an already-committed journal. In the
+last case the committed marker and physical targets are already durable;
+if a crash restores that journal name, recovery idempotently replays the
+committed state, and the writer-lock release also syncs the same parent on
+ordinary return. No file fsync or protected publication fence was removed.
+
+One native single-owner Save therefore retains **6 file syncs, 8 directory
+syncs, 2 journal manifest writes and 1 target application** (previously
+6/11/2/1). The physical journal tests assert one source read in Prepare,
+bounded commit reads, preserved sparse YAML comments and durability counts.
+Crash certification forks a real child process and terminates after staged
+blobs, prepared publication, the first target, all targets, committed
+publication and completed cleanup. Recovery must roll back *every* uncommitted
+two-target group, retain *every* committed group and remove orphan journals
+without clobbering external bytes. These are process-death/restart checks,
+not a claim to have performed actual power-cut filesystem qualification.
+
+### Controlled warm benchmark
+
+Reproduce on a disposable unmodified Feature Lab copy with 20 sequential
+patch→scoped Save/readback iterations per owner, discarding the first (19
+warm), then test patch-only, semantic no-op, typed invalidation/repair,
+external overlapping disk write, rejected Save and reopen:
+
+```sh
+node editor/scripts/benchmark-native-addon-publication.mjs \
+  build/native-authoring-host/noveltea-authoring-node.node
+NOVELTEA_AUTHORING_PROFILE=1 node editor/scripts/benchmark-native-addon-publication.mjs \
+  build/native-authoring-host/noveltea-authoring-node.node 2> /tmp/native-addon-work.log
+build/native-authoring-host/noveltea-project-session-certify \
+  --profile-presentation-edit tests/projects/feature-lab
+```
+
+Real addon numbers in milliseconds, **median / p95 / max**, same host,
+same entrypoint, same fixture, separate baseline and candidate runs:
+
+| Operation | Before #632 | After #633 candidate |
+| --- | --- | --- |
+| Room displayName patch | 48.68 / 51.65 / 54.37 | 45.08 / 48.17 / 66.34 |
+| Room displayName scoped Save | 60.64 / 62.75 / 84.75 | 53.85 / 57.02 / 58.18 |
+| Room description patch | 48.31 / 52.41 / 55.41 | 45.28 / 47.83 / 68.87 |
+| Room description scoped Save | 59.93 / 65.12 / 87.98 | 54.04 / 75.51 / 77.91 |
+| Project title patch | 29.64 / 31.96 / 32.84 | 30.23 / 57.31 / 59.06 |
+| Project title scoped Save | 108.78 / 116.04 / 122.83 | 104.64 / 189.85 / 207.58 |
+
+On this candidate a separate 19-warm **in-memory-only** Room patch run
+measured 45.08 / 46.51 / 46.81 ms and confirmed no YAML changed before
+one final scoped Save. The no-op patch retained the working revision;
+a genuine local-property type change produced invalid diagnostics and
+restoration cleared them. A subsequent overlapping external Room name
+edit correctly rejected Save and survived Project reopen.
+
+Native Release **CLI** (distinct entrypoint) candidate Room display-name
+patch measured 42.44 / 45.63 / 45.63 ms, scoped Save
+50.61 / 67.46 / 67.46; Room description 42.04 / 44.80 / 44.80 patch and
+49.02 / 57.07 / 57.07 Save. Project title Save was
+96.18 / 106.99 / 106.99. The source-pinned #632 CLI measurements above
+are the previous CLI baseline; do not interchange CLI and addon numbers.
+
+`NOVELTEA_AUTHORING_PROFILE=1` sends stage counters to **stderr only**,
+not the strict editor IPC. Across 19 warm Room display-name Saves the
+candidate totaled 152 directory syncs, 114 file syncs, 38 journal writes,
+133 transaction source reads, 57 exact checks and 19 target applications.
+Phase means per warm **pre-sync-optimization** Room Save (from the
+instrumented intermediate run) were transaction preparation 4.69 ms,
+commit 41.56 ms, blob preparation 6.64 ms, prepared journal publication
+8.50 ms, target installation 6.03 ms, committed marker 5.71 ms and
+cleanup 2.95 ms. The final CLI counter run measured commit **37.05 ms**,
+directory sync total **17.72 ms** vs 22.75 ms earlier, cleanup **0.20 ms**,
+with all six file syncs preserved. Stages overlap; do not sum their values
+as if they were independent exclusive time buckets.
+
+Project-title Save is structurally different: YAML transaction preparation
+alone takes ~33.5 ms versus ~4.5 ms for a Room; its larger source document
+still requires comment-preserving YAML materialization. Optimizing this
+further needs specific verified preflight and sparse YAML correctness, not
+skipping source checks or reusing stale editor state. Warm Room patch latency
+also still includes actual localization and native semantic validation; #632
+intentionally retained global Message and Dialogue Cue passes.
+
+**Budget is not certified.** The issue's target of ~10 ms warm Room patch
+median / <=20 ms p95 remains missed, as does <=50 ms real-addon scoped Save
+median on this ext4 host (53.85 ms in the controlled run). It would be
+incorrect to declare #601 accepted based on these improvements without the
+issue owner's explicit performance exception or further fixes. Windows,
+macOS, installed-editor input-to-paint, and interactive human acceptance
+remain unverified on this Linux headless host; #609 and #522 are independent.
+
+Linux checks for this exact candidate: the ten specified native Project and
+YAML CTests passed (10/10); the additive native addon-localization CTest
+passed (1/1); the production-compatible Electron worker build and real native
+worker/reconciliation suites passed (7 worker tests and 51 reconciliation
+tests, with one reconciliation test skipped). `pnpm -C editor run check` and
+the pinned clang-format 18.1.8 gate (730 files) passed. The GitHub Build
+workflow has dedicated Linux/Windows/macOS native-authoring-host jobs;
+their results for this candidate must be verified after pushing the commit.
+
+The subsequent full `pnpm -C editor run test` completed with **323 test
+files passed, 14 skipped; 2,471 tests passed, 214 skipped**, without a failing
+test. The skips include optional native/packaged-host parity qualifications
+that are not implied by the full editor run and are not counted as passed.

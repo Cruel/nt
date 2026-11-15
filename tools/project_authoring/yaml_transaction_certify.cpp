@@ -1,6 +1,7 @@
 #include "yaml_transaction.hpp"
 
 #include "source_authority.hpp"
+#include "validation_work_instrumentation.hpp"
 #include <noveltea/core/fingerprint.hpp>
 
 #include <algorithm>
@@ -144,6 +145,98 @@ void certify(const fs::path& executable)
              "xxh3-128:" + std::string(31, '0') + "g", "md5:" + std::string(32, '0')})
         require(source_revision_algorithm(invalid) == SourceRevisionAlgorithm::Invalid,
                 "Unknown or malformed source revision must fail closed");
+    {
+        TemporaryProject probe;
+        YamlTransactionService transaction(probe.root);
+        const auto path = probe.root / "records/rooms/probe.yaml";
+        const std::string before = "id: probe\nlabel: Original # keep comment\n";
+        write(path, before);
+        ValidationWorkCounters preparation_work;
+        PreparedYamlTransaction prepared;
+        {
+            ScopedValidationWork track(preparation_work);
+            prepared = transaction.prepare(
+                {change("records/rooms/probe.yaml", before, "/label", "\"Revised\"")},
+                TransactionDecision::KeepComments);
+        }
+        require(prepared.accepted && prepared.targets.size() == 1 &&
+                    preparation_work.get<WorkCounter::TransactionSourceReads>() == 1 &&
+                    preparation_work.get<WorkCounter::TransactionExactChecks>() == 1,
+                "Transaction Prepare must capture one byte-exact source only once");
+        ValidationWorkCounters committed_work;
+        YamlTransactionResult committed;
+        {
+            ScopedValidationWork track(committed_work);
+            committed = transaction.commit(prepared, TransactionDecision::KeepComments);
+        }
+        require(committed.accepted &&
+                    read(path).find("label: Revised # keep comment") != std::string::npos &&
+                    transaction.recover().accepted,
+                "Optimized scoped Save retains comments and clean journal recovery");
+        require(committed_work.get<WorkCounter::TransactionSourceReads>() <= 6 &&
+                    committed_work.get<WorkCounter::TransactionJournalWrites>() == 2 &&
+                    committed_work.get<WorkCounter::TransactionTargetApplications>() == 1 &&
+                    committed_work.get<WorkCounter::TransactionFileSyncs>() == 6 &&
+                    committed_work.get<WorkCounter::TransactionDirectorySyncs>() == 8 &&
+                    committed_work.get<WorkCounter::TransactionPreconditionsMicros>() > 0 &&
+                    committed_work.get<WorkCounter::TransactionBlobPreparationMicros>() > 0 &&
+                    committed_work.get<WorkCounter::TransactionCommittedMarkerMicros>() > 0,
+                "Save must avoid redundant target reads while retaining all durable publication "
+                "phases");
+    }
+#ifndef _WIN32
+    // The writer process dies at every durable journal boundary. Recovery
+    // must roll back prepared generations, roll forward committed generations,
+    // and never report a torn multi-owner Save. This exercises actual process
+    // death rather than an exception unwound through normal transaction code.
+    for (const auto phase :
+         {YamlDurabilityPhase::BlobsDurable, YamlDurabilityPhase::PreparedPublished,
+          YamlDurabilityPhase::AllTargetsInstalled, YamlDurabilityPhase::CommittedPublished,
+          YamlDurabilityPhase::CleanupComplete}) {
+        TemporaryProject crashed;
+        const auto a = crashed.root / "records/rooms/one.yaml";
+        const auto b = crashed.root / "records/rooms/two.yaml";
+        const std::string before_a = "id: one\nlabel: Before A # preserved\n";
+        const std::string before_b = "id: two\nlabel: Before B\n";
+        write(a, before_a);
+        write(b, before_b);
+        YamlTransactionService writer(crashed.root);
+        const auto plan =
+            writer.prepare({change("records/rooms/one.yaml", before_a, "/label", "\"After A\""),
+                            change("records/rooms/two.yaml", before_b, "/label", "\"After B\"")},
+                           TransactionDecision::KeepComments);
+        require(plan.accepted && plan.targets.size() == 2,
+                "Crash-boundary certification requires two physical source owners");
+        const auto child = fork();
+        require(child >= 0, "Fork crash-boundary certification process");
+        if (child == 0) {
+            YamlTransactionService dying_writer(crashed.root);
+            dying_writer.set_durability_hook_for_certification([phase](YamlDurabilityPhase hit) {
+                if (hit == phase)
+                    _exit(91);
+            });
+            (void)dying_writer.commit(plan, TransactionDecision::KeepComments);
+            _exit(92);
+        }
+        int status = 0;
+        require(waitpid(child, &status, 0) == child && WIFEXITED(status) &&
+                    WEXITSTATUS(status) == 91,
+                "Crash probe must terminate at its requested durability boundary");
+        require(writer.recover().accepted,
+                "Restart must resolve every abandoned durable journal phase");
+        const bool committed = phase == YamlDurabilityPhase::CommittedPublished ||
+                               phase == YamlDurabilityPhase::CleanupComplete;
+        require(
+            (committed ? read(a).find("After A") != std::string::npos : read(a) == before_a) &&
+                (committed ? read(b).find("After B") != std::string::npos : read(b) == before_b) &&
+                (committed || read(a).find("# preserved") != std::string::npos),
+            "Recovered sources must be entirely pre-commit or entirely committed");
+        require(writer.recover().accepted &&
+                    std::none_of(fs::directory_iterator(crashed.root / ".noveltea/transactions"),
+                                 fs::directory_iterator{}, [](const auto&) { return true; }),
+                "Recovered writer must leave no unpublished stages, locks or journals");
+    }
+#endif
     TemporaryProject temp;
     YamlTransactionService writer(temp.root);
     const auto first = temp.root / "records/rooms/one.yaml";

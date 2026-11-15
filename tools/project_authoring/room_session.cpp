@@ -5219,6 +5219,7 @@ RoomSessionResult ProjectSession::save_owners(
     TransactionDecision comments, const std::map<std::string, std::vector<std::string>>& paths,
     const std::vector<std::string>& text_paths, const std::optional<ProjectAssetTransition>& assets)
 {
+    ScopedValidationStageTime<WorkCounter::NativeScopedSaveMicros> total_save;
     RoomSessionResult response;
     response.snapshot = snapshot();
     if (revision != working_revision_) {

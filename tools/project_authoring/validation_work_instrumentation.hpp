@@ -86,6 +86,25 @@ enum class WorkCounter : std::size_t {
     TypedChangePaths,
     TypedEdgesConsidered,
     TypedConsumerInvalidations,
+    TransactionSourceReads,
+    TransactionSourceBytesRead,
+    TransactionExactChecks,
+    TransactionFileSyncs,
+    TransactionDirectorySyncs,
+    TransactionJournalWrites,
+    TransactionTargetApplications,
+    TransactionPrepareMicros,
+    TransactionCommitMicros,
+    TransactionRecoveryMicros,
+    TransactionPreconditionsMicros,
+    TransactionBlobPreparationMicros,
+    TransactionJournalPublicationMicros,
+    TransactionTargetApplicationMicros,
+    TransactionCommittedMarkerMicros,
+    TransactionCleanupMicros,
+    TransactionFileSyncMicros,
+    TransactionDirectorySyncMicros,
+    NativeScopedSaveMicros,
     Count
 };
 
@@ -207,7 +226,26 @@ public:
             "editorUnopenedInteractionChecks",
             "typedChangePaths",
             "typedEdgesConsidered",
-            "typedConsumerInvalidations"};
+            "typedConsumerInvalidations",
+            "transactionSourceReads",
+            "transactionSourceBytesRead",
+            "transactionExactChecks",
+            "transactionFileSyncs",
+            "transactionDirectorySyncs",
+            "transactionJournalWrites",
+            "transactionTargetApplications",
+            "transactionPrepareMicros",
+            "transactionCommitMicros",
+            "transactionRecoveryMicros",
+            "transactionPreconditionsMicros",
+            "transactionBlobPreparationMicros",
+            "transactionJournalPublicationMicros",
+            "transactionTargetApplicationMicros",
+            "transactionCommittedMarkerMicros",
+            "transactionCleanupMicros",
+            "transactionFileSyncMicros",
+            "transactionDirectorySyncMicros",
+            "nativeScopedSaveMicros"};
         std::array<std::pair<std::string_view, std::size_t>, work_counter_count> result{};
         for (std::size_t index = 0; index < names.size(); ++index)
             result[index] = {names[index], value(index)};
