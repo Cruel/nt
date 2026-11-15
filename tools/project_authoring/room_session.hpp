@@ -426,6 +426,9 @@ public:
     RoomSessionResult mutate_source_directory(std::uint64_t revision, std::string_view kind,
                                               std::string_view source, std::string_view target);
     std::map<std::string, RoomSessionSnapshot> record_snapshots() const;
+    // Read only named resident owners for operation-delta publication. Absence
+    // is meaningful for deleted records and is not a disk lookup.
+    std::optional<RoomSessionSnapshot> record_snapshot(std::string_view owner) const;
     // Resolve editor logical Save units against the resident native working
     // records. Renderer tabs select units, but do not decide physical owners.
     std::map<std::string, std::vector<std::string>>

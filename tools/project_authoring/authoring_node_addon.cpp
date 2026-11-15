@@ -5,11 +5,14 @@
 #include <jsoncons/json.hpp>
 
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <map>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -37,15 +40,23 @@ using noveltea::authoring::RoomSessionResult;
 using noveltea::authoring::RoomSessionSnapshot;
 using noveltea::authoring::SourceObservation;
 
-Json validation_work_json(const noveltea::authoring::ValidationWorkCounters& counts)
+Json validation_work_json(const noveltea::authoring::ValidationWorkCounters& counts,
+                          bool include_profiler_fields = false)
 {
 #if NOVELTEA_ENABLE_VALIDATION_COUNTERS
     Json result = Json::object();
-    for (const auto& [field, value] : counts.fields())
+    std::size_t index = 0;
+    for (const auto& [field, value] : counts.fields()) {
+        if (!include_profiler_fields &&
+            index >= noveltea::authoring::validation_protocol_work_counter_count)
+            break;
         result[std::string(field)] = value;
+        ++index;
+    }
     return result;
 #else
     (void)counts;
+    (void)include_profiler_fields;
     return Json::object();
 #endif
 }
@@ -155,6 +166,8 @@ Json json_array(const std::vector<std::string>& values)
 
 Json snapshot_json(const RoomSessionSnapshot& state)
 {
+    noveltea::authoring::count_validation_work<
+        noveltea::authoring::WorkCounter::AddonSnapshotJsonConversions>();
     Json result = Json::object();
     result["workingRevision"] = state.working_revision;
     result["diskSourceRevision"] = state.disk_source_revision;
@@ -211,6 +224,8 @@ Json project_snapshot_json(const ProjectSession& project)
 
 Json result_json(const ProjectSession& project, const RoomSessionResult& result)
 {
+    noveltea::authoring::count_validation_work<
+        noveltea::authoring::WorkCounter::AddonResultJsonConversions>();
     Json value = Json::object();
     value["accepted"] = result.accepted;
     value["error"] = result.error;
@@ -219,11 +234,9 @@ Json result_json(const ProjectSession& project, const RoomSessionResult& result)
     // Project-wide dependency and localization analysis on every command.
     auto current = snapshot_json(result.snapshot);
     current["recordSnapshots"] = Json::object();
-    const auto records = project.record_snapshots();
     for (const auto& owner : result.affected_records) {
-        const auto found = records.find(owner);
-        if (found != records.end())
-            current["recordSnapshots"][owner] = snapshot_json(found->second);
+        if (const auto record = project.record_snapshot(owner))
+            current["recordSnapshots"][owner] = snapshot_json(*record);
     }
     value["snapshot"] = std::move(current);
     value["affectedRecords"] = json_array(result.affected_records);
@@ -268,6 +281,22 @@ Json result_json(const ProjectSession& project, const RoomSessionResult& result)
         }
     }
     return value;
+}
+
+std::string serialize_result_json(Json value)
+{
+    noveltea::authoring::ScopedValidationStageTime<
+        noveltea::authoring::WorkCounter::AddonResultSerializationMicros>
+        elapsed;
+    auto output = value.to_string();
+    noveltea::authoring::count_validation_work<
+        noveltea::authoring::WorkCounter::AddonResultBytesSerialized>(output.size());
+    return output;
+}
+
+std::string result_string(const ProjectSession& project, const RoomSessionResult& result)
+{
+    return serialize_result_json(result_json(project, result));
 }
 
 Json observation_json(Session& session, const SourceObservation& observed)
@@ -370,6 +399,30 @@ napi_value call(napi_env env, napi_callback_info info)
     if (napi_get_cb_info(env, info, &argc, argv, nullptr, &callback_data) != napi_ok)
         return nullptr;
     const std::string name(static_cast<const char*>(callback_data));
+    // Opt-in per-call counters remain outside the strict editor IPC DTO.
+    // The worker is serialized, so this thread-local measurement covers the
+    // native mutation, snapshot assembly and addon JSON publication together.
+    noveltea::authoring::ValidationWorkCounters work;
+    const bool profile = std::getenv("NOVELTEA_AUTHORING_PROFILE") != nullptr;
+    std::optional<noveltea::authoring::ScopedValidationWork> measure;
+    if (profile)
+        measure.emplace(work);
+    struct ProfileReport {
+        bool enabled;
+        const std::string& operation;
+        const noveltea::authoring::ValidationWorkCounters& counters;
+        ~ProfileReport() noexcept
+        {
+            if (!enabled)
+                return;
+            try {
+                std::fprintf(stderr, "[native-authoring-work] %s %s\n", operation.c_str(),
+                             validation_work_json(counters, true).to_string().c_str());
+            } catch (...) {
+                // Instrumentation must not change a successful native command.
+            }
+        }
+    } report{profile, name, work};
     try {
         if (name == "sourceRevision") {
             if (argc != 1)
@@ -515,13 +568,13 @@ napi_value call(napi_env env, napi_callback_info info)
             if (argc != 2)
                 throw std::runtime_error("inspect requires a Project record owner.");
             const auto inspected = session.project->inspect_record(string_arg(env, argv[1]));
-            return js_string(env, result_json(*session.project, inspected).to_string());
+            return js_string(env, result_string(*session.project, inspected));
         }
         if (name == "reconcile") {
             if (argc != 2)
                 throw std::runtime_error("reconcile requires a Project owner.");
             const auto reconciled = session.project->reconcile_owner(string_arg(env, argv[1]));
-            return js_string(env, result_json(*session.project, reconciled).to_string());
+            return js_string(env, result_string(*session.project, reconciled));
         }
         if (name == "recoverOwner") {
             if (argc != 6)
@@ -534,7 +587,7 @@ napi_value call(napi_env env, napi_callback_info info)
             const auto recovered = session.project->recover_owner(
                 static_cast<std::uint64_t>(revision), string_arg(env, argv[2]),
                 string_arg(env, argv[3]), string_arg(env, argv[4]), string_arg(env, argv[5]));
-            return js_string(env, result_json(*session.project, recovered).to_string());
+            return js_string(env, result_string(*session.project, recovered));
         }
         if (name == "useDisk") {
             if (argc < 3 || argc > 5)
@@ -552,7 +605,7 @@ napi_value call(napi_env env, napi_callback_info info)
             }
             const auto resolved = session.project->use_disk(static_cast<std::uint64_t>(revision),
                                                             string_arg(env, argv[2]), paths);
-            return js_string(env, result_json(*session.project, resolved).to_string());
+            return js_string(env, result_string(*session.project, resolved));
         }
         if (name == "restoreConflicts") {
             if (argc != 3)
@@ -572,7 +625,7 @@ napi_value call(napi_env env, napi_callback_info info)
             }
             const auto restored =
                 session.project->restore_conflicts(static_cast<std::uint64_t>(revision), conflicts);
-            return js_string(env, result_json(*session.project, restored).to_string());
+            return js_string(env, result_string(*session.project, restored));
         }
         if (name == "useDiskOwners") {
             if (argc != 3)
@@ -592,7 +645,7 @@ napi_value call(napi_env env, napi_callback_info info)
             }
             const auto result =
                 session.project->use_disk_owners(static_cast<std::uint64_t>(revision), paths);
-            return js_string(env, result_json(*session.project, result).to_string());
+            return js_string(env, result_string(*session.project, result));
         }
         if (name == "mutateSourceDirectory") {
             if (argc != 5)
@@ -604,7 +657,7 @@ napi_value call(napi_env env, napi_callback_info info)
             const auto result = session.project->mutate_source_directory(
                 revision, string_arg(env, argv[2]), string_arg(env, argv[3]),
                 string_arg(env, argv[4]));
-            return js_string(env, result_json(*session.project, result).to_string());
+            return js_string(env, result_string(*session.project, result));
         }
         if (name == "saveOwners") {
             if (argc < 5 || argc > 8)
@@ -731,7 +784,7 @@ napi_value call(napi_env env, napi_callback_info info)
                     response["textSourceDiskRevisions"][path] =
                         session.project->text_source_disk_revisions().at(path);
             }
-            return js_string(env, response.to_string());
+            return js_string(env, serialize_result_json(std::move(response)));
         }
         if (name == "resolveSaveUnits") {
             if (argc != 3)
@@ -755,7 +808,7 @@ napi_value call(napi_env env, napi_callback_info info)
                 for (const auto& field : fields)
                     result["pathsByOwner"][owner].push_back(field);
             }
-            return js_string(env, result.to_string());
+            return js_string(env, serialize_result_json(std::move(result)));
         }
         if (name == "observe") {
             if (argc != 1)
@@ -959,7 +1012,7 @@ napi_value call(napi_env env, napi_callback_info info)
                 result["textSourceDiskRevision"] =
                     session.project->text_source_disk_revisions().at(path);
             }
-            return js_string(env, result.to_string());
+            return js_string(env, serialize_result_json(std::move(result)));
         }
         if (name == "saveTextSources") {
             if (argc != 4)
@@ -989,7 +1042,7 @@ napi_value call(napi_env env, napi_callback_info info)
                     revisions[path] = session.project->text_source_disk_revisions().at(path);
                 result["textSourceDiskRevisions"] = std::move(revisions);
             }
-            return js_string(env, result.to_string());
+            return js_string(env, serialize_result_json(std::move(result)));
         }
         if (name == "stageShaderSource" || name == "publishMaterialCompilerResult") {
             if (argc != 4)
@@ -1007,14 +1060,13 @@ napi_value call(napi_env env, napi_callback_info info)
                                            static_cast<std::uint64_t>(revision), owner, content)
                                      : session.project->publish_material_compiler_result(
                                            static_cast<std::uint64_t>(revision), owner, content);
-            return js_string(env, result_json(*session.project, updated).to_string());
+            return js_string(env, result_string(*session.project, updated));
         }
         if (name == "save") {
             if (argc != 2)
                 throw std::runtime_error("save requires a disk source revision.");
-            return js_string(
-                env, result_json(*session.project, session.project->save(string_arg(env, argv[1])))
-                         .to_string());
+            return js_string(env, result_string(*session.project,
+                                                session.project->save(string_arg(env, argv[1]))));
         }
         if (name == "patch") {
             if (argc < 3 || argc > 5)
@@ -1060,7 +1112,7 @@ napi_value call(napi_env env, napi_callback_info info)
             }
             const auto updated = session.project->patch(
                 static_cast<std::uint64_t>(revision), patches, disk_preconditions, layout_sources);
-            return js_string(env, result_json(*session.project, updated).to_string());
+            return js_string(env, result_string(*session.project, updated));
         }
         throw std::runtime_error("Unknown native Project operation.");
     } catch (const std::exception& error) {

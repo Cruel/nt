@@ -2461,6 +2461,8 @@ RoomSessionSnapshot ProjectSession::validate_project(bool observed_at_entry,
 
 RoomSessionSnapshot ProjectSession::snapshot() const
 {
+    count_validation_work<WorkCounter::ProjectSnapshotAssemblies>();
+    ScopedValidationStageTime<WorkCounter::ProjectSnapshotMicros> snapshot_time;
     // Validation must see every admitted record; ordinary editor snapshots
     // intentionally expose only records opened or changed by the editor.
     const auto& records_ = validation_view_active_ ? validation_records_ : this->records_;
@@ -2551,6 +2553,8 @@ RoomSessionSnapshot ProjectSession::snapshot() const
         return value;
     };
     for (const auto& [owner, session] : records_) {
+        if (!validation_view_active_)
+            count_validation_work<WorkCounter::EditorRecordContributionChecks>();
         if (validation_view_active_ && !validation_invalidated_owners_.contains(owner)) {
             if (const auto prior = validation_contributions_.find(owner);
                 prior != validation_contributions_.end()) {
@@ -3068,6 +3072,7 @@ RoomSessionSnapshot ProjectSession::snapshot() const
             for (const auto& [id, source] : interactions) {
                 if (records_.contains("interactions/" + id))
                     continue;
+                count_validation_work<WorkCounter::EditorUnopenedInteractionChecks>();
                 const auto dependent = validate_verb_interaction_dependencies(
                     "interactions", source, state.normalized_json, traits_json, resolve_record,
                     exists);
@@ -3162,6 +3167,7 @@ RoomSessionSnapshot ProjectSession::snapshot() const
         for (const auto& [id, source] : *test_sources_) {
             if (records_.contains("tests/" + id))
                 continue;
+            count_validation_work<WorkCounter::EditorUnopenedTestChecks>();
             const auto dependent = validate_test_dependencies(source, state.normalized_json,
                                                               traits_json, resolve_record, exists);
             state.valid &= dependent.accepted;
@@ -4371,9 +4377,20 @@ RoomSessionResult ProjectSession::publish_material_compiler_result(
 std::map<std::string, RoomSessionSnapshot> ProjectSession::record_snapshots() const
 {
     std::map<std::string, RoomSessionSnapshot> result;
-    for (const auto& [owner, session] : records_)
+    for (const auto& [owner, session] : records_) {
+        count_validation_work<WorkCounter::RecordSnapshotAssemblies>();
         result.emplace(owner, session->snapshot());
+    }
     return result;
+}
+
+std::optional<RoomSessionSnapshot> ProjectSession::record_snapshot(std::string_view owner) const
+{
+    const auto found = records_.find(std::string(owner));
+    if (found == records_.end())
+        return std::nullopt;
+    count_validation_work<WorkCounter::RecordSnapshotAssemblies>();
+    return found->second->snapshot();
 }
 
 std::map<std::string, std::vector<std::string>>

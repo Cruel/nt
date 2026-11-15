@@ -242,6 +242,52 @@ warning for installed 24.16.0 versus required 24.18.0. Packaged-addon/renderer
 performance, Windows/macOS native regression, and physical UI acceptance were
 **not** rerun for this isolated native C++ candidate.
 
+## #630 native snapshot/publication investigation (2026-11-14; partial qualification)
+
+The native addon now publishes the operation-produced Project snapshot plus
+`affectedRecords` only. Previously it called `record_snapshots()` for **every**
+resident record, even when serializing only one affected owner. An explicit
+`snapshot()` request continues to return all inspected records. Native work
+counters and an opt-in addon stderr profiler cover complete Project snapshot
+assembly/time, record snapshots, JSON conversions/bytes, inspected record
+checks, and unopened authored-Test/Interaction dependency checks without
+altering the strict editor protocol or using cached data as source authority.
+
+The disposable Feature Lab native certification asserts that an accepted
+Room text patch assembles exactly two complete Project snapshots (before/new
+working revision), a scoped Save exactly two (dirty entry/new persisted-source
+state), and a stale-CAS rejection one (unchanged entry). Room text changes
+perform zero unopened Test/Interaction checks. With both Room and Traits
+inspected, addon publication converts only the affected Room record. The real
+Node-addon benchmark exercises 20 patch/Save/readback cycles per owner, stale
+rejections, cold/full snapshot parity, and invalid structured-Message repair.
+
+Same Debian Linux 6.1 x64 / Ryzen 7 5700G, Node 24.16.0 host, Release builds,
+19 warm iterations, values in milliseconds (median / p95 / max):
+
+| Path and operation | Previously built addon | Rebuilt #630 candidate |
+| --- | --- | --- |
+| Room display name patch | 122.59 / 128.68 / 141.13 | 55.86 / 67.08 / 69.85 |
+| Room display name Save | 78.33 / 103.09 / 103.20 | 59.65 / 64.94 / 66.82 |
+| Room description patch | 122.28 / 127.54 / 128.30 | 55.30 / 57.81 / 58.30 |
+| Room description Save | 76.23 / 79.69 / 120.10 | 59.26 / 64.14 / 67.94 |
+| Project title patch | 28.31 / 29.39 / 29.56 | 28.81 / 31.60 / 36.41 |
+| Project title Save | 122.62 / 128.27 / 128.70 | 108.33 / 114.26 / 114.29 |
+
+The previously built addon SHA-256 was
+`7ad367c6f2e693d122c8d60d707235d3adfb289b1ed9a35f5e63afbfd88cf4b5`;
+the candidate was
+`47946c7c2e941d9f9fd2bb206d75470451eb317a7da5eda5403de7654d49642a`.
+The latter hash must be treated as a diagnostic only until the final build
+identity is fixed. The former artifact's exact originating source commit was
+**not independently verified**, so these are useful matched-host/entrypoint
+observations, **not** a certified same-source-baseline speedup. Benchmarks were
+run while the #630 diff was uncommitted on base `2f6d6466`; rerun on a clean
+immutable release commit for formal performance qualification. Neither the
+Room's 10-ms patch target nor end-to-end physical user-input acceptance is
+met. The persisted-source/working-revision distinction, disk-authority checks,
+and independent #601 journal/localization work remain unchanged.
+
 ## #609 packaged editing performance gate (2026-11-12; NOT CERTIFIED)
 
 **Automated Linux/Xvfb evidence only. None of the eight human Feature Lab

@@ -45,6 +45,27 @@ session handle plus `snapshot`, `inspect`, `observe`, `hint`, `coverageLost`,
 Native handles never cross worker IPC and
 all calls are serialized by the worker event loop.
 
+For native mutation results, the addon serializes the operation-produced
+Project snapshot and only the record snapshots named by `affectedRecords`.
+Deleted/nonresident owners remain absent; the main working Project merges this
+delta and removes explicitly affected missing owners. The explicit `snapshot`
+operation still publishes every inspected record. A scoped Save has a distinct
+persisted-source generation even when it follows the same logical edit; do not
+deduplicate its before/after snapshots by working revision alone. Neither an
+addon result nor a retained presentation snapshot establishes disk authority.
+
+To inspect the native cost of snapshot assembly, diagnostics, affected-owner
+conversion and addon JSON publication without changing the strict IPC schema,
+run `NOVELTEA_AUTHORING_PROFILE=1 node
+editor/scripts/benchmark-native-addon-publication.mjs
+build/native-authoring-host/noveltea-authoring-node.node` from the repository
+root. The addon emits one `[native-authoring-work]` JSON counter line per call
+to stderr. The benchmark copies Feature Lab to a disposable root, performs
+real Room-name, structured Room-description and Project-title patch/Save
+cycles, verifies on-disk results and stale-CAS rejection, and reports 19 warm
+iterations per operation. Profiling is disabled by default; counters measure
+work and are never trusted for source revision or cache validity.
+
 ## Revision-pinned semantic graph query (#536)
 
 `semanticGraph(handle, expectedWorkingRevision)` returns native-derived read-only

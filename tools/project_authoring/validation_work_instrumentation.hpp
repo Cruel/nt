@@ -73,11 +73,25 @@ enum class WorkCounter : std::size_t {
     CompleteProjectPhysicalProjections,
     CompleteProjectSerializationMicros,
     CompleteProjectBytesSerialized,
+    ProjectSnapshotAssemblies,
+    ProjectSnapshotMicros,
+    RecordSnapshotAssemblies,
+    AddonSnapshotJsonConversions,
+    AddonResultJsonConversions,
+    AddonResultSerializationMicros,
+    AddonResultBytesSerialized,
+    EditorRecordContributionChecks,
+    EditorUnopenedTestChecks,
+    EditorUnopenedInteractionChecks,
     Count
 };
 
 inline constexpr bool validation_counters_enabled = NOVELTEA_ENABLE_VALIDATION_COUNTERS != 0;
 inline constexpr auto work_counter_count = static_cast<std::size_t>(WorkCounter::Count);
+// The editor's strict native validation DTO predates the opt-in addon profiler.
+// Only preexisting counters may cross that production IPC boundary.
+inline constexpr auto validation_protocol_work_counter_count =
+    static_cast<std::size_t>(WorkCounter::CompleteProjectBytesSerialized) + 1;
 
 class ValidationWorkCounters {
 public:
@@ -177,7 +191,17 @@ public:
             "completeProjectPreparations",
             "completeProjectPhysicalProjections",
             "completeProjectSerializationMicros",
-            "completeProjectBytesSerialized"};
+            "completeProjectBytesSerialized",
+            "projectSnapshotAssemblies",
+            "projectSnapshotMicros",
+            "recordSnapshotAssemblies",
+            "addonSnapshotJsonConversions",
+            "addonResultJsonConversions",
+            "addonResultSerializationMicros",
+            "addonResultBytesSerialized",
+            "editorRecordContributionChecks",
+            "editorUnopenedTestChecks",
+            "editorUnopenedInteractionChecks"};
         std::array<std::pair<std::string_view, std::size_t>, work_counter_count> result{};
         for (std::size_t index = 0; index < names.size(); ++index)
             result[index] = {names[index], value(index)};

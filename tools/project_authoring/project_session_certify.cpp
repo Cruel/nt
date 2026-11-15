@@ -88,17 +88,37 @@ void presentation_edit_roundtrip(const std::filesystem::path& fixture)
     const auto before = project->record_snapshots().at(id);
     require(before.normalized_json == before.normalized_baseline_json,
             "Clean Room normalized baseline must match its working value");
+    require(project->inspect_record("traits").accepted, "Feature Lab Traits must be inspectable");
+    ValidationWorkCounters selected_work;
+    {
+        ScopedValidationWork measurement(selected_work);
+        require(project->record_snapshot(id).has_value() &&
+                    !project->record_snapshot("rooms/not-inspected").has_value(),
+                "Selected record publication returns resident owners only");
+    }
+    require(selected_work.get<WorkCounter::RecordSnapshotAssemblies>() == 1,
+            "Delta publication must not assemble other inspected record snapshots");
 
     for (int i = 0; i < 3; ++i) {
         const auto saved_before_edit = read(room_path);
         const auto value = "Presentation edit " + std::to_string(i);
-        const auto updated =
-            project->patch(project->working_revision(),
-                           {{RoomPatch::Operation::Replace, path, Json(value).to_string()}});
+        ValidationWorkCounters patch_work;
+        RoomSessionResult updated;
+        {
+            ScopedValidationWork measurement(patch_work);
+            updated =
+                project->patch(project->working_revision(),
+                               {{RoomPatch::Operation::Replace, path, Json(value).to_string()}});
+        }
         require(updated.accepted && updated.snapshot.valid && updated.snapshot.dirty &&
                     updated.affected_records == std::vector<std::string>{id} &&
                     read(room_path) == saved_before_edit,
                 "A Room display-name edit only changes the unsaved Room working state");
+        require(patch_work.get<WorkCounter::ProjectSnapshotAssemblies>() == 2,
+                "Accepted patch needs exactly the before and new working revision snapshots");
+        require(patch_work.get<WorkCounter::EditorUnopenedTestChecks>() == 0 &&
+                    patch_work.get<WorkCounter::EditorUnopenedInteractionChecks>() == 0,
+                "Presentation-only Room patch must skip unopened Tests and Interactions");
         const auto [rechecked_sources, reused_sources] =
             project->localization_structured_source_work();
         require(rechecked_sources == 1 && reused_sources > 0,
@@ -109,11 +129,29 @@ void presentation_edit_roundtrip(const std::filesystem::path& fixture)
         const auto saved = Json::parse(edited.normalized_baseline_json).at("data");
         require(data.at("displayName") == value && data.at("features") == saved.at("features"),
                 "Room text editing must not manufacture Feature membership changes");
-        const auto committed = project->save_owners(project->working_revision(), {id}, false,
-                                                    TransactionDecision::KeepComments);
+        ValidationWorkCounters save_work;
+        RoomSessionResult committed;
+        {
+            ScopedValidationWork measurement(save_work);
+            committed = project->save_owners(project->working_revision(), {id}, false,
+                                             TransactionDecision::KeepComments);
+        }
         require(committed.accepted && committed.snapshot.valid && !committed.snapshot.dirty &&
                     read(room_path).find(value) != std::string::npos,
                 "Each scoped Save persists the latest Room name and clears its dirty state");
+        require(save_work.get<WorkCounter::ProjectSnapshotAssemblies>() == 2,
+                "Scoped Save needs its dirty entry and new persisted-source snapshots");
+        ValidationWorkCounters stale_work;
+        {
+            ScopedValidationWork measurement(stale_work);
+            const auto stale = project->patch(project->working_revision() - 1,
+                                              {{RoomPatch::Operation::Replace, path, "\"stale\""}});
+            require(!stale.accepted &&
+                        stale.snapshot.working_revision == project->working_revision(),
+                    "Stale-CAS rejection must preserve the current source and revision");
+        }
+        require(stale_work.get<WorkCounter::ProjectSnapshotAssemblies>() == 1,
+                "Rejected stale patch must publish only its unchanged entry snapshot");
     }
 
     auto reopened = ProjectSession::open(temp.root, error);
@@ -138,12 +176,19 @@ Json profile_presentation_edit(const std::filesystem::path& fixture)
     const auto measure = [&](std::string owner, std::string pointer, std::filesystem::path yaml) {
         std::vector<double> patch_ms, save_ms, combined_ms;
         std::size_t local_rechecked = 0, local_reused = 0;
+        std::size_t patch_snapshots = 0, save_snapshots = 0, patch_snapshot_micros = 0,
+                    save_snapshot_micros = 0;
         for (int i = 0; i < 20; ++i) {
             const auto value = "Native benchmark " + owner + " " + std::to_string(i);
             const auto start = std::chrono::steady_clock::now();
-            const auto patched =
-                project->patch(project->working_revision(),
-                               {{RoomPatch::Operation::Replace, pointer, Json(value).to_string()}});
+            ValidationWorkCounters patch_work;
+            RoomSessionResult patched;
+            {
+                ScopedValidationWork measurement(patch_work);
+                patched = project->patch(
+                    project->working_revision(),
+                    {{RoomPatch::Operation::Replace, pointer, Json(value).to_string()}});
+            }
             const auto patched_at = std::chrono::steady_clock::now();
             require(patched.accepted && patched.snapshot.valid, "Benchmark patch rejected");
             if (owner.starts_with("rooms/")) {
@@ -153,13 +198,22 @@ Json profile_presentation_edit(const std::filesystem::path& fixture)
                     local_reused += reused;
                 }
             }
-            const auto saved = project->save_owners(project->working_revision(), {owner}, false,
-                                                    TransactionDecision::KeepComments);
+            ValidationWorkCounters save_work;
+            RoomSessionResult saved;
+            {
+                ScopedValidationWork measurement(save_work);
+                saved = project->save_owners(project->working_revision(), {owner}, false,
+                                             TransactionDecision::KeepComments);
+            }
             const auto saved_at = std::chrono::steady_clock::now();
             require(saved.accepted && saved.snapshot.valid && !saved.snapshot.dirty &&
                         read(yaml).find(value) != std::string::npos,
                     "Benchmark scoped Save/readback failed");
             if (i > 0) {
+                patch_snapshots += patch_work.get<WorkCounter::ProjectSnapshotAssemblies>();
+                save_snapshots += save_work.get<WorkCounter::ProjectSnapshotAssemblies>();
+                patch_snapshot_micros += patch_work.get<WorkCounter::ProjectSnapshotMicros>();
+                save_snapshot_micros += save_work.get<WorkCounter::ProjectSnapshotMicros>();
                 patch_ms.push_back(
                     std::chrono::duration<double, std::milli>(patched_at - start).count());
                 save_ms.push_back(
@@ -181,6 +235,10 @@ Json profile_presentation_edit(const std::filesystem::path& fixture)
         result["patch"] = summarize(patch_ms);
         result["save"] = summarize(save_ms);
         result["combined"] = summarize(combined_ms);
+        result["warmPatchProjectSnapshots"] = patch_snapshots;
+        result["warmSaveProjectSnapshots"] = save_snapshots;
+        result["warmPatchSnapshotMs"] = patch_snapshot_micros / 1000.0;
+        result["warmSaveSnapshotMs"] = save_snapshot_micros / 1000.0;
         if (owner.starts_with("rooms/")) {
             result["structuredSourcesRechecked"] = local_rechecked;
             result["structuredSourcesReused"] = local_reused;
@@ -191,6 +249,9 @@ Json profile_presentation_edit(const std::filesystem::path& fixture)
     output["roomDisplayName"] =
         measure("rooms/properties-and-traits", "/rooms/properties-and-traits/data/displayName",
                 temp.root / "records/rooms/properties-and-traits.yaml");
+    output["roomDescription"] = measure("rooms/properties-and-traits",
+                                        "/rooms/properties-and-traits/data/description/source/text",
+                                        temp.root / "records/rooms/properties-and-traits.yaml");
     output["projectTitle"] = measure("project", "/project/name", temp.root / "project.yaml");
     return output;
 }
