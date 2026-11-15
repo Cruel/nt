@@ -9,6 +9,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace noveltea::authoring {
@@ -50,6 +51,16 @@ struct NativeStructuredSourcesCache {
     // source generation. Not a second source authority.
     std::shared_ptr<NativeLocalizationRetainedState> retained;
 };
+
+// Rebind an already validated working localization model to the exact disk
+// generation installed by a single, acknowledged Room Save. Only the saved
+// file's revision may differ; all other verified source identities and the
+// Room's working semantic value must remain unchanged. Otherwise the next
+// localization validation must take its ordinary full-validation path.
+bool rebase_localization_after_verified_room_save(
+    NativeStructuredSourcesCache& cache, std::string_view record_path,
+    std::string_view working_record_json,
+    const std::map<std::string, std::string>& verified_revisions) noexcept;
 
 struct NativeLocalizationTrackingOccurrence {
     std::size_t ordinal = 0;

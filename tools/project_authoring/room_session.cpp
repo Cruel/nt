@@ -6110,6 +6110,33 @@ ProjectSession::save_owners(std::uint64_t revision, const std::vector<std::strin
                         [](const auto& owner) { return owner.starts_with("i18n/"); }))
             localization_cache_.reset();
         response.snapshot = snapshot();
+        try {
+            if (solitary_existing_record && !source_authority_->uncertain()) {
+                // An explicit one-file Save already published this diagnostic
+                // baseline. Consume and verify its own-write watcher hints now,
+                // rather than forcing the next Patch to rebuild a second baseline.
+                // A physical delta, lost watcher coverage, or concurrent writer
+                // must never authorize reuse of the pre-observation snapshot.
+                const auto observation = observe_sources();
+                if (observation.authoritative && observation.unchanged &&
+                    !observation.full_rescan) {
+                    if (const auto* revisions = source_authority_->verified_revisions_view();
+                        revisions && source_authority_->fence()) {
+                        const auto& saved_owner = selected.begin()->second;
+                        rebase_localization_after_verified_room_save(
+                            localization_structured_sources_, prepared.targets.front().path,
+                            saved_owner->snapshot().source_json, *revisions);
+                        patch_published_revisions_ = *revisions;
+                        patch_published_watch_epoch_ = source_authority_->watch_epoch();
+                        patch_published_snapshot_ = response.snapshot;
+                    }
+                }
+            }
+        } catch (...) {
+            // This optional cache prime runs after durable acknowledgement.
+            // Failure must not make a committed source look unsaved.
+            patch_published_snapshot_.reset();
+        }
         diagnostic_delta(response, prior);
     } catch (const std::exception& exception) {
         response.error = exception.what();

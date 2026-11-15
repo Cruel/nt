@@ -33,6 +33,41 @@ struct NativeLocalizationRetainedState {
     jsoncons::ojson normalized_model;
     std::string effective_json;
 };
+
+bool rebase_localization_after_verified_room_save(
+    NativeStructuredSourcesCache& cache, std::string_view record_path,
+    std::string_view working_record_json,
+    const std::map<std::string, std::string>& verified_revisions) noexcept
+{
+    try {
+        const auto previous = cache.retained;
+        if (!previous || previous->observed_revisions.size() != verified_revisions.size())
+            return false;
+        const auto path = std::string(record_path);
+        if (!path.starts_with("records/rooms/") || !path.ends_with(".yaml") ||
+            !previous->record_overlays.contains(path) || !verified_revisions.contains(path))
+            return false;
+        for (const auto& [source, revision] : previous->observed_revisions) {
+            const auto current = verified_revisions.find(source);
+            if (current == verified_revisions.end() ||
+                (source != path && current->second != revision))
+                return false;
+        }
+        // Save can normalize YAML presentation, but must not change the
+        // semantic working Room used to validate this retained model.
+        if (jsoncons::ojson::parse(previous->record_overlays.at(path)) !=
+            jsoncons::ojson::parse(working_record_json))
+            return false;
+        auto updated = std::make_shared<NativeLocalizationRetainedState>(*previous);
+        updated->observed_revisions = verified_revisions;
+        cache.retained = std::move(updated);
+        return true;
+    } catch (...) {
+        // Cache reuse is optional, including after an allocation failure.
+        // Never turn an already committed Save into an error here.
+        return false;
+    }
+}
 namespace {
 using Json = jsoncons::ojson;
 using Clock = std::chrono::steady_clock;

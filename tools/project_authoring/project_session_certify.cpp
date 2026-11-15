@@ -208,12 +208,25 @@ void single_file_save_intent_roundtrip(const std::filesystem::path& fixture)
     const auto physical = temp.root / "records/rooms/properties-and-traits.yaml";
     require(project && project->inspect_record(owner).accepted,
             "Single-file Save fixture must admit an existing Room");
-    const auto save_once = [&](std::string_view text, ProjectSession::SaveIntent intent) {
-        const auto patched =
-            project->patch(project->working_revision(),
-                           {{RoomPatch::Operation::Replace, pointer, Json(text).to_string()}});
+    const auto save_once = [&](std::string_view text, ProjectSession::SaveIntent intent,
+                               bool expect_saved_baseline_reuse = false) {
+        ValidationWorkCounters patch_work;
+        RoomSessionResult patched;
+        {
+            ScopedValidationWork measurement(patch_work);
+            patched =
+                project->patch(project->working_revision(),
+                               {{RoomPatch::Operation::Replace, pointer, Json(text).to_string()}});
+        }
         require(patched.accepted && patched.snapshot.valid && patched.snapshot.dirty,
                 "A valid Room edit remains unsaved before explicit Save");
+        if (expect_saved_baseline_reuse)
+            require(patch_work.get<WorkCounter::ProjectPatchBaselineReuses>() == 1 &&
+                        patch_work.get<WorkCounter::ProjectSnapshotAssemblies>() == 1 &&
+                        project->localization_source_work().incremental_message_validations == 1 &&
+                        project->localization_source_work().full_contract_validations == 0,
+                    "First Patch after an explicitly saved Room reuses its source-fenced "
+                    "diagnostic and localization baselines");
         ValidationWorkCounters work;
         RoomSessionResult saved;
         {
@@ -230,7 +243,7 @@ void single_file_save_intent_roundtrip(const std::filesystem::path& fixture)
     };
     require(save_once("Fast path persists", ProjectSession::SaveIntent::ExplicitSingleFile) == 0,
             "Explicit solitary existing Room Save never writes a journal");
-    require(save_once("Save All persists", ProjectSession::SaveIntent::Journaled) == 2,
+    require(save_once("Save All persists", ProjectSession::SaveIntent::Journaled, true) == 2,
             "Journaled Save with exactly one dirty Room retains multi-file durability protocol");
     require(save_once("Undo-like return", ProjectSession::SaveIntent::ExplicitSingleFile) == 0,
             "Returning to an earlier value remains independently saveable");
@@ -273,6 +286,33 @@ void single_file_save_intent_roundtrip(const std::filesystem::path& fixture)
                         .at("data")
                         .at("displayName") == "Multi-owner second",
             "Reopening after fast and grouped Saves reads both committed Room revisions");
+    const auto before_external = reopened->patch(
+        reopened->working_revision(),
+        {{RoomPatch::Operation::Replace, pointer, "\"Saved before external edit\""}});
+    require(before_external.accepted,
+            "External-change probe patches a valid previously reopened Room");
+    const auto committed_before_external = reopened->save_owners(
+        reopened->working_revision(), {owner}, false, TransactionDecision::KeepComments, {}, {},
+        std::nullopt, ProjectSession::SaveIntent::ExplicitSingleFile);
+    require(committed_before_external.accepted, "External-change probe durably Saves Room");
+    auto changed_source = read(physical);
+    const auto changed_at = changed_source.find("Saved before external edit");
+    require(changed_at != std::string::npos, "Probe locates the saved Room text");
+    changed_source.replace(changed_at, std::strlen("Saved before external edit"),
+                           "External editor changed this");
+    write(physical, changed_source);
+    ValidationWorkCounters conflict_work;
+    RoomSessionResult conflict;
+    {
+        ScopedValidationWork measurement(conflict_work);
+        conflict = reopened->patch(
+            reopened->working_revision(),
+            {{RoomPatch::Operation::Replace, pointer, "\"Do not overwrite external\""}});
+    }
+    require(!conflict.accepted &&
+                conflict_work.get<WorkCounter::ProjectPatchBaselineReuses>() == 0 &&
+                read(physical) == changed_source,
+            "External edit invalidates saved-generation snapshot reuse and survives rejection");
 }
 
 // Standalone, host-dependent native measurement. Use the same disposable
