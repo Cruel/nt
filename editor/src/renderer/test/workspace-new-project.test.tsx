@@ -1508,6 +1508,48 @@ describe('WorkspacePage new project modal', () => {
     expect(fix.querySelector('svg.lucide-sparkles')).toBeInTheDocument();
   });
 
+  it('keeps the failed-Open actions outside a scrollable overflow of YAML diagnostics', async () => {
+    const diagnostics = Array.from({ length: 180 }, (_, index) => ({
+      severity: 'error' as const,
+      category: 'Project source syntax',
+      path: '/project.yaml',
+      sourcePath: 'project.yaml',
+      line: 2278 + index,
+      column: 11,
+      message: `Unexpected scalar token in YAML stream: "room-${index}"`,
+    }));
+    vi.mocked(window.noveltea.openProject).mockResolvedValue({
+      ok: true,
+      success: false,
+      projectPath: '/mock/many-errors',
+      projectFilePath: '/mock/many-errors/project.yaml',
+      repairCandidateId: 'many-errors-candidate',
+      repairCandidateRecognition: 'strong',
+      diagnostics,
+    });
+    vi.mocked(window.noveltea.observeRepairCandidate).mockResolvedValue(null);
+    render(<WorkspacePage />);
+    dispatchOpenProject('/mock/many-errors');
+
+    const dialog = await screen.findByRole('dialog');
+    const scroll = screen.getByTestId('workspace-alert-scroll');
+    expect(dialog).toHaveClass('flex', 'max-h-[calc(100dvh-2rem)]', 'overflow-hidden');
+    expect(scroll).toHaveClass('min-h-0', 'flex-1', 'overflow-y-auto');
+    expect(within(scroll).getByText('project.yaml:2278:11')).toBeInTheDocument();
+    expect(within(scroll).getByText('project.yaml:2457:11')).toBeInTheDocument();
+
+    const manual = within(dialog).getByRole('button', { name: 'Manual Edit' });
+    const fix = within(dialog).getByRole('button', { name: 'Fix' });
+    expect(scroll.contains(manual)).toBe(false);
+    expect(scroll.contains(fix)).toBe(false);
+    expect(manual).toBeEnabled();
+    expect(fix).toBeEnabled();
+    fireEvent.click(manual);
+    expect(
+      screen.queryByRole('heading', { name: 'Unable to open Project' }),
+    ).not.toBeInTheDocument();
+  });
+
   it('offers Manual Edit and Fix with a Sparkles icon from failed Open, and routes AI repair to the candidate prompt', async () => {
     const root = '/mock/invalid-project';
     const source = {

@@ -2920,29 +2920,36 @@ export function WorkspacePage() {
           if (!open) setAlert(null);
         }}
       >
-        <DialogPopup>
-          <DialogTitle>{alert?.title ?? 'Workspace warning'}</DialogTitle>
-          <DialogDescription>
-            {alert?.repairCandidateId
-              ? (projectOpenDiagnosticDetails(alert.diagnostics ?? [])[0]?.message ?? alert.message)
-              : alert?.message}
-          </DialogDescription>
-          {alert?.repairCandidateId ? (
-            <div className="space-y-2 text-xs text-muted-foreground">
-              {projectOpenDiagnosticDetails(alert.diagnostics ?? []).map((detail, index) => (
-                <div key={index} className="space-y-1">
-                  {index > 0 ? <p className="text-foreground">{detail.message}</p> : null}
-                  {detail.location ? <p className="font-mono">{detail.location}</p> : null}
-                </div>
-              ))}
-            </div>
-          ) : null}
-          {alert?.actionError ? (
-            <p role="alert" className="text-xs text-destructive">
-              {alert.actionError}
-            </p>
-          ) : null}
-          <div className="flex justify-end gap-2">
+        <DialogPopup className="flex max-h-[calc(100dvh-2rem)] min-h-0 flex-col overflow-hidden sm:max-w-lg">
+          <DialogTitle className="shrink-0 pr-8">{alert?.title ?? 'Workspace warning'}</DialogTitle>
+          <div
+            data-testid="workspace-alert-scroll"
+            className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain break-words pr-1"
+            tabIndex={0}
+          >
+            <DialogDescription className="whitespace-pre-wrap">
+              {alert?.repairCandidateId
+                ? (projectOpenDiagnosticDetails(alert.diagnostics ?? [])[0]?.message ??
+                  alert.message)
+                : alert?.message}
+            </DialogDescription>
+            {alert?.repairCandidateId ? (
+              <div className="space-y-2 text-xs text-muted-foreground">
+                {projectOpenDiagnosticDetails(alert.diagnostics ?? []).map((detail, index) => (
+                  <div key={index} className="space-y-1">
+                    {index > 0 ? <p className="text-foreground">{detail.message}</p> : null}
+                    {detail.location ? <p className="font-mono">{detail.location}</p> : null}
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            {alert?.actionError ? (
+              <p role="alert" className="text-xs text-destructive">
+                {alert.actionError}
+              </p>
+            ) : null}
+          </div>
+          <div className="flex shrink-0 justify-end gap-2">
             {alert?.repairCandidateId ? (
               <Button
                 size="sm"
