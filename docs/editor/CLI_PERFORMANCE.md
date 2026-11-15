@@ -3589,3 +3589,65 @@ and are separately reported rather than classified as presentation edits.
 The addon inverse benchmark measures native Patch/ack serialization, **not**
 renderer draft flushing or complete Ctrl+Z-to-visible-update latency; #602
 owns that renderer pipeline and needs independent interactive measurement.
+
+#### #636 closure qualification: buffered Undo and wider Patch workloads
+
+The renderer's `undoAsync` now emits two distinct browser Performance
+measurements: `noveltea.project-edit.undo-field-flush` (Undo entry through
+all pending field flushes) and `noveltea.project-edit.undo-to-native-ack`
+(Undo entry through the acknowledged inverse command). Both are emitted
+from the **real renderer command path**, not inferred from a C++ Patch
+benchmark. Inspect these in the running editor's DevTools Performance
+timeline; the latter includes the flush and queued native acknowledgment.
+Invalid raw input or unsuccessful flushing still blocks Undo and must not
+be reported as a successful inverse-command acknowledgment.
+
+`native-field-drafts.test.tsx` also runs **21 buffered Undo cycles**, with
+the first excluded and each cycle staging a field, flushing it through the
+normal command queue, submitting the inverse command, and checking the
+restored Project and cleared overlay. Its in-process native-ack **test
+fixture**, not Electron or the real addon, measured **0.505 / 0.625 ms**
+for the flush and **0.900 / 1.076 ms** for the whole Undo (p50 / p95,
+20 warm measurements). These values characterize *renderer test-host*
+overhead; they must **not** be added naively to standalone Node measurements
+or called packaged-editor Ctrl+Z timings. Packaged-editor timing remains
+environment-dependent and can be collected with the new real-path marks.
+
+The separate Release C++ matrix is available via
+`noveltea-project-session-certify --profile-unsaved-patch-matrix` and
+`--profile-unsaved-patch-matrix-17` with the Feature Lab path. It exercises
+20 unsaved commands per workload (first excluded), not Save or UI repaint.
+This complements the real addon matrix with matching workloads and reports
+snapshot counts/durations, baseline reuse, instrumented physical read
+calls, affected-owner counts, and diagnostic counts.
+
+| C++ Patch workload | 1 inspected (p50 / p95 ms) | 17 inspected (p50 / p95 ms) |
+| --- | ---: | ---: |
+| Room display name | 9.61 / 10.28 | 10.61 / 11.99 |
+| Room description | 9.55 / 10.56 | 10.47 / 11.56 |
+| Project title | 13.62 / 15.06 | 14.42 / 15.38 |
+| Room exit target | 60.88 / 63.34 | 60.31 / 62.66 |
+| Room and Project batch | 19.88 / 20.87 | 20.82 / 23.32 |
+| Room inverse Patch | 9.75 / 11.98 | 10.43 / 11.89 |
+
+Every workload recorded **one Project snapshot assembly per command** and
+19/19 source-proven prior-publication reuses after warm-up. The exit-target
+change requires full dependent semantics, with ~55 ms of each ~60 ms command
+spent in Project snapshot validation; it is **not** eligible for a
+presentation-only bypass. The Project-title profile performs more physical
+read work because the manifest changed; it is measured separately for that
+reason. These `FileByteReads`/transaction read counters reflect instrumented
+read operations, not a deduplicated filesystem syscall trace. CPU profiling
+also observed substantial JSON parsing, memory comparison and allocation
+costs; a per-Patch allocation census was not produced.
+
+The existing C++ baseline still stages clones of the already-open sessions
+for batch rollback. With 17 inspected Rooms, narrow edits increase median
+latency by about 0.9–1.0 ms, so replacing the tested all-or-nothing
+transaction mechanism with ownership-sharing would add risk without
+meaningfully addressing the remaining snapshot/semantic-validation costs.
+The remaining ~0.5–0.6 ms above the 10 ms median target in the 17-inspected
+case is documented rather than accepting weaker revision or source
+authority guarantees. Feature Lab needs no authored changes: this is an
+editor-native session and command-path optimization, not a runtime story
+behavior change.

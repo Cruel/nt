@@ -4,6 +4,7 @@ import {
 } from '@/project/authoring-dependency-graph-runtime';
 import { applyJsonPatch, type JsonPatchOperation } from '@/project/json-patch';
 import { flushNativeFields } from './native-field-drafts';
+import { measureProjectEdit } from './project-edit-timings';
 import { capturePendingInputCommit, usePendingInputStore } from '@/workbench/pending-input-store';
 import {
   buildJsonPointer,
@@ -1397,8 +1398,17 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
   undoAsync: async () => {
     if (get().nativeWorkingRevision === null)
       return nativeOnlyResult('Native Project session is required.');
+    // This starts at the renderer Undo command, *before* pending text drafts
+    // are flushed. A native inverse-Patch benchmark alone cannot measure it.
+    const undoStartedAt = performance.now();
     const { projectSessionId, projectInstanceId } = useProjectStore.getState();
-    if (!(await flushNativeFields()))
+    const fieldsFlushed = await flushNativeFields();
+    measureProjectEdit('undo-field-flush', undoStartedAt, {
+      path: '/',
+      sequence: 0,
+      ok: fieldsFlushed,
+    });
+    if (!fieldsFlushed)
       return nativeOnlyResult('A pending field edit must be resolved before Undo.');
     if (hasUnresolvedRawInput())
       return nativeOnlyResult('Resolve incomplete field input before Undo.');
@@ -1407,12 +1417,18 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
       useProjectStore.getState().projectInstanceId !== projectInstanceId
     )
       return nativeOnlyResult('Undo belongs to a superseded Project session.');
-    return queueNativeCommand(() => {
+    const result = await queueNativeCommand(() => {
       if (get().nativeMutationFailure)
         return Promise.resolve(nativeOnlyResult(get().nativeMutationFailure!));
       const proposal = undoCommandCore(busStateFromStores(get().history));
       return submitNativeCommand(proposal, proposal.historyEntry?.inversePatches ?? [], 'undo');
     });
+    measureProjectEdit('undo-to-native-ack', undoStartedAt, {
+      path: '/',
+      sequence: 0,
+      ok: result.ok,
+    });
+    return result;
   },
   redoAsync: async () => {
     if (get().nativeWorkingRevision === null)

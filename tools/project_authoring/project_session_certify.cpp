@@ -443,6 +443,109 @@ Json profile_unsaved_room_patches(const std::filesystem::path& fixture,
     return result;
 }
 
+// Separate patch-only work classes so a fast presentation edit cannot mask
+// the real cost of dependency invalidation or a multi-owner transaction.
+Json profile_unsaved_patch_matrix(const std::filesystem::path& fixture,
+                                  std::size_t additional_inspected)
+{
+    Json output = Json::object();
+    output["additionalInspected"] = additional_inspected;
+    const std::string owner = "rooms/properties-and-traits";
+    const std::string display = "/" + owner + "/data/displayName";
+    const std::string description = "/" + owner + "/data/description/source/text";
+    const std::string target = "/" + owner + "/data/exits/0/target";
+    for (const auto& workload : {"roomDisplayName", "roomDescription", "projectTitle",
+                                 "roomExitTarget", "roomAndProject", "undoInverse"}) {
+        TemporaryProject temp(fixture);
+        std::string error;
+        auto project = ProjectSession::open(temp.root, error);
+        require(project && project->inspect_record(owner).accepted,
+                "Patch matrix requires an inspected Room: " + error);
+        std::vector<std::string> other_owners;
+        for (const auto& source : std::filesystem::directory_iterator(temp.root / "records/rooms"))
+            if (source.is_regular_file() && source.path().extension() == ".yaml" &&
+                source.path().stem() != "properties-and-traits")
+                other_owners.push_back(source.path().stem().string());
+        std::sort(other_owners.begin(), other_owners.end());
+        require(other_owners.size() >= std::max<std::size_t>(additional_inspected, 2),
+                "Patch matrix requires sufficient other Room owners");
+        for (std::size_t i = 0; i < additional_inspected; ++i)
+            require(project->inspect_record("rooms/" + other_owners[i]).accepted,
+                    "Patch matrix additional Room inspection succeeds");
+
+        std::vector<double> timings;
+        std::size_t snapshot_count = 0, snapshot_us = 0, record_snapshot_count = 0,
+                    affected_count = 0, diagnostic_count = 0, physical_reads = 0,
+                    baseline_reuses = 0;
+        for (int i = 0; i < 20; ++i) {
+            const auto value =
+                Json(std::string("Matrix ") + workload + " " + std::to_string(i)).to_string();
+            std::vector<RoomPatch> changes;
+            if (std::string_view(workload) == "roomDisplayName")
+                changes.push_back({RoomPatch::Operation::Replace, display, value});
+            else if (std::string_view(workload) == "roomDescription")
+                changes.push_back({RoomPatch::Operation::Replace, description, value});
+            else if (std::string_view(workload) == "projectTitle")
+                changes.push_back({RoomPatch::Operation::Replace, "/project/name", value});
+            else if (std::string_view(workload) == "roomExitTarget")
+                changes.push_back(
+                    {RoomPatch::Operation::Replace, target, Json(other_owners[i % 2]).to_string()});
+            else if (std::string_view(workload) == "roomAndProject")
+                changes = {{RoomPatch::Operation::Replace, display, value},
+                           {RoomPatch::Operation::Replace, "/project/name", value}};
+            else {
+                const auto prior = project->record_snapshot(owner);
+                require(prior.has_value(), "Inverse Patch has a current Room baseline");
+                const auto original =
+                    Json::parse(prior->source_json).at("data").at("displayName").to_string();
+                const auto forward = project->patch(
+                    project->working_revision(), {{RoomPatch::Operation::Replace, display, value}});
+                require(forward.accepted, "Forward step of inverse Patch succeeds");
+                changes.push_back({RoomPatch::Operation::Replace, display, original});
+            }
+            const auto prior_revision = project->working_revision();
+            ValidationWorkCounters work;
+            const auto started = std::chrono::steady_clock::now();
+            RoomSessionResult patched;
+            {
+                ScopedValidationWork measurement(work);
+                patched = project->patch(prior_revision, changes);
+            }
+            const auto elapsed = std::chrono::duration<double, std::milli>(
+                                     std::chrono::steady_clock::now() - started)
+                                     .count();
+            require(patched.accepted && patched.snapshot.working_revision == prior_revision + 1,
+                    "Patch matrix operation accepted with an incremented revision: " +
+                        std::string(workload) + " " + patched.error);
+            if (i == 0)
+                continue;
+            timings.push_back(elapsed);
+            snapshot_count += work.get<WorkCounter::ProjectSnapshotAssemblies>();
+            snapshot_us += work.get<WorkCounter::ProjectSnapshotMicros>();
+            record_snapshot_count += work.get<WorkCounter::RecordSnapshotAssemblies>();
+            physical_reads += work.get<WorkCounter::FileByteReads>() +
+                              work.get<WorkCounter::TransactionSourceReads>();
+            affected_count += patched.affected_records.size();
+            diagnostic_count += patched.snapshot.diagnostics.size();
+            baseline_reuses += work.get<WorkCounter::ProjectPatchBaselineReuses>();
+        }
+        std::sort(timings.begin(), timings.end());
+        Json summary = Json::object();
+        summary["warmCount"] = timings.size();
+        summary["medianMs"] = timings[9];
+        summary["p95Ms"] = timings[18];
+        summary["projectSnapshotAssemblies"] = snapshot_count;
+        summary["meanSnapshotAssemblyMs"] = snapshot_us / (timings.size() * 1000.0);
+        summary["recordSnapshotAssemblies"] = record_snapshot_count;
+        summary["baselineReuses"] = baseline_reuses;
+        summary["physicalFileByteReadCalls"] = physical_reads;
+        summary["meanAffectedOwners"] = affected_count / double(timings.size());
+        summary["meanDiagnostics"] = diagnostic_count / double(timings.size());
+        output[workload] = std::move(summary);
+    }
+    return output;
+}
+
 Json roundtrip(const std::filesystem::path& fixture, bool verify)
 {
     TemporaryProject temp(fixture);
@@ -4189,6 +4292,14 @@ int main(int argc, char** argv)
         }
         if (argc == 3 && std::string_view(argv[1]) == "--profile-unsaved-room-patches-17") {
             std::cout << profile_unsaved_room_patches(argv[2], 16).to_string() << '\n';
+            return 0;
+        }
+        if (argc == 3 && std::string_view(argv[1]) == "--profile-unsaved-patch-matrix") {
+            std::cout << profile_unsaved_patch_matrix(argv[2], 0).to_string() << '\n';
+            return 0;
+        }
+        if (argc == 3 && std::string_view(argv[1]) == "--profile-unsaved-patch-matrix-17") {
+            std::cout << profile_unsaved_patch_matrix(argv[2], 16).to_string() << '\n';
             return 0;
         }
         if (argc == 2 && (std::string_view(argv[1]) == "--validate" ||

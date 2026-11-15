@@ -13,7 +13,9 @@ export type ProjectEditTimingPhase =
   | 'input-to-paint-ready'
   | 'flush-to-native-ack'
   | 'flush-barrier'
-  | 'scoped-save';
+  | 'scoped-save'
+  | 'undo-field-flush'
+  | 'undo-to-native-ack';
 
 export function measureProjectEdit(
   phase: ProjectEditTimingPhase,

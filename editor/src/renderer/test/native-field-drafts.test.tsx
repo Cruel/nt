@@ -289,6 +289,56 @@ describe('shared buffered native field intents', () => {
     expect(useCommandStore.getState().history.entries).toHaveLength(2);
   });
 
+  it('profiles the complete buffered Undo barrier through the acknowledged inverse command', async () => {
+    // Renderer integration fixture: it exercises real draft/command/history
+    // logic with an in-process native-ack stand-in. These timings must not be
+    // presented as the latency of the real Node addon or Electron IPC.
+    const native = admitProject();
+    const flushPhase = 'noveltea.project-edit.undo-field-flush';
+    const totalPhase = 'noveltea.project-edit.undo-to-native-ack';
+    performance.clearMeasures(flushPhase);
+    performance.clearMeasures(totalPhase);
+    const samples: { totalMs: number; flushMs: number }[] = [];
+    for (let i = 0; i < 21; ++i) {
+      expect(
+        projectEdits.field({
+          tabId: 'project:1',
+          path: '/project/name',
+          saveUnitId: PROJECT_SETTINGS_SAVE_UNIT_ID,
+          value: `Buffered before Undo ${i}`,
+          label: 'Edit Project title',
+        }),
+      ).toBe(true);
+      const callsBeforeUndo = native.patch.mock.calls.length;
+      const undo = await useCommandStore.getState().undoAsync();
+      expect(undo.ok).toBe(true);
+      expect(native.patch).toHaveBeenCalledTimes(callsBeforeUndo + 2);
+      expect(useProjectStore.getState().document).toMatchObject({
+        project: { name: 'Original' },
+      });
+      expect(useNativeFieldDraftStore.getState().entries).toEqual({});
+      const flush = performance.getEntriesByName(flushPhase, 'measure').at(-1);
+      const total = performance.getEntriesByName(totalPhase, 'measure').at(-1);
+      expect(flush?.duration).toBeTypeOf('number');
+      expect(total?.duration).toBeTypeOf('number');
+      expect(total!.duration).toBeGreaterThanOrEqual(flush!.duration);
+      if (i > 0) samples.push({ totalMs: total!.duration, flushMs: flush!.duration });
+    }
+    const percentile = (key: 'totalMs' | 'flushMs') => {
+      const ordered = samples.map((sample) => sample[key]).sort((a, b) => a - b);
+      return {
+        p50: Number(ordered[9]!.toFixed(3)),
+        p95: Number(ordered[18]!.toFixed(3)),
+      };
+    };
+    console.info(
+      'Buffered Undo renderer-fixture profile (20 warm, mocked native IPC):',
+      JSON.stringify({ flush: percentile('flushMs'), throughAck: percentile('totalMs') }),
+    );
+    performance.clearMeasures(flushPhase);
+    performance.clearMeasures(totalPhase);
+  });
+
   it('rejects an incorrect Save owner before exposing a field overlay or recoverable draft', () => {
     admitProject();
     expect(() =>
