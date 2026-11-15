@@ -64,8 +64,11 @@ async function roomBytes(root: string, id: string) {
 }
 
 async function removeDisposableProject(root: string) {
-  // Cache publication can outlive worker disposal by one filesystem rename.
-  await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  // Cache publication can outlive worker disposal. A physical Save or cache
+  // rename may briefly recreate a directory while recursive removal walks it.
+  // Wait for that bounded retirement instead of failing an otherwise passing
+  // native integration assertion on ENOTEMPTY from disposable test cleanup.
+  await rm(root, { recursive: true, force: true, maxRetries: 100, retryDelay: 100 });
 }
 
 describe.skipIf(!addonPath)('#608 real native Save and recovery integration', () => {
@@ -513,6 +516,64 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
         ]),
       );
       expect(await readFile(saved, 'utf8')).toBe(disk);
+    } finally {
+      controller.dispose();
+      sessions.dispose();
+      await removeDisposableProject(root);
+    }
+  }, 120_000);
+
+  it('rejects one invalid Room in a mixed Save while accepting an independent valid Room', async () => {
+    const root = await disposableProject();
+    const sessions = new ActiveProjectSessionService();
+    const controller = nativeHarness(sessions);
+    try {
+      const first = await admit(root, sessions, controller);
+      const initialA = await roomBytes(root, roomA);
+      const initialB = await roomBytes(root, roomB);
+      const invalid = await controller.applyRevisionedPatches(first.id, first.revision, [
+        {
+          op: 'replace',
+          path: `/rooms/${roomA}/data/background/fit`,
+          value: 'invalid-fit-mode',
+        },
+      ]);
+      expect(invalid.accepted, invalid.error).toBe(true);
+      const valid = await controller.applyRevisionedPatches(
+        first.id,
+        invalid.snapshot.workingRevision,
+        [{ op: 'replace', path: `/rooms/${roomB}/data/displayName`, value: 'Valid independently' }],
+      );
+      expect(valid.accepted, valid.error).toBe(true);
+      const both = await controller.saveUnit(
+        first.id,
+        valid.snapshot.workingRevision,
+        [`record:rooms:${roomA}`, `record:rooms:${roomB}`],
+        {},
+      );
+      expect(both.accepted).toBe(false);
+      expect(both.error).toContain(
+        `Cannot save invalid dependent Project record: /rooms/${roomA}/data/background/fit`,
+      );
+      expect(await roomBytes(root, roomA)).toBe(initialA);
+      expect(await roomBytes(root, roomB)).toBe(initialB);
+      const savedValid = await controller.saveUnit(
+        first.id,
+        valid.snapshot.workingRevision,
+        `record:rooms:${roomB}`,
+        {},
+      );
+      expect(savedValid.accepted, savedValid.error).toBe(true);
+      expect(await roomBytes(root, roomA)).toBe(initialA);
+      expect(await roomBytes(root, roomB)).toContain('Valid independently');
+      const stillInvalid = await controller.saveUnit(
+        first.id,
+        savedValid.snapshot.workingRevision,
+        `record:rooms:${roomA}`,
+        {},
+      );
+      expect(stillInvalid.accepted).toBe(false);
+      expect(await roomBytes(root, roomA)).toBe(initialA);
     } finally {
       controller.dispose();
       sessions.dispose();

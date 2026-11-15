@@ -175,6 +175,32 @@ function atomicClosure(recovery: EditorRecoveryState, initialId: SaveUnitId): Se
   return selected;
 }
 
+/** Partition dirty Save units by transitive native command transaction groups.
+ * Never retry only part of a semantic owner-move or other atomic transaction. */
+function independentlySavableGroups(
+  recovery: EditorRecoveryState,
+  selectedIds: ReadonlySet<SaveUnitId>,
+): Array<Set<SaveUnitId>> {
+  const remaining = new Set(selectedIds);
+  const groups: Array<Set<SaveUnitId>> = [];
+  for (const id of [...remaining].sort()) {
+    if (!remaining.has(id)) continue;
+    const group = atomicClosure(recovery, id);
+    for (const member of group) remaining.delete(member);
+    groups.push(group);
+  }
+  return groups;
+}
+
+function nativeSemanticSaveRejected(result: ProjectSaveCoordinatorResult): boolean {
+  return (
+    !result.success &&
+    result.diagnostics.some(
+      (diagnostic) => diagnostic.code === 'native.save.invalid-working-record',
+    )
+  );
+}
+
 function editorStateForContentCandidate(
   snapshot: EditorProjectState,
   candidateContent: JsonValue,
@@ -684,6 +710,67 @@ export async function saveAllSaveUnits(
       // Project engine would introduce a second, potentially contradictory
       // semantic authority and could reject a native-valid Save.
       const result = await commitSelectedNativeSaveUnits(ids, snapshot, candidate, sourceIds);
+      // A native semantic rejection aborts the full transaction. Retry its
+      // independent atomic groups, not individual commands or owners in the
+      // same group. Native authority still checks every smaller candidate;
+      // the renderer never revalidates or writes YAML itself. Source-backed
+      // mixed transactions and nonsemantic failures retain fail-closed
+      // all-or-nothing behavior.
+      const independentGroups = independentlySavableGroups(snapshot.recovery, ids);
+      if (
+        nativeSemanticSaveRejected(result) &&
+        sourceIds.length === 0 &&
+        independentGroups.length > 1
+      ) {
+        const savedSaveUnitIds: SaveUnitId[] = [];
+        const groupDiagnostics: ToolDiagnostic[] = [];
+        for (const group of independentGroups) {
+          const latest = useProjectStore.getState();
+          const currentSnapshot = buildEditorProjectStateSnapshot();
+          if (
+            !latest.savedDocument ||
+            [...group].some((id) => !currentSnapshot.recovery.saveUnitsById[id])
+          )
+            break;
+          try {
+            const groupCandidate = buildCandidateForSaveUnitIds(
+              latest.savedDocument,
+              currentSnapshot.recovery,
+              group,
+            );
+            const groupResult = await commitSelectedNativeSaveUnits(
+              group,
+              currentSnapshot,
+              groupCandidate,
+            );
+            if (groupResult.success) savedSaveUnitIds.push(...groupResult.savedSaveUnitIds);
+            groupDiagnostics.push(...groupResult.diagnostics);
+          } catch (error) {
+            groupDiagnostics.push({
+              code: 'editor.native-save-all.group-rejected',
+              severity: 'error',
+              category: 'Project save',
+              path: '/',
+              message: error instanceof Error ? error.message : 'Native Save group failed.',
+            });
+          }
+        }
+        const remaining = uniqueSorted([
+          ...Object.keys(buildEditorProjectStateSnapshot().recovery.saveUnitsById),
+          ...Object.entries(useProjectSourceStore.getState().buffersById)
+            .filter(([, buffer]) => buffer.dirty)
+            .map(([id]) => sourceSaveUnitId(id)),
+          ...blockedOwners,
+        ]);
+        const success = savedSaveUnitIds.length > 0;
+        return {
+          success,
+          status: success ? (remaining.length ? 'partially-saved' : 'saved') : 'failed',
+          savedSaveUnitIds: uniqueSorted(savedSaveUnitIds),
+          remainingDirtySaveUnitIds: remaining,
+          diagnostics: [...failures, ...groupDiagnostics],
+        };
+      }
       const remainingDirtySaveUnitIds = uniqueSorted([
         ...result.remainingDirtySaveUnitIds,
         ...blockedOwners,

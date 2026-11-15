@@ -1655,6 +1655,128 @@ describe('project save coordinator', () => {
     Reflect.deleteProperty(window.noveltea, 'nativeProjectSaveUnit');
   });
 
+  it('Save All saves a valid Room when native validation rejects another dirty Room', async () => {
+    const saved = projectWithRooms();
+    const working = projectWithRooms();
+    working.rooms.foyer!.label = 'Valid Foyer';
+    working.rooms.kitchen!.label = 'Invalid Kitchen';
+    const entries = Object.fromEntries(
+      (['foyer', 'kitchen'] as const).map((id, index) => [
+        `record:rooms:${id}`,
+        {
+          sequence: index + 1,
+          patches: [
+            { op: 'replace' as const, path: `/rooms/${id}/label`, value: working.rooms[id]!.label },
+          ],
+          affectedPaths: [`/rooms/${id}/label`],
+          pendingRawInputByPath: {},
+          atomicTransactionGroupIds: [],
+        },
+      ]),
+    );
+    loadProject(saved, working, recoveryState(entries));
+    useCommandStore.getState().enableNativeCommandMode(0);
+    const save = vi.fn(async (_session: string, _revision: number, units: string | string[]) =>
+      units === 'record:rooms:foyer'
+        ? { accepted: true, error: '', snapshot: { workingRevision: 0 } }
+        : {
+            accepted: false,
+            error:
+              'Cannot save invalid dependent Project record: /rooms/kitchen/data/background/fit',
+            snapshot: { workingRevision: 0, diagnostics: [] },
+          },
+    );
+    Object.defineProperty(window.noveltea, 'nativeProjectSaveUnit', {
+      configurable: true,
+      value: save,
+    });
+    const result = await saveAllSaveUnits();
+    expect(result).toMatchObject({
+      success: true,
+      status: 'partially-saved',
+      savedSaveUnitIds: ['record:rooms:foyer'],
+      remainingDirtySaveUnitIds: ['record:rooms:kitchen'],
+    });
+    expect(result.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'native.save.invalid-working-record',
+          message:
+            'Cannot save invalid dependent Project record: /rooms/kitchen/data/background/fit',
+        }),
+      ]),
+    );
+    expect(save.mock.calls.map((call) => call[2])).toEqual([
+      ['record:rooms:foyer', 'record:rooms:kitchen'],
+      'record:rooms:foyer',
+      'record:rooms:kitchen',
+    ]);
+    expect((useProjectStore.getState().savedDocument as typeof saved).rooms.foyer!.label).toBe(
+      'Valid Foyer',
+    );
+    expect((useProjectStore.getState().savedDocument as typeof saved).rooms.kitchen!.label).toBe(
+      'Kitchen',
+    );
+    expect((useProjectStore.getState().document as typeof saved).rooms.kitchen!.label).toBe(
+      'Invalid Kitchen',
+    );
+    Reflect.deleteProperty(window.noveltea, 'nativeProjectSaveUnit');
+  });
+
+  it('Save All keeps a semantically rejected atomic group together while saving an unrelated Room', async () => {
+    const saved = projectWithRooms();
+    saved.rooms.hall = { id: 'hall', label: 'Hall', data: defaultRoomData('Hall') };
+    const working = structuredClone(saved);
+    working.rooms.foyer!.label = 'Related Foyer';
+    working.rooms.kitchen!.label = 'Invalid Kitchen';
+    working.rooms.hall!.label = 'Valid Hall';
+    const entries = Object.fromEntries(
+      (['foyer', 'kitchen', 'hall'] as const).map((id, index) => [
+        `record:rooms:${id}`,
+        {
+          sequence: index + 1,
+          patches: [
+            { op: 'replace' as const, path: `/rooms/${id}/label`, value: working.rooms[id]!.label },
+          ],
+          affectedPaths: [`/rooms/${id}/label`],
+          pendingRawInputByPath: {},
+          atomicTransactionGroupIds: id === 'hall' ? [] : ['group:related'],
+        },
+      ]),
+    );
+    loadProject(saved, working, recoveryState(entries));
+    useCommandStore.getState().enableNativeCommandMode(0);
+    const save = vi.fn(async (_session: string, _revision: number, units: string | string[]) =>
+      units === 'record:rooms:hall'
+        ? { accepted: true, error: '', snapshot: { workingRevision: 0 } }
+        : {
+            accepted: false,
+            error: 'Cannot save invalid working source: rooms/kitchen',
+            snapshot: { workingRevision: 0, diagnostics: [] },
+          },
+    );
+    Object.defineProperty(window.noveltea, 'nativeProjectSaveUnit', {
+      configurable: true,
+      value: save,
+    });
+    const result = await saveAllSaveUnits();
+    expect(result).toMatchObject({
+      success: true,
+      status: 'partially-saved',
+      savedSaveUnitIds: ['record:rooms:hall'],
+      remainingDirtySaveUnitIds: ['record:rooms:foyer', 'record:rooms:kitchen'],
+    });
+    expect(save.mock.calls.map((call) => call[2])).toEqual([
+      ['record:rooms:foyer', 'record:rooms:hall', 'record:rooms:kitchen'],
+      ['record:rooms:foyer', 'record:rooms:kitchen'],
+      'record:rooms:hall',
+    ]);
+    expect((useProjectStore.getState().savedDocument as typeof saved).rooms.hall!.label).toBe(
+      'Valid Hall',
+    );
+    Reflect.deleteProperty(window.noveltea, 'nativeProjectSaveUnit');
+  });
+
   it('saves independent valid units while leaving pending-input units unsaved', async () => {
     const saved = projectWithRooms();
     const working = projectWithRooms();

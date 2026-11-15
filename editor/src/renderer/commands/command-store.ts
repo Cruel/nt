@@ -1163,9 +1163,25 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
           }));
           // A declined transaction must still expose a blocking error when
           // the native owner provides warnings but no error-level diagnostic.
+          const semanticSaveRejection =
+            /^(?:Cannot save invalid (?:working source|dependent Project record)|Cannot create invalid Project record): (.+)$/u.exec(
+              saved.error ?? '',
+            );
           const rejected = {
             ...fallback,
             diagnostics: [
+              ...(semanticSaveRejection
+                ? [
+                    {
+                      severity: 'error' as const,
+                      code: 'native.save.invalid-working-record',
+                      path: semanticSaveRejection[1]!.startsWith('/')
+                        ? semanticSaveRejection[1]!
+                        : `/${semanticSaveRejection[1]}`,
+                      message: saved.error,
+                    },
+                  ]
+                : []),
               ...details,
               ...(details.some((diagnostic) => diagnostic.severity === 'error')
                 ? []

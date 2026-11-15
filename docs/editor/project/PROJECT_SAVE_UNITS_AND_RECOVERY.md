@@ -860,7 +860,12 @@ The #522 manual acceptance cases remain separate and open.
   blocked units dirty with their recovery overlays intact. It intentionally has no shortcut that
   conflicts with Save As.
   A pending invalid input or external conflict blocks its entire transitive atomic transaction
-  group, not unrelated Save units. A partial Save does not clear the blocked group's dirty state.
+  group, not unrelated Save units. If the native owner rejects the combined Save for semantic
+  invalidity, Save All retries independent atomic groups using fresh saved baselines and native
+  validation; a valid unrelated record can persist while the invalid record stays dirty.
+  Revisions, source-file mixed transactions, and physical conflicts retain fail-closed atomic
+  handling rather than being silently split. A partial Save does not clear the blocked group's
+  dirty state.
 - Scoped commits send selected save-unit IDs plus the exact logical baseline/local values for the
   affected JSON paths. The main-owned active workspace session already owns the authoritative disk
   project and exact physical revisions. It overlays the selected logical mutation onto that cached
