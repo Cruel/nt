@@ -382,6 +382,79 @@ and durable Save budgets are explicitly in #631, #632 and #633. The
 10-ms Room patch goal is **not achieved**. Closing the scoped #630
 publication ticket does not accept #601, #609 or #522 performance gates.
 
+## #631 typed dirty-Project invalidation (2026-11-14; scoped acceptance)
+
+Implemented in **`8ed4a7e18332cf1fb4820370c7ac97d127f1953b`**, following
+`b1aa9fab2ce40b74f48cb8e508e585e5c29740b7` (#630 baseline).
+The existing native typed dependency ledger remains authoritative. Normalized
+effective Project title, author and description mutations no longer invalidate
+all resident record contributions. Under exact authoritative source evidence,
+those metadata-only edits also reuse the global policy contribution; changing
+settings or entrypoints still triggers the conservative global path. Room/Map
+label, display-name and description-only effective paths no longer propagate
+through broad generic-record `/data` reverse edges. Actual Feature, reference,
+instance and other nonpresentation paths still propagate. Full native
+validation no longer duplicates the separate unopened Interaction/Test
+fallback, which remains enabled for lazy editor inspection; Room test fallback
+comparisons also use normalized (not sparse-source) before/after values.
+
+An initial Room display-name trace revealed **84 rechecked contributions and
+83 typed consumer invalidations** from one presentation patch. The new
+`--path-precise-room` certification asserts **one rechecked contribution,
+zero typed consumer invalidations and no unrelated invalidated owner**.
+`--path-precise-mutations` asserts **zero** rechecked record contributions
+for Project-title changes, retained contributions across the remaining Feature
+Lab records and a reused global stage. The same certification checks sparse
+empty Feature defaults, inline Room description, dirty-invalid→repaired Room
+target, cold authoritative diagnostic parity, scoped Save/YAML readback,
+stale-CAS rejection and conservative settings invalidation. Existing typed
+identity tests cover deletion/restoration, source observation, reference
+retargeting and cold parity. The optional `NOVELTEA_AUTHORING_PROFILE=1`
+stderr trace exposes `typedChangePaths`, `typedEdgesConsidered` and
+`typedConsumerInvalidations`; these never enter the strict native editor
+validation DTO.
+
+**Source-pinned Release Node-addon comparison:** baseline binary SHA-256
+`47946c7c2e941d9f9fd2bb206d75470451eb317a7da5eda5403de7654d49642a`,
+candidate binary SHA-256
+`d09dc7bb12831b18d4db5c27b8599c317eb3f610ae095b6418b596c7b7ba81cf`.
+Same Debian Linux 6.1 x64 / Ryzen 7 5700G / Node 24.16.0 host, Release
+CMake addon build with shared pinned dependency sources and Node headers;
+disposable unchanged Feature Lab fixture, one inspected Room, real addon
+patch→`validateWorking`→scoped Save/YAML readback/stale-CAS, 20 cycles per
+owner with the first discarded (19 warm, sequential binary runs). All cases
+passed invalid Message→repair/full-snapshot parity and strict validation DTO
+checks. The optional `--validate-working` benchmark flag measures the native
+working validation separately from patch and Save.
+
+| Operation | Before, median / p95 / max ms | After, median / p95 / max ms |
+| --- | --- | --- |
+| Room displayName patch | 127.40 / 134.41 / 135.90 | 127.78 / 131.41 / 148.01 |
+| Room displayName validateWorking | 533.45 / 553.08 / 559.88 | 529.91 / 549.07 / 551.45 |
+| Room displayName Save | 64.97 / 66.42 / 67.31 | 61.15 / 67.99 / 84.61 |
+| Room description patch | 129.33 / 136.72 / 149.77 | 128.70 / 133.53 / 133.83 |
+| Room description validateWorking | 535.57 / 558.07 / 592.25 | 534.22 / 549.48 / 550.40 |
+| Room description Save | 64.54 / 82.25 / 87.04 | 61.18 / 68.19 / 72.40 |
+| Project title patch | 30.23 / 34.74 / 35.28 | 30.57 / 32.55 / 33.03 |
+| Project title validateWorking | 552.33 / 572.81 / 625.57 | 556.03 / 571.20 / 574.63 |
+| Project title Save | 120.33 / 133.39 / 154.58 | 114.17 / 123.61 / 124.10 |
+
+Reproduction:
+
+```sh
+node editor/scripts/benchmark-native-addon-publication.mjs /path/to/b1aa9fab-addon.node --single-record --validate-working
+node editor/scripts/benchmark-native-addon-publication.mjs /path/to/8ed4a7e1-addon.node --single-record --validate-working
+ctest --test-dir build/issue-601-release-ninja --output-on-failure -j 2 -R 'native_authoring_(path_precise|typed_reference_invalidation|dependency_mutation_graph|project_session|project_validation|presentation_edit|source_watcher_races|working_preparation|text_stage_matrix)'
+```
+
+**Interpretation:** the invalidation closure and repeated semantic work are
+smaller, but an independently controlled end-to-end addon run finds **no
+material latency improvement** at this stage. The full native snapshot and
+other retained stages still dominate measured validation time. The 10-ms
+Room edit goal is **not certified**; do not conflate this typed-closure ticket
+with the subsequent source-read (#632), durable scoped-Save (#633), packaged
+input (#609), or full acceptance (#601/#522) gates.
+
 ## #609 packaged editing performance gate (2026-11-12; NOT CERTIFIED)
 
 **Automated Linux/Xvfb evidence only. None of the eight human Feature Lab
