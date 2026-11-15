@@ -16,6 +16,7 @@ import { useRepairPromptStore } from '@/project/repair-prompt-store';
 import { repairDiagnosticKey } from '@/project/repair-prompt';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { usePreferencesStore } from '@/stores/preferences-store';
+import { WORKSPACE_TOOLBAR_COMMAND_EVENT } from '@/workspace/workspace-toolbar-events';
 import { usePreviewManagerStore } from '@/preview/preview-manager-store';
 import { useEntityUsagesStore } from '@/project/entity-usages-store';
 import { emptyPackageExportResult, usePackageExportStore } from '@/export/package-export-store';
@@ -731,6 +732,55 @@ describe('BottomPanel', () => {
     expect(screen.getByText('Current unsaved YAML error')).toBeInTheDocument();
     expect(screen.getByText('Working state')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Fix' })).toBeDisabled();
+  });
+
+  it('offers Open Project in Problems after a candidate is ready, even after Not Now', () => {
+    const id = 'ready-candidate';
+    const root = '/mock/repaired-candidate';
+    const source = {
+      root,
+      sourcePath: 'project.yaml' as const,
+      text: 'schema: noveltea.project.workspace',
+      revision: 'sha256:source',
+      recognition: 'strong' as const,
+    };
+    useCandidateRepairStore.getState().register(id, root, 'strong', []);
+    useCandidateRepairStore.setState((state) => ({
+      entries: {
+        ...state.entries,
+        [id]: {
+          ...state.entries[id]!,
+          source,
+          buffer: source.text,
+          status: {
+            id,
+            generation: 4,
+            ready: true,
+            revision: 'sha256:ready',
+            diagnostics: [],
+          },
+        },
+      },
+    }));
+    const calls: unknown[] = [];
+    const listener = (event: Event) => calls.push((event as CustomEvent).detail);
+    window.addEventListener(WORKSPACE_TOOLBAR_COMMAND_EVENT, listener);
+    try {
+      render(<BottomPanel />);
+      expect(screen.getByRole('button', { name: 'Manual Edit' })).toBeEnabled();
+      expect(screen.queryByRole('button', { name: 'Fix' })).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'Open Project' }));
+      expect(calls).toEqual([
+        {
+          command: 'open-project',
+          projectPath: root,
+          repairCandidateId: id,
+          readyRevision: 'sha256:ready',
+        },
+      ]);
+    } finally {
+      window.removeEventListener(WORKSPACE_TOOLBAR_COMMAND_EVENT, listener);
+    }
   });
 
   it('keeps the incumbent Project identity when fixing an unopened candidate', () => {

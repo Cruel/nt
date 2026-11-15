@@ -1512,7 +1512,7 @@ describe('WorkspacePage new project modal', () => {
     const root = '/mock/invalid-project';
     const source = {
       root,
-      sourcePath: 'project.yaml',
+      sourcePath: 'project.yaml' as const,
       text: 'schema: noveltea.project.workspace\nschemaVersion: 1\nbroken: [',
       revision: `sha256:${'a'.repeat(64)}`,
       recognition: 'strong' as const,
@@ -1581,6 +1581,37 @@ describe('WorkspacePage new project modal', () => {
       formatRisk: 'current',
     });
     expect(window.noveltea.readRepairCandidate).toHaveBeenCalledWith('invalid-project-candidate');
+    expect(
+      useCandidateRepairStore.getState().entries['invalid-project-candidate']?.aiRepairRequested,
+    ).toBe(true);
+
+    // The agent edits the physical candidate while the terminal runs.
+    // Readiness prompts for explicit admission; it must not open automatically.
+    act(() => useRepairPromptStore.getState().close());
+    vi.mocked(window.noveltea.readRepairCandidate).mockResolvedValue({
+      ...source,
+      text: 'schema: noveltea.project.workspace\nschemaVersion: 1\n',
+      revision: `sha256:${'b'.repeat(64)}`,
+    });
+    act(() =>
+      useCandidateRepairStore.getState().applyStatus({
+        id: 'invalid-project-candidate',
+        generation: 5,
+        ready: true,
+        revision: `sha256:${'c'.repeat(64)}`,
+        diagnostics: [],
+      }),
+    );
+    const readyDialog = await screen.findByRole('dialog');
+    expect(within(readyDialog).getByText('Project ready to open')).toBeInTheDocument();
+    expect(window.noveltea.openProject).toHaveBeenCalledTimes(1);
+    fireEvent.click(within(readyDialog).getByRole('button', { name: 'Open Project' }));
+    await waitFor(() =>
+      expect(window.noveltea.openProject).toHaveBeenCalledWith({
+        repairCandidateId: 'invalid-project-candidate',
+        readyRevision: `sha256:${'c'.repeat(64)}`,
+      }),
+    );
   });
 
   it('routes a validated candidate auto-open through the revision-bound native admission path', async () => {

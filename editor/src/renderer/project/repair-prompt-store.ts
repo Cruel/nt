@@ -161,6 +161,8 @@ export const useRepairPromptStore = create<RepairPromptStore>()((set) => ({
   request: (request) => {
     const draft = makeDraft(request);
     if (!draft) return false;
+    if (request.kind === 'candidate')
+      useCandidateRepairStore.getState().markAiRepairRequested(request.id);
     set({ draft, visible: true });
     return true;
   },

@@ -38,6 +38,13 @@
     "newerConsent": "Potential data loss: this Project declares a newer schema than the installed NovelTea editor/CLI understands. I explicitly authorize an AI tool to modify this version when I choose Run."
   },
   "candidateRepair": {
+    "ready": {
+      "title": "Project ready to open",
+      "description": "{{project}} passed validation and is ready to open.",
+      "switchProject": "{{project}} is currently open. Opening the repaired Project will switch Projects.",
+      "notNow": "Not Now",
+      "openProject": "Open Project"
+    },
     "errors": {
       "stale": "The manifest changed on disk. Your edits are preserved. Compare the disk version below before resolving the conflict.",
       "unsafeTarget": "The target is not a safe, ordinary source file (or it exceeds the size limit). Check for symlinks or path changes.",

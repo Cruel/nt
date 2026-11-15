@@ -38,6 +38,13 @@
     "newerConsent": "Possível perda de dados: este Projeto usa um esquema mais recente do que o editor/CLI instalado. Autorizo explicitamente modificações por IA quando escolher Executar."
   },
   "candidateRepair": {
+    "ready": {
+      "title": "Projeto pronto para abrir",
+      "description": "{{project}} passou na validação e está pronto para abrir.",
+      "switchProject": "{{project}} está aberto no momento. Abrir o projeto reparado trocará de projeto.",
+      "notNow": "Agora não",
+      "openProject": "Abrir projeto"
+    },
     "errors": {
       "stale": "O manifesto mudou no disco. Suas alterações foram preservadas. Compare a versão em disco exibida abaixo antes de resolver o conflito.",
       "unsafeTarget": "O destino não é um arquivo de origem seguro (ou excede o limite de tamanho). Verifique links simbólicos e caminhos.",

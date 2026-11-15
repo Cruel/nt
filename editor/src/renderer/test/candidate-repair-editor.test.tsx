@@ -240,8 +240,12 @@ describe('candidate YAML source editor', () => {
         target: { value: repaired },
       });
       expect(commands).toEqual([]);
+      act(() => useCandidateRepairStore.getState().markAiRepairRequested(candidateId));
       void useCandidateRepairStore.getState().saveAndOpen(candidateId, tab.id);
       await waitFor(() => expect(commands).toHaveLength(1));
+      expect(useCandidateRepairStore.getState().entries[candidateId]?.aiRepairRequested).toBe(
+        false,
+      );
       expect(window.noveltea.saveRepairCandidate).toHaveBeenCalledWith(
         candidateId,
         initial.revision,

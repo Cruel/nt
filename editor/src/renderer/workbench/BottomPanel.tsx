@@ -12,6 +12,7 @@ import {
 import { useProjectStore } from '@/project/project-store';
 import {
   candidateVisibleDiagnostics,
+  candidateReadyToOpen,
   useCandidateRepairStore,
 } from '@/project/candidate-repair-store';
 import { useRepairPromptStore } from '@/project/repair-prompt-store';
@@ -42,6 +43,7 @@ import { selectWindowTerminalSession } from './terminal-window-host';
 import { useWorkbenchStore } from './workbench-store';
 import { buildCandidateRepairTab } from './editor-registry';
 import { navigateToWorkbenchTarget } from './workbench-navigation';
+import { dispatchWorkspaceToolbarCommand } from '@/workspace/workspace-toolbar-events';
 
 const diagnosticSeverityOrder = { error: 0, warning: 1, info: 2 } as const;
 
@@ -149,6 +151,7 @@ function ProblemsPanel() {
       {candidates.map((candidate) => {
         const tab = buildCandidateRepairTab(candidate.id, candidate.root);
         const candidateDiagnostics = sortProblemsBySeverity(candidateVisibleDiagnostics(candidate));
+        const readyToOpen = candidateReadyToOpen(candidate);
         const dirty = Boolean(candidate.source && candidate.buffer !== candidate.source.text);
         const canFix =
           !candidate.admitted &&
@@ -169,23 +172,40 @@ function ProblemsPanel() {
               >
                 {t('candidateRepair.manualEdit')}
               </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-7"
-                disabled={!canFix}
-                title={
-                  dirty || candidate.diagnosticsNeedRefresh
-                    ? t('repairPrompt.candidateRefresh')
-                    : undefined
-                }
-                onClick={() =>
-                  requestPrompt({ kind: 'candidate', id: candidate.id, scope: 'errors' })
-                }
-              >
-                {t('candidateRepair.fixWithAi')}
-                <Sparkles data-icon="inline-end" aria-hidden="true" />
-              </Button>
+              {readyToOpen ? (
+                <Button
+                  size="sm"
+                  className="h-7"
+                  onClick={() =>
+                    dispatchWorkspaceToolbarCommand({
+                      command: 'open-project',
+                      projectPath: candidate.root,
+                      repairCandidateId: candidate.id,
+                      readyRevision: candidate.status.revision,
+                    })
+                  }
+                >
+                  {t('candidateRepair.ready.openProject')}
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7"
+                  disabled={!canFix}
+                  title={
+                    dirty || candidate.diagnosticsNeedRefresh
+                      ? t('repairPrompt.candidateRefresh')
+                      : undefined
+                  }
+                  onClick={() =>
+                    requestPrompt({ kind: 'candidate', id: candidate.id, scope: 'errors' })
+                  }
+                >
+                  {t('candidateRepair.fixWithAi')}
+                  <Sparkles data-icon="inline-end" aria-hidden="true" />
+                </Button>
+              )}
             </div>
             <DiagnosticList
               items={candidateDiagnostics.map((item) => ({

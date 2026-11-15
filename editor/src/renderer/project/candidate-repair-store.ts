@@ -29,6 +29,8 @@ export interface CandidateRepairEntry {
   saving?: boolean;
   validatingAfterSave?: boolean;
   admitted?: boolean;
+  /** A user explicitly requested an AI repair for this candidate. */
+  aiRepairRequested?: boolean;
   status?: CandidateRepairStatus;
 }
 
@@ -48,8 +50,34 @@ interface CandidateRepairStore {
   setBuffer: (id: string, text: string) => void;
   setSyntaxDiagnostics: (id: string, text: string, diagnostics: ToolDiagnostic[]) => void;
   useDisk: (id: string) => void;
+  markAiRepairRequested: (id: string) => void;
   save: (id: string) => Promise<boolean>;
   saveAndOpen: (id: string, tabId: string) => Promise<boolean>;
+}
+
+type ReadyCandidateEntry = CandidateRepairEntry & {
+  status: CandidateRepairStatus & { revision: string };
+};
+
+/** The UI may offer admission only for an unmodified, revision-checked source.
+ * Main rechecks the exact native readiness token when Open is requested. */
+export function candidateReadyToOpen(
+  entry: CandidateRepairEntry | undefined,
+): entry is ReadyCandidateEntry {
+  return Boolean(
+    entry &&
+    !entry.admitted &&
+    !entry.loading &&
+    !entry.saving &&
+    !entry.validatingAfterSave &&
+    !entry.diskSource &&
+    !entry.diagnosticsNeedRefresh &&
+    !entry.error &&
+    entry.source &&
+    entry.buffer === entry.source.text &&
+    entry.status?.ready &&
+    entry.status.revision,
+  );
 }
 
 function errorMessage(error: unknown): string {
@@ -105,6 +133,7 @@ export const useCandidateRepairStore = create<CandidateRepairStore>()((set, get)
           diagnostics,
           diagnosticsNeedRefresh: false,
           admitted: false,
+          aiRepairRequested: false,
           status: undefined,
         },
       },
@@ -216,6 +245,13 @@ export const useCandidateRepairStore = create<CandidateRepairStore>()((set, get)
         },
       };
     }),
+  markAiRepairRequested: (id) =>
+    set((state) => {
+      const entry = state.entries[id];
+      return entry && !entry.admitted
+        ? { entries: { ...state.entries, [id]: { ...entry, aiRepairRequested: true } } }
+        : state;
+    }),
   useDisk: (id) =>
     set((state) => {
       const entry = state.entries[id];
@@ -302,14 +338,30 @@ export const useCandidateRepairStore = create<CandidateRepairStore>()((set, get)
       // candidate, reuse its revision-bound token rather than repeating a
       // full native validation. Main independently verifies the fingerprint
       // before admission; local YAML syntax alone never grants readiness.
-      const ready = !hasUnsavedEdits && !saved.diagnosticsNeedRefresh ? saved.status : undefined;
-      if (ready?.ready && ready.revision && ready.id === id) {
+      const openReadyCandidate = (readyRevision: string) => {
+        // Save already authorizes Open; don't present a second AI-ready modal
+        // while the explicitly requested Project admission is in flight.
+        set((state) => {
+          const current = state.entries[id];
+          return current
+            ? {
+                entries: {
+                  ...state.entries,
+                  [id]: { ...current, aiRepairRequested: false },
+                },
+              }
+            : state;
+        });
         dispatchWorkspaceToolbarCommand({
           command: 'open-project',
           projectPath: entry.root,
           repairCandidateId: id,
-          readyRevision: ready.revision,
+          readyRevision,
         });
+      };
+      const ready = !hasUnsavedEdits && !saved.diagnosticsNeedRefresh ? saved.status : undefined;
+      if (ready?.ready && ready.revision && ready.id === id) {
+        openReadyCandidate(ready.revision);
         return true;
       }
 
@@ -355,12 +407,7 @@ export const useCandidateRepairStore = create<CandidateRepairStore>()((set, get)
         current.status.revision !== checked.revision
       )
         return true; // The physical Save succeeded even when admission is not ready.
-      dispatchWorkspaceToolbarCommand({
-        command: 'open-project',
-        projectPath: entry.root,
-        repairCandidateId: id,
-        readyRevision: checked.revision,
-      });
+      openReadyCandidate(checked.revision);
       return true;
     } finally {
       set((state) => {

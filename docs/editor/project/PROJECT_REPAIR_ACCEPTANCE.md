@@ -3,6 +3,24 @@
 Date: 2026-11-13. Parent contract: [#610](https://github.com/Cruel/nt/issues/610);
 integration gate: [#622](https://github.com/Cruel/nt/issues/622).
 
+## AI-repaired candidate confirmation
+
+An explicit **Fix** request for a failed-open Project Candidate enables a one-time
+**Project ready to open** confirmation when candidate-scoped native observation
+reports a valid revision and the local manifest buffer has no unsaved conflict.
+The confirmation is revision-bound and names both the repaired candidate and,
+when different, the currently active Project. **Open Project** dispatches the
+existing trusted admission request; main rechecks that exact candidate revision.
+A watcher event or agent completion never directly replaces an active Project.
+
+**Not Now** preserves the candidate and its terminal. The candidate's Problems
+row offers **Open Project** after readiness, so a dismissed confirmation does
+not require re-saving or rerunning AI. Readiness invalidation withdraws the
+confirmation; successive ready revisions in the same valid period do not
+repeatedly interrupt the user. Independent ready candidates queue rather than
+stack, and other workspace/repair dialogs take precedence. Ordinary manual
+candidate Save retains its existing validated automatic Open behavior.
+
 ## Certification boundary
 
 The #611–#621 and #624–#629 vertical slices are closed. This ledger records the cross-boundary
@@ -31,7 +49,7 @@ it does not test click placement, dialogs, editor focus, or text usability.
 
 | Journey | Automated evidence | Interactive acceptance |
 | --- | --- | --- |
-| Canonical Project, damaged Room/owner, malformed/missing manifest, partial repair | `native-candidate-repair-reopen.test.ts`, `project-candidate-repair.test.ts`, `native-authoring-reconciliation.test.ts`, native CLI repair suite | **Pending**: normal desktop Open, Fix/Manual Edit, raw Save, diagnostics, automatic Open after validated Save |
+| Canonical Project, damaged Room/owner, malformed/missing manifest, partial repair | `native-candidate-repair-reopen.test.ts`, `project-candidate-repair.test.ts`, `native-authoring-reconciliation.test.ts`, native CLI repair suite | **Pending**: normal desktop Open, Fix/Manual Edit, raw Save, diagnostics, automatic Open after validated manual Save; AI readiness confirmation and explicit Open |
 | Incumbent/terminal/buffers survive failed candidate, late changes cannot activate it | Packaged `candidateRepair` smoke, `project-candidate-revalidation.test.ts`, `candidate-repair-store.test.ts` | **Pending**: active tabs, two candidates, late watch/agent output, Terminal session identity |
 | Standalone relocated `repair project`, strong/weak evidence, atomic Agent Kit, custom AGENTS and ignore preservation, malformed markers, symlinks, rollback | `tests/native_cli/repair_project.py`, `certify-native-cli-public-contracts.mjs` | CLI automation sufficient for this sub-contract; inspect generated files on disposable copy if needed |
 | Scoped Fix/All/All Errors prompt, copy without agent, diagnostic source navigation | `repair-prompt.test.ts`, `repair-prompt-dialog.test.tsx` | **Pending**: visible scopes, editable prompt, Copy when no agent |
@@ -83,8 +101,12 @@ repaired files.
    recently-closed tab history; unrelated candidate entries remain untouched.
    Do not automatically activate after a background file update, late validation,
    continued typing, closing
-   or leaving the repair tab, or a superseding Project switch. Main must
-   independently verify the exact readiness token on admission. Confirm
+   or leaving the repair tab, or a superseding Project switch. After AI Fix,
+   settled successful native validation should show a nonstacking readiness
+   confirmation, including if a different Project is open; Not Now leaves the
+   ready candidate available through Problems → Open Project. Invalidating the
+   candidate withdraws the confirmation. Main must independently verify the
+   exact readiness token on admission. Confirm
    incumbent tabs and the existing PTY are unchanged on failed Open and
    that any later activation follows the user's current Save request.
 2. In a valid-but-partly-invalid Project, edit and Save an independent Room

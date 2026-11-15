@@ -67,6 +67,7 @@ import {
 } from '@/project/project-save-coordinator';
 import { flushNativeProjectSources, useProjectSourceStore } from '@/project/project-source-store';
 import { useCandidateRepairStore } from '@/project/candidate-repair-store';
+import { CandidateRepairReadyDialog } from '@/project/CandidateRepairReadyDialog';
 import { useRepairPromptStore } from '@/project/repair-prompt-store';
 import { selectProjectDirty, useProjectStore } from '@/project/project-store';
 import { MUTATION_SURFACE_ATTRIBUTIONS, resolveSaveUnitForTab } from '@/project/save-unit-registry';
@@ -2903,6 +2904,15 @@ export function WorkspacePage() {
         onUseDisk={() => void handleUseDiskExternalConflict()}
         onKeepMine={() => void keepMineForExternalConflict()}
         onContinueEditing={() => setDismissedExternalConflict(externalConflictIdentity)}
+      />
+      <CandidateRepairReadyDialog
+        blocked={
+          alert !== null ||
+          newProjectOpen ||
+          projectImportRequest !== null ||
+          projectOpening ||
+          (externalConflict !== null && externalConflictIdentity !== dismissedExternalConflict)
+        }
       />
       <Dialog
         open={alert !== null}

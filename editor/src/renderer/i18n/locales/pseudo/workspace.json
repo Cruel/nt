@@ -38,6 +38,13 @@
     "newerConsent": "[Pötëntïäl dätä löss! Nëwër schëmä. Ï äüthörïzë ÄÏ mödïfïcätïöns äftër Rün.]"
   },
   "candidateRepair": {
+    "ready": {
+      "title": "[Prôjëçt rëâdy tô ôpëñ]",
+      "description": "[{{project}} pâššëd vâlïdâtïôñ âñd ïš rëâdy tô ôpëñ.]",
+      "switchProject": "[{{project}} ïš çûrrëñtly ôpëñ. Ôpëñïñg thë rëpâïrëd Prôjëçt wïll šwïtçh Prôjëçtš.]",
+      "notNow": "[Ñôt Ñôw]",
+      "openProject": "[Ôpëñ Prôjëçt]"
+    },
     "errors": {
       "stale": "[Mâñïfëšt çhâñgëd ôñ dïšk. Ëdïtš prëšërvëd. Çômpârë thë dïšk vëršïôñ bëlôw.]",
       "unsafeTarget": "[Ûñšâfë šôûrçë târgët. Çhëçk šymlïñkš âñd pâthš.]",
