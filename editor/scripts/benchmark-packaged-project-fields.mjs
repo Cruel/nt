@@ -16,6 +16,19 @@ if (!(await pathExists(executable))) {
   throw new Error(`Packaged Electron executable not found: ${executable}`);
 }
 
+const displayMode = process.env.NOVELTEA_FIELD_BENCHMARK_DISPLAY ?? 'xvfb';
+if (!['xvfb', 'physical'].includes(displayMode)) {
+  throw new Error('NOVELTEA_FIELD_BENCHMARK_DISPLAY must be xvfb or physical.');
+}
+if (
+  process.platform === 'linux' &&
+  displayMode === 'physical' &&
+  !process.env.DISPLAY &&
+  !process.env.WAYLAND_DISPLAY
+) {
+  throw new Error('A running graphical desktop is required for the physical-display benchmark.');
+}
+
 const scratch = await mkdtemp(path.join(os.tmpdir(), 'noveltea-field-benchmark-'));
 const project = path.join(scratch, 'feature-lab');
 const marker = 'NOVELTEA_FIELD_BENCHMARK_RESULT=';
@@ -46,23 +59,23 @@ try {
     throw new Error('Feature Lab source fixture not found.');
   await cp(fixture, project, { recursive: true });
 
+  const useXvfb = process.platform === 'linux' && displayMode === 'xvfb';
   const args = [
-    executable,
     '--noveltea-field-benchmark',
-    ...(process.platform === 'linux' ? ['--disable-gpu', '--ozone-platform=x11'] : []),
+    ...(useXvfb ? ['--disable-gpu', '--ozone-platform=x11'] : []),
     `--user-data-dir=${path.join(scratch, 'user-data')}`,
     '--no-sandbox',
   ];
-  const command = process.platform === 'linux' ? 'dbus-run-session' : executable;
-  const commandArgs =
-    process.platform === 'linux' ? ['--', 'xvfb-run', '-a', ...args] : args.slice(1);
+  const command = useXvfb ? 'dbus-run-session' : executable;
+  const commandArgs = useXvfb ? ['--', 'xvfb-run', '-a', executable, ...args] : args;
   const child = spawn(command, commandArgs, {
     cwd: scratch,
     env: {
       ...process.env,
       NOVELTEA_FIELD_BENCHMARK_PROJECT: project,
       NOVELTEA_FIELD_BENCHMARK_PROFILE: path.join(scratch, 'profile'),
-      ...(process.platform === 'linux' ? { GDK_BACKEND: 'x11' } : {}),
+      NOVELTEA_FIELD_BENCHMARK_DISPLAY: useXvfb ? 'xvfb' : 'physical',
+      ...(useXvfb ? { GDK_BACKEND: 'x11' } : {}),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: process.platform !== 'win32',

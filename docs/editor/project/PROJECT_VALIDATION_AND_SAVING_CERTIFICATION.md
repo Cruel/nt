@@ -987,3 +987,72 @@ CI usage quota was exhausted. Consequently Windows/macOS packaged native
 addon, actual power-loss recovery and human interactive editor input-to-paint
 are **not certified here**. Those are separately tracked by #522 and the
 editor-side #602/#609 gates and are not implied by closing native #601.
+
+### #609 additional packaged interactions and final-candidate evidence (2026-11-14 local; still NOT CERTIFIED)
+
+The next Linux/x64 package was built with a fresh Electron 43.1.1 native
+addon and the current editor sources, based on `353c7aed2660` **plus
+uncommitted benchmark changes**. Its development identity was
+`1.0.0-dev.353c7aed2660`; it is not an immutable clean-commit package.
+The native addon SHA-256 was
+`d6d55ab2f44dddc606c249a9d1fa0b8ffb00d014422d2b3801672fbceddcb20a`.
+Host: WSL2 Linux x64 (`6.6.114.1-microsoft-standard-WSL2`), Intel Core
+Ultra 7 265K, Node 24.18.0, Electron 43.1.1 and Chromium
+150.0.7871.114, **Xvfb software display**; no physical `DISPLAY` or
+`WAYLAND_DISPLAY` session was available. `pnpm -C editor run package`,
+`package:smoke`, `check`, and the full editor suite passed. The full
+editor suite reported **323 passed / 14 skipped files, 2,470 passed /
+215 skipped tests**. The native addon was passed to packaging using
+`NOVELTEA_AUTHORING_NODE_ADDON`.
+
+The packaged benchmark passed **41/41 cases**, including all original
+Project Settings, Room, Character, Interactable definition and exact
+Instance cases. The added cases exercise actual Chromium input against
+Scene, Dialogue and authored Test display-name controls under 0, 500,
+and 1,000 ms **synthetic post-admission native acknowledgment delay**.
+The harness opens Tests through the real collective Tests suite, not a
+nonexistent per-Test Explorer record row. It also exercises Project title
+selection replacement at 1,000 ms and actual Chromium OS clipboard paste
+under an isolated Xvfb clipboard at 500 ms. All displayed expected values,
+used bounded native patch requests, acknowledged and passed exact scoped
+Save/YAML readback from the disposable Feature Lab copy.
+
+| Added control / interaction | Ack delay | Input samples | Input median / p95 / max (ms) | Native patches |
+| --- | ---: | ---: | ---: | ---: |
+| Project title selection replacement | 1,000 ms | 1 | 14.80 / 14.80 / 14.80 | 1 |
+| Project title Xvfb OS clipboard paste | 500 ms | 1 | 11.12 / 11.12 / 11.12 | 1 |
+| Scene display name | 0 ms | 20 | 12.64 / 20.26 / 24.14 | 3 |
+| Scene display name | 500 ms | 20 | 12.71 / 18.31 / 31.05 | 2 |
+| Scene display name | 1,000 ms | 20 | 12.67 / 21.55 / 23.49 | 2 |
+| Dialogue display name | 0 ms | 20 | 10.80 / 45.94 / 57.67 | 3 |
+| Dialogue display name | 500 ms | 20 | 10.07 / 16.20 / 16.40 | 2 |
+| Dialogue display name | 1,000 ms | 20 | 9.08 / 17.05 / 54.17 | 2 |
+| Authored Test display name | 0 ms | 20 | 17.15 / 21.64 / 71.01 | 4 |
+| Authored Test display name | 500 ms | 20 | 13.10 / 18.25 / 19.15 | 2 |
+| Authored Test display name | 1,000 ms | 20 | 12.64 / 17.53 / 19.92 | 2 |
+
+The `p95` for either **single-event** selection/paste case is merely its
+only observation and has no statistical meaning. All measurements above
+remain **input-handler-to-next-rAF-after-React-commit proxies**, not
+compositor/physical key-to-paint. Multiple 20-character p95 values exceed
+16 ms, so this is neither a latency pass nor proof that all observed
+outliers come from Xvfb. A same-run controlled React baseline and idle
+frame cadence remain reported by the full JSON benchmark output.
+
+The launcher now explicitly supports
+`NOVELTEA_FIELD_BENCHMARK_DISPLAY=physical pnpm -C editor run benchmark:packaged-fields`
+for a host with a graphical desktop; its default remains isolated Linux
+Xvfb. Physical-mode runs keep GPU enabled and are labeled
+`desktop-automated`, **not** human-observed presentation measurements.
+The OS clipboard paste case runs only under isolated Xvfb to avoid
+clobbering a physical desktop's rich clipboard contents.
+
+**Remaining #609/#602/#522 gates:** cold first input, caret/navigation,
+multiple tabs/draft switching, nested Property Manager, Interaction/Verb,
+Layout/Map/Material, collection edits, separate compositor and native
+phase timing; a properly observed physical-display <=16-ms key-to-paint
+target; the eight ordered **human-executed** Feature Lab scenarios with
+evidence; and native addon/editor qualification on physical Linux,
+Windows 11, and macOS hosts. No manual acceptance cases were executed by
+this harness, and **all three issues remain open** pending independent
+physical-platform evidence or an explicit issue-owner resolution.

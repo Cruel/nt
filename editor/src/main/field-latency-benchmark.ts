@@ -1,4 +1,4 @@
-import type { BrowserWindow } from 'electron';
+import { clipboard, type BrowserWindow } from 'electron';
 import { readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -24,6 +24,7 @@ interface RunResult {
   field: string;
   delayMs: number;
   baseline: boolean;
+  inputMode: 'typing' | 'selection-replacement' | 'paste' | 'numeric-selection-replacement';
   idleFrame: SampleSummary;
   input: SampleSummary;
   acknowledgment: SampleSummary;
@@ -41,7 +42,7 @@ export interface FieldBenchmarkResult {
     electron: string;
     chromium: string;
     cpu: string;
-    display: 'xvfb-software' | 'ci-headless' | 'desktop';
+    display: 'xvfb-software' | 'ci-headless' | 'desktop-automated';
   };
   measurement: 'next-frame-after-React-commit-proxy';
   cases: RunResult[];
@@ -101,7 +102,11 @@ export async function runPackagedFieldBenchmark(
       chromium: process.versions.chrome ?? '',
       cpu: os.cpus()[0]?.model ?? 'unknown',
       display:
-        process.platform === 'linux' ? 'xvfb-software' : process.env.CI ? 'ci-headless' : 'desktop',
+        process.platform === 'linux' && process.env.NOVELTEA_FIELD_BENCHMARK_DISPLAY === 'xvfb'
+          ? 'xvfb-software'
+          : process.env.CI
+            ? 'ci-headless'
+            : 'desktop-automated',
     },
     measurement: 'next-frame-after-React-commit-proxy',
     cases: [],
@@ -151,6 +156,8 @@ export async function runPackagedFieldBenchmark(
       path: fieldPath,
       delayMs,
       baseline = false,
+      inputMode = 'typing',
+      readbackKey = field,
     }: {
       surface: string;
       field: string;
@@ -158,6 +165,8 @@ export async function runPackagedFieldBenchmark(
       path?: string;
       delayMs: number;
       baseline?: boolean;
+      inputMode?: 'typing' | 'selection-replacement' | 'paste';
+      readbackKey?: string;
     }) {
       controls.setAcknowledgmentDelay(delayMs);
       const beforeCalls = controls.patchCalls();
@@ -189,17 +198,51 @@ export async function runPackagedFieldBenchmark(
           performance.clearMeasures('noveltea.project-edit.flush-to-native-ack');
           const input = document.querySelector(${JSON.stringify(selector)});
           input.focus();
-          input.setSelectionRange(input.value.length, input.value.length);
+          if (${JSON.stringify(inputMode)} === 'typing') {
+            input.setSelectionRange(input.value.length, input.value.length);
+          } else {
+            input.setSelectionRange(0, input.value.length);
+          }
         })(); true`,
       );
-      // Interleaved genuine text insertions; enough duration to cross the
-      // 500-ms max wait and force multiple native acknowledgments.
-      const characters = 'abcde12345fghij67890';
-      for (const character of characters) {
-        await window.webContents.insertText(character);
-        await sleep(30);
+      // Chromium insertText or paste routes through the real focused control,
+      // not an artificial DOM value assignment or synthetic React callback.
+      const characters =
+        inputMode === 'typing'
+          ? 'abcde12345fghij67890'
+          : inputMode === 'selection-replacement'
+            ? 'replaced609'
+            : 'pasted609';
+      if (inputMode === 'paste') {
+        // Only run this against the private Xvfb clipboard: even restoring
+        // text on a physical desktop would discard the user's rich formats.
+        if (result.environment.display !== 'xvfb-software') {
+          throw new Error('OS clipboard paste needs an isolated Xvfb clipboard.');
+        }
+        const previousClipboard = clipboard.readText();
+        try {
+          clipboard.writeText(characters);
+          window.webContents.paste();
+          await waitUntil(
+            window,
+            `document.querySelector(${JSON.stringify(selector)})?.value === ${JSON.stringify(characters)}`,
+            'Chromium clipboard paste',
+            5000,
+          );
+        } finally {
+          clipboard.writeText(previousClipboard);
+        }
+      } else if (inputMode === 'selection-replacement') {
+        await window.webContents.insertText(characters);
+      } else {
+        // Interleave enough insertions to cross the native max coalescing
+        // window and observe acks while the author is still typing.
+        for (const character of characters) {
+          await window.webContents.insertText(character);
+          await sleep(30);
+        }
       }
-      const expected = beforeValue + characters;
+      const expected = inputMode === 'typing' ? beforeValue + characters : characters;
       await sleep(baseline ? 150 : Math.max(2600, delayMs * 3 + 500));
       const metrics = await evaluate<{
         input: number[];
@@ -229,6 +272,7 @@ export async function runPackagedFieldBenchmark(
         field,
         delayMs,
         baseline,
+        inputMode,
         idleFrame: summarize(idleFrame),
         input: summarize(metrics.input),
         acknowledgment: summarize(metrics.acknowledgment),
@@ -238,7 +282,7 @@ export async function runPackagedFieldBenchmark(
       result.cases.push(entry);
       if (
         !metrics.exactPresentation ||
-        metrics.input.length !== characters.length ||
+        metrics.input.length !== (inputMode === 'typing' ? characters.length : 1) ||
         (!baseline && metrics.acknowledgment.length === 0) ||
         (baseline ? entry.patchCalls !== 0 : entry.patchCalls < 1 || entry.patchCalls > 8)
       ) {
@@ -246,7 +290,7 @@ export async function runPackagedFieldBenchmark(
           `${surface}/${field}: presentation, measured events, or bounded native requests failed at ${delayMs} ms delay: ${JSON.stringify(entry)}`,
         );
       }
-      if (!baseline) expectedByField.set(field, expected);
+      if (!baseline) expectedByField.set(readbackKey, expected);
     }
 
     if (!result.diagnosticOnly) {
@@ -278,6 +322,21 @@ export async function runPackagedFieldBenchmark(
           });
         }
       }
+      for (const [field, inputMode, delayMs] of [
+        ['title-selection-replacement', 'selection-replacement', 1000],
+        ['title-paste', 'paste', 500],
+      ] as const) {
+        if (inputMode === 'paste' && result.environment.display !== 'xvfb-software') continue;
+        await sampleInput({
+          surface: 'project-settings',
+          field,
+          selector: '#project-title',
+          path: '/project/name',
+          delayMs,
+          inputMode,
+          readbackKey: 'title',
+        });
+      }
       controls.setAcknowledgmentDelay(0);
       await evaluate(
         window,
@@ -301,9 +360,28 @@ export async function runPackagedFieldBenchmark(
     // Drive the actual Explorer and record editor rather than bypassing
     // native ProjectSession via a scripted patch.
     async function openRecord(
-      collection: 'rooms' | 'characters' | 'interactables',
+      collection: 'rooms' | 'characters' | 'interactables' | 'scenes' | 'dialogues' | 'tests',
       entityId: string,
     ) {
+      if (collection === 'tests') {
+        // Tests are a collective Explorer node, not individually expandable
+        // record nodes. Enter the normal suite and open the selected test.
+        await evaluate(
+          window,
+          `document.querySelector('button[data-explorer-node-id="collection:tests"]').click(); true`,
+        );
+        const suiteSelector = `[data-testid="suite-test-${entityId}"] button`;
+        await waitUntil(
+          window,
+          `document.querySelector(${JSON.stringify(suiteSelector)}) !== null`,
+          `Tests suite entry ${entityId}`,
+        );
+        await evaluate(
+          window,
+          `document.querySelector(${JSON.stringify(suiteSelector)}).click(); true`,
+        );
+        return;
+      }
       const selector = `button[data-explorer-node-id^="record:${collection}:${entityId}"]`;
       if (
         !(await evaluate<boolean>(
@@ -377,6 +455,42 @@ export async function runPackagedFieldBenchmark(
             field: 'character-dialogue-name',
             path: '/characters/pilot-guide/data/dialogue/name',
             saveFile: 'records/characters/pilot-guide.yaml',
+          },
+        ],
+      },
+      {
+        collection: 'scenes' as const,
+        entityId: 'director-blank',
+        fields: [
+          {
+            selector: 'section.border-r label input',
+            field: 'scene-display-name',
+            path: '/scenes/director-blank/data/displayName',
+            saveFile: 'records/scenes/director-blank.yaml',
+          },
+        ],
+      },
+      {
+        collection: 'dialogues' as const,
+        entityId: 'active-text',
+        fields: [
+          {
+            selector: '[data-workbench-anchor="dialogue.summary"] input',
+            field: 'dialogue-display-name',
+            path: '/dialogues/active-text/data/displayName',
+            saveFile: 'records/dialogues/active-text.yaml',
+          },
+        ],
+      },
+      {
+        collection: 'tests' as const,
+        entityId: 'sound-desk-flow',
+        fields: [
+          {
+            selector: '[data-workbench-anchor="test.summary"] section input',
+            field: 'test-display-name',
+            path: '/tests/sound-desk-flow/data/displayName',
+            saveFile: 'records/tests/sound-desk-flow.yaml',
           },
         ],
       },
@@ -492,6 +606,7 @@ export async function runPackagedFieldBenchmark(
             field: 'camera-width-selection-replacement',
             delayMs,
             baseline: false,
+            inputMode: 'numeric-selection-replacement',
             idleFrame: summarize([]),
             input: summarize(measurements.input),
             acknowledgment: summarize(measurements.acknowledgment),
