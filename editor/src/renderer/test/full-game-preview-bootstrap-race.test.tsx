@@ -134,9 +134,10 @@ describe('FullGamePreviewEditor bootstrap ordering', () => {
   it('waits for the native working revision and prepares automatically after Project admission', async () => {
     useCommandStore.setState({ nativeWorkingRevision: null });
     render(<FullGamePreviewEditor />);
-    expect(await screen.findByRole('status')).toHaveTextContent(
-      'Waiting for native Project admission',
-    );
+    const waiting = await screen.findByRole('status');
+    expect(waiting).toHaveTextContent('Waiting for native Project admission');
+    expect(waiting).toHaveClass('max-w-md', 'text-center');
+    expect(waiting.parentElement).toHaveClass('items-center', 'justify-center');
     expect(window.noveltea.nativeProjectPrepareRuntime).not.toHaveBeenCalled();
 
     await act(async () => {

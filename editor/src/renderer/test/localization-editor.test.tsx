@@ -1,6 +1,6 @@
 import { admitNativeRendererCommandFixture } from '../test-support/native-acknowledged-command-fixture';
-import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { LocalizationEditor } from '@/editors/localization/LocalizationEditor';
 import { useCommandStore } from '@/commands/command-store';
@@ -35,6 +35,20 @@ const tab = {
 };
 
 beforeEach(() => {
+  // JSDOM has no layout: give the virtual queue a measured viewport and rows.
+  vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(550);
+  vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(900);
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+    x: 0,
+    y: 0,
+    top: 0,
+    left: 0,
+    right: 900,
+    bottom: 62,
+    width: 900,
+    height: 62,
+    toJSON: () => ({}),
+  });
   useProjectStore.getState().clearProject();
   useCommandStore.getState().resetCommandHistory();
   Object.defineProperty(window.noveltea, 'nativeProjectValidate', {
@@ -43,6 +57,8 @@ beforeEach(() => {
   });
 });
 
+afterEach(() => vi.restoreAllMocks());
+
 function loadProject() {
   const project = createAuthoringProject();
   admitNativeRendererCommandFixture(project);
@@ -50,6 +66,139 @@ function loadProject() {
 }
 
 describe('LocalizationEditor', () => {
+  it('virtualizes a large translation queue and opens editing controls on demand', async () => {
+    const user = userEvent.setup();
+    const project = createAuthoringProject();
+    project.localization.locales.fr = { supported: true, parentLocale: null, fontStack: null };
+    for (let index = 0; index < 250; index++) {
+      project.localization.messages[`message-${index}`] = {
+        kind: 'named',
+        key: `ui.row-${String(index).padStart(3, '0')}`,
+        source: `Source ${index}`,
+      };
+    }
+    admitNativeRendererCommandFixture(project);
+    render(<LocalizationEditor tab={tab} />);
+    await user.click(screen.getByRole('button', { name: 'Translations' }));
+
+    expect(screen.getAllByTestId('translation-row').length).toBeLessThan(30);
+    expect(screen.queryByRole('textbox', { name: 'Target content for ui.row-000' })).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Expand ui.row-000' }));
+    const target = screen.getByRole('textbox', { name: 'Target content for ui.row-000' });
+    expect(target).toBeVisible();
+    await user.type(target, 'Uncommitted text');
+    const viewport = screen.getByTestId('translation-viewport');
+    act(() => {
+      viewport.scrollTop = 8_000;
+      fireEvent.scroll(viewport);
+    });
+    expect(screen.getByRole('textbox', { name: 'Target content for ui.row-000' })).toHaveValue(
+      'Uncommitted text',
+    );
+    await user.click(screen.getByRole('button', { name: 'Collapse ui.row-000' }));
+    expect(screen.queryByRole('textbox', { name: 'Target content for ui.row-000' })).toBeNull();
+  });
+
+  it('exposes intentional source reuse in the collapsed Message actions menu', async () => {
+    const user = userEvent.setup();
+    const project = createAuthoringProject();
+    project.localization.locales.fr = { supported: true, parentLocale: null, fontStack: null };
+    project.localization.messages['greeting'] = {
+      kind: 'named',
+      key: 'ui.greeting',
+      source: 'Hello',
+    };
+    admitNativeRendererCommandFixture(project);
+    render(<LocalizationEditor tab={tab} />);
+    await user.click(screen.getByRole('button', { name: 'Translations' }));
+    await user.click(screen.getByRole('button', { name: 'Actions for ui.greeting' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Use source intentionally' }));
+    expect(
+      (useProjectStore.getState().document as AuthoringProject).localization.translations.fr
+        ?.greeting,
+    ).toMatchObject({ useSource: true });
+    expect(screen.queryByRole('textbox', { name: 'Target content for ui.greeting' })).toBeNull();
+  });
+
+  it('hides only unhandled numeric-only local Messages without duplicating local source text', async () => {
+    const user = userEvent.setup();
+    const project = createAuthoringProject();
+    project.localization.locales.fr = { supported: true, parentLocale: null, fontStack: null };
+    for (const source of ['95', '096', '96', '3.14', '1,000', '95 HP', 'A description']) {
+      const id = `room-${source.replace(/[^a-zA-Z0-9]/gu, '_')}`;
+      const room = defaultRoomData(id);
+      room.description = inlineTextContent(source);
+      project.rooms[id] = { id, label: id, data: room };
+    }
+    project.localization.messages['named-number'] = {
+      kind: 'named',
+      key: 'ui.number',
+      source: '97',
+    };
+    const translatedNumber = localizationMessageWorkflowViews(project).find(
+      (view) => view.kind === 'local' && view.source === '96',
+    )!;
+    project.localization.translations.fr = {
+      [translatedNumber.id]: createLocalizationTranslation(translatedNumber, '96'),
+    };
+    admitNativeRendererCommandFixture(project);
+    render(<LocalizationEditor tab={tab} />);
+    await user.click(screen.getByRole('button', { name: 'Translations' }));
+
+    expect(screen.queryByRole('button', { name: 'Expand 95' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Expand 096' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Expand 96' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Expand 3.14' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Expand 1,000' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Expand 95 HP' })).toBeInTheDocument();
+    expect(screen.getAllByText('A description')).toHaveLength(1);
+    expect(
+      screen.getByRole('button', { name: 'Expand A description' }).closest('section'),
+    ).not.toHaveTextContent('A descriptionA description');
+
+    await user.click(screen.getByRole('switch', { name: 'Show numeric-only Messages' }));
+    expect(screen.getByRole('button', { name: 'Expand 95' })).toBeInTheDocument();
+  });
+
+  it('keeps numeric named Messages visible without a localized target', async () => {
+    const user = userEvent.setup();
+    const project = createAuthoringProject();
+    project.localization.locales.fr = { supported: true, parentLocale: null, fontStack: null };
+    project.localization.messages['numeric-key'] = {
+      kind: 'named',
+      key: 'ui.numeric',
+      source: '97',
+    };
+    admitNativeRendererCommandFixture(project);
+    render(<LocalizationEditor tab={tab} />);
+    await user.click(screen.getByRole('button', { name: 'Translations' }));
+
+    expect(screen.getByRole('button', { name: 'Expand ui.numeric' })).toBeInTheDocument();
+  });
+
+  it('virtualizes compact named Message rows and opens metadata on demand', async () => {
+    const user = userEvent.setup();
+    const project = createAuthoringProject();
+    for (let index = 0; index < 250; index++) {
+      project.localization.messages[`named-${index}`] = {
+        kind: 'named',
+        key: `ui.named-${String(index).padStart(3, '0')}`,
+        source: `Named source ${index}`,
+      };
+    }
+    admitNativeRendererCommandFixture(project);
+    render(<LocalizationEditor tab={tab} />);
+    await user.click(screen.getByRole('button', { name: 'Messages' }));
+
+    expect(screen.getAllByTestId('named-message-row').length).toBeLessThan(30);
+    expect(screen.queryByDisplayValue('ui.named-000')).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Expand named Message ui.named-000' }));
+    expect(screen.getByDisplayValue('ui.named-000')).toBeVisible();
+    expect(screen.getByDisplayValue('Named source 0')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Collapse named Message ui.named-000' }));
+    expect(screen.queryByDisplayValue('ui.named-000')).toBeNull();
+  });
+
   it('selects the virtual pseudo locale through editor-local Preview Locale state only', async () => {
     const user = userEvent.setup();
     loadProject();
@@ -202,6 +351,7 @@ describe('LocalizationEditor', () => {
     await user.click(screen.getByRole('button', { name: 'Translations' }));
     await user.click(screen.getByRole('combobox', { name: 'Target locale' }));
     await user.click(await screen.findByRole('option', { name: /es/ }));
+    await user.click(screen.getByRole('button', { name: 'Expand ui.menu.play' }));
     const source = screen.getByDisplayValue('Play');
     expect(source).toBeEnabled();
     await user.clear(source);
@@ -266,6 +416,7 @@ describe('LocalizationEditor', () => {
     await user.click(screen.getByRole('button', { name: 'Translations' }));
     await user.click(screen.getByRole('combobox', { name: 'Target locale' }));
     await user.click(await screen.findByRole('option', { name: /fr-CA/ }));
+    await user.click(screen.getByRole('button', { name: 'Expand ui.confirm' }));
 
     const inherited = screen.getByLabelText('Target content for ui.confirm');
     expect(inherited).toHaveValue('Confirmer');
@@ -326,6 +477,7 @@ describe('LocalizationEditor', () => {
 
     render(<LocalizationEditor tab={tab} />);
     await user.click(screen.getByRole('button', { name: 'Translations' }));
+    await user.click(screen.getByRole('button', { name: 'Expand ui.ai-copy' }));
     const target = screen.getByLabelText('Target content for ui.ai-copy');
     expect(screen.getByText(/Current · ai · reviewed/i)).toBeInTheDocument();
     await user.clear(target);
@@ -361,6 +513,7 @@ describe('LocalizationEditor', () => {
 
     render(<LocalizationEditor tab={tab} />);
     await user.click(screen.getByRole('button', { name: 'Translations' }));
+    await user.click(screen.getAllByRole('button', { name: 'Expand Same words' })[0]!);
     expect(screen.getAllByText(/Matching local Messages: 1/i).length).toBeGreaterThan(0);
 
     await user.click(screen.getAllByRole('button', { name: 'Promote to named Message' })[0]!);
@@ -410,6 +563,7 @@ describe('LocalizationEditor', () => {
 
     render(<LocalizationEditor tab={tab} />);
     await user.click(screen.getByRole('button', { name: 'Messages' }));
+    await user.click(screen.getByRole('button', { name: 'Expand named Message ui.old.confirm' }));
     const sourceSection = screen.getByDisplayValue('ui.old.confirm').closest('section')!;
     await user.click(
       within(sourceSection).getByRole('button', { name: 'Merge into named Message' }),
@@ -459,6 +613,7 @@ describe('LocalizationEditor', () => {
 
     render(<LocalizationEditor tab={tab} />);
     await user.click(screen.getByRole('button', { name: 'Messages' }));
+    await user.click(screen.getByRole('button', { name: 'Expand named Message ui.shared.hello' }));
     await user.click(screen.getByRole('button', { name: 'Make usage local' }));
 
     expect(screen.getByText(/new independent Message identity/i)).toBeInTheDocument();
@@ -509,6 +664,7 @@ describe('LocalizationEditor', () => {
 
     render(<LocalizationEditor tab={tab} />);
     await user.click(screen.getByRole('button', { name: 'Translations' }));
+    await user.click(screen.getByRole('button', { name: 'Expand Continue' }));
     const continueSection = screen.getByDisplayValue('Continue').closest('section')!;
     await user.click(
       within(continueSection).getByRole('button', { name: 'Merge into named Message' }),
@@ -549,6 +705,7 @@ describe('LocalizationEditor', () => {
 
     render(<LocalizationEditor tab={tab} />);
     await user.click(screen.getByRole('button', { name: 'Translations' }));
+    await user.click(screen.getByRole('button', { name: 'Expand A quiet foyer.' }));
     const source = screen.getByDisplayValue('A quiet foyer.');
     await user.clear(source);
     await user.type(source, 'A renovated foyer.');
@@ -672,6 +829,7 @@ describe('LocalizationEditor', () => {
 
     render(<LocalizationEditor tab={tab} />);
     await user.click(screen.getByRole('button', { name: 'Translations' }));
+    await user.click(screen.getByRole('button', { name: 'Expand ABCDE' }));
     expect(screen.getByLabelText('Cue camera offset')).toHaveValue(99);
     expect(screen.getByText(/Cue placements must preserve every Cue/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Mark reviewed' })).toBeDisabled();
@@ -712,6 +870,7 @@ describe('LocalizationEditor', () => {
     await user.click(screen.getByRole('button', { name: 'Translations' }));
     await user.click(screen.getByRole('combobox', { name: 'Translation status filter' }));
     await user.click(await screen.findByRole('option', { name: 'AI' }));
+    await user.click(screen.getByRole('button', { name: 'Expand ui.ai' }));
 
     expect(screen.getByDisplayValue('Texte IA')).toBeInTheDocument();
     expect(screen.queryByText('Missing source')).not.toBeInTheDocument();
@@ -768,6 +927,7 @@ describe('LocalizationEditor', () => {
     render(<LocalizationEditor tab={tab} />);
     await user.click(screen.getByRole('button', { name: 'Translations' }));
     await waitFor(() => expect(native).toHaveBeenCalledWith('native-localization', 0, false));
+    await user.click(screen.getByRole('button', { name: 'Expand ui.greeting' }));
     expect(screen.getByRole('button', { name: 'Mark reviewed' })).toBeDisabled();
     native.mockResolvedValue({ diagnostics: [] });
     act(() => useCommandStore.setState({ nativeWorkingRevision: 1 }));
@@ -810,6 +970,7 @@ describe('LocalizationEditor', () => {
 
     render(<LocalizationEditor tab={tab} />);
     await user.click(screen.getByRole('button', { name: 'Translations' }));
+    await user.click(screen.getByRole('button', { name: 'Expand ui.parameterized' }));
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Mark reviewed' })).toBeDisabled(),
     );
@@ -882,6 +1043,7 @@ describe('LocalizationEditor content preservation', () => {
     const user = userEvent.setup();
     const { project, messageId } = loadMessage();
     await user.click(screen.getByRole('button', { name: 'Translations' }));
+    await user.click(screen.getByRole('button', { name: 'Expand ui.copy' }));
     await user.click(
       screen.getAllByLabelText('en source').find((field) => field.id === `source-${messageId}`)!,
     );
@@ -889,6 +1051,7 @@ describe('LocalizationEditor content preservation', () => {
     await user.click(screen.getByLabelText('Target content for ui.copy'));
     await user.tab();
     await user.click(screen.getByRole('button', { name: 'Messages' }));
+    await user.click(screen.getByRole('button', { name: 'Expand named Message ui.copy' }));
     await user.click(screen.getByLabelText('Source content'));
     await user.tab();
     const updated = useProjectStore.getState().document as AuthoringProject;
@@ -904,6 +1067,7 @@ describe('LocalizationEditor content preservation', () => {
     const user = userEvent.setup();
     const { project, messageId } = loadMessage(true);
     await user.click(screen.getByRole('button', { name: 'Translations' }));
+    await user.click(screen.getByRole('button', { name: 'Expand ui.copy' }));
     const target = screen.getByLabelText('Target content for ui.copy');
     await user.clear(target);
     await user.type(target, 'Poursuivre');

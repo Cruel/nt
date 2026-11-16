@@ -90,41 +90,47 @@ export function DiagnosticCard({
       ? visualForEditorType(targetTab.editorType, targetTab.resource?.collection)
       : null;
     const TargetIcon = targetVisual?.icon;
+    // Native validation always observes the acknowledged working Project, even when
+    // it equals disk. Only independently detected unsaved edits merit an inline marker.
     const targetLabel = targetTab?.title ?? item.category;
+    const displayLabel =
+      targetLabel ??
+      (item.observedAgainst === 'working-file' ? t('diagnostics.observedWorkingFile') : null);
     const content = (
-      <div className="col-span-full grid min-w-0 grid-cols-subgrid items-center gap-x-1.5">
-        {targetLabel ? (
-          <span className="flex min-w-0 items-center gap-1.5 text-xs font-medium text-muted-foreground">
+      <div className="col-span-full grid min-w-0 grid-cols-subgrid items-center gap-x-2">
+        {displayLabel ? (
+          <span
+            className="flex min-w-0 items-center gap-1.5 overflow-hidden text-xs font-medium text-muted-foreground"
+            title={displayLabel}
+          >
             {TargetIcon ? (
               <TargetIcon
                 className={`size-3.5 shrink-0 ${targetVisual?.colorClassName ?? ''}`}
                 aria-hidden="true"
               />
             ) : null}
-            <span className="truncate">{targetLabel}</span>
-            {originText ? (
-              <span className="shrink-0 text-[10px] font-normal" title={originText}>
-                {originText}
-              </span>
+            <span className="min-w-0 flex-1 truncate">{displayLabel}</span>
+            {item.dirtyOwner ? (
+              <span
+                role="img"
+                aria-label={t('diagnostics.unsavedOwner')}
+                title={t('diagnostics.unsavedOwner')}
+                className="size-1.5 shrink-0 rounded-full bg-amber-500"
+              />
             ) : null}
           </span>
         ) : null}
-        {!targetLabel && originText ? (
-          <span className="text-[10px] text-muted-foreground" title={originText}>
-            {originText}
-          </span>
-        ) : null}
-        <span className="min-w-0 truncate">
+        <span className={`${displayLabel ? '' : 'col-span-2'} min-w-0 truncate`} title={message}>
           {message}
-          {sourceLocation ? (
+          {showPath && sourceLocation ? (
             <span className="ml-1 font-mono text-[10px] text-muted-foreground">
               {sourceLocation}
             </span>
           ) : null}
         </span>
-        {showPath && item.path ? (
+        {showPath ? (
           <span className="min-w-0 truncate font-mono text-[10px] text-muted-foreground">
-            {item.path}
+            {item.path ?? ''}
           </span>
         ) : null}
       </div>
@@ -220,8 +226,8 @@ export function DiagnosticList({
       className={
         compact
           ? showPath
-            ? 'grid grid-cols-[fit-content(10rem)_minmax(0,1fr)_fit-content(18rem)] divide-y'
-            : 'grid grid-cols-[fit-content(10rem)_minmax(0,1fr)] divide-y'
+            ? 'grid grid-cols-[minmax(0,11rem)_minmax(0,1fr)_minmax(0,13rem)] divide-y'
+            : 'grid grid-cols-[minmax(0,11rem)_minmax(0,1fr)] divide-y'
           : 'space-y-1'
       }
     >

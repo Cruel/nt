@@ -11,6 +11,8 @@ import { consumeWorkbenchRevealTarget } from '@/workbench/workbench-navigation';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { useToolingActivityStore } from '@/workbench/tooling-activity-store';
 import { useProjectStore } from '@/project/project-store';
+import type { JsonValue } from '@/project/json-value';
+import { useProjectSourceStore } from '@/project/project-source-store';
 import { useCandidateRepairStore } from '@/project/candidate-repair-store';
 import { useRepairPromptStore } from '@/project/repair-prompt-store';
 import { repairDiagnosticKey } from '@/project/repair-prompt';
@@ -608,6 +610,56 @@ describe('BottomPanel', () => {
     });
   });
 
+  it('shows a dirty Room label instead of obscuring it with validation provenance and storage paths', () => {
+    const saved = createAuthoringProject();
+    saved.rooms.director = {
+      id: 'director',
+      label: 'Director Dialogue Tail',
+      data: defaultRoomData('Director Dialogue Tail'),
+    };
+    useProjectStore.getState().loadProjectDocument({
+      document: saved,
+      savedDocument: saved,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.yaml',
+    });
+    const working = structuredClone(saved);
+    working.rooms.director!.label = 'Director Dialogue Tail (edited)';
+    useProjectStore.setState({ document: working as unknown as JsonValue });
+    useProjectSourceStore.setState({
+      files: [
+        {
+          id: 'records/rooms/director.yaml',
+          displayPath: 'records/rooms/director.yaml',
+          projectRelativePath: 'records/rooms/director.yaml',
+          kind: 'yaml',
+          text: true,
+        },
+      ],
+    });
+    useWorkspaceStore.getState().setDiagnostics([
+      {
+        severity: 'warning',
+        code: 'room.description.empty',
+        path: '/rooms/director/data/description',
+        sourcePath: 'records/rooms/director.yaml',
+        observedAgainst: 'working',
+        message: 'Room description is empty.',
+      },
+    ]);
+
+    render(<BottomPanel />);
+    const label = screen.getByText('Director Dialogue Tail (edited)');
+    expect(label).toHaveClass('truncate');
+    expect(screen.getByLabelText('Owner has unsaved edits')).toBeInTheDocument();
+    expect(screen.getByText('Room description is empty.')).toHaveClass('truncate');
+    expect(screen.queryByText('Working state')).not.toBeInTheDocument();
+    expect(screen.queryByText('records/rooms/director.yaml')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText('Room description is empty.'));
+    expect(useWorkbenchStore.getState().tabsById['tab:room-detail:rooms:director']).toBeTruthy();
+    act(() => useProjectSourceStore.getState().clear());
+  });
+
   it('shows diagnostic data paths only in developer mode', () => {
     useWorkspaceStore.getState().setDiagnostics([
       {
@@ -797,7 +849,7 @@ describe('BottomPanel', () => {
     });
     expect(screen.queryByText('Old native YAML error')).not.toBeInTheDocument();
     expect(screen.getByText('Current unsaved YAML error')).toBeInTheDocument();
-    expect(screen.getByText('Working state')).toBeInTheDocument();
+    expect(screen.queryByText('Working state')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Fix' })).toBeDisabled();
   });
 

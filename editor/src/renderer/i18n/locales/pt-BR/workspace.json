@@ -620,6 +620,8 @@
       "baseChanged": "O Recurso base mudou depois que esta variante localizada foi atribuída. Reatribua ou revise a variante em relação à origem atual."
     },
     "messages": {
+      "expandRow": "Expandir Mensagem nomeada {{key}}",
+      "collapseRow": "Recolher Mensagem nomeada {{key}}",
       "title": "Mensagens nomeadas",
       "description": "Mensagens reutilizáveis têm chaves semânticas; o uso é derivado das referências do Projeto.",
       "new": "Nova mensagem nomeada",
@@ -632,9 +634,14 @@
       "usageGuidance": "Orientação específica da ocorrência para o tradutor"
     },
     "translations": {
+      "showNumericOnly": "Mostrar Mensagens apenas numéricas",
+      "expandRow": "Expandir {{label}}",
+      "collapseRow": "Recolher {{label}}",
+      "actionsAria": "Ações para {{label}}",
       "addTargetFirst": "Adicione primeiro um idioma de destino",
       "bulkReview": "Marcar atuais filtradas como revisadas",
       "emptyLocale": "Adicione um idioma de destino em Idiomas para começar a traduzir.",
+      "noMatches": "Nenhuma Mensagem corresponde aos filtros atuais.",
       "emptyMessages": "Ainda não há Mensagens disponíveis.",
       "context": "Contexto: {{value}}",
       "translatorNote": "Nota do tradutor: {{value}}",

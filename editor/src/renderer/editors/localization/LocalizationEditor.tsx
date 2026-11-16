@@ -1,5 +1,11 @@
 import { projectEdits } from '@/commands/project-editing';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -32,7 +38,7 @@ import {
   useWorkbenchEditorTabState,
   type WorkbenchTabStatePayload,
 } from '@/workbench/workbench-tab-state';
-import { Plus, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, Ellipsis, Plus, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -66,6 +72,7 @@ import {
 } from '../../../shared/project-schema/authoring-localization';
 import { isAuthoringProjectView } from '../../../shared/project-schema/authoring-project-view';
 import { PSEUDO_PREVIEW_LOCALE } from '../../../shared/pseudo-localization';
+import { VirtualTranslationList } from './VirtualTranslationList';
 
 type Surface = 'overview' | 'translations' | 'assets' | 'languages' | 'messages' | 'reconciliation';
 type TranslationFilter =
@@ -211,12 +218,106 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
     : [];
   const [targetLocale, setTargetLocale] = useState<string>('');
   const [translationFilter, setTranslationFilter] = useState<TranslationFilter>('all');
+  const [showNumericOnly, setShowNumericOnly] = useState(false);
+  const [expandedMessageId, setExpandedMessageId] = useState<string | null>(null);
+  const [expandedNamedMessageId, setExpandedNamedMessageId] = useState<string | null>(null);
   const effectiveTargetLocale = targetLocales.includes(targetLocale)
     ? targetLocale
     : (targetLocales[0] ?? '');
   const previewLocales = project
     ? Object.keys(project.localization.locales).sort((a, b) => a.localeCompare(b))
     : [];
+  const authoredTargets = project?.localization.translations;
+  const authoredMessages = project?.localization.messages;
+  // Source extraction and reconciliation are Project-level work, not per-row render work.
+  const allMessages = useMemo(
+    () =>
+      project && surface === 'translations'
+        ? localizationMessageWorkflowViews(project)
+            .map(
+              (workflow): MessageView => ({
+                ...workflow,
+                message: {
+                  kind: workflow.kind,
+                  ...(workflow.kind === 'named' ? { key: workflow.key! } : {}),
+                  source: workflow.source,
+                  ...(workflow.context === undefined ? {} : { context: workflow.context }),
+                  ...(workflow.translatorNote === undefined
+                    ? {}
+                    : { translatorNote: workflow.translatorNote }),
+                } as AuthoringMessage,
+              }),
+            )
+            .sort((left, right) =>
+              messageLabel(left.message, left.id).localeCompare(
+                messageLabel(right.message, right.id),
+              ),
+            )
+        : [],
+    [project, surface],
+  );
+  // Numeric-only local source without any authored locale target is usually not translation work.
+  // Keep these Messages in the Project; this changes queue visibility, not source semantics.
+  const numericOnlyCandidateIds = useMemo(() => {
+    const existingTargets = new Set(
+      authoredTargets
+        ? Object.values(authoredTargets).flatMap((targets) => Object.keys(targets))
+        : [],
+    );
+    return new Set(
+      allMessages
+        .filter(
+          (view) =>
+            view.kind === 'local' &&
+            /^[0-9]+$/u.test(view.source.trim()) &&
+            !existingTargets.has(view.id),
+        )
+        .map((view) => view.id),
+    );
+  }, [allMessages, authoredTargets]);
+  const filteredMessages = useMemo(() => {
+    if (!project || !effectiveTargetLocale) return [];
+    return allMessages.filter((view) => {
+      if (!showNumericOnly && numericOnlyCandidateIds.has(view.id)) return false;
+      if (translationFilter === 'all') return true;
+      const target = localizationTargetWorkflowView(project, effectiveTargetLocale, view);
+      if (translationFilter === 'attention') return target.attention.length > 0;
+      if (translationFilter === target.freshness) return true;
+      if (!target.translation) return false;
+      return (
+        translationFilter === target.translation.review ||
+        translationFilter === target.translation.origin
+      );
+    });
+  }, [
+    allMessages,
+    effectiveTargetLocale,
+    numericOnlyCandidateIds,
+    project,
+    showNumericOnly,
+    translationFilter,
+  ]);
+  const namedMessages = useMemo(
+    () =>
+      authoredMessages
+        ? Object.entries(authoredMessages)
+            .filter(
+              (entry): entry is [string, Extract<AuthoringMessage, { kind: 'named' }>] =>
+                entry[1].kind === 'named',
+            )
+            .sort(([, a], [, b]) => a.key.localeCompare(b.key))
+        : [],
+    [authoredMessages],
+  );
+  const namedMessageRows = useMemo(
+    () => namedMessages.map(([id, message]) => ({ id, message })),
+    [namedMessages],
+  );
+  const memoReconciliationPlan = useMemo(
+    () =>
+      project && surface === 'reconciliation' ? planLocalizationReconciliation(project) : null,
+    [project, surface],
+  );
 
   useWorkbenchEditorTabState(
     tab.id,
@@ -250,53 +351,25 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
 
   const localization = project.localization;
   const localeEntries = Object.entries(localization.locales).sort(([a], [b]) => a.localeCompare(b));
-  const fontAssets = Object.values(project.assets)
-    .filter((asset) => parseAssetData(asset.data)?.kind === 'font')
-    .sort((a, b) => a.label.localeCompare(b.label));
-  const localizableAssets = Object.entries(project.assets)
-    .flatMap(([id, record]) => {
-      const data = parseAssetData(record.data);
-      return data && isLocalizableAssetKind(data.kind) ? [{ id, record, data }] : [];
-    })
-    .sort((left, right) => left.record.label.localeCompare(right.record.label));
-  const namedMessages = Object.entries(localization.messages)
-    .filter(
-      (entry): entry is [string, Extract<AuthoringMessage, { kind: 'named' }>] =>
-        entry[1].kind === 'named',
-    )
-    .sort(([, a], [, b]) => a.key.localeCompare(b.key));
-  const allMessages = localizationMessageWorkflowViews(project)
-    .map(
-      (workflow): MessageView => ({
-        ...workflow,
-        message: {
-          kind: workflow.kind,
-          ...(workflow.kind === 'named' ? { key: workflow.key! } : {}),
-          source: workflow.source,
-          ...(workflow.context === undefined ? {} : { context: workflow.context }),
-          ...(workflow.translatorNote === undefined
-            ? {}
-            : { translatorNote: workflow.translatorNote }),
-        } as AuthoringMessage,
-      }),
-    )
-    .sort((left, right) =>
-      messageLabel(left.message, left.id).localeCompare(messageLabel(right.message, right.id)),
-    );
-  const filteredMessages = allMessages.filter((view) => {
-    if (translationFilter === 'all' || !effectiveTargetLocale) return true;
-    const target = localizationTargetWorkflowView(project, effectiveTargetLocale, view);
-    if (translationFilter === 'attention') return target.attention.length > 0;
-    if (translationFilter === target.freshness) return true;
-    if (!target.translation) return false;
-    return (
-      translationFilter === target.translation.review ||
-      translationFilter === target.translation.origin
-    );
-  });
+  const fontAssets =
+    surface === 'languages'
+      ? Object.values(project.assets)
+          .filter((asset) => parseAssetData(asset.data)?.kind === 'font')
+          .sort((a, b) => a.label.localeCompare(b.label))
+      : [];
+  const localizableAssets =
+    surface === 'assets'
+      ? Object.entries(project.assets)
+          .flatMap(([id, record]) => {
+            const data = parseAssetData(record.data);
+            return data && isLocalizableAssetKind(data.kind) ? [{ id, record, data }] : [];
+          })
+          .sort((left, right) => left.record.label.localeCompare(right.record.label))
+      : [];
   const sourceChangeBlocked =
-    localization.sourceLocaleLock !== null || hasSubstantiveLocalizationWork(localization);
-  const reconciliationPlan = planLocalizationReconciliation(project);
+    localization.sourceLocaleLock !== null ||
+    (surface === 'languages' && hasSubstantiveLocalizationWork(localization));
+  const reconciliationPlan = memoReconciliationPlan!;
   const localizationValidationDiagnostics = nativeDiagnostics;
 
   async function run(
@@ -1099,7 +1172,13 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto p-4">
+      <div
+        className={
+          surface === 'translations'
+            ? 'min-h-0 flex-1 overflow-hidden p-4'
+            : 'min-h-0 flex-1 overflow-auto p-4'
+        }
+      >
         {surface === 'overview' && (
           <div className="grid gap-3 @3xl:grid-cols-3">
             <section className="rounded border p-4">
@@ -1807,8 +1886,8 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
         )}
 
         {surface === 'messages' && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between gap-3">
+          <div className="flex h-full min-h-0 flex-col gap-3">
+            <div className="flex shrink-0 items-center justify-between gap-3">
               <div>
                 <h3 className="font-medium">{t('localizationEditor.messages.title')}</h3>
                 <p className="text-xs text-muted-foreground">
@@ -1820,7 +1899,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
               </Button>
             </div>
             {creatingMessage && (
-              <section className="grid gap-3 rounded border p-4 @3xl:grid-cols-2">
+              <section className="grid max-h-[70%] shrink-0 gap-3 overflow-auto rounded border p-4 @3xl:grid-cols-2">
                 <div className="space-y-1">
                   <Label htmlFor="new-message-key">
                     {t('localizationEditor.labels.semanticKey')}
@@ -1888,279 +1967,337 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                 </div>
               </section>
             )}
-            <div className="space-y-3">
-              {namedMessages.length === 0 && !creatingMessage && (
-                <div className="rounded border p-4 text-sm text-muted-foreground">
-                  {t('localizationEditor.messages.empty')}
-                </div>
-              )}
-              {namedMessages.map(([messageId, message]) => {
-                const usages = usagePaths(messageId);
-                const namedUsages = namedMessageUsages(project, messageId);
-                const localizableUsages = namedUsages.filter((usage) => usage.rewriteable);
-                return (
-                  <section
-                    key={messageId}
-                    className="grid gap-3 rounded border p-4 @3xl:grid-cols-2"
-                  >
-                    <div className="space-y-1">
-                      <Label htmlFor={`message-key-${messageId}`}>
-                        {t('localizationEditor.labels.semanticKey')}
-                      </Label>
-                      <Input
-                        id={`message-key-${messageId}`}
-                        defaultValue={message.key}
-                        onBlur={(event) =>
-                          updateMessageField(messageId, message, 'key', event.currentTarget.value)
-                        }
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label htmlFor={`message-source-${messageId}`}>
-                        {t('localizationEditor.labels.sourceContent')}
-                      </Label>
-                      <textarea
-                        className="min-h-20 w-full rounded border border-input bg-background p-2 text-sm"
-                        id={`message-source-${messageId}`}
-                        defaultValue={message.source}
-                        onBlur={(event) =>
-                          updateMessageField(
-                            messageId,
-                            message,
-                            'source',
-                            event.currentTarget.value,
-                          )
-                        }
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label htmlFor={`message-context-${messageId}`}>
-                        {t('localizationEditor.labels.context')}
-                      </Label>
-                      <Input
-                        id={`message-context-${messageId}`}
-                        defaultValue={message.context ?? ''}
-                        onBlur={(event) =>
-                          updateMessageField(
-                            messageId,
-                            message,
-                            'context',
-                            event.currentTarget.value,
-                          )
-                        }
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label htmlFor={`message-note-${messageId}`}>
-                        {t('localizationEditor.labels.translatorNote')}
-                      </Label>
-                      <Input
-                        id={`message-note-${messageId}`}
-                        defaultValue={message.translatorNote ?? ''}
-                        onBlur={(event) =>
-                          updateMessageField(
-                            messageId,
-                            message,
-                            'translatorNote',
-                            event.currentTarget.value,
-                          )
-                        }
-                      />
-                    </div>
-                    <div className="@3xl:col-span-2">
-                      <div className="text-xs font-medium text-muted-foreground">
-                        {t('localizationEditor.messages.usedIn', { count: usages.length })}
-                      </div>
-                      <div className="mt-1 text-xs text-muted-foreground">
-                        {t('localizationMessageReuse.sharedSourceImpact')}
-                      </div>
-                      {usages.length > 0 ? (
-                        <div className="mt-1 space-y-0.5 font-mono text-xs text-muted-foreground">
-                          {usages.slice(0, 5).map((path) => (
-                            <div key={path}>{path}</div>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="mt-1 text-xs text-muted-foreground">
-                          {t('localizationEditor.messages.noUsages')}
-                        </div>
-                      )}
-                      {namedUsages.length > 0 && (
-                        <div className="mt-3 space-y-2">
-                          {namedUsages.map((usage) => (
-                            <div
-                              key={usage.id}
-                              className="grid gap-1 @3xl:grid-cols-2 @3xl:items-center"
-                            >
-                              <div
-                                className="truncate font-mono text-xs text-muted-foreground"
-                                title={usage.path}
-                              >
-                                {usage.path}
-                              </div>
-                              <Input
-                                aria-label={t('localizationEditor.messages.usageNoteAria', {
-                                  path: usage.path,
-                                })}
-                                defaultValue={localization.usageNotes[usage.id] ?? ''}
-                                placeholder={t('localizationEditor.messages.usageGuidance')}
-                                onBlur={(event) =>
-                                  setUsageNote(usage.id, event.currentTarget.value)
-                                }
-                              />
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      {localizableUsages.length > 0 && (
-                        <div className="mt-3 rounded border bg-muted/30 p-3 text-xs">
-                          {demotionDraft?.messageId === messageId ? (
-                            <div className="space-y-3">
-                              <div className="space-y-1">
-                                <Label htmlFor={`demote-usage-${messageId}`}>
-                                  {t('localizationMessageReuse.usageToMakeLocal')}
-                                </Label>
-                                <Select
-                                  items={localizableUsages.map((usage) => ({
-                                    value: usage.id,
-                                    label: usage.path,
-                                  }))}
-                                  value={demotionDraft.usageId}
-                                  onValueChange={(value) => {
-                                    if (!value) return;
-                                    setDemotionDraft((current) =>
-                                      current && current.messageId === messageId
-                                        ? { ...current, usageId: value }
-                                        : current,
-                                    );
-                                  }}
-                                >
-                                  <SelectTrigger
-                                    id={`demote-usage-${messageId}`}
-                                    aria-label={t('localizationMessageReuse.usageToMakeLocalAria', {
-                                      key: message.key,
-                                    })}
-                                  >
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {localizableUsages.map((usage) => (
-                                      <SelectItem key={usage.id} value={usage.id}>
-                                        {usage.path}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                              {namedUsages.length > 1 ? (
-                                <div className="space-y-2">
-                                  <p className="text-muted-foreground">
-                                    {t('localizationMessageReuse.demoteNewIdentity')}
-                                  </p>
-                                  {Object.keys(localization.locales)
-                                    .filter(
-                                      (locale) =>
-                                        locale !== localization.sourceLocale &&
-                                        localization.translations[locale]?.[messageId],
-                                    )
-                                    .map((locale) => {
-                                      const target = localization.translations[locale]![messageId]!;
-                                      return (
-                                        <label key={locale} className="flex items-start gap-2">
-                                          <input
-                                            type="checkbox"
-                                            aria-label={t(
-                                              'localizationMessageReuse.copyDraftAria',
-                                              {
-                                                locale,
-                                                key: message.key,
-                                              },
-                                            )}
-                                            checked={demotionDraft.copyDraftLocales.includes(
-                                              locale,
-                                            )}
-                                            onChange={(event) => {
-                                              const checked = event.currentTarget.checked;
-                                              setDemotionDraft((current) => {
-                                                if (!current || current.messageId !== messageId)
-                                                  return current;
-                                                return {
-                                                  ...current,
-                                                  copyDraftLocales: checked
-                                                    ? [...current.copyDraftLocales, locale]
-                                                    : current.copyDraftLocales.filter(
-                                                        (candidate) => candidate !== locale,
-                                                      ),
-                                                };
-                                              });
-                                            }}
-                                          />
-                                          <span>
-                                            <span className="font-medium">{locale}</span> ·{' '}
-                                            {target.text}
-                                          </span>
-                                        </label>
-                                      );
-                                    })}
-                                </div>
-                              ) : (
-                                <p className="text-muted-foreground">
-                                  {t('localizationMessageReuse.soleUsagePreserves')}
-                                </p>
-                              )}
-                              {demotionError && <p className="text-destructive">{demotionError}</p>}
-                              <div className="flex gap-2">
-                                <Button type="button" size="sm" onClick={demoteMessageUsage}>
-                                  {t('localizationMessageReuse.makeLocal')}
-                                </Button>
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() => {
-                                    setDemotionDraft(null);
-                                    setDemotionError(null);
-                                  }}
-                                >
-                                  {t('localizationMessageReuse.cancel')}
-                                </Button>
-                              </div>
-                            </div>
-                          ) : (
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              onClick={() => {
-                                setDemotionError(null);
-                                setDemotionDraft({
-                                  messageId,
-                                  usageId: localizableUsages[0]!.id,
-                                  copyDraftLocales: [],
-                                });
-                              }}
-                            >
-                              {t('localizationMessageReuse.makeUsageLocal')}
-                            </Button>
+            {namedMessages.length === 0 && !creatingMessage && (
+              <div className="rounded border p-4 text-sm text-muted-foreground">
+                {t('localizationEditor.messages.empty')}
+              </div>
+            )}
+            {namedMessages.length > 0 && (
+              <VirtualTranslationList
+                messages={namedMessageRows}
+                expandedMessageId={expandedNamedMessageId}
+                resetKey="named-messages"
+                renderMessage={({ id: messageId, message }) => {
+                  const expanded = expandedNamedMessageId === messageId;
+                  const usages = expanded ? usagePaths(messageId) : [];
+                  const namedUsages = expanded ? namedMessageUsages(project, messageId) : [];
+                  const localizableUsages = namedUsages.filter((usage) => usage.rewriteable);
+                  return (
+                    <section
+                      key={messageId}
+                      data-testid="named-message-row"
+                      className="border-b border-border/60 px-2 py-1.5"
+                    >
+                      <div className="flex min-w-0 items-center gap-2">
+                        <Button
+                          type="button"
+                          size="icon-sm"
+                          variant="ghost"
+                          className="shrink-0"
+                          aria-expanded={expanded}
+                          aria-label={t(
+                            expanded
+                              ? 'localizationEditor.messages.collapseRow'
+                              : 'localizationEditor.messages.expandRow',
+                            { key: message.key },
                           )}
+                          onClick={() => setExpandedNamedMessageId(expanded ? null : messageId)}
+                        >
+                          {expanded ? <ChevronDown /> : <ChevronRight />}
+                        </Button>
+                        <span
+                          className="min-w-0 basis-1/3 truncate text-sm font-medium"
+                          title={message.key}
+                        >
+                          {message.key}
+                        </span>
+                        <span
+                          className="min-w-0 flex-1 truncate text-xs text-muted-foreground"
+                          title={message.source}
+                        >
+                          {message.source}
+                        </span>
+                      </div>
+                      {expanded && (
+                        <div className="mt-2 grid gap-3 border-t border-border/60 px-2 py-3 @3xl:grid-cols-2">
+                          <div className="space-y-1">
+                            <Label htmlFor={`message-key-${messageId}`}>
+                              {t('localizationEditor.labels.semanticKey')}
+                            </Label>
+                            <Input
+                              id={`message-key-${messageId}`}
+                              defaultValue={message.key}
+                              onBlur={(event) =>
+                                updateMessageField(
+                                  messageId,
+                                  message,
+                                  'key',
+                                  event.currentTarget.value,
+                                )
+                              }
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label htmlFor={`message-source-${messageId}`}>
+                              {t('localizationEditor.labels.sourceContent')}
+                            </Label>
+                            <textarea
+                              className="min-h-20 w-full rounded border border-input bg-background p-2 text-sm"
+                              id={`message-source-${messageId}`}
+                              defaultValue={message.source}
+                              onBlur={(event) =>
+                                updateMessageField(
+                                  messageId,
+                                  message,
+                                  'source',
+                                  event.currentTarget.value,
+                                )
+                              }
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label htmlFor={`message-context-${messageId}`}>
+                              {t('localizationEditor.labels.context')}
+                            </Label>
+                            <Input
+                              id={`message-context-${messageId}`}
+                              defaultValue={message.context ?? ''}
+                              onBlur={(event) =>
+                                updateMessageField(
+                                  messageId,
+                                  message,
+                                  'context',
+                                  event.currentTarget.value,
+                                )
+                              }
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label htmlFor={`message-note-${messageId}`}>
+                              {t('localizationEditor.labels.translatorNote')}
+                            </Label>
+                            <Input
+                              id={`message-note-${messageId}`}
+                              defaultValue={message.translatorNote ?? ''}
+                              onBlur={(event) =>
+                                updateMessageField(
+                                  messageId,
+                                  message,
+                                  'translatorNote',
+                                  event.currentTarget.value,
+                                )
+                              }
+                            />
+                          </div>
+                          <div className="@3xl:col-span-2">
+                            <div className="text-xs font-medium text-muted-foreground">
+                              {t('localizationEditor.messages.usedIn', { count: usages.length })}
+                            </div>
+                            <div className="mt-1 text-xs text-muted-foreground">
+                              {t('localizationMessageReuse.sharedSourceImpact')}
+                            </div>
+                            {usages.length > 0 ? (
+                              <div className="mt-1 space-y-0.5 font-mono text-xs text-muted-foreground">
+                                {usages.slice(0, 5).map((path) => (
+                                  <div key={path}>{path}</div>
+                                ))}
+                              </div>
+                            ) : (
+                              <div className="mt-1 text-xs text-muted-foreground">
+                                {t('localizationEditor.messages.noUsages')}
+                              </div>
+                            )}
+                            {namedUsages.length > 0 && (
+                              <div className="mt-3 space-y-2">
+                                {namedUsages.map((usage) => (
+                                  <div
+                                    key={usage.id}
+                                    className="grid gap-1 @3xl:grid-cols-2 @3xl:items-center"
+                                  >
+                                    <div
+                                      className="truncate font-mono text-xs text-muted-foreground"
+                                      title={usage.path}
+                                    >
+                                      {usage.path}
+                                    </div>
+                                    <Input
+                                      aria-label={t('localizationEditor.messages.usageNoteAria', {
+                                        path: usage.path,
+                                      })}
+                                      defaultValue={localization.usageNotes[usage.id] ?? ''}
+                                      placeholder={t('localizationEditor.messages.usageGuidance')}
+                                      onBlur={(event) =>
+                                        setUsageNote(usage.id, event.currentTarget.value)
+                                      }
+                                    />
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            {localizableUsages.length > 0 && (
+                              <div className="mt-3 rounded border bg-muted/30 p-3 text-xs">
+                                {demotionDraft?.messageId === messageId ? (
+                                  <div className="space-y-3">
+                                    <div className="space-y-1">
+                                      <Label htmlFor={`demote-usage-${messageId}`}>
+                                        {t('localizationMessageReuse.usageToMakeLocal')}
+                                      </Label>
+                                      <Select
+                                        items={localizableUsages.map((usage) => ({
+                                          value: usage.id,
+                                          label: usage.path,
+                                        }))}
+                                        value={demotionDraft.usageId}
+                                        onValueChange={(value) => {
+                                          if (!value) return;
+                                          setDemotionDraft((current) =>
+                                            current && current.messageId === messageId
+                                              ? { ...current, usageId: value }
+                                              : current,
+                                          );
+                                        }}
+                                      >
+                                        <SelectTrigger
+                                          id={`demote-usage-${messageId}`}
+                                          aria-label={t(
+                                            'localizationMessageReuse.usageToMakeLocalAria',
+                                            {
+                                              key: message.key,
+                                            },
+                                          )}
+                                        >
+                                          <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          {localizableUsages.map((usage) => (
+                                            <SelectItem key={usage.id} value={usage.id}>
+                                              {usage.path}
+                                            </SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+                                    {namedUsages.length > 1 ? (
+                                      <div className="space-y-2">
+                                        <p className="text-muted-foreground">
+                                          {t('localizationMessageReuse.demoteNewIdentity')}
+                                        </p>
+                                        {Object.keys(localization.locales)
+                                          .filter(
+                                            (locale) =>
+                                              locale !== localization.sourceLocale &&
+                                              localization.translations[locale]?.[messageId],
+                                          )
+                                          .map((locale) => {
+                                            const target =
+                                              localization.translations[locale]![messageId]!;
+                                            return (
+                                              <label
+                                                key={locale}
+                                                className="flex items-start gap-2"
+                                              >
+                                                <input
+                                                  type="checkbox"
+                                                  aria-label={t(
+                                                    'localizationMessageReuse.copyDraftAria',
+                                                    {
+                                                      locale,
+                                                      key: message.key,
+                                                    },
+                                                  )}
+                                                  checked={demotionDraft.copyDraftLocales.includes(
+                                                    locale,
+                                                  )}
+                                                  onChange={(event) => {
+                                                    const checked = event.currentTarget.checked;
+                                                    setDemotionDraft((current) => {
+                                                      if (
+                                                        !current ||
+                                                        current.messageId !== messageId
+                                                      )
+                                                        return current;
+                                                      return {
+                                                        ...current,
+                                                        copyDraftLocales: checked
+                                                          ? [...current.copyDraftLocales, locale]
+                                                          : current.copyDraftLocales.filter(
+                                                              (candidate) => candidate !== locale,
+                                                            ),
+                                                      };
+                                                    });
+                                                  }}
+                                                />
+                                                <span>
+                                                  <span className="font-medium">{locale}</span> ·{' '}
+                                                  {target.text}
+                                                </span>
+                                              </label>
+                                            );
+                                          })}
+                                      </div>
+                                    ) : (
+                                      <p className="text-muted-foreground">
+                                        {t('localizationMessageReuse.soleUsagePreserves')}
+                                      </p>
+                                    )}
+                                    {demotionError && (
+                                      <p className="text-destructive">{demotionError}</p>
+                                    )}
+                                    <div className="flex gap-2">
+                                      <Button type="button" size="sm" onClick={demoteMessageUsage}>
+                                        {t('localizationMessageReuse.makeLocal')}
+                                      </Button>
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="ghost"
+                                        onClick={() => {
+                                          setDemotionDraft(null);
+                                          setDemotionError(null);
+                                        }}
+                                      >
+                                        {t('localizationMessageReuse.cancel')}
+                                      </Button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => {
+                                      setDemotionError(null);
+                                      setDemotionDraft({
+                                        messageId,
+                                        usageId: localizableUsages[0]!.id,
+                                        copyDraftLocales: [],
+                                      });
+                                    }}
+                                  >
+                                    {t('localizationMessageReuse.makeUsageLocal')}
+                                  </Button>
+                                )}
+                              </div>
+                            )}
+                            {namedMessages.length > 1 && (
+                              <div className="mt-3">
+                                {renderMergeControls(messageId, message.key, messageId)}
+                              </div>
+                            )}
+                          </div>
                         </div>
                       )}
-                      {namedMessages.length > 1 && (
-                        <div className="mt-3">
-                          {renderMergeControls(messageId, message.key, messageId)}
-                        </div>
-                      )}
-                    </div>
-                  </section>
-                );
-              })}
-            </div>
+                    </section>
+                  );
+                }}
+              />
+            )}
           </div>
         )}
 
         {surface === 'translations' && (
-          <div className="space-y-4">
-            <div className="flex flex-wrap items-end gap-3">
+          <div className="flex h-full min-h-0 flex-col gap-3">
+            <div className="flex shrink-0 flex-wrap items-end gap-3">
               <div className="min-w-56 max-w-sm flex-1 space-y-1">
                 <Label htmlFor="target-locale">{t('localizationEditor.labels.targetLocale')}</Label>
                 <Select
@@ -2218,6 +2355,17 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                   </SelectContent>
                 </Select>
               </div>
+              <div className="flex items-center gap-2 pb-1">
+                <Switch
+                  id="show-numeric-local-messages"
+                  checked={showNumericOnly}
+                  onCheckedChange={setShowNumericOnly}
+                  aria-label={t('localizationEditor.translations.showNumericOnly')}
+                />
+                <Label htmlFor="show-numeric-local-messages" className="text-xs">
+                  {t('localizationEditor.translations.showNumericOnly')}
+                </Label>
+              </div>
               <Button
                 type="button"
                 variant="outline"
@@ -2235,9 +2383,16 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
               <div className="rounded border p-4 text-sm text-muted-foreground">
                 {t('localizationEditor.translations.emptyMessages')}
               </div>
+            ) : filteredMessages.length === 0 ? (
+              <div className="rounded border p-4 text-sm text-muted-foreground">
+                {t('localizationEditor.translations.noMatches')}
+              </div>
             ) : (
-              <div className="space-y-3">
-                {filteredMessages.map((view) => {
+              <VirtualTranslationList
+                messages={filteredMessages}
+                expandedMessageId={expandedMessageId}
+                resetKey={`${effectiveTargetLocale}:${translationFilter}:${showNumericOnly}`}
+                renderMessage={(view) => {
                   const { id: messageId, message } = view;
                   const label = messageLabel(message, messageId);
                   const localTranslation =
@@ -2259,11 +2414,12 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                         translation.sourceFingerprint === view.sourceFingerprint
                       ? t('localizationEditor.status.current')
                       : t('localizationEditor.status.outdated');
+                  const expanded = expandedMessageId === messageId;
                   const reuseCandidates =
-                    message.kind === 'local'
+                    expanded && message.kind === 'local'
                       ? identicalSourceReuseCandidates(project, messageId)
                       : [];
-                  const promotable = canPromoteLocalMessage(project, messageId);
+                  const promotable = expanded && canPromoteLocalMessage(project, messageId);
                   const attention =
                     translation && !translation.useSource
                       ? [
@@ -2278,357 +2434,95 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                             : null,
                         ].filter((value): value is string => value !== null)
                       : [];
+                  const status = [
+                    freshness,
+                    translation?.useSource
+                      ? t('localizationEditor.status.useSource')
+                      : translation
+                        ? `${t(`localizationEditor.status.${translation.origin}`)} · ${t(
+                            translation.review === 'reviewed'
+                              ? 'localizationEditor.status.reviewed'
+                              : 'localizationEditor.status.needsReview',
+                          )}`
+                        : null,
+                    effective.inherited && effective.locale
+                      ? t('localizationEditor.status.inheritedFrom', { locale: effective.locale })
+                      : null,
+                    ...attention,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ');
                   return (
-                    <section key={messageId} className="rounded border p-4">
-                      <div className="mb-2 flex items-baseline justify-between gap-3">
-                        <div className="font-medium">{label}</div>
-                        <div className="text-right text-xs text-muted-foreground">
-                          {freshness}
-                          {translation?.useSource
-                            ? ` · ${t('localizationEditor.status.useSource')}${
-                                effective.inherited && effective.locale
-                                  ? ` · ${t('localizationEditor.status.inheritedFrom', { locale: effective.locale })}`
-                                  : ''
-                              }`
-                            : translation
-                              ? ` · ${t(`localizationEditor.status.${translation.origin}`)} · ${t(
-                                  translation.review === 'reviewed'
-                                    ? 'localizationEditor.status.reviewed'
-                                    : 'localizationEditor.status.needsReview',
-                                )}${
-                                  effective.inherited && effective.locale
-                                    ? ` · ${t('localizationEditor.status.inheritedFrom', { locale: effective.locale })}`
-                                    : ''
-                                }`
-                              : ''}
-                          {attention.length > 0 ? ` · ${attention.join(', ')}` : ''}
-                        </div>
-                      </div>
-                      {(message.context || message.translatorNote || view.usedIn) && (
-                        <div className="mb-3 text-xs text-muted-foreground">
-                          {message.context
-                            ? t('localizationEditor.translations.context', {
-                                value: message.context,
-                              })
-                            : ''}
-                          {message.context && (message.translatorNote || view.usedIn) ? ' · ' : ''}
-                          {message.translatorNote
-                            ? t('localizationEditor.translations.translatorNote', {
-                                value: message.translatorNote,
-                              })
-                            : ''}
-                          {message.translatorNote && view.usedIn ? ' · ' : ''}
-                          {view.usedIn
-                            ? t('localizationEditor.translations.usedIn', { value: view.usedIn })
-                            : ''}
-                        </div>
-                      )}
-                      {view.kind === 'local' && (
-                        <div className="mb-3 max-w-xl space-y-1">
-                          <Label htmlFor={`usage-note-${messageId}`}>
-                            {t('localizationEditor.labels.usageNote')}
-                          </Label>
-                          <Input
-                            id={`usage-note-${messageId}`}
-                            aria-label={t('localizationEditor.messages.usageNoteAria', {
-                              path: label,
-                            })}
-                            defaultValue={view.usageNote ?? ''}
-                            placeholder={t('localizationEditor.messages.usageGuidance')}
-                            onBlur={(event) => setUsageNote(view.id, event.currentTarget.value)}
-                          />
-                        </div>
-                      )}
-                      {message.kind === 'local' && promotable && (
-                        <div className="mb-3 rounded border bg-muted/30 p-3 text-xs">
-                          {reuseCandidates.length > 0 ? (
-                            <p className="text-muted-foreground">
-                              {t('localizationMessageReuse.identicalHint', {
-                                count: reuseCandidates.length,
-                              })}
-                            </p>
-                          ) : (
-                            <p className="text-muted-foreground">
-                              {t('localizationMessageReuse.promoteHint')}
-                            </p>
+                    <section
+                      key={messageId}
+                      data-testid="translation-row"
+                      className="border-b border-border/60 px-2 py-1.5"
+                    >
+                      <div className="flex min-w-0 items-center gap-2">
+                        <Button
+                          type="button"
+                          size="icon-sm"
+                          variant="ghost"
+                          className="shrink-0"
+                          aria-expanded={expanded}
+                          aria-label={t(
+                            expanded
+                              ? 'localizationEditor.translations.collapseRow'
+                              : 'localizationEditor.translations.expandRow',
+                            { label },
                           )}
-                          {promotionDraft?.messageId === messageId ? (
-                            <div className="mt-3 space-y-3">
-                              <div className="space-y-1">
-                                <Label htmlFor={`promotion-key-${messageId}`}>
-                                  {t('localizationMessageReuse.semanticKey')}
-                                </Label>
-                                <Input
-                                  id={`promotion-key-${messageId}`}
-                                  aria-label={t('localizationMessageReuse.promotionKeyAria', {
-                                    label,
-                                  })}
-                                  value={promotionDraft.key}
-                                  onChange={(event) => {
-                                    const key = event.currentTarget.value;
-                                    setPromotionDraft((current) =>
-                                      current && current.messageId === messageId
-                                        ? { ...current, key }
-                                        : current,
-                                    );
-                                  }}
-                                  placeholder="ui.shared.message"
-                                />
-                              </div>
-                              {reuseCandidates.length > 0 && (
-                                <div className="space-y-1">
-                                  <div className="font-medium">
-                                    {t('localizationMessageReuse.linkSelected')}
-                                  </div>
-                                  {reuseCandidates.map((candidate) => (
-                                    <label
-                                      key={candidate.id}
-                                      className="flex items-start gap-2 text-muted-foreground"
-                                    >
-                                      <input
-                                        type="checkbox"
-                                        checked={promotionDraft.selectedIds.includes(candidate.id)}
-                                        disabled={!candidate.rewriteable}
-                                        onChange={(event) => {
-                                          const checked = event.currentTarget.checked;
-                                          setPromotionDraft((current) => {
-                                            if (!current || current.messageId !== messageId)
-                                              return current;
-                                            return {
-                                              ...current,
-                                              selectedIds: checked
-                                                ? [...current.selectedIds, candidate.id]
-                                                : current.selectedIds.filter(
-                                                    (candidateId) => candidateId !== candidate.id,
-                                                  ),
-                                            };
-                                          });
-                                        }}
-                                      />
-                                      <span>
-                                        {candidate.usedIn ?? candidate.id}
-                                        {!candidate.rewriteable
-                                          ? ` · ${t('localizationMessageReuse.unsupportedRefactor')}`
-                                          : ''}
-                                      </span>
-                                    </label>
-                                  ))}
-                                </div>
-                              )}
-                              {promotionError && (
-                                <p className="text-destructive">{promotionError}</p>
-                              )}
-                              <div className="flex gap-2">
-                                <Button type="button" size="sm" onClick={promoteMessage}>
-                                  {t('localizationMessageReuse.promoteAndLink')}
-                                </Button>
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() => {
-                                    setPromotionDraft(null);
-                                    setPromotionError(null);
-                                  }}
-                                >
-                                  {t('localizationMessageReuse.cancel')}
-                                </Button>
-                              </div>
-                            </div>
-                          ) : (
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              className="mt-2"
-                              onClick={() => {
-                                setPromotionError(null);
-                                setPromotionDraft({ messageId, key: '', selectedIds: [] });
-                              }}
-                            >
-                              {t('localizationMessageReuse.promote')}
-                            </Button>
-                          )}
-                        </div>
-                      )}
-                      {message.kind === 'local' && namedMessages.length > 0 && (
-                        <div className="mb-3">{renderMergeControls(messageId, label)}</div>
-                      )}
-                      <div className="grid gap-3 @3xl:grid-cols-2">
-                        <div className="space-y-1">
-                          <Label htmlFor={`source-${messageId}`}>
-                            {t('localizationEditor.translations.sourceLabel', {
-                              locale: localization.sourceLocale,
-                            })}
-                          </Label>
-                          <textarea
-                            className="min-h-20 w-full rounded border border-input bg-background p-2 text-sm"
-                            id={`source-${messageId}`}
-                            key={`source:${messageId}:${message.source}`}
-                            defaultValue={message.source}
-                            disabled={!view.sourceEditPath}
-                            onBlur={(event) => setSourceContent(view, event.currentTarget.value)}
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <Label htmlFor={`target-${messageId}`}>
-                            {t('localizationEditor.translations.targetLabel', {
-                              locale: effectiveTargetLocale,
-                            })}
-                          </Label>
-                          <textarea
-                            className="min-h-20 w-full rounded border border-input bg-background p-2 text-sm"
-                            id={`target-${messageId}`}
-                            aria-label={t('localizationEditor.translations.targetAria', { label })}
-                            key={`${effectiveTargetLocale}:${messageId}:${translated}:${effective.locale ?? 'missing'}`}
-                            defaultValue={translated}
-                            placeholder={t('localizationEditor.status.missing')}
-                            disabled={effective.inherited || translation?.useSource}
-                            onBlur={(event) => setTranslation(view, event.currentTarget.value)}
-                          />
-                          {view.dialogueCues &&
-                            view.dialogueCues.length > 0 &&
-                            translation &&
-                            !translation.useSource && (
-                              <div className="space-y-2 rounded-md border p-2">
-                                <div className="text-xs font-medium text-muted-foreground">
-                                  {t('localizationEditor.labels.dialogueCuePlacements')}
-                                </div>
-                                {view.dialogueCues.map((sourceCue) => {
-                                  const cue =
-                                    translation.dialogueCues?.find(
-                                      (candidate) => candidate.id === sourceCue.id,
-                                    ) ?? sourceCue;
-                                  return (
-                                    <div
-                                      key={`${sourceCue.id}:${cue.position.offset}:${cue.position.order}`}
-                                      className="grid grid-cols-[minmax(0,1fr)_5.5rem_5.5rem] items-end gap-2"
-                                    >
-                                      <div
-                                        className="min-w-0 truncate text-xs"
-                                        title={sourceCue.id}
-                                      >
-                                        {sourceCue.id}
-                                      </div>
-                                      <div className="space-y-1">
-                                        <Label className="text-[11px]">
-                                          {t('localizationEditor.labels.offset')}
-                                        </Label>
-                                        <Input
-                                          type="number"
-                                          min={0}
-                                          step={1}
-                                          aria-label={t(
-                                            'localizationEditor.translations.cueOffsetAria',
-                                            {
-                                              id: sourceCue.id,
-                                            },
-                                          )}
-                                          defaultValue={cue.position.offset}
-                                          disabled={effective.inherited || !localTranslation}
-                                          onBlur={(event) => {
-                                            const value = Number.parseInt(
-                                              event.currentTarget.value,
-                                              10,
-                                            );
-                                            if (Number.isInteger(value) && value >= 0)
-                                              setDialogueCuePosition(
-                                                view,
-                                                sourceCue.id,
-                                                'offset',
-                                                value,
-                                              );
-                                          }}
-                                        />
-                                      </div>
-                                      <div className="space-y-1">
-                                        <Label className="text-[11px]">
-                                          {t('localizationEditor.labels.order')}
-                                        </Label>
-                                        <Input
-                                          type="number"
-                                          min={0}
-                                          step={1}
-                                          aria-label={t(
-                                            'localizationEditor.translations.cueOrderAria',
-                                            {
-                                              id: sourceCue.id,
-                                            },
-                                          )}
-                                          defaultValue={cue.position.order}
-                                          disabled={effective.inherited || !localTranslation}
-                                          onBlur={(event) => {
-                                            const value = Number.parseInt(
-                                              event.currentTarget.value,
-                                              10,
-                                            );
-                                            if (Number.isInteger(value) && value >= 0)
-                                              setDialogueCuePosition(
-                                                view,
-                                                sourceCue.id,
-                                                'order',
-                                                value,
-                                              );
-                                          }}
-                                        />
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-                                {!dialogueCuesReviewable(view, translation) && (
-                                  <p className="text-xs text-destructive">
-                                    {t('localizationEditor.translations.cueValidation')}
-                                  </p>
-                                )}
-                              </div>
-                            )}
-                          <div className="flex flex-wrap gap-2 pt-1">
-                            {effective.inherited && (
+                          onClick={() => setExpandedMessageId(expanded ? null : messageId)}
+                        >
+                          {expanded ? <ChevronDown /> : <ChevronRight />}
+                        </Button>
+                        <span className="min-w-0 flex-1 truncate text-sm font-medium" title={label}>
+                          {label}
+                        </span>
+                        <span
+                          className="max-w-[40%] shrink-0 truncate text-xs text-muted-foreground"
+                          title={status}
+                        >
+                          {status}
+                        </span>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger
+                            render={
                               <Button
                                 type="button"
-                                size="sm"
-                                variant="outline"
-                                onClick={() => overrideInheritedTarget(view)}
-                              >
+                                size="icon-sm"
+                                variant="ghost"
+                                aria-label={t('localizationEditor.translations.actionsAria', {
+                                  label,
+                                })}
+                              />
+                            }
+                          >
+                            <Ellipsis />
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-auto min-w-48">
+                            {effective.inherited && (
+                              <DropdownMenuItem onClick={() => overrideInheritedTarget(view)}>
                                 {t('localizationEditor.translations.overrideInherited')}
-                              </Button>
+                              </DropdownMenuItem>
                             )}
                             {!effective.inherited && !localTranslation?.useSource && (
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                onClick={() => setUseSource(view)}
-                              >
+                              <DropdownMenuItem onClick={() => setUseSource(view)}>
                                 {t('localizationEditor.translations.useSource')}
-                              </Button>
+                              </DropdownMenuItem>
                             )}
                             {localTranslation?.useSource && (
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                onClick={() => setTranslation(view, view.source)}
-                              >
+                              <DropdownMenuItem onClick={() => setTranslation(view, view.source)}>
                                 {t('localizationEditor.translations.translateInstead')}
-                              </Button>
+                              </DropdownMenuItem>
                             )}
                             {translation && !effective.inherited && !translation.useSource && (
                               <>
                                 {translation.sourceFingerprint !== view.sourceFingerprint && (
-                                  <Button
-                                    type="button"
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() => acceptTranslation(view)}
-                                  >
+                                  <DropdownMenuItem onClick={() => acceptTranslation(view)}>
                                     {t('localizationEditor.translations.acceptCurrentSource')}
-                                  </Button>
+                                  </DropdownMenuItem>
                                 )}
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="outline"
+                                <DropdownMenuItem
                                   disabled={
                                     translation.review === 'reviewed' ||
                                     !translationReviewable(view, effectiveTargetLocale, translation)
@@ -2636,16 +2530,407 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                                   onClick={() => reviewTranslation(view)}
                                 >
                                   {t('localizationEditor.translations.markReviewed')}
-                                </Button>
+                                </DropdownMenuItem>
                               </>
                             )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                      {(message.kind === 'named' ||
+                        (translation && translated !== view.source)) && (
+                        <div
+                          className={
+                            message.kind === 'named'
+                              ? 'ml-8 grid min-w-0 grid-cols-2 gap-x-3 text-xs text-muted-foreground'
+                              : 'ml-8 min-w-0 truncate text-xs text-muted-foreground'
+                          }
+                        >
+                          {message.kind === 'named' && (
+                            <span className="min-w-0 truncate" title={view.source}>
+                              <span className="sr-only">
+                                {t('localizationEditor.translations.sourceLabel', {
+                                  locale: localization.sourceLocale,
+                                })}
+                                :{' '}
+                              </span>
+                              {view.source}
+                            </span>
+                          )}
+                          <span
+                            className="min-w-0 truncate"
+                            title={translated || t('localizationEditor.status.missing')}
+                          >
+                            <span className="sr-only">
+                              {t('localizationEditor.translations.targetLabel', {
+                                locale: effectiveTargetLocale,
+                              })}
+                              :{' '}
+                            </span>
+                            {translated || t('localizationEditor.status.missing')}
+                          </span>
+                        </div>
+                      )}
+                      {expanded && (
+                        <div className="mt-2 border-t border-border/60 pt-3 pb-2">
+                          {(message.context || message.translatorNote || view.usedIn) && (
+                            <div className="mb-3 text-xs text-muted-foreground">
+                              {message.context
+                                ? t('localizationEditor.translations.context', {
+                                    value: message.context,
+                                  })
+                                : ''}
+                              {message.context && (message.translatorNote || view.usedIn)
+                                ? ' · '
+                                : ''}
+                              {message.translatorNote
+                                ? t('localizationEditor.translations.translatorNote', {
+                                    value: message.translatorNote,
+                                  })
+                                : ''}
+                              {message.translatorNote && view.usedIn ? ' · ' : ''}
+                              {view.usedIn
+                                ? t('localizationEditor.translations.usedIn', {
+                                    value: view.usedIn,
+                                  })
+                                : ''}
+                            </div>
+                          )}
+                          {view.kind === 'local' && (
+                            <div className="mb-3 max-w-xl space-y-1">
+                              <Label htmlFor={`usage-note-${messageId}`}>
+                                {t('localizationEditor.labels.usageNote')}
+                              </Label>
+                              <Input
+                                id={`usage-note-${messageId}`}
+                                aria-label={t('localizationEditor.messages.usageNoteAria', {
+                                  path: label,
+                                })}
+                                defaultValue={view.usageNote ?? ''}
+                                placeholder={t('localizationEditor.messages.usageGuidance')}
+                                onBlur={(event) => setUsageNote(view.id, event.currentTarget.value)}
+                              />
+                            </div>
+                          )}
+                          {message.kind === 'local' && promotable && (
+                            <div className="mb-3 rounded border bg-muted/30 p-3 text-xs">
+                              {reuseCandidates.length > 0 ? (
+                                <p className="text-muted-foreground">
+                                  {t('localizationMessageReuse.identicalHint', {
+                                    count: reuseCandidates.length,
+                                  })}
+                                </p>
+                              ) : (
+                                <p className="text-muted-foreground">
+                                  {t('localizationMessageReuse.promoteHint')}
+                                </p>
+                              )}
+                              {promotionDraft?.messageId === messageId ? (
+                                <div className="mt-3 space-y-3">
+                                  <div className="space-y-1">
+                                    <Label htmlFor={`promotion-key-${messageId}`}>
+                                      {t('localizationMessageReuse.semanticKey')}
+                                    </Label>
+                                    <Input
+                                      id={`promotion-key-${messageId}`}
+                                      aria-label={t('localizationMessageReuse.promotionKeyAria', {
+                                        label,
+                                      })}
+                                      value={promotionDraft.key}
+                                      onChange={(event) => {
+                                        const key = event.currentTarget.value;
+                                        setPromotionDraft((current) =>
+                                          current && current.messageId === messageId
+                                            ? { ...current, key }
+                                            : current,
+                                        );
+                                      }}
+                                      placeholder="ui.shared.message"
+                                    />
+                                  </div>
+                                  {reuseCandidates.length > 0 && (
+                                    <div className="space-y-1">
+                                      <div className="font-medium">
+                                        {t('localizationMessageReuse.linkSelected')}
+                                      </div>
+                                      {reuseCandidates.map((candidate) => (
+                                        <label
+                                          key={candidate.id}
+                                          className="flex items-start gap-2 text-muted-foreground"
+                                        >
+                                          <input
+                                            type="checkbox"
+                                            checked={promotionDraft.selectedIds.includes(
+                                              candidate.id,
+                                            )}
+                                            disabled={!candidate.rewriteable}
+                                            onChange={(event) => {
+                                              const checked = event.currentTarget.checked;
+                                              setPromotionDraft((current) => {
+                                                if (!current || current.messageId !== messageId)
+                                                  return current;
+                                                return {
+                                                  ...current,
+                                                  selectedIds: checked
+                                                    ? [...current.selectedIds, candidate.id]
+                                                    : current.selectedIds.filter(
+                                                        (candidateId) =>
+                                                          candidateId !== candidate.id,
+                                                      ),
+                                                };
+                                              });
+                                            }}
+                                          />
+                                          <span>
+                                            {candidate.usedIn ?? candidate.id}
+                                            {!candidate.rewriteable
+                                              ? ` · ${t('localizationMessageReuse.unsupportedRefactor')}`
+                                              : ''}
+                                          </span>
+                                        </label>
+                                      ))}
+                                    </div>
+                                  )}
+                                  {promotionError && (
+                                    <p className="text-destructive">{promotionError}</p>
+                                  )}
+                                  <div className="flex gap-2">
+                                    <Button type="button" size="sm" onClick={promoteMessage}>
+                                      {t('localizationMessageReuse.promoteAndLink')}
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={() => {
+                                        setPromotionDraft(null);
+                                        setPromotionError(null);
+                                      }}
+                                    >
+                                      {t('localizationMessageReuse.cancel')}
+                                    </Button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  className="mt-2"
+                                  onClick={() => {
+                                    setPromotionError(null);
+                                    setPromotionDraft({ messageId, key: '', selectedIds: [] });
+                                  }}
+                                >
+                                  {t('localizationMessageReuse.promote')}
+                                </Button>
+                              )}
+                            </div>
+                          )}
+                          {message.kind === 'local' && namedMessages.length > 0 && (
+                            <div className="mb-3">{renderMergeControls(messageId, label)}</div>
+                          )}
+                          <div className="grid gap-3 @3xl:grid-cols-2">
+                            <div className="space-y-1">
+                              <Label htmlFor={`source-${messageId}`}>
+                                {t('localizationEditor.translations.sourceLabel', {
+                                  locale: localization.sourceLocale,
+                                })}
+                              </Label>
+                              <textarea
+                                className="min-h-20 w-full rounded border border-input bg-background p-2 text-sm"
+                                id={`source-${messageId}`}
+                                key={`source:${messageId}:${message.source}`}
+                                defaultValue={message.source}
+                                disabled={!view.sourceEditPath}
+                                onBlur={(event) =>
+                                  setSourceContent(view, event.currentTarget.value)
+                                }
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label htmlFor={`target-${messageId}`}>
+                                {t('localizationEditor.translations.targetLabel', {
+                                  locale: effectiveTargetLocale,
+                                })}
+                              </Label>
+                              <textarea
+                                className="min-h-20 w-full rounded border border-input bg-background p-2 text-sm"
+                                id={`target-${messageId}`}
+                                aria-label={t('localizationEditor.translations.targetAria', {
+                                  label,
+                                })}
+                                key={`${effectiveTargetLocale}:${messageId}:${translated}:${effective.locale ?? 'missing'}`}
+                                defaultValue={translated}
+                                placeholder={t('localizationEditor.status.missing')}
+                                disabled={effective.inherited || translation?.useSource}
+                                onBlur={(event) => setTranslation(view, event.currentTarget.value)}
+                              />
+                              {view.dialogueCues &&
+                                view.dialogueCues.length > 0 &&
+                                translation &&
+                                !translation.useSource && (
+                                  <div className="space-y-2 rounded-md border p-2">
+                                    <div className="text-xs font-medium text-muted-foreground">
+                                      {t('localizationEditor.labels.dialogueCuePlacements')}
+                                    </div>
+                                    {view.dialogueCues.map((sourceCue) => {
+                                      const cue =
+                                        translation.dialogueCues?.find(
+                                          (candidate) => candidate.id === sourceCue.id,
+                                        ) ?? sourceCue;
+                                      return (
+                                        <div
+                                          key={`${sourceCue.id}:${cue.position.offset}:${cue.position.order}`}
+                                          className="grid grid-cols-[minmax(0,1fr)_5.5rem_5.5rem] items-end gap-2"
+                                        >
+                                          <div
+                                            className="min-w-0 truncate text-xs"
+                                            title={sourceCue.id}
+                                          >
+                                            {sourceCue.id}
+                                          </div>
+                                          <div className="space-y-1">
+                                            <Label className="text-[11px]">
+                                              {t('localizationEditor.labels.offset')}
+                                            </Label>
+                                            <Input
+                                              type="number"
+                                              min={0}
+                                              step={1}
+                                              aria-label={t(
+                                                'localizationEditor.translations.cueOffsetAria',
+                                                {
+                                                  id: sourceCue.id,
+                                                },
+                                              )}
+                                              defaultValue={cue.position.offset}
+                                              disabled={effective.inherited || !localTranslation}
+                                              onBlur={(event) => {
+                                                const value = Number.parseInt(
+                                                  event.currentTarget.value,
+                                                  10,
+                                                );
+                                                if (Number.isInteger(value) && value >= 0)
+                                                  setDialogueCuePosition(
+                                                    view,
+                                                    sourceCue.id,
+                                                    'offset',
+                                                    value,
+                                                  );
+                                              }}
+                                            />
+                                          </div>
+                                          <div className="space-y-1">
+                                            <Label className="text-[11px]">
+                                              {t('localizationEditor.labels.order')}
+                                            </Label>
+                                            <Input
+                                              type="number"
+                                              min={0}
+                                              step={1}
+                                              aria-label={t(
+                                                'localizationEditor.translations.cueOrderAria',
+                                                {
+                                                  id: sourceCue.id,
+                                                },
+                                              )}
+                                              defaultValue={cue.position.order}
+                                              disabled={effective.inherited || !localTranslation}
+                                              onBlur={(event) => {
+                                                const value = Number.parseInt(
+                                                  event.currentTarget.value,
+                                                  10,
+                                                );
+                                                if (Number.isInteger(value) && value >= 0)
+                                                  setDialogueCuePosition(
+                                                    view,
+                                                    sourceCue.id,
+                                                    'order',
+                                                    value,
+                                                  );
+                                              }}
+                                            />
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                    {!dialogueCuesReviewable(view, translation) && (
+                                      <p className="text-xs text-destructive">
+                                        {t('localizationEditor.translations.cueValidation')}
+                                      </p>
+                                    )}
+                                  </div>
+                                )}
+                              <div className="flex flex-wrap gap-2 pt-1">
+                                {effective.inherited && (
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => overrideInheritedTarget(view)}
+                                  >
+                                    {t('localizationEditor.translations.overrideInherited')}
+                                  </Button>
+                                )}
+                                {!effective.inherited && !localTranslation?.useSource && (
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => setUseSource(view)}
+                                  >
+                                    {t('localizationEditor.translations.useSource')}
+                                  </Button>
+                                )}
+                                {localTranslation?.useSource && (
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => setTranslation(view, view.source)}
+                                  >
+                                    {t('localizationEditor.translations.translateInstead')}
+                                  </Button>
+                                )}
+                                {translation && !effective.inherited && !translation.useSource && (
+                                  <>
+                                    {translation.sourceFingerprint !== view.sourceFingerprint && (
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => acceptTranslation(view)}
+                                      >
+                                        {t('localizationEditor.translations.acceptCurrentSource')}
+                                      </Button>
+                                    )}
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="outline"
+                                      disabled={
+                                        translation.review === 'reviewed' ||
+                                        !translationReviewable(
+                                          view,
+                                          effectiveTargetLocale,
+                                          translation,
+                                        )
+                                      }
+                                      onClick={() => reviewTranslation(view)}
+                                    >
+                                      {t('localizationEditor.translations.markReviewed')}
+                                    </Button>
+                                  </>
+                                )}
+                              </div>
+                            </div>
                           </div>
                         </div>
-                      </div>
+                      )}
                     </section>
                   );
-                })}
-              </div>
+                }}
+              />
             )}
           </div>
         )}

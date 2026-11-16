@@ -81,13 +81,21 @@ function ProblemsPanel() {
               file.projectRelativePath === diagnostic.sourcePath &&
               sourceBuffers[file.id]?.dirty === true,
           ),
-        // External working-file diagnostics identify an agent-editable proposal.
-        // Do not navigate into the *saved* source editor and suggest it is the repair target.
+        // Normal native findings describe semantic records, even when the diagnostic
+        // also includes a physical YAML source path. Prefer the record's current
+        // label/editor. Exact source-location and malformed-source findings still
+        // navigate to their physical file; external working files have no saved target.
         target:
           diagnostic.observedAgainst === 'working-file'
             ? null
             : project
-              ? resolveProjectDiagnosticTarget(project, diagnostic, sourceFiles)
+              ? ((diagnostic.observedAgainst === 'working' &&
+                diagnostic.line === undefined &&
+                !/(?:syntax|parse|malformed|invalid.source|source.invalid|invalid.yaml|yaml.invalid|normalization)/iu.test(
+                  diagnostic.code ?? '',
+                )
+                  ? resolveProjectDiagnosticTarget(project, diagnostic.path)
+                  : null) ?? resolveProjectDiagnosticTarget(project, diagnostic, sourceFiles))
               : null,
       })),
     [orderedDiagnostics, project, sourceFiles, sourceBuffers, savedDocument, projectDocument],

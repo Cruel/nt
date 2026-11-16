@@ -889,6 +889,8 @@ describe('FullGamePreviewEditor', () => {
     const { editorPort, previewPort } = await renderConnectedPreview();
     const failure = await screen.findByRole('alert', { name: 'Play startup failed' });
     expect(failure).toHaveTextContent('Native Project is not admitted');
+    expect(failure).toHaveClass('max-w-lg', 'text-center', 'overflow-y-auto');
+    expect(failure.parentElement).toHaveClass('items-center', 'justify-center');
     expect(usePreviewManagerStore.getState().diagnosticOrder).toHaveLength(1);
     expect(
       usePreviewManagerStore.getState().diagnosticsById[

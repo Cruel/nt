@@ -3459,41 +3459,45 @@ export function FullGamePreviewEditor({
             }}
           />
           {showPlayStartupWaiting && !showPlayStartupFailure ? (
-            <div
-              role="status"
-              className="absolute inset-x-4 top-14 z-10 rounded-md border bg-background/95 p-3 text-xs text-muted-foreground shadow-md"
-            >
-              {projectSessionId && nativeWorkingRevision === null
-                ? 'Waiting for native Project admission before preparing Play…'
-                : 'Preparing the runtime Project for Play…'}
+            <div className="pointer-events-none absolute inset-x-4 top-14 bottom-4 z-10 flex items-center justify-center">
+              <div
+                role="status"
+                className="w-full max-w-md rounded-md border bg-background/95 px-4 py-3 text-center text-xs text-muted-foreground shadow-md"
+              >
+                {projectSessionId && nativeWorkingRevision === null
+                  ? 'Waiting for native Project admission before preparing Play…'
+                  : 'Preparing the runtime Project for Play…'}
+              </div>
             </div>
           ) : null}
           {showPlayStartupFailure ? (
-            <div
-              role="alert"
-              aria-label="Play startup failed"
-              className="absolute inset-x-4 top-14 z-10 rounded-md border border-destructive/50 bg-background/95 p-3 text-sm shadow-md"
-            >
-              <p className="font-medium text-destructive">
-                Play could not load the runtime Project.
-              </p>
-              <p className="mt-1 break-words text-xs">{playStartupFailureMessage}</p>
-              <Button
-                className="mt-2"
-                size="sm"
-                variant="outline"
-                onClick={() => {
-                  setRuntimeLoadError(null);
-                  if (
-                    compiledProjectState.loadedSourceFingerprint !== null &&
-                    canReloadLatestProject
-                  )
-                    reloadLatestCompiledProject();
-                  else setPreparationAttempt((value) => value + 1);
-                }}
+            <div className="pointer-events-none absolute inset-x-4 top-14 bottom-4 z-10 flex items-center justify-center">
+              <div
+                role="alert"
+                aria-label="Play startup failed"
+                className="pointer-events-auto max-h-full w-full max-w-lg overflow-y-auto rounded-md border border-destructive/50 bg-background/95 p-4 text-center text-sm shadow-md"
               >
-                Retry Play preparation
-              </Button>
+                <p className="font-medium text-destructive">
+                  Play could not load the runtime Project.
+                </p>
+                <p className="mt-1 break-words text-xs">{playStartupFailureMessage}</p>
+                <Button
+                  className="mt-3"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setRuntimeLoadError(null);
+                    if (
+                      compiledProjectState.loadedSourceFingerprint !== null &&
+                      canReloadLatestProject
+                    )
+                      reloadLatestCompiledProject();
+                    else setPreparationAttempt((value) => value + 1);
+                  }}
+                >
+                  Retry Play preparation
+                </Button>
+              </div>
             </div>
           ) : null}
         </div>

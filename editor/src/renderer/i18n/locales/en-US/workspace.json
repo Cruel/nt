@@ -617,6 +617,8 @@
       "baseChanged": "The base Asset changed after this localized variant was assigned. Reassign or review the variant against the current source."
     },
     "messages": {
+      "expandRow": "Expand named Message {{key}}",
+      "collapseRow": "Collapse named Message {{key}}",
       "title": "Named Messages",
       "description": "Reusable Messages have semantic keys; usage is derived from Project references.",
       "new": "New named message",
@@ -629,9 +631,14 @@
       "usageGuidance": "Occurrence-specific translator guidance"
     },
     "translations": {
+      "showNumericOnly": "Show numeric-only Messages",
+      "expandRow": "Expand {{label}}",
+      "collapseRow": "Collapse {{label}}",
+      "actionsAria": "Actions for {{label}}",
       "addTargetFirst": "Add a target language first",
       "bulkReview": "Mark filtered current as reviewed",
       "emptyLocale": "Add a target language on Languages to begin translating.",
+      "noMatches": "No Messages match the current filters.",
       "emptyMessages": "No Messages are available yet.",
       "context": "Context: {{value}}",
       "translatorNote": "Translator note: {{value}}",

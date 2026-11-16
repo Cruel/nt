@@ -273,10 +273,11 @@
     "localization/LocalizationEditor.tsx": {
       "onBlur": 11,
       "onChange": 9,
-      "onCheckedChange": 1,
-      "onClick": 27,
+      "onCheckedChange": 2,
+      "onClick": 34,
       "onValueChange": 12
     },
+    "localization/VirtualTranslationList.tsx": {},
     "maps/MapEditor.tsx": {
       "onChange": 22,
       "onClick": 12,
