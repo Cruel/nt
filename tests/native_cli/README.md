@@ -24,6 +24,11 @@ Run it alone with `ctest --test-dir build/linux-debug -R '^native_cli_narrative$
 duration estimates, malformed values, simple route totals, missing-data
 uncertainty, and public read-only/usage contracts. It is also exercised against
 the installed CLI by `certify-native-cli-public-contracts.mjs`.
+`narrative_routes.py` adds mutually exclusive Story ending estimates, shared
+Event/Content reuse, post-convergence typed-state divergence, logical artwork
+and Character tiers, hard/soft budget findings, unknown/overlapping time
+allocations, invalid references, and bounded-search exhaustion. Both metrics
+suites run as native CTest and installed public-CLI certification.
 `narrative_git.py` additionally exercises the public `--base` Git boundary,
 protected-decision status and source locations, graph impact witnesses, path
 moves, modified/untracked files, invalid history and read-only failure modes.

@@ -7,6 +7,7 @@ set(NOVELTEA_HOST_NARRATIVE_SOURCES
     tools/narrative/context_manifest.cpp
     tools/narrative/readiness.cpp
     tools/narrative/metrics.cpp
+    tools/narrative/metrics_routes.cpp
     tools/narrative/git_protection.cpp)
 
 # Accept exact repository-relative paths or absolute paths ending in the same

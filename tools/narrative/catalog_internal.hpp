@@ -39,6 +39,9 @@ inline bool is_private_inbox_path(const std::filesystem::path& relative)
 Catalog read_catalog(const std::filesystem::path& root,
                      const std::map<std::string, std::string>* sources = nullptr);
 Json analyze(Catalog& catalog);
+// Optional bounded route tracing shares the progression solver but retains
+// alternative branch histories that ordinary reachability may merge.
+Json trace_story_routes(const Catalog& catalog);
 Json readiness_from_catalog(const Catalog& source, const std::string& stage,
                             const std::string& view, const std::vector<std::string>& milestones);
 Json inspect_git_baseline(const std::filesystem::path& root, const std::string& revision,

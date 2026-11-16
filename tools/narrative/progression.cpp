@@ -193,15 +193,20 @@ bool constrain(Node& node, const Json& conditions)
     return true;
 }
 Search explore(const std::vector<const Record*>& events, const Graph& chronology,
-               const Baseline& initial, bool allow_unknown, bool allow_incomplete)
+               const Baseline& initial, bool allow_unknown, bool allow_incomplete,
+               bool preserve_branches = false)
 {
     constexpr std::size_t limit = 4096;
     Search result;
     std::vector<Node> nodes{Node{{}, initial.values, {}, {}, 0, {}}};
-    auto key = [](const Node& n) {
+    auto key = [preserve_branches](const Node& n) {
         auto completed = n.completed;
         std::sort(completed.begin(), completed.end());
-        return Json::array({completed, n.values, n.unknown, n.active, n.step}).dump();
+        if (!preserve_branches)
+            return Json::array({completed, n.values, n.unknown, n.active, n.step}).dump();
+        auto branches = n.branches;
+        std::sort(branches.begin(), branches.end());
+        return Json::array({completed, n.values, n.unknown, n.active, n.step, branches}).dump();
     };
     std::set<std::string> seen{key(nodes.front())};
     auto enqueue = [&](Node node, std::string event, std::string at, std::string step = "",
@@ -337,6 +342,61 @@ const Observation* observe(const Search& search,
     return it == search.observations.end() ? nullptr : &*it;
 }
 } // namespace
+Json trace_story_routes(const Catalog& catalog)
+{
+    std::vector<const Record*> events;
+    std::vector<const Record*> milestones;
+    Graph chronology;
+    for (const auto& record : catalog.records)
+        if (record.metadata["type"] == "event") {
+            events.push_back(&record);
+            chronology[record.metadata["id"].get<std::string>()] =
+                record.metadata["after"].get<std::vector<std::string>>();
+        } else if (record.metadata["type"] == "milestone" &&
+                   record.metadata["status"] != "superseded") {
+            milestones.push_back(&record);
+        }
+    // Trace only declared/known paths; prose-dependent and partial paths are
+    // reported as unknown by the existing broader coverage analysis.
+    const auto search = explore(events, chronology, baseline(catalog), false, false, true);
+    Json paths = Json::array();
+    std::set<std::string> seen;
+    constexpr std::size_t output_limit = 128;
+    bool output_truncated = false;
+    for (const auto& history : search.histories) {
+        const auto contains_all = [&](const Json& ids) {
+            return std::all_of(ids.begin(), ids.end(), [&](const Json& id) {
+                return std::find(history.completed.begin(), history.completed.end(),
+                                 id.get<std::string>()) != history.completed.end();
+            });
+        };
+        if (milestones.empty() ||
+            !std::all_of(milestones.begin(), milestones.end(), [&](const Record* record) {
+                const auto& alternatives = record->metadata["fulfillment"]["any_of"];
+                return std::any_of(alternatives.begin(), alternatives.end(), contains_all);
+            }))
+            continue;
+        auto completed = history.completed;
+        auto branches = history.branches;
+        std::sort(completed.begin(), completed.end());
+        std::sort(branches.begin(), branches.end());
+        const auto signature = Json::array({completed, branches, history.values}).dump();
+        if (!seen.insert(signature).second)
+            continue;
+        if (paths.size() == output_limit) {
+            output_truncated = true;
+            break;
+        }
+        Json state = Json::array();
+        for (const auto& [slot, value] : history.values)
+            state.push_back({{"predicate", Json::parse(slot)}, {"value", value}});
+        paths.push_back({{"events", completed}, {"branches", branches}, {"state", state}});
+    }
+    return {{"histories", paths},
+            {"truncated", search.truncated || output_truncated},
+            {"stateLimit", 4096},
+            {"outputLimit", output_limit}};
+}
 Json analyze(Catalog& catalog)
 {
     validate_state(catalog);

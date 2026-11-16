@@ -142,13 +142,77 @@ minute ranges separately; missing category estimates are `null`, never zero.
 For a Milestone with one declared fulfillment alternative, a matching optional
 route estimate overrides only the supplied duration categories. Milestones
 with multiple alternatives retain their common/base estimates but do not
-contribute to a route-level aggregate. The `metrics.route` sums Milestones only
-when each active Milestone has one alternative and is explicitly marked
-`provisional-single-alternative`. Every range is an authored planning estimate,
+contribute to the legacy single-route aggregate. The `metrics.route` sums
+Milestones only when each active Milestone has one alternative and is marked
+`provisional-single-alternative`; shared fulfillment Events are deduplicated
+when the bounded route analysis can establish their identity. The single-route
+summary is derived from route accounting only when declared route coverage is
+complete and the supported routes agree; otherwise its duration fields are
+`null` rather than reverting to a naive sum. `coverage.routeTotalAvailable`
+reflects the final reconciled summary. Every range is an authored planning estimate,
 not proof that content is independent, the route is realizable, the player will
 spend that long reading or solving Puzzles, or that production art exists.
 Coverage exposes counts of missing categories, unresolved alternatives,
 truncated bounded search, and availability of the approved target and aggregate.
+
+### Route-specific estimates and Story-wide production footprint
+
+`metrics.routes` extends the single-route summary using the same native
+bounded Event/branch/typed-state progression solver as validation. Each
+`structurally-reachable` route reports a stable fingerprint ID, completed Event
+IDs, chosen step-branch IDs, typed Facts/Relationships/outcomes, its Milestone
+fulfillment-alternative selectors, and separately estimated Narrative,
+Exploration and total minutes. A route-specific `duration_minutes` overrides
+only its declared categories. Event-order permutations with the same declared
+content, branch choices and typed state are deduplicated; mutually exclusive
+Milestone alternatives are **not** added together. A shared Event set with an
+identical estimate can contribute only once per route (`accounting:
+shared-deduplicated`). Overlapping but nonidentical selectors cannot be safely
+apportioned and yield an unknown total (`accounting: unverified-overlap`).
+The `difference` field remains the author's explanation, not another edge.
+Route identity intentionally preserves branch choices and typed state even
+after a shared reconvergence Event; counting Choice frequency is not a proxy
+for a number of authored scenes.
+
+`metrics.routeBounds.observedMinutes` encloses only the enumerated route
+estimates (minimum of minimums, maximum of maximums), never a fabricated
+average. `guaranteedMinutes` is withheld (`null`) whenever a contributing
+category is missing or any route classification is ambiguous, incomplete or
+truncated. `metrics.routeCoverage` reports up to 4096 search states and 128
+reported route histories; its `bounded-complete` label applies only to the
+*declared Story model*, not arbitrary player behavior. Optional unmodeled
+playtime, prose-only conditions, unmeasured Puzzle solving, and actual runtime
+branch choices always remain qualitative uncertainty. Ordinary
+`narrative validate` does not pay for this optional history trace.
+
+`metrics.contentFootprint` counts distinct **Authored Content records**
+Story-wide by their typed IDs, not by their Event count or by a route's
+duration. Per-route `authoredContentIds` are included once when the route
+contains any Event declared by that Content record. With complete declared
+coverage, Content records are labeled `shared`, `route-exclusive` or
+`unassigned`; otherwise classification is `unverified`, and the complete
+shared/exclusive lists are withheld. Illustration concepts and their
+meaningful variants have separate global IDs/counts; they are not physical
+Assets or engine Rooms. Character `artwork_tier` counts are reported by
+`main`, `supporting`, `extra`, `none`, and `unclassified`. There is no canonical
+Content-to-illustration or route-to-illustration link, so per-route artwork
+assignments are explicitly **unverified**. Omitted illustration concepts or
+unclassified Character tiers must not be treated as confirmed zero use.
+
+`metrics.stateDivergences` reports typed predicates with different witnessed
+values across routes, including Facts and Relationships after convergence.
+`metrics.budgetFindings` compares approved `first_playthrough` ranges with
+each route and production counts with declared Creative Direction budgets.
+Stable codes/statuses distinguish `budget-hard-violation` (error),
+`budget-soft-overage` (warning), `budget-unverified`, and `duration-target-risk`/
+`duration-target-overrun`/`duration-target-underrun`; source pointers identify
+the relevant budget. Duration targets do not have a hard/soft field in the
+canonical schema, so these are warnings, not invented hard limits. Unknown
+routes are never reported as within target. Hard illustration-cap conflicts
+already forbidden by the upstream planning schema remain source validation
+errors; hard Character tier overages are surfaced in `budgetFindings`.
+These findings diagnose planned production risk, **not** creative quality,
+permissions, a verified production asset inventory, or actual elapsed playtime.
 
 Malformed catalogs fail with exit code 1 and source-located diagnostics; they
 do not return partial route estimates. Usage errors (extra arguments, `--base`,

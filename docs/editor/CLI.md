@@ -71,8 +71,9 @@ playability. See [Narrative CLI](NARRATIVE_CLI.md#native-narrative-readiness-and
 
 `noveltea [--json] narrative metrics <catalog-root>` reports read-only,
 source-revision-bound Creative Direction targets, per-Milestone Narrative and
-Exploration estimates, and provisional single-alternative totals without a
-Project or runtime package. Missing estimates remain unknown rather than zero.
+Exploration estimates, route-specific ranges, distinct Authored Content/artwork
+footprints, and production-budget findings without a Project or runtime package.
+Missing estimates remain unknown rather than zero.
 See [Narrative CLI](NARRATIVE_CLI.md#read-only-story-planning-metrics).
 
 ## Private media-tool diagnosis

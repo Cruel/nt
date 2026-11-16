@@ -1,6 +1,7 @@
 #include "catalog.hpp"
 #include "catalog_internal.hpp"
 #include "generated/contract.hpp"
+#include "metrics_routes.hpp"
 
 #include <noveltea/core/fingerprint.hpp>
 
@@ -75,8 +76,6 @@ Json metrics_report(const std::filesystem::path& root)
         {"illustrationConcepts", planning.value("illustration_concepts", Json::array())}};
 
     Json milestones = Json::array();
-    Json route_narrative = {{"min_minutes", 0.0}, {"max_minutes", 0.0}};
-    Json route_exploration = route_narrative;
     unsigned unknown_narrative = 0, unknown_exploration = 0, unresolved_routes = 0;
     for (const auto& record : catalog.records) {
         const auto& metadata = record.metadata;
@@ -112,8 +111,6 @@ Json metrics_report(const std::filesystem::path& root)
             ++unknown_narrative;
         if (exploration.is_null())
             ++unknown_exploration;
-        route_narrative = sum_ranges(route_narrative, narrative);
-        route_exploration = sum_ranges(route_exploration, exploration);
         milestones.push_back({{"id", metadata["id"]},
                               {"path", record.path},
                               {"status", metadata["status"]},
@@ -129,10 +126,9 @@ Json metrics_report(const std::filesystem::path& root)
     result["milestones"] = milestones;
     result["route"] = {{"status", !simple ? "unresolved" : "provisional-single-alternative"},
                        {"milestoneIds", Json::array()},
-                       {"narrativeMinutes", simple ? route_narrative : Json(nullptr)},
-                       {"explorationMinutes", simple ? route_exploration : Json(nullptr)},
-                       {"totalMinutes", simple ? summed_duration(route_narrative, route_exploration)
-                                               : Json(nullptr)},
+                       {"narrativeMinutes", nullptr},
+                       {"explorationMinutes", nullptr},
+                       {"totalMinutes", nullptr},
                        {"unverified", "Milestone time estimates are additive planning assumptions; "
                                       "shared content, route exclusivity, actual dialogue speed, "
                                       "and Puzzle solving time have not been measured."}};
@@ -143,8 +139,24 @@ Json metrics_report(const std::filesystem::path& root)
                           {"missingExploration", unknown_exploration},
                           {"unresolvedAlternatives", unresolved_routes},
                           {"searchTruncated", evidence["search"]["truncated"]},
-                          {"approvedTargetAvailable", !target.is_null()},
-                          {"routeTotalAvailable", !result["route"]["totalMinutes"].is_null()}};
+                          {"approvedTargetAvailable", !target.is_null()}};
+    const auto route_details = route_metrics(catalog, evidence);
+    for (const auto& [name, value] : route_details.items())
+        result[name] = value;
+    // Derive the legacy single-alternative summary exclusively from the same
+    // shared-Event accounting as route estimates. Incomplete coverage must
+    // never resurrect a naive double-counted sum, even if sampled routes agree.
+    if (simple && route_details["routeCoverage"]["status"] == "bounded-complete" &&
+        !route_details["routes"].empty()) {
+        const auto& first = route_details["routes"].front();
+        for (const auto* field : {"narrativeMinutes", "explorationMinutes", "totalMinutes"}) {
+            const bool common =
+                std::all_of(route_details["routes"].begin(), route_details["routes"].end(),
+                            [&](const Json& route) { return route[field] == first[field]; });
+            result["route"][field] = common ? first[field] : Json(nullptr);
+        }
+    }
+    result["coverage"]["routeTotalAvailable"] = !result["route"]["totalMinutes"].is_null();
     return result;
 }
 } // namespace noveltea::narrative
