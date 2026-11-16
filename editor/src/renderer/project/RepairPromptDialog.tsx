@@ -24,6 +24,7 @@ import { useCommandStore } from '../commands/command-store';
 import { useDraftDirtyStore } from '../workbench/draft-dirty-store';
 import { assertNoUnprojectedRendererDrafts } from './agent-working-source-draft-guard';
 import { useWorkspaceStore } from '../stores/workspace-store';
+import { usePreviewManagerStore } from '../preview/preview-manager-store';
 import { useBottomPanelStore } from '../workbench/bottom-panel-store';
 import { launchWindowRepairTerminal } from '../workbench/terminal-window-host';
 import type { RepairHarness } from '../../shared/repair-harness';
@@ -59,6 +60,7 @@ export function RepairPromptDialog() {
   // Subscribe to both diagnostic authorities so a visible draft cannot look current
   // after a Project switch, source edit or a successful correction.
   useWorkspaceStore((state) => state.diagnostics);
+  usePreviewManagerStore((state) => state.diagnosticOrder);
   useProjectStore((state) => state.projectRevision);
   useProjectStore((state) => state.projectSessionId);
   useCommandStore((state) => state.nativeWorkingRevision);
@@ -84,12 +86,14 @@ export function RepairPromptDialog() {
         draft.sourceFingerprint,
         draft.scope,
         draft.selectedKey,
+        draft.intent,
         draft.requestGeneration,
       ])
     : null;
   const projectionReady =
     !draft ||
     draft.kind === 'candidate' ||
+    draft.intent === 'explain' ||
     (draft.workingSources !== undefined && publishedPrompt === publicationKey);
   const draftId = draft?.id;
   const draftKind = draft?.kind;
@@ -97,9 +101,16 @@ export function RepairPromptDialog() {
   const draftScope = draft?.scope;
   const draftSelectedKey = draft?.selectedKey;
   const draftGeneration = draft?.requestGeneration;
+  const draftIntent = draft?.intent;
 
   useEffect(() => {
-    if (!visible || !draftId || draftKind !== 'active') return;
+    if (
+      !visible ||
+      !draftId ||
+      draftIntent === 'explain' ||
+      (draftKind !== 'active' && draftKind !== 'preview')
+    )
+      return;
     let live = true;
     setPublishedPrompt(null);
     setRunError(null);
@@ -109,7 +120,13 @@ export function RepairPromptDialog() {
         if (
           !sources ||
           !setWorkingPublication(
-            { kind: 'active', id: draftId, scope: draftScope!, selectedKey: draftSelectedKey },
+            {
+              kind: draftKind,
+              id: draftId,
+              scope: draftScope!,
+              selectedKey: draftSelectedKey,
+              intent: draftIntent,
+            },
             draftSourceFingerprint!,
             sources,
           )
@@ -123,6 +140,7 @@ export function RepairPromptDialog() {
             draftSourceFingerprint,
             draftScope,
             draftSelectedKey,
+            draftIntent,
             draftGeneration,
           ]),
         );
@@ -141,6 +159,7 @@ export function RepairPromptDialog() {
     draftSourceFingerprint,
     draftScope,
     draftSelectedKey,
+    draftIntent,
     draftGeneration,
     setWorkingPublication,
   ]);
@@ -192,7 +211,7 @@ export function RepairPromptDialog() {
     setRunning(true);
     setRunError(null);
     try {
-      if (draft.kind === 'active') {
+      if (draft.kind !== 'candidate' && draft.intent !== 'explain') {
         const sources = await prepareAgentWorkingSources(draft.id);
         if (!sources || !setWorkingPublication(draft, draft.sourceFingerprint, sources))
           throw new Error('Working Project changed. Regenerate the prompt before Run.');
@@ -200,10 +219,11 @@ export function RepairPromptDialog() {
           throw new Error('Project validation changed before Run.');
       }
       await launchWindowRepairTerminal({
-        kind: draft.kind,
+        kind: draft.kind === 'preview' ? 'active' : draft.kind,
         id: draft.id,
         candidateRevision: draft.candidateRevision,
         harness,
+        intent: draft.intent,
         ...(effectiveModel ? { model: effectiveModel } : {}),
         prompt: draft.text,
         authorizeWeak: draft.authorizeWeak,
@@ -223,7 +243,7 @@ export function RepairPromptDialog() {
   async function copy() {
     if (!draft || !current || !projectionReady) return;
     try {
-      if (draft.kind === 'active') {
+      if (draft.kind !== 'candidate' && draft.intent !== 'explain') {
         const sources = await prepareAgentWorkingSources(draft.id);
         if (!sources || !setWorkingPublication(draft, draft.sourceFingerprint, sources))
           throw new Error('Working Project changed. Regenerate the prompt before Copy.');
@@ -244,14 +264,16 @@ export function RepairPromptDialog() {
     <Dialog open={visible} onOpenChange={(open) => !open && close()}>
       <DialogContent className="flex max-h-[90vh] w-[min(56rem,calc(100vw-2rem))] max-w-none flex-col gap-3">
         <DialogHeader>
-          <DialogTitle>{t('repairPrompt.title')}</DialogTitle>
+          <DialogTitle>
+            {draft?.intent === 'explain' ? t('repairPrompt.explainTitle') : t('repairPrompt.title')}
+          </DialogTitle>
         </DialogHeader>
         {draft ? (
           <>
             <div className="truncate font-mono text-xs text-muted-foreground" title={draft.root}>
               {draft.root}
             </div>
-            {!current || (draft.kind === 'active' && !projectionReady && runError) ? (
+            {!current || (draft.kind !== 'candidate' && !projectionReady && runError) ? (
               <div className="space-y-2 text-xs text-amber-600">
                 {!current ? <p role="alert">{t('repairPrompt.outdated')}</p> : null}
                 <Button
@@ -265,6 +287,7 @@ export function RepairPromptDialog() {
                       id: draft.id,
                       scope: draft.scope,
                       selectedKey: draft.selectedKey,
+                      intent: draft.intent,
                     });
                   }}
                 >
@@ -310,6 +333,11 @@ export function RepairPromptDialog() {
               </label>
             ) : null}
             <div className="grid grid-cols-[5rem_minmax(0,1fr)] items-center gap-x-3 gap-y-2 text-xs">
+              {draft.intent === 'explain' ? (
+                <p className="col-span-2 text-xs text-muted-foreground">
+                  {t('repairPrompt.explainPermissions')}
+                </p>
+              ) : null}
               <Label htmlFor="repair-harness">{t('repairPrompt.harnessLabel')}</Label>
               <Select
                 items={harnesses.map((available) => ({
@@ -470,7 +498,11 @@ export function RepairPromptDialog() {
               }
               onClick={() => void run()}
             >
-              {running ? t('repairPrompt.preparing') : t('repairPrompt.run')}
+              {running
+                ? t('repairPrompt.preparing')
+                : draft?.intent === 'explain'
+                  ? t('repairPrompt.explainRun')
+                  : t('repairPrompt.run')}
             </Button>
           </span>
         </DialogFooter>

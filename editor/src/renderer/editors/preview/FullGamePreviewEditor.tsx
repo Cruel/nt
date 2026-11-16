@@ -18,6 +18,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { localizedDiagnosticMessage } from '@/diagnostics/diagnostic-i18n';
 import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
 import { flushNativeProjectSources } from '@/project/project-source-store';
+import { PRIMARY_PREVIEW_SESSION_ID } from '@/preview/preview-manager';
+import { usePreviewManagerStore } from '@/preview/preview-manager-store';
 import { useProjectStore } from '@/project/project-store';
 import { MUTATION_SURFACE_ATTRIBUTIONS } from '@/project/save-unit-registry';
 import {
@@ -2680,6 +2682,7 @@ export function FullGamePreviewEditor({
 }: Partial<WorkbenchEditorProps> = {}) {
   const projectDocument = useProjectStore((state) => state.document);
   const projectSessionId = useProjectStore((state) => state.projectSessionId);
+  const nativeWorkingRevision = useCommandStore((state) => state.nativeWorkingRevision);
   const pendingInputEntries = usePendingInputStore((state) => state.entriesBySaveUnitId);
   const project = useMemo(
     () => (isAuthoringProjectView(projectDocument) ? projectDocument : null),
@@ -2786,9 +2789,26 @@ export function FullGamePreviewEditor({
     entries: [],
   });
   const [compiledProjectPreparationPending, setCompiledProjectPreparationPending] = useState(true);
+  const [preparationAttempt, setPreparationAttempt] = useState(0);
+  const [runtimeLoadError, setRuntimeLoadError] = useState<string | null>(null);
+  const [admissionWaitExpired, setAdmissionWaitExpired] = useState(false);
+  useEffect(() => {
+    if (!projectSessionId || nativeWorkingRevision !== null) {
+      setAdmissionWaitExpired(false);
+      return undefined;
+    }
+    const timeout = window.setTimeout(() => setAdmissionWaitExpired(true), 5000);
+    return () => window.clearTimeout(timeout);
+  }, [nativeWorkingRevision, projectSessionId]);
   const activeShaderVariant = previewControls?.activeShaderVariant ?? null;
   useEffect(() => {
-    if (!activeShaderVariant) {
+    if (
+      !activeShaderVariant ||
+      (projectSessionId && nativeWorkingRevision === null && !admissionWaitExpired)
+    ) {
+      // Project admission and the preview renderer can become ready in either
+      // order. Do not attempt runtime preparation until the native working
+      // revision is available; subscribe so admission wakes Play automatically.
       setCompiledProjectPreparationPending(true);
       return undefined;
     }
@@ -2799,18 +2819,74 @@ export function FullGamePreviewEditor({
       pendingInputEntries,
       projectSessionId,
       activeShaderVariant,
-    ).then((result) => {
-      if (current) {
+    )
+      .then((result) => {
+        if (!current) return;
         setExportedCompiledProject(result);
         setCompiledProjectPreparationPending(false);
-      }
-    });
+        if (!result.ok && result.entries.length > 0) {
+          const entry = result.entries[0]!;
+          usePreviewManagerStore.getState().recordPreviewDiagnostic({
+            sessionId: PRIMARY_PREVIEW_SESSION_ID,
+            target: { kind: 'runtime', collection: 'project', entityId: 'project' },
+            severity: entry.severity === 'info' ? 'warning' : entry.severity,
+            source: 'manager',
+            message: [entry.label, entry.detail].filter(Boolean).join(': '),
+            path: result.blockers[0]?.path,
+          });
+        }
+      })
+      .catch((error: unknown) => {
+        if (!current) return;
+        const message = error instanceof Error ? error.message : String(error);
+        setExportedCompiledProject({
+          ok: false,
+          compiledProject: null,
+          shaderMaterialMetadata: null,
+          previewAssets: [],
+          noticeIndexText: undefined,
+          preparedMediaManifestText: undefined,
+          sourceFingerprint: null,
+          blockers: [],
+          entries: [{ label: 'Runtime preparation failed', detail: message, severity: 'error' }],
+        });
+        setCompiledProjectPreparationPending(false);
+        usePreviewManagerStore.getState().recordPreviewDiagnostic({
+          sessionId: PRIMARY_PREVIEW_SESSION_ID,
+          target: { kind: 'runtime', collection: 'project', entityId: 'project' },
+          source: 'manager',
+          severity: 'error',
+          message: `Runtime preparation failed: ${message}`,
+        });
+      });
     return () => {
       current = false;
     };
-  }, [activeShaderVariant, project, pendingInputEntries, projectSessionId]);
+  }, [
+    activeShaderVariant,
+    admissionWaitExpired,
+    nativeWorkingRevision,
+    project,
+    pendingInputEntries,
+    projectSessionId,
+    preparationAttempt,
+  ]);
   const canReloadLatestProject =
     exportedCompiledProject.ok && !!exportedCompiledProject.compiledProject;
+  const showPlayStartupWaiting =
+    compiledProjectPreparationPending &&
+    compiledProjectState.loadedSourceFingerprint === null &&
+    !!activeShaderVariant;
+  const showPlayStartupFailure =
+    runtimeLoadError !== null ||
+    (!compiledProjectPreparationPending &&
+      compiledProjectState.loadedSourceFingerprint === null &&
+      !canReloadLatestProject);
+  const playStartupFailureMessage =
+    runtimeLoadError ??
+    exportedCompiledProject.entries[0]?.detail ??
+    exportedCompiledProject.entries[0]?.label ??
+    'The Project could not be prepared for Play.';
 
   const { notifyProjectReplaced: notifyAssetProfilerProjectReplaced } = useAssetProfilerPolling({
     controls: previewControls,
@@ -2879,6 +2955,19 @@ export function FullGamePreviewEditor({
     (context: EnginePreviewControlsContext | null) => {
       if (!context) return;
       void context.controller.requestRuntimeDebugSnapshot().catch((error: Error) => {
+        // The widget can acknowledge a project load before the runtime has
+        // published its first snapshot. Surface that failed bootstrap here,
+        // not only in the hidden runtime log or on the next canvas click.
+        if (error.message.includes('Runtime debug snapshot is unavailable')) {
+          setRuntimeLoadError(error.message);
+          usePreviewManagerStore.getState().recordPreviewDiagnostic({
+            sessionId: PRIMARY_PREVIEW_SESSION_ID,
+            target: { kind: 'runtime', collection: 'project', entityId: 'project' },
+            severity: 'error',
+            source: 'manager',
+            message: error.message,
+          });
+        }
         setState((current) => ({
           ...current,
           eventLog: addLogEntry(current.eventLog, { label: error.message, severity: 'error' }),
@@ -2913,6 +3002,7 @@ export function FullGamePreviewEditor({
         }));
         return false;
       }
+      setRuntimeLoadError(null);
       await context.controller.loadCompiledProject(
         exported.compiledProject,
         exported.previewAssets,
@@ -2920,6 +3010,11 @@ export function FullGamePreviewEditor({
         exported.noticeIndexText,
         exported.preparedMediaManifestText,
       );
+      usePreviewManagerStore.getState().clearPreviewDiagnosticsForTarget({
+        kind: 'runtime',
+        collection: 'project',
+        entityId: 'project',
+      });
       notifyAssetProfilerProjectReplaced();
       setCompiledProjectState({
         loadedSourceFingerprint: exported.sourceFingerprint,
@@ -3037,6 +3132,16 @@ export function FullGamePreviewEditor({
         setPreviewCapabilities(message.capabilities);
       }
       if (message.type === 'devtools-snapshot') setDevtoolsSnapshot(message.snapshot);
+      if (message.type === 'runtime-debug-snapshot') {
+        setRuntimeLoadError(null);
+        if (compiledProjectState.loadedSourceFingerprint !== null) {
+          usePreviewManagerStore.getState().clearPreviewDiagnosticsForTarget({
+            kind: 'runtime',
+            collection: 'project',
+            entityId: 'project',
+          });
+        }
+      }
       if (message.type === 'ready') {
         setDevtoolsSnapshot(null);
         setPreviewReadyGeneration((current) => current + 1);
@@ -3058,14 +3163,15 @@ export function FullGamePreviewEditor({
         });
       }
       if (
-        message.type === 'preview-interacted' ||
-        message.type === 'object-clicked' ||
-        message.type === 'preview-object-selected'
+        compiledProjectState.loadedSourceFingerprint !== null &&
+        (message.type === 'preview-interacted' ||
+          message.type === 'object-clicked' ||
+          message.type === 'preview-object-selected')
       ) {
         requestDebugSnapshot(controlsRef.current);
       }
     },
-    [requestDebugSnapshot],
+    [compiledProjectState.loadedSourceFingerprint, requestDebugSnapshot],
   );
 
   useEffect(() => {
@@ -3096,6 +3202,14 @@ export function FullGamePreviewEditor({
       })
       .catch((error: Error) => {
         if (cancelled) return;
+        setRuntimeLoadError(error.message);
+        usePreviewManagerStore.getState().recordPreviewDiagnostic({
+          sessionId: PRIMARY_PREVIEW_SESSION_ID,
+          target: { kind: 'runtime', collection: 'project', entityId: 'project' },
+          severity: 'error',
+          source: 'manager',
+          message: `Runtime project failed to load: ${error.message}`,
+        });
         setState((current) => ({
           ...current,
           eventLog: addLogEntry(current.eventLog, { label: error.message, severity: 'error' }),
@@ -3319,7 +3433,7 @@ export function FullGamePreviewEditor({
   return (
     <Group orientation="horizontal" className="h-full min-h-0 bg-background">
       <ResizePanel id="full-game-preview-canvas" minSize="420px">
-        <div className="h-full min-w-0">
+        <div className="relative h-full min-w-0">
           <EnginePreview
             audioEnabled
             previewActivityRefreshOnVisible={
@@ -3344,6 +3458,44 @@ export function FullGamePreviewEditor({
               );
             }}
           />
+          {showPlayStartupWaiting && !showPlayStartupFailure ? (
+            <div
+              role="status"
+              className="absolute inset-x-4 top-14 z-10 rounded-md border bg-background/95 p-3 text-xs text-muted-foreground shadow-md"
+            >
+              {projectSessionId && nativeWorkingRevision === null
+                ? 'Waiting for native Project admission before preparing Play…'
+                : 'Preparing the runtime Project for Play…'}
+            </div>
+          ) : null}
+          {showPlayStartupFailure ? (
+            <div
+              role="alert"
+              aria-label="Play startup failed"
+              className="absolute inset-x-4 top-14 z-10 rounded-md border border-destructive/50 bg-background/95 p-3 text-sm shadow-md"
+            >
+              <p className="font-medium text-destructive">
+                Play could not load the runtime Project.
+              </p>
+              <p className="mt-1 break-words text-xs">{playStartupFailureMessage}</p>
+              <Button
+                className="mt-2"
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setRuntimeLoadError(null);
+                  if (
+                    compiledProjectState.loadedSourceFingerprint !== null &&
+                    canReloadLatestProject
+                  )
+                    reloadLatestCompiledProject();
+                  else setPreparationAttempt((value) => value + 1);
+                }}
+              >
+                Retry Play preparation
+              </Button>
+            </div>
+          ) : null}
         </div>
       </ResizePanel>
       <PanelResizeSeparator orientation="horizontal" aria-label="Resize Play Inspector" />

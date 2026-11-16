@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import { act, render, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import { FullGamePreviewEditor } from '@/editors/preview/FullGamePreviewEditor';
 import { useCommandStore } from '@/commands/command-store';
 import { usePreviewManagerStore } from '@/preview/preview-manager-store';
@@ -131,6 +131,20 @@ beforeEach(() => {
 });
 
 describe('FullGamePreviewEditor bootstrap ordering', () => {
+  it('waits for the native working revision and prepares automatically after Project admission', async () => {
+    useCommandStore.setState({ nativeWorkingRevision: null });
+    render(<FullGamePreviewEditor />);
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'Waiting for native Project admission',
+    );
+    expect(window.noveltea.nativeProjectPrepareRuntime).not.toHaveBeenCalled();
+
+    await act(async () => {
+      useCommandStore.setState({ nativeWorkingRevision: 0 });
+    });
+    await waitFor(() => expect(window.noveltea.nativeProjectPrepareRuntime).toHaveBeenCalled());
+    await waitFor(() => expect(bootstrapMocks.loadCompiledProject).toHaveBeenCalledTimes(1));
+  });
   it('queues ready until controls exist and requests a snapshot only after project load', async () => {
     render(<FullGamePreviewEditor />);
 

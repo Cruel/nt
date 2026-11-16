@@ -131,6 +131,12 @@ describe('repair harness host boundary', () => {
       authorizeNewer: false,
     };
     expect(repairHarnessLaunchArgumentsSchema.parse([request])).toEqual([request]);
+    expect(
+      repairHarnessLaunchArgumentsSchema.parse([{ ...request, kind: 'active', intent: 'explain' }]),
+    ).toHaveLength(1);
+    expect(() =>
+      repairHarnessLaunchArgumentsSchema.parse([{ ...request, intent: 'execute-shell' }]),
+    ).toThrow();
     expect(() => repairHarnessLaunchArgumentsSchema.parse([{ ...request, cwd: '/tmp' }])).toThrow();
     expect(
       repairHarnessLaunchArgumentsSchema.parse([

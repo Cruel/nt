@@ -880,6 +880,131 @@ describe('FullGamePreviewEditor', () => {
     );
   });
 
+  it('shows native preparation failures immediately, reports them as preview diagnostics, and retries without a click-triggered snapshot error', async () => {
+    const user = userEvent.setup();
+    admitNativeRendererCommandFixture(projectWithEntrypoint());
+    vi.mocked(window.noveltea.nativeProjectPrepareRuntime).mockRejectedValueOnce(
+      new Error('Native Project is not admitted for this editor session.'),
+    );
+    const { editorPort, previewPort } = await renderConnectedPreview();
+    const failure = await screen.findByRole('alert', { name: 'Play startup failed' });
+    expect(failure).toHaveTextContent('Native Project is not admitted');
+    expect(usePreviewManagerStore.getState().diagnosticOrder).toHaveLength(1);
+    expect(
+      usePreviewManagerStore.getState().diagnosticsById[
+        usePreviewManagerStore.getState().diagnosticOrder[0]!
+      ],
+    ).toMatchObject({
+      source: 'manager',
+      severity: 'error',
+      message:
+        'Runtime preparation failed: Native Project is not admitted for this editor session.',
+    });
+    expect(requests(editorPort, 'runtime-request-debug-snapshot')).toHaveLength(0);
+    expect(requests(editorPort, 'runtime-load-compiled-project')).toHaveLength(0);
+
+    await user.click(screen.getByRole('button', { name: 'Retry Play preparation' }));
+    await waitFor(() =>
+      expect(window.noveltea.nativeProjectPrepareRuntime).toHaveBeenCalledTimes(2),
+    );
+    expect(
+      await vi.mocked(window.noveltea.nativeProjectPrepareRuntime).mock.results[1]!.value,
+    ).toMatchObject({ status: 'prepared' });
+    await waitFor(() =>
+      expect(screen.queryByRole('alert', { name: 'Play startup failed' })).toBeNull(),
+    );
+    await waitFor(() =>
+      expect(requests(editorPort, 'runtime-load-compiled-project')).toHaveLength(1),
+    );
+    await resolveLatest(editorPort, previewPort, 'runtime-load-compiled-project');
+    await waitFor(() =>
+      expect(requests(editorPort, 'runtime-request-debug-snapshot')).toHaveLength(1),
+    );
+    expect(screen.queryByRole('alert', { name: 'Play startup failed' })).toBeNull();
+    expect(usePreviewManagerStore.getState().diagnosticOrder).toHaveLength(0);
+  });
+
+  it('does not request a runtime snapshot from an unloaded preview when clicked', async () => {
+    admitNativeRendererCommandFixture(projectWithEntrypoint());
+    vi.mocked(window.noveltea.nativeProjectPrepareRuntime).mockRejectedValueOnce(
+      new Error('Native runtime preparation unavailable.'),
+    );
+    const { editorPort, previewPort } = await renderConnectedPreview();
+    await screen.findByRole('alert', { name: 'Play startup failed' });
+    await act(async () => {
+      previewPort.postMessage({ version: 1, type: 'preview-interacted' });
+    });
+    expect(requests(editorPort, 'runtime-request-debug-snapshot')).toHaveLength(0);
+  });
+
+  it('reports missing initial runtime snapshots immediately and clears the warning after recovery', async () => {
+    const user = userEvent.setup();
+    admitNativeRendererCommandFixture(projectWithEntrypoint());
+    const { editorPort, previewPort } = await renderConnectedPreview();
+    await waitFor(() =>
+      expect(requests(editorPort, 'runtime-load-compiled-project')).toHaveLength(1),
+    );
+    await resolveLatest(editorPort, previewPort, 'runtime-load-compiled-project');
+    await waitFor(() =>
+      expect(requests(editorPort, 'runtime-request-debug-snapshot').length).toBeGreaterThan(0),
+    );
+    await act(async () => {
+      previewPort.postMessage({
+        version: 1,
+        type: 'command-result',
+        requestId: latestRequest(editorPort, 'runtime-request-debug-snapshot')!.requestId,
+        ok: false,
+        error: 'Runtime debug snapshot is unavailable for the current preview session.',
+      });
+    });
+    expect(await screen.findByRole('alert', { name: 'Play startup failed' })).toHaveTextContent(
+      'Runtime debug snapshot is unavailable',
+    );
+    expect(usePreviewManagerStore.getState().diagnosticOrder.length).toBeGreaterThan(0);
+    await user.click(screen.getByRole('button', { name: 'Retry Play preparation' }));
+    await waitFor(() =>
+      expect(requests(editorPort, 'runtime-load-compiled-project')).toHaveLength(2),
+    );
+    await resolveLatest(editorPort, previewPort, 'runtime-load-compiled-project');
+    await postInputSnapshot(previewPort);
+    await waitFor(() =>
+      expect(screen.queryByRole('alert', { name: 'Play startup failed' })).toBeNull(),
+    );
+    expect(usePreviewManagerStore.getState().diagnosticOrder).toHaveLength(0);
+  });
+
+  it('shows runtime load failures without waiting for an interaction and retries the load', async () => {
+    const user = userEvent.setup();
+    admitNativeRendererCommandFixture(projectWithEntrypoint());
+    const { editorPort, previewPort } = await renderConnectedPreview();
+    await waitFor(() =>
+      expect(requests(editorPort, 'runtime-load-compiled-project')).toHaveLength(1),
+    );
+    await act(async () => {
+      previewPort.postMessage({
+        version: 1,
+        type: 'command-result',
+        requestId: latestRequest(editorPort, 'runtime-load-compiled-project')!.requestId,
+        ok: false,
+        error: 'Compiled project failed to load its entrypoint.',
+      });
+    });
+    expect(await screen.findByRole('alert', { name: 'Play startup failed' })).toHaveTextContent(
+      'Compiled project failed to load its entrypoint.',
+    );
+    expect(usePreviewManagerStore.getState().diagnosticOrder).toHaveLength(1);
+    await user.click(screen.getByRole('button', { name: 'Retry Play preparation' }));
+    await waitFor(() =>
+      expect(requests(editorPort, 'runtime-load-compiled-project')).toHaveLength(2),
+    );
+    await resolveLatest(editorPort, previewPort, 'runtime-load-compiled-project');
+    await waitFor(() =>
+      expect(requests(editorPort, 'runtime-request-debug-snapshot').length).toBeGreaterThan(0),
+    );
+    expect(screen.queryByRole('alert', { name: 'Play startup failed' })).toBeNull();
+    expect(usePreviewManagerStore.getState().diagnosticOrder).toHaveLength(0);
+  });
+
   it('automatically loads after initial blockers are fixed without showing a ready-to-load state', async () => {
     const blocked = projectWithEntrypoint();
     blocked.entrypoint = null;

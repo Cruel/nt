@@ -19,7 +19,13 @@ function nativeStub() {
     admitFromNative: vi.fn(async (_projectSessionId: string) => ({
       savedProject,
       revision: 2,
-      diagnostics: [],
+      diagnostics: [] as Array<{
+        code: string;
+        severity: 'error' | 'warning' | 'info';
+        path: string;
+        sourcePath?: string;
+        message: string;
+      }>,
       sourceRevisions: {},
     })),
     recoveredContentProject: vi.fn(() => null),
@@ -163,6 +169,49 @@ describe('native-only editor Open lifecycle', () => {
       await Promise.all(
         [original, candidate].map((root) => rm(root, { recursive: true, force: true })),
       );
+    }
+  });
+
+  it('admits a Project with localization diagnostics instead of treating them as an Open failure', async () => {
+    const root = await workspace();
+    const sessions = new ActiveProjectSessionService();
+    const native = nativeStub();
+    native.admitFromNative.mockResolvedValueOnce({
+      savedProject: native.savedProject,
+      revision: 2,
+      sourceRevisions: {},
+      diagnostics: [
+        {
+          code: 'authoring.localization.named_message_missing',
+          severity: 'error',
+          path: '/rooms/director-completion-demo/data/description/source/key',
+          sourcePath: 'records/rooms/director-completion-demo.yaml',
+          message: "Named Message 'director_completion_demo.description' does not exist.",
+        },
+      ],
+    });
+    try {
+      const response = await openNativeEditorProject(
+        root,
+        sessions.beginProjectActivation(),
+        sessions,
+        native,
+      );
+      expect(response.success).toBe(true);
+      expect(response.nativeWorkingRevision).toBe(2);
+      expect(response.diagnostics).toEqual([
+        expect.objectContaining({
+          code: 'authoring.localization.named_message_missing',
+          category: 'Project validation',
+          path: '/rooms/director-completion-demo/data/description/source/key',
+          sourcePath: 'records/rooms/director-completion-demo.yaml',
+        }),
+      ]);
+      expect(sessions.currentSessionId()).toBe(response.projectSessionId);
+      expect(native.close).not.toHaveBeenCalled();
+    } finally {
+      sessions.dispose();
+      await rm(root, { recursive: true, force: true });
     }
   });
 

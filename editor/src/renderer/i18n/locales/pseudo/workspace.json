@@ -3,10 +3,18 @@
     "observedWorking": "⟦Working state⟧",
     "observedDisk": "⟦Saved disk⟧",
     "observedWorkingFile": "⟦External working file⟧",
-    "unsavedOwner": "⟦Owner has unsaved edits⟧"
+    "unsavedOwner": "⟦Owner has unsaved edits⟧",
+    "copyMessage": "⟦Copy message⟧",
+    "copyDetails": "⟦Copy details⟧",
+    "explainWithAi": "⟦Explain with AI⟧",
+    "fixWithAi": "⟦Fix with AI⟧",
+    "goToSource": "⟦Go to source⟧"
   },
   "repairPrompt": {
     "title": "[Rëpäïr]",
+    "explainTitle": "⟦Explain diagnostic⟧",
+    "explainRun": "⟦Explain⟧",
+    "explainPermissions": "⟦The prompt requests no edits; the tool still has its configured permissions.⟧",
     "promptLabel": "[Prömpt]",
     "fix": "[Fïx]",
     "fixAll": "[Fïx Äll]",

@@ -1269,6 +1269,8 @@ void app.whenReady().then(async () => {
         throw new Error('An active Project cannot use a candidate source revision.');
       if (request.kind === 'candidate' && request.candidateRevision === undefined)
         throw new Error('The candidate source must be inspected before Run.');
+      if (request.intent === 'explain' && request.kind !== 'active')
+        throw new Error('Explanation requires an admitted active Project.');
       const candidate =
         request.kind === 'candidate'
           ? await projectCandidateRepairs.authorizeRun(request.id)
@@ -1300,7 +1302,8 @@ void app.whenReady().then(async () => {
         process.platform,
         request.model,
       );
-      await prepareRepairAgentKit(root, candidate?.recognition === 'weak');
+      if (request.intent !== 'explain')
+        await prepareRepairAgentKit(root, candidate?.recognition === 'weak');
       // Reauthenticate after async preparation: closing a candidate or
       // switching the active Project must not grant a delayed launch.
       if (candidate) {

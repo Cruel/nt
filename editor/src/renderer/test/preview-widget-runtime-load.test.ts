@@ -3,6 +3,34 @@ import path from 'node:path';
 import vm from 'node:vm';
 import { describe, expect, it } from 'vite-plus/test';
 
+function createCommandFailureHarness() {
+  const widget = fs.readFileSync(path.resolve('../web/widget.html'), 'utf8');
+  const start = widget.indexOf('function failCommand(message, reason, diagnostic = {}) {');
+  const end = widget.indexOf('\n    function isClosedShaderVariant', start);
+  expect(start).toBeGreaterThanOrEqual(0);
+  expect(end).toBeGreaterThan(start);
+  const failures: string[] = [];
+  const messages: Record<string, unknown>[] = [];
+  const context = {
+    protocolVersion: 1,
+    showFailure(text: string) {
+      failures.push(text);
+    },
+    send(message: Record<string, unknown>) {
+      messages.push(message);
+    },
+    failCommand: null as
+      | null
+      | ((
+          message: { requestId: string },
+          reason: string,
+          diagnostic: { category: string },
+        ) => void),
+  };
+  vm.runInNewContext(`${widget.slice(start, end)}\nthis.failCommand = failCommand;`, context);
+  return { failures, messages, failCommand: context.failCommand! };
+}
+
 function createRuntimeLoadHarness() {
   const widget = fs.readFileSync(path.resolve('../web/widget.html'), 'utf8');
   const start = widget.indexOf('async function loadCompiledProject(message) {');
@@ -436,6 +464,34 @@ describe('preview widget runtime project loading', () => {
       requestId: 'clear-1',
       ok: true,
     });
+  });
+
+  it('does not display a fatal canvas banner for a missing runtime-debug snapshot', () => {
+    const harness = createCommandFailureHarness();
+    harness.failCommand(
+      { requestId: 'snapshot' },
+      'Runtime debug snapshot is unavailable for the current preview session.',
+      { category: 'runtime-debug-snapshot' },
+    );
+    expect(harness.failures).toEqual([]);
+    expect(harness.messages).toEqual([
+      expect.objectContaining({
+        type: 'preview-diagnostic',
+        diagnostic: expect.objectContaining({
+          category: 'runtime-debug-snapshot',
+          severity: 'warning',
+        }),
+      }),
+      expect.objectContaining({
+        type: 'command-result',
+        requestId: 'snapshot',
+        ok: false,
+      }),
+    ]);
+    harness.failCommand({ requestId: 'load' }, 'Could not load the runtime Project.', {
+      category: 'compiled-project',
+    });
+    expect(harness.failures).toEqual(['Could not load the runtime Project.']);
   });
 
   it('does not spam diagnostics when passive runtime-debug polling has no snapshot yet', () => {

@@ -3,10 +3,12 @@ import type { ToolDiagnostic } from '../../shared/editor-tooling';
 import { useCandidateRepairStore } from '../project/candidate-repair-store';
 import { useProjectStore } from '../project/project-store';
 import { useWorkspaceStore } from '../stores/workspace-store';
+import { usePreviewManagerStore } from '../preview/preview-manager-store';
 import {
   useRepairPromptStore,
   repairPromptIsCurrent,
   repairPromptRunAuthorized,
+  previewDiagnosticForRepair,
 } from '../project/repair-prompt-store';
 import {
   repairDiagnosticKey,
@@ -59,6 +61,66 @@ describe('scoped Project diagnostic prompts', () => {
         selectedKey: 'removed',
       }),
     ).toBeNull();
+  });
+
+  it('generates a bounded explanation prompt without proposing writes or treating preview failures as bad Project data', () => {
+    const diagnostic = {
+      severity: 'info' as const,
+      code: 'preview.manager',
+      path: '/rooms/foyer',
+      message: 'Room missing from preview',
+    };
+    const prompt = buildRepairPrompt({
+      root: '/project',
+      kind: 'active',
+      sourceKind: 'preview',
+      intent: 'explain',
+      scope: 'one',
+      diagnostics: [diagnostic],
+      selectedKey: repairDiagnosticKey(diagnostic),
+    })!;
+    expect(prompt).toContain('Investigate and explain');
+    expect(prompt).toContain('Do not modify any files');
+    expect(prompt).toContain('not proof that Project source data is invalid');
+    expect(prompt).toContain('Room missing from preview');
+    expect(prompt).not.toContain('Fix only the following');
+  });
+
+  it('accepts a selected Preview diagnostic and invalidates its AI prompt when the diagnostic clears', () => {
+    const projectBefore = useProjectStore.getState();
+    try {
+      usePreviewManagerStore.getState().resetPreviewManager();
+      useProjectStore.setState({
+        projectPath: '/test/project',
+        projectSessionId: 'session-preview',
+        projectRevision: 1,
+      });
+      const record = usePreviewManagerStore.getState().recordPreviewDiagnostic({
+        severity: 'error',
+        source: 'manager',
+        message: 'Preview race',
+        sessionId: 'session-preview',
+        target: { kind: 'room', collection: 'rooms', entityId: 'foyer' },
+      });
+      const key = repairDiagnosticKey(previewDiagnosticForRepair(record));
+      expect(
+        useRepairPromptStore.getState().request({
+          kind: 'preview',
+          intent: 'explain',
+          id: 'session-preview',
+          scope: 'one',
+          selectedKey: key,
+        }),
+      ).toBe(true);
+      const draft = useRepairPromptStore.getState().draft!;
+      expect(draft.text).toContain('Preview race');
+      expect(draft.text).toContain('Session:'); // Session details are included only when available.
+      usePreviewManagerStore.getState().clearPreviewDiagnostics();
+      expect(repairPromptIsCurrent(draft)).toBe(false);
+    } finally {
+      useProjectStore.setState(projectBefore);
+      usePreviewManagerStore.getState().resetPreviewManager();
+    }
   });
 
   it('provides a source anchor and compact Project-only guidance', () => {

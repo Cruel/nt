@@ -21,6 +21,7 @@ struct NativeStructuredSourcesCache {
     struct Entry {
         std::string source_identity;
         std::map<std::string, std::string> messages;
+        std::map<std::string, std::string> named_references;
     };
     std::map<std::string, Entry> records;
     std::size_t reused = 0;

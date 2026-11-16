@@ -212,7 +212,10 @@ thead, tbody, tfoot {
     }
 
     function failCommand(message, reason, diagnostic = {}) {
-      showFailure(reason);
+      // A debug snapshot can be temporarily absent before the runtime has
+      // published its first state. Do not turn this into a fatal red canvas
+      // banner: the parent Play editor reports startup readiness and retries.
+      if (diagnostic.category !== 'runtime-debug-snapshot') showFailure(reason);
       send({ version: protocolVersion, type: 'preview-diagnostic', diagnostic: { severity: 'warning', message: reason, ...diagnostic } });
       send({
         version: protocolVersion,

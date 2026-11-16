@@ -335,6 +335,109 @@ void certify(const std::filesystem::path& source)
         (void)check(changed_locales, records, std::nullopt);
     }
     {
+        // A structurally valid localized Room description must resolve an actual
+        // named Message before native runtime preparation reaches the compiler.
+        const auto room_file = "records/rooms/director-completion-demo.yaml";
+        const auto decoded = open_yaml_source(contents(fixture.root / room_file));
+        require(decoded.accepted, "Director completion Room source decodes");
+        auto record = Json::parse(decoded.source_json);
+        Json description = Json::object();
+        description["markup"] = "active-text";
+        description["source"] = Json::object();
+        description["source"]["kind"] = "localized";
+        description["source"]["key"] = "director_completion_demo.description";
+        record["data"]["description"] = description;
+        const std::map<std::string, std::string> overlay{{room_file, record.to_string()}};
+        const auto missing = validate_project_localization(fixture.root, {}, overlay);
+        const auto pointer = "/rooms/director-completion-demo/data/description/source/key";
+        require(!missing.accepted && diagnostic(missing, pointer),
+                "Unresolved localized Room description has an owner diagnostic");
+        const auto found = std::find_if(missing.diagnostics.begin(), missing.diagnostics.end(),
+                                        [&](const auto& entry) { return entry.path == pointer; });
+        require(found != missing.diagnostics.end() &&
+                    found->code == "authoring.localization.named_message_missing" &&
+                    found->source_path == room_file &&
+                    found->message.find("director_completion_demo.description") !=
+                        std::string::npos,
+                "Missing named Message identifies its key and physical Room source");
+        {
+            Fixture admitted(source);
+            std::ofstream(admitted.root / room_file, std::ios::trunc) << record.to_string();
+            std::string error;
+            auto session = ProjectSession::open(admitted.root, error);
+            require(session != nullptr, "Missing named Message does not prevent Project admission");
+            const auto state = session->validate_project();
+            const auto relevant =
+                std::find_if(state.diagnostics.begin(), state.diagnostics.end(),
+                             [&](const auto& issue) { return issue.path == pointer; });
+            require(!state.valid && relevant != state.diagnostics.end() &&
+                        relevant->source_path == room_file &&
+                        relevant->code == "authoring.localization.named_message_missing",
+                    "Native Project validation blocks unresolved Messages before runtime lowering");
+            const auto editor_view = session->prepare_complete_working(session->working_revision(),
+                                                                       "", false, false, true);
+            require(editor_view.accepted && !editor_view.complete_project_json.empty() &&
+                        std::any_of(editor_view.diagnostics.begin(), editor_view.diagnostics.end(),
+                                    [&](const auto& issue) { return issue.path == pointer; }) &&
+                        Json::parse(editor_view.complete_project_json)
+                            .at("rooms")
+                            .contains("director-completion-demo"),
+                    "Editor opens and retains the Room while reporting the missing named Message");
+            require(!session->prepare_complete_working(session->working_revision()).accepted,
+                    "Runtime preparation still rejects missing named Messages");
+            const auto corrected =
+                session->patch(session->working_revision(),
+                               {{RoomPatch::Operation::Replace, pointer, R"("lab.greeting")"}});
+            require(corrected.accepted && corrected.snapshot.valid &&
+                        session->prepare_complete_working(session->working_revision()).accepted,
+                    "Repairing the named Message restores runtime preparation without reopening");
+        }
+        record["data"]["description"]["source"]["key"] = "lab.greeting";
+        require(validate_project_localization(fixture.root, {}, {{room_file, record.to_string()}})
+                    .accepted,
+                "Existing named Message resolves the previously invalid Room");
+        record["data"]["description"]["source"]["key"] = "noveltea.settings.language";
+        require(validate_project_localization(fixture.root, {}, {{room_file, record.to_string()}})
+                    .accepted,
+                "Built-in System Message keys are valid without a user catalog entry");
+        const auto variable_file = "records/variables/story-message.yaml";
+        const auto variable_decoded = open_yaml_source(contents(fixture.root / variable_file));
+        require(variable_decoded.accepted, "Message Variable source decodes");
+        auto variable = Json::parse(variable_decoded.source_json);
+        variable["data"]["value"]["$message"] = "lab.nonexistent";
+        const auto missing_variable = validate_project_localization(
+            fixture.root, {}, {{variable_file, variable.to_string()}});
+        const auto variable_pointer = "/variables/story-message/data/value/$message";
+        require(!missing_variable.accepted && diagnostic(missing_variable, variable_pointer),
+                "Missing Message Variable key is rejected with an exact field path");
+        variable["data"]["value"]["$message"] = "lab.greeting";
+        require(
+            validate_project_localization(fixture.root, {}, {{variable_file, variable.to_string()}})
+                .accepted,
+            "Valid Message Variable key restores localization admission");
+        {
+            Fixture working(source);
+            std::string error;
+            auto session = ProjectSession::open(working.root, error);
+            require(session && session->snapshot().valid,
+                    "Native Project baseline opens before Message Variable edit");
+            const auto invalid = session->patch(
+                session->snapshot().working_revision,
+                {{RoomPatch::Operation::Replace, variable_pointer, R"("lab.nonexistent")"}});
+            require(
+                invalid.accepted && !invalid.snapshot.valid &&
+                    std::any_of(invalid.snapshot.diagnostics.begin(),
+                                invalid.snapshot.diagnostics.end(),
+                                [&](const auto& issue) { return issue.path == variable_pointer; }),
+                "Message Variable edit invalidates native localization proof");
+            const auto repaired = session->patch(
+                invalid.snapshot.working_revision,
+                {{RoomPatch::Operation::Replace, variable_pointer, R"("lab.greeting")"}});
+            require(repaired.accepted && repaired.snapshot.valid,
+                    "Corrected Message Variable edit restores valid native Project");
+        }
+    }
+    {
         Fixture contributors(source);
         const auto locale_path = contributors.root / "i18n/locales/fr.yaml";
         const auto parsed = open_yaml_source(contents(locale_path));

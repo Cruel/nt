@@ -1,4 +1,6 @@
 import { useMemo } from 'react';
+import { useRepairPromptStore, previewDiagnosticForRepair } from '@/project/repair-prompt-store';
+import { repairDiagnosticKey } from '@/project/repair-prompt';
 import { Button } from '@/components/ui/button';
 import { DiagnosticList } from '@/diagnostics/DiagnosticList';
 import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
@@ -12,6 +14,10 @@ export function PreviewDiagnosticsPanel() {
   const diagnosticsById = usePreviewManagerStore((state) => state.diagnosticsById);
   const clearPreviewDiagnostics = usePreviewManagerStore((state) => state.clearPreviewDiagnostics);
   const projectDocument = useProjectStore((state) => state.document);
+  const projectSessionId = useProjectStore(
+    (state) => state.projectSessionId ?? state.projectInstanceId,
+  );
+  const requestPrompt = useRepairPromptStore((state) => state.request);
   const project = isAuthoringProjectView(projectDocument) ? projectDocument : null;
   const diagnostics = useMemo(
     () => diagnosticOrder.map((id) => diagnosticsById[id]).filter(Boolean),
@@ -24,9 +30,20 @@ export function PreviewDiagnosticsPanel() {
         message: `${diagnostic.message} (${previewTargetLabel(diagnostic.target)})`,
         path: diagnostic.path,
         category: diagnostic.source,
+        context: {
+          source: diagnostic.source,
+          sessionId: diagnostic.sessionId,
+          previewTarget: previewTargetLabel(diagnostic.target),
+          timestamp: diagnostic.timestamp,
+        },
         target:
-          project && diagnostic.path
-            ? resolveProjectDiagnosticTarget(project, diagnostic.path)
+          project &&
+          (diagnostic.path || (diagnostic.target?.collection && diagnostic.target.entityId))
+            ? resolveProjectDiagnosticTarget(
+                project,
+                diagnostic.path ??
+                  `/${diagnostic.target!.collection}/${diagnostic.target!.entityId}`,
+              )
             : null,
       })),
     [diagnostics, project],
@@ -49,7 +66,39 @@ export function PreviewDiagnosticsPanel() {
         </Button>
       </div>
       <div className="px-3 pb-3 pr-16 pt-1">
-        <DiagnosticList items={diagnosticItems} compact showPath={false} />
+        <DiagnosticList
+          items={diagnosticItems}
+          compact
+          showPath={false}
+          onExplain={
+            projectSessionId
+              ? (_item, index) => {
+                  const diagnostic = diagnostics[index]!;
+                  requestPrompt({
+                    kind: 'preview',
+                    intent: 'explain',
+                    id: projectSessionId,
+                    scope: 'one',
+                    selectedKey: repairDiagnosticKey(previewDiagnosticForRepair(diagnostic)),
+                  });
+                }
+              : undefined
+          }
+          onFix={
+            projectSessionId
+              ? (_item, index) => {
+                  const diagnostic = diagnostics[index]!;
+                  requestPrompt({
+                    kind: 'preview',
+                    intent: 'fix',
+                    id: projectSessionId,
+                    scope: 'one',
+                    selectedKey: repairDiagnosticKey(previewDiagnosticForRepair(diagnostic)),
+                  });
+                }
+              : undefined
+          }
+        />
       </div>
     </div>
   );

@@ -72,6 +72,7 @@ import { useRepairPromptStore } from '@/project/repair-prompt-store';
 import { selectProjectDirty, useProjectStore } from '@/project/project-store';
 import { MUTATION_SURFACE_ATTRIBUTIONS, resolveSaveUnitForTab } from '@/project/save-unit-registry';
 import { usePreferencesStore } from '@/stores/preferences-store';
+import { usePreviewManagerStore } from '@/preview/preview-manager-store';
 import { buildProjectTree, useWorkspaceStore } from '@/stores/workspace-store';
 import { BottomPanel } from '@/workbench/BottomPanel';
 import { Workbench } from '@/workbench/Workbench';
@@ -915,6 +916,7 @@ export function WorkspacePage() {
     usePendingInputStore.getState().resetPendingInputs();
     resetCommandHistory();
     closeProjectTabs();
+    usePreviewManagerStore.getState().clearPreviewDiagnostics();
     saveLocalEditorSessionSnapshot(null);
     setProjectPath(null);
     setProjectFilePath(null);
@@ -1034,6 +1036,7 @@ export function WorkspacePage() {
         loaded.nativeWorkingRevision !== undefined,
       );
       closeProjectTabs();
+      usePreviewManagerStore.getState().clearPreviewDiagnostics();
       loadAuthoringDocument(
         reconstructed.workingDocument,
         reconstructed.savedDocument,

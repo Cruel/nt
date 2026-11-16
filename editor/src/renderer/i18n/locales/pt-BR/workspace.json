@@ -3,9 +3,17 @@
     "observedWorking": "Estado de trabalho",
     "observedDisk": "Disco salvo",
     "observedWorkingFile": "Arquivo de trabalho externo",
+    "copyMessage": "Copiar mensagem",
+    "copyDetails": "Copiar detalhes",
+    "explainWithAi": "Explicar com IA",
+    "fixWithAi": "Corrigir com IA",
+    "goToSource": "Ir para a origem",
     "unsavedOwner": "Registro com alterações não salvas"
   },
   "repairPrompt": {
+    "explainTitle": "Explicar diagnóstico",
+    "explainRun": "Explicar",
+    "explainPermissions": "O prompt pede que a IA não altere arquivos. A ferramenta mantém as permissões configuradas; revise as ações antes de aprovar alterações.",
     "title": "Reparar",
     "promptLabel": "Prompt",
     "fix": "Corrigir",

@@ -126,7 +126,20 @@ function ProblemsPanel() {
         items={diagnosticItems}
         showPath={developerMode}
         compact
-        fixLabel={t('repairPrompt.fix')}
+        onExplain={
+          projectSessionId
+            ? (_item, index) => {
+                const diagnostic = orderedDiagnostics[index]!;
+                requestPrompt({
+                  kind: 'active',
+                  intent: 'explain',
+                  id: projectSessionId,
+                  scope: 'one',
+                  selectedKey: repairDiagnosticKey(diagnostic),
+                });
+              }
+            : undefined
+        }
         onFix={
           projectSessionId
             ? (_item, index) => {

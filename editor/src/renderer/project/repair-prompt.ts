@@ -26,14 +26,15 @@ export function selectedRepairDiagnostics(
   scope: RepairPromptScope,
   selectedKey?: string,
 ): ToolDiagnostic[] {
+  if (scope === 'one')
+    return diagnostics
+      .filter((diagnostic) => repairDiagnosticKey(diagnostic) === selectedKey)
+      .slice(0, 1);
   const current = diagnostics.filter(
     (diagnostic) => diagnostic.severity === 'error' || diagnostic.severity === 'warning',
   );
   if (scope === 'errors') return current.filter((diagnostic) => diagnostic.severity === 'error');
-  if (scope === 'all') return current;
-  return current
-    .filter((diagnostic) => repairDiagnosticKey(diagnostic) === selectedKey)
-    .slice(0, 1);
+  return current;
 }
 
 function ownerOf(pointer: string): string {
@@ -122,6 +123,9 @@ export interface RepairPromptInput {
   root: string;
   kind: 'candidate' | 'active';
   scope: RepairPromptScope;
+  /** Explain is investigative and must not request or attempt changes. */
+  intent?: 'fix' | 'explain';
+  sourceKind?: 'preview' | 'validation';
   diagnostics: readonly ToolDiagnostic[];
   selectedKey?: string;
   recognition?: 'strong' | 'weak';
@@ -212,7 +216,9 @@ export function buildRepairPrompt(input: RepairPromptInput): string | null {
     ].join('\n');
   });
   const lines = [
-    'Fix only the following NovelTea Project issue(s).',
+    input.intent === 'explain'
+      ? 'Investigate and explain the following NovelTea diagnostic(s). Do not modify any files, run repair commands, or change Project state.'
+      : 'Fix only the following NovelTea Project issue(s).',
     'Project root: ' + input.root,
     'Scope: ' + scope,
     '',
@@ -220,8 +226,15 @@ export function buildRepairPrompt(input: RepairPromptInput): string | null {
     ...fencedDiagnostics(issues.join('\n\n')),
     ...(targets.length ? ['', 'Repair targets:', ...targets] : []),
     '',
-    'Read, search, and modify files only inside this Project root (including resolved symlink targets). Ask before accessing anything outside it.',
+    input.intent === 'explain'
+      ? 'Read and search only inside this Project root (including resolved symlink targets). Do not write files or modify Project state. Ask before accessing anything outside it.'
+      : 'Read, search, and modify files only inside this Project root (including resolved symlink targets). Ask before accessing anything outside it.',
     'Follow the Project AGENTS.md for NovelTea CLI usage.',
+    ...(input.sourceKind === 'preview'
+      ? [
+          'This diagnostic was reported by the preview subsystem; it is not proof that Project source data is invalid. Check for stale preview sessions, admission races, and valid authored records before proposing source edits.',
+        ]
+      : []),
   ];
   if (needsWorkingValidation)
     lines.push(

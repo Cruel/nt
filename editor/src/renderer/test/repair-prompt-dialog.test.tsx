@@ -9,6 +9,9 @@ import { useBottomPanelStore } from '../workbench/bottom-panel-store';
 import { usePreferencesStore } from '../stores/preferences-store';
 import { useProjectStore } from '../project/project-store';
 import { useWorkspaceStore } from '../stores/workspace-store';
+import { usePreviewManagerStore } from '../preview/preview-manager-store';
+import { previewDiagnosticForRepair } from '../project/repair-prompt-store';
+import { repairDiagnosticKey } from '../project/repair-prompt';
 
 vi.mock('../workbench/terminal-window-host', () => ({
   launchWindowRepairTerminal: (request: unknown) =>
@@ -314,6 +317,56 @@ describe('RepairPromptDialog', () => {
       window.noveltea.nativeProjectFlushWorkingSources = beforeFlush;
       useProjectStore.setState(beforeProject);
       useWorkspaceStore.setState(beforeWorkspace);
+    }
+  });
+
+  it('launches Preview Explain through the authenticated active Project harness with no-edit intent', async () => {
+    const beforeProject = useProjectStore.getState();
+    const beforeFlush = window.noveltea.nativeProjectFlushWorkingSources;
+    window.noveltea.nativeProjectFlushWorkingSources = vi.fn().mockResolvedValue({});
+    vi.mocked(window.noveltea.probeRepairHarnesses).mockResolvedValue(['codex']);
+    launchRepairHarness.mockResolvedValue({ sessions: [], selectedSessionId: 'terminal-explain' });
+    try {
+      usePreviewManagerStore.getState().resetPreviewManager();
+      useProjectStore.setState({
+        projectPath: '/project',
+        projectSessionId: 'active-session',
+        projectRevision: 12,
+      });
+      const preview = usePreviewManagerStore.getState().recordPreviewDiagnostic({
+        severity: 'error',
+        source: 'manager',
+        message: 'Native Project session changed',
+        target: { kind: 'room', collection: 'rooms', entityId: 'hall' },
+      });
+      render(<RepairPromptDialog />);
+      act(() => {
+        useRepairPromptStore.getState().request({
+          kind: 'preview',
+          intent: 'explain',
+          id: 'active-session',
+          scope: 'one',
+          selectedKey: repairDiagnosticKey(previewDiagnosticForRepair(preview)),
+        });
+      });
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Explain' })).toBeEnabled());
+      fireEvent.click(screen.getByRole('button', { name: 'Explain' }));
+      await waitFor(() =>
+        expect(launchRepairHarness).toHaveBeenCalledWith(
+          expect.objectContaining({
+            kind: 'active',
+            intent: 'explain',
+            id: 'active-session',
+            prompt: expect.stringContaining('Do not modify any files'),
+          }),
+        ),
+      );
+      expect(useBottomPanelStore.getState().activePanelId).toBe('terminal');
+      expect(window.noveltea.nativeProjectFlushWorkingSources).not.toHaveBeenCalled();
+    } finally {
+      usePreviewManagerStore.getState().resetPreviewManager();
+      window.noveltea.nativeProjectFlushWorkingSources = beforeFlush;
+      useProjectStore.setState(beforeProject);
     }
   });
 

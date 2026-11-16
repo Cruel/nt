@@ -56,6 +56,8 @@ export interface RepairHarnessLaunchRequest {
   /** The original candidate manifest revision inspected when composing Run. */
   candidateRevision?: string;
   harness: RepairHarness;
+  /** An explanation does not prepare or modify the Project's Agent Kit. */
+  intent?: 'fix' | 'explain';
   /** Empty or absent means the harness's configured Default, without --model. */
   model?: string;
   prompt: string;

@@ -1,7 +1,13 @@
 import { Badge } from '@/components/ui/badge';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu';
 import { visualForEditorType } from '@/workspace/collection-visuals';
 import { useTranslation } from 'react-i18next';
-import { Button } from '@/components/ui/button';
 import {
   navigateToWorkbenchTarget,
   type WorkbenchNavigationRequest,
@@ -21,6 +27,7 @@ export interface EditorDiagnosticItem {
   target?: WorkbenchNavigationRequest | null;
   observedAgainst?: DiagnosticObservedAgainst;
   dirtyOwner?: boolean;
+  context?: { sessionId?: string; previewTarget?: string; source?: string; timestamp?: number };
 }
 
 interface DiagnosticListProps {
@@ -29,7 +36,7 @@ interface DiagnosticListProps {
   showPath?: boolean;
   compact?: boolean;
   onFix?: (item: EditorDiagnosticItem, index: number) => void;
-  fixLabel?: string;
+  onExplain?: (item: EditorDiagnosticItem, index: number) => void;
 }
 
 function severityVariant(severity: EditorDiagnosticItem['severity']) {
@@ -48,14 +55,10 @@ export function DiagnosticCard({
   item,
   showPath = true,
   compact = false,
-  onFix,
-  fixLabel,
 }: {
   item: EditorDiagnosticItem;
   showPath?: boolean;
   compact?: boolean;
-  onFix?: () => void;
-  fixLabel?: string;
 }) {
   const { t } = useTranslation('workspace');
   const message = localizedDiagnosticMessage(item, t);
@@ -126,7 +129,7 @@ export function DiagnosticCard({
         ) : null}
       </div>
     );
-    const className = `col-span-full grid w-full ${onFix ? (showPath ? 'grid-cols-[minmax(0,9rem)_minmax(0,1fr)_minmax(0,14rem)]' : 'grid-cols-[minmax(0,9rem)_minmax(0,1fr)]') : 'grid-cols-subgrid'} border-l-2 px-1.5 py-0.5 text-left text-xs leading-5 ${compactSeverityBorder(
+    const className = `col-span-full grid w-full grid-cols-subgrid border-l-2 px-1.5 py-0.5 text-left text-xs leading-5 ${compactSeverityBorder(
       item.severity,
     )}`;
 
@@ -141,16 +144,7 @@ export function DiagnosticCard({
         {content}
       </button>
     );
-    return onFix ? (
-      <div className="col-span-full flex min-w-0 items-center gap-1">
-        <div className="min-w-0 flex-1">{diagnostic}</div>
-        <Button className="h-7 shrink-0" size="sm" variant="outline" onClick={onFix}>
-          {fixLabel}
-        </Button>
-      </div>
-    ) : (
-      diagnostic
-    );
+    return diagnostic;
   }
 
   const content = (
@@ -187,14 +181,37 @@ export function DiagnosticCard({
   );
 }
 
+export function diagnosticDetailsText(item: EditorDiagnosticItem, message = item.message): string {
+  return [
+    `Severity: ${item.severity}`,
+    ...(item.code ? [`Code: ${item.code}`] : []),
+    ...(item.category ? [`Category: ${item.category}`] : []),
+    ...(item.context?.source ? [`Source: ${item.context.source}`] : []),
+    ...(item.context?.sessionId ? [`Preview session: ${item.context.sessionId}`] : []),
+    ...(item.context?.previewTarget ? [`Preview target: ${item.context.previewTarget}`] : []),
+    ...(item.context?.timestamp
+      ? [`Observed: ${new Date(item.context.timestamp).toISOString()}`]
+      : []),
+    ...(item.path ? [`Path: ${item.path}`] : []),
+    ...(item.sourcePath
+      ? [
+          `File: ${item.sourcePath}${item.line ? `:${item.line}${item.column ? `:${item.column}` : ''}` : ''}`,
+        ]
+      : []),
+    ...(item.observedAgainst ? [`Observed against: ${item.observedAgainst}`] : []),
+    `Message: ${message}`,
+  ].join('\n');
+}
+
 export function DiagnosticList({
   items,
   emptyMessage,
   showPath = true,
   compact = false,
   onFix,
-  fixLabel,
+  onExplain,
 }: DiagnosticListProps) {
+  const { t } = useTranslation('workspace');
   if (items.length === 0) {
     return emptyMessage ? <p className="text-muted-foreground">{emptyMessage}</p> : null;
   }
@@ -209,14 +226,50 @@ export function DiagnosticList({
       }
     >
       {items.map((item, index) => (
-        <DiagnosticCard
-          key={`${item.path ?? ''}:${item.message}:${index}`}
-          item={item}
-          showPath={showPath}
-          compact={compact}
-          onFix={onFix && item.severity !== 'info' ? () => onFix(item, index) : undefined}
-          fixLabel={fixLabel}
-        />
+        <ContextMenu key={`${item.path ?? ''}:${item.message}:${index}`}>
+          <ContextMenuTrigger
+            className={compact ? 'col-span-full grid min-w-0 grid-cols-subgrid' : 'block min-w-0'}
+          >
+            <DiagnosticCard item={item} showPath={showPath} compact={compact} />
+          </ContextMenuTrigger>
+          <ContextMenuContent className="min-w-48">
+            <ContextMenuItem
+              onClick={() =>
+                void navigator.clipboard.writeText(localizedDiagnosticMessage(item, t))
+              }
+            >
+              {t('diagnostics.copyMessage')}
+            </ContextMenuItem>
+            <ContextMenuItem
+              onClick={() =>
+                void navigator.clipboard.writeText(
+                  diagnosticDetailsText(item, localizedDiagnosticMessage(item, t)),
+                )
+              }
+            >
+              {t('diagnostics.copyDetails')}
+            </ContextMenuItem>
+            {onExplain || (onFix && item.severity !== 'info') ? <ContextMenuSeparator /> : null}
+            {onExplain ? (
+              <ContextMenuItem onClick={() => onExplain(item, index)}>
+                {t('diagnostics.explainWithAi')}
+              </ContextMenuItem>
+            ) : null}
+            {onFix && item.severity !== 'info' ? (
+              <ContextMenuItem onClick={() => onFix(item, index)}>
+                {t('diagnostics.fixWithAi')}
+              </ContextMenuItem>
+            ) : null}
+            {item.target ? (
+              <>
+                <ContextMenuSeparator />
+                <ContextMenuItem onClick={() => navigateToWorkbenchTarget(item.target!)}>
+                  {t('diagnostics.goToSource')}
+                </ContextMenuItem>
+              </>
+            ) : null}
+          </ContextMenuContent>
+        </ContextMenu>
       ))}
     </div>
   );

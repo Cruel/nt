@@ -286,10 +286,16 @@ export class FocusedPreviewFreshnessCoordinator {
       try {
         prepared = await this.prepareBuild(state);
       } catch (error) {
-        state.reportBuildFailure?.(
-          error instanceof Error ? error.message : 'Focused preview input preparation failed.',
-        );
-        state.onLoadingChange?.(false);
+        if (
+          !this.disposed &&
+          this.desired === state &&
+          desiredGeneration === this.desiredGeneration
+        ) {
+          state.reportBuildFailure?.(
+            error instanceof Error ? error.message : 'Focused preview input preparation failed.',
+          );
+          state.onLoadingChange?.(false);
+        }
         return;
       }
       if (this.disposed || this.desired !== state || desiredGeneration !== this.desiredGeneration)
@@ -312,10 +318,18 @@ export class FocusedPreviewFreshnessCoordinator {
       try {
         document = await this.build(state, prepared);
       } catch (error) {
-        state.reportBuildFailure?.(
-          error instanceof Error ? error.message : 'Focused preview document construction failed.',
-        );
-        state.onLoadingChange?.(false);
+        if (
+          !this.disposed &&
+          this.desired === state &&
+          desiredGeneration === this.desiredGeneration
+        ) {
+          state.reportBuildFailure?.(
+            error instanceof Error
+              ? error.message
+              : 'Focused preview document construction failed.',
+          );
+          state.onLoadingChange?.(false);
+        }
         return;
       }
       if (this.disposed || this.desired !== state || desiredGeneration !== this.desiredGeneration)

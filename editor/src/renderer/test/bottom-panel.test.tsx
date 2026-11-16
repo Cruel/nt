@@ -459,6 +459,69 @@ describe('BottomPanel', () => {
     );
   });
 
+  it('offers Copy details and Explain with AI on the Problems context menu', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    const diagnostic = {
+      severity: 'error' as const,
+      code: 'room.invalid',
+      path: '/characters/dfs',
+      sourcePath: 'records/characters/dfs.yaml',
+      line: 4,
+      message: 'Invalid character record',
+    };
+    useWorkspaceStore.getState().setDiagnostics([diagnostic]);
+    render(<BottomPanel />);
+    fireEvent.contextMenu(screen.getByText('Invalid character record'));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Copy details' }));
+    expect(writeText).toHaveBeenCalledWith(
+      expect.stringContaining('File: records/characters/dfs.yaml:4'),
+    );
+    fireEvent.contextMenu(screen.getByText('Invalid character record'));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Explain with AI' }));
+    expect(useRepairPromptStore.getState().draft).toMatchObject({
+      intent: 'explain',
+      kind: 'active',
+      selectedKey: repairDiagnosticKey(diagnostic),
+    });
+    expect(useRepairPromptStore.getState().draft?.text).toContain('Do not modify any files');
+  });
+
+  it('offers Explain and Fix for Preview Diagnostics without requiring a validation error', async () => {
+    const record = usePreviewManagerStore.getState().recordPreviewDiagnostic({
+      severity: 'error',
+      source: 'manager',
+      message: 'Room preview failed',
+      target: { kind: 'room', collection: 'rooms', entityId: 'foyer' },
+      sessionId: 'preview-session:room',
+    });
+    useBottomPanelStore.getState().setActivePanelId('preview-diagnostics');
+    render(<BottomPanel />);
+    // The Fix action belongs in the menu, not in a squeezed inline button
+    // that can collapse to an empty outline in the compact panel grid.
+    expect(screen.queryByRole('button', { name: 'Fix' })).not.toBeInTheDocument();
+    const message = screen.getByText(/Room preview failed/);
+    const trigger = message.closest('[data-slot="context-menu-trigger"]');
+    expect(trigger).toHaveClass('col-span-full', 'grid', 'grid-cols-subgrid');
+    expect(trigger).not.toHaveClass('contents');
+    expect(trigger).toHaveTextContent('Room preview failed');
+    fireEvent.contextMenu(message);
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Explain with AI' }));
+    expect(useRepairPromptStore.getState().draft).toMatchObject({
+      kind: 'preview',
+      intent: 'explain',
+    });
+    expect(useRepairPromptStore.getState().draft?.text).toContain(
+      'not proof that Project source data is invalid',
+    );
+    expect(useRepairPromptStore.getState().draft?.text).toContain('preview-session:room');
+    fireEvent.contextMenu(screen.getByText(/Room preview failed/));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Fix with AI' }));
+    expect(useRepairPromptStore.getState().draft).toMatchObject({ kind: 'preview', intent: 'fix' });
+    expect(useRepairPromptStore.getState().draft?.text).toContain('Room preview failed');
+    expect(record.id).toBeTruthy();
+  });
+
   it('shows project diagnostics Error → Warning → Info, keeping source order and Fix targets', () => {
     const diagnostics = [
       { severity: 'info' as const, path: '/info/a', message: 'Info A' },
@@ -476,7 +539,9 @@ describe('BottomPanel', () => {
     ).toEqual(['Error A', 'Error B', 'Warning A', 'Warning B', 'Info A', 'Info B']);
     expect(useWorkspaceStore.getState().diagnostics).toEqual(diagnostics);
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'Fix' })[0]!);
+    expect(screen.queryByRole('button', { name: 'Fix' })).not.toBeInTheDocument();
+    fireEvent.contextMenu(screen.getByText('Error A'));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Fix with AI' }));
     expect(useRepairPromptStore.getState().draft).toMatchObject({
       scope: 'one',
       selectedKey: repairDiagnosticKey(diagnostics[2]!),
@@ -657,7 +722,9 @@ describe('BottomPanel', () => {
     expect(useRepairPromptStore.getState().draft?.text).not.toContain('Optional warning');
     fireEvent.click(screen.getByRole('button', { name: 'Fix All' }));
     expect(useRepairPromptStore.getState().draft?.text).toContain('Optional warning');
-    fireEvent.click(screen.getAllByRole('button', { name: 'Fix' })[0]!);
+    expect(screen.queryByRole('button', { name: 'Fix' })).not.toBeInTheDocument();
+    fireEvent.contextMenu(screen.getByText('Broken preview'));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Fix with AI' }));
     expect(useRepairPromptStore.getState().draft).toMatchObject({
       kind: 'active',
       scope: 'one',

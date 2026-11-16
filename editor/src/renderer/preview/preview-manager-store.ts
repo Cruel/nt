@@ -62,6 +62,7 @@ interface PreviewManagerState {
   releasePreviewOwner: (ownerId: string, now?: number) => void;
   recordPreviewDiagnostic: (options: RecordDiagnosticOptions) => PreviewDiagnosticRecord;
   clearPreviewDiagnostics: () => void;
+  clearPreviewDiagnosticsForTarget: (target: PreviewTarget) => void;
   requestThumbnail: (input: ThumbnailRequestInput) => ThumbnailRequest;
   setThumbnailStatus: (
     cacheKey: string,
@@ -285,6 +286,25 @@ export const usePreviewManagerStore = create<PreviewManagerState>()((set, get) =
   },
 
   clearPreviewDiagnostics: () => set({ diagnosticsById: {}, diagnosticOrder: [] }),
+  clearPreviewDiagnosticsForTarget: (target) =>
+    set((state) => {
+      const diagnosticOrder = state.diagnosticOrder.filter((id) => {
+        const diagnostic = state.diagnosticsById[id];
+        return !(
+          diagnostic?.source === 'manager' &&
+          diagnostic.target?.collection === target.collection &&
+          diagnostic.target?.entityId === target.entityId &&
+          diagnostic.target?.kind === target.kind
+        );
+      });
+      if (diagnosticOrder.length === state.diagnosticOrder.length) return state;
+      return {
+        diagnosticOrder,
+        diagnosticsById: Object.fromEntries(
+          diagnosticOrder.map((id) => [id, state.diagnosticsById[id]!]),
+        ),
+      };
+    }),
 
   requestThumbnail: (input) => {
     get().ensureThumbnailWorkerSession(input.now);

@@ -205,9 +205,12 @@ std::string derived_message_id(std::string_view path)
 }
 
 void collect_structured_sources(const Json& value, const std::string& path,
-                                std::map<std::string, std::string>& messages)
+                                std::map<std::string, std::string>& messages,
+                                std::map<std::string, std::string>* named_references = nullptr)
 {
     if (value.is_object()) {
+        if (named_references && value.contains("$message") && value.at("$message").is_string())
+            named_references->emplace(path + "/$message", value.at("$message").as<std::string>());
         // The sparse Room schema defaults description markup to plain. The
         // source collector must recognize that same canonical TextContent,
         // not silently omit an authored description from localization checks.
@@ -224,9 +227,13 @@ void collect_structured_sources(const Json& value, const std::string& path,
                 messages.emplace(path, source.at("text").as<std::string>());
                 return;
             }
+            if (named_references && source.contains("kind") && source.at("kind") == "localized" &&
+                source.contains("key") && source.at("key").is_string())
+                named_references->emplace(path + "/source/key", source.at("key").as<std::string>());
         }
         for (const auto& entry : value.object_range())
-            collect_structured_sources(entry.value(), path + "/" + escape(entry.key()), messages);
+            collect_structured_sources(entry.value(), path + "/" + escape(entry.key()), messages,
+                                       named_references);
     } else if (value.is_array()) {
         for (std::size_t i = 0; i < value.size(); ++i) {
             const auto& child = value.at(i);
@@ -235,7 +242,7 @@ void collect_structured_sources(const Json& value, const std::string& path,
                                      !child.at("id").as<std::string>().empty()
                                  ? "@" + escape(child.at("id").as<std::string>())
                                  : std::to_string(i);
-            collect_structured_sources(child, path + "/" + key, messages);
+            collect_structured_sources(child, path + "/" + key, messages, named_references);
         }
     }
 }
@@ -533,7 +540,8 @@ const ManagedSourceOccurrence* tracked_occurrence(const Json& entry, const Json&
 std::map<std::string, std::string>
 structured_sources(const std::filesystem::path& root,
                    const std::map<std::string, std::string>& record_overlays,
-                   NativeStructuredSourcesCache* cache = nullptr)
+                   NativeStructuredSourcesCache* cache = nullptr,
+                   std::map<std::string, std::string>* named_references = nullptr)
 {
     std::map<std::string, std::string> messages;
     std::set<std::string> present_records;
@@ -542,7 +550,7 @@ structured_sources(const std::filesystem::path& root,
         cache->rechecked = 0;
     }
     for (const auto* family : {"characters", "rooms", "interactables", "dialogues", "scenes",
-                               "verbs", "interactions", "maps"}) {
+                               "verbs", "interactions", "maps", "variables", "archetypes"}) {
         const auto normalized_path = std::string("records/") + family;
         std::set<std::string> ids;
         if (has_observed_project_sources()) {
@@ -594,6 +602,9 @@ structured_sources(const std::filesystem::path& root,
                     previous->second.source_identity == identity) {
                     messages.insert(previous->second.messages.begin(),
                                     previous->second.messages.end());
+                    if (named_references)
+                        named_references->insert(previous->second.named_references.begin(),
+                                                 previous->second.named_references.end());
                     ++cache->reused;
                     if (observed)
                         ++cache->observed_reuses;
@@ -614,15 +625,27 @@ structured_sources(const std::filesystem::path& root,
                 record = working_record(root, record_overlays, family, id);
             }
             std::map<std::string, std::string> contributions;
+            std::map<std::string, std::string> references;
             if (record && record->contains("data") && record->at("data").is_object()) {
                 const auto base = "/" + std::string(family) + "/" + escape(id) + "/data";
-                collect_top_level_strings(record->at("data"), base, contributions);
-                collect_structured_sources(record->at("data"), base, contributions);
+                const bool counts_structured = std::string_view(family) != "variables" &&
+                                               std::string_view(family) != "archetypes";
+                if (counts_structured)
+                    collect_top_level_strings(record->at("data"), base, contributions);
+                // Variable Message values and Archetype Property defaults must be checked,
+                // without contributing independent structured Message IDs.
+                std::map<std::string, std::string> ignored_structured;
+                collect_structured_sources(*record, "/" + std::string(family) + "/" + escape(id),
+                                           counts_structured ? contributions : ignored_structured,
+                                           &references);
             }
             if (cache && !identity.empty())
-                cache->records.insert_or_assign(relative, NativeStructuredSourcesCache::Entry{
-                                                              std::move(identity), contributions});
+                cache->records.insert_or_assign(
+                    relative, NativeStructuredSourcesCache::Entry{std::move(identity),
+                                                                  contributions, references});
             messages.insert(contributions.begin(), contributions.end());
+            if (named_references)
+                named_references->insert(references.begin(), references.end());
         }
     }
     if (cache)
@@ -1463,9 +1486,11 @@ validate_project_localization(const std::filesystem::path& project_root,
     try {
         const auto* observed_revisions = observed_project_revisions();
         std::optional<std::map<std::string, std::string>> projected_sources;
+        std::map<std::string, std::string> named_references;
         if (structured_cache && structured_cache->retained && observed_revisions) {
             const auto started = Clock::now();
-            projected_sources = structured_sources(project_root, record_overlays, structured_cache);
+            projected_sources = structured_sources(project_root, record_overlays, structured_cache,
+                                                   &named_references);
             structured_cache->structured_projection_micros += micros_since(started);
             if (auto incremental = validate_incremental_room_messages(
                     *structured_cache, project_root, *projected_sources, source_overlays,
@@ -1515,7 +1540,8 @@ validate_project_localization(const std::filesystem::path& project_root,
         const auto physical_ids = model.at("structuredMessageIds");
         const auto projection_started = Clock::now();
         if (!projected_sources)
-            projected_sources = structured_sources(project_root, record_overlays, structured_cache);
+            projected_sources = structured_sources(project_root, record_overlays, structured_cache,
+                                                   &named_references);
         if (structured_cache)
             structured_cache->structured_projection_micros += micros_since(projection_started);
         for (const auto& [path, source_text] : *projected_sources) {
@@ -1548,6 +1574,27 @@ validate_project_localization(const std::filesystem::path& project_root,
             result.diagnostics.push_back(std::move(diagnostic));
         }
         if (validation.accepted) {
+            // Catalog schema validation checks key syntax, not the existence of
+            // referenced named Messages. Keep owner-specific diagnostics so an
+            // invalid Project remains editable without reaching runtime lowering.
+            std::set<std::string> named_keys;
+            for (const auto& message : model.at("messages").object_range())
+                if (message.value().at("kind") == "named")
+                    named_keys.insert(message.value().at("key").as<std::string>());
+            for (const auto& [path, key] : named_references) {
+                if (named_keys.contains(key) || is_localization_system_message_key(key))
+                    continue;
+                const auto collection_end = path.find('/', 1);
+                const auto id_end = path.find('/', collection_end + 1);
+                if (collection_end == std::string::npos || id_end == std::string::npos)
+                    continue;
+                const auto collection = path.substr(1, collection_end - 1);
+                const auto id = path.substr(collection_end + 1, id_end - collection_end - 1);
+                add(result, path, "authoring.localization.named_message_missing",
+                    "Named Message '" + key +
+                        "' does not exist. Create it or choose an existing key.",
+                    "records/" + collection + "/" + id + ".yaml");
+            }
             if (structured_cache)
                 ++structured_cache->dialogue_cue_passes;
             const auto cue_started = Clock::now();
@@ -1556,9 +1603,13 @@ validate_project_localization(const std::filesystem::path& project_root,
                 structured_cache->cue_validation_micros += micros_since(cue_started);
         }
         result.accepted = result.diagnostics.empty();
-        if (result.accepted) {
+        // Preserve the structurally validated catalog for editor-only projection
+        // even when cross-record localization references are invalid. The
+        // diagnostics still reject runtime/Test/export preparation; the editor
+        // needs this model to open the invalid Project and repair its sources.
+        if (validation.accepted) {
             auto effective = Json::parse(validation.effective_json);
-            if (structured_cache && observed_revisions) {
+            if (structured_cache && observed_revisions && result.accepted) {
                 auto retained = std::make_shared<NativeLocalizationRetainedState>();
                 retained->observed_revisions = *observed_revisions;
                 retained->localization_overlays = source_overlays;

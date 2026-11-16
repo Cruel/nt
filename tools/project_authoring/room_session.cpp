@@ -168,7 +168,8 @@ bool localization_record_owner(std::string_view owner)
     // Character and Interactable records contain structured TextContent but
     // do not own Lua/RML source analyses. Keep the two indexes independent.
     return indexed_text_owner(owner) || owner.starts_with("characters/") ||
-           owner.starts_with("interactables/");
+           owner.starts_with("interactables/") || owner.starts_with("variables/") ||
+           owner.starts_with("archetypes/");
 }
 
 // Search decoded semantic scalar values, never physical YAML substrings:

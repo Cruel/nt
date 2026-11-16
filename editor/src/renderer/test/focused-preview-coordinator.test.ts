@@ -46,7 +46,8 @@ vi.mock('@/preview/focused-preview-adapters', () => ({
     topologyDependent: false,
     owningPath: () => '/rooms/room-a',
     build: (input: { projectInstanceId: string; projectRevision: number }) => {
-      adapterBuild(input);
+      const override = adapterBuild(input);
+      if (override instanceof Promise) return override;
       return {
         ...focusedDocument,
         projectInstanceId: input.projectInstanceId,
@@ -461,6 +462,41 @@ describe('FocusedPreviewFreshnessCoordinator', () => {
     expect(onApplied).toHaveBeenCalledWith(appliedResult);
     expect(lease.conceal).toHaveBeenCalledTimes(1);
     expect(lease.reveal).not.toHaveBeenCalled();
+  });
+
+  it('does not report a failed build after its preview request was superseded', async () => {
+    const coordinator = new FocusedPreviewFreshnessCoordinator();
+    const lease = createLease(vi.fn().mockResolvedValue(appliedResult));
+    const failed = vi.fn();
+    let rejectOld!: (reason: Error) => void;
+    adapterBuild.mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          rejectOld = reject;
+        }),
+    );
+    const base = {
+      project: createAuthoringProject(),
+      projectSessionId: '11111111-1111-4111-8111-111111111111',
+      projectInstanceId: 'project-one',
+      projectRevision: 1,
+      affectedPaths: ['/'],
+      graph: null,
+      sourceAnalysis: [],
+      root: { kind: 'room-preview' as const, recordId: 'room-a' },
+      inputs: {},
+      lease,
+      reportBuildFailure: failed,
+    };
+    coordinator.submit(base);
+    await runNextFrame();
+    coordinator.submit({ ...base, projectRevision: 2 });
+    rejectOld(new Error('stale native Project session'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(failed).not.toHaveBeenCalled();
+    await runNextFrame();
+    expect(failed).not.toHaveBeenCalled();
+    coordinator.dispose();
   });
 
   it('reports a current apply failure without retrying the same document every frame', async () => {

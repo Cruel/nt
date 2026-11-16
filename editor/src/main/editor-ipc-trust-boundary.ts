@@ -908,6 +908,7 @@ export const repairHarnessLaunchArgumentsSchema = z.tuple([
         .union([z.literal('absent'), z.string().regex(/^sha256:[0-9a-f]{64}$/u)])
         .optional(),
       harness: z.enum(REPAIR_HARNESSES),
+      intent: z.enum(['fix', 'explain']).optional(),
       model: z.string().refine(validRepairModelId).optional(),
       prompt: z
         .string()

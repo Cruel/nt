@@ -5,10 +5,17 @@ following the immediate-native-field migrations in #603–#606. Its machine-read
 counterpart is `editor/scripts/editor-control-coverage.json`. Every `.tsx` module
 under `editor/src/renderer/editors/` is inventoried, including nested property,
 selection, list, preview and import controls, whether or not it contains a JSX
-callback. The inventory currently covers **56 modules and 1,287 JSX callback
+callback. The inventory currently covers **56 modules and 1,288 JSX callback
 sites** (`onChange`, `onBlur`, `onClick`, `onValueChange`, custom semantic callbacks,
 etc.). This count is a *source coverage* measure, not a claim that there are
-1,287 distinct native mutations.
+1,288 distinct native mutations.
+
+The Play runtime startup recovery adds one non-content (`O`) Retry Play preparation
+button to `preview/FullGamePreviewEditor.tsx` (`onClick`: 34 → 35). It only
+reissues native working-revision preparation after a failed startup; it does
+not mutate authored Project state or bypass native admission. Regression
+coverage includes `full-game-preview-editor.test.tsx` and
+`full-game-preview-bootstrap-race.test.tsx`.
 
 The #617 candidate repair source editor extends the inventory by one route and
 module. It uses an explicit source buffer and candidate-specific physical CAS

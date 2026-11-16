@@ -129,7 +129,12 @@ ProjectSession::prepare_working(std::uint64_t expected_revision, std::string_vie
         Json project = Json::parse(current.normalized_json);
         project.erase("schemaVersion"); // workspace-only marker, not an authored Project field
         project.insert_or_assign("schema", "noveltea.authoring.project");
-        if (!localization_cache_ || !localization_cache_->accepted) {
+        if (!localization_cache_ ||
+            (!localization_cache_->accepted &&
+             (!editor_projection || localization_cache_->effective_json.empty()))) {
+            // Only the editor's diagnostic projection may include a schema-valid
+            // localization catalog with unresolved semantic references. Runtime
+            // and Test preparation must still reject every invalid reference.
             prepared.error = "Effective working localization is not valid.";
             return prepared;
         }

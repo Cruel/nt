@@ -109,7 +109,21 @@ Continuous debug snapshots, FPS/profiler telemetry, command acknowledgements, po
 and other preview-protocol plumbing remain hidden.
 Runtime debug snapshots continue to drive the inspector's current-state views, and diagnostics carried
 by those snapshots are projected into `Preview Diagnostics`, which may remain available after Play
-closes while retained diagnostics exist.
+closes while retained diagnostics exist. Project close/successful switch clears Preview Diagnostics
+so retained errors cannot be misattributed to the next Project. A focused-preview request that was
+superseded before its asynchronous build failed must not report that failure; successful applied or
+unchanged focused previews clear earlier manager-side errors for their target without clearing
+unrelated targets or transport failures. Context-menu Copy/Explain/Fix uses the shared diagnostic
+surface and existing Project-authenticated agent launcher, not a preview-only process runner.
+
+The Play tab waits for the admitted native Project working revision before preparing its
+runtime. If admission remains unavailable, runtime preparation fails, or the native
+widget rejects the compiled Project, Play shows an actionable inline error and records
+a Preview Diagnostic instead of leaving the canvas blank. The error offers Retry Play
+preparation and clears when the runtime loads or publishes a valid debug snapshot. A
+missing runtime-debug snapshot does not paint a fatal error inside the WebGL widget;
+the parent Play editor reports the failure and blocks interaction-driven debug reads
+until the runtime Project is loaded.
 
 The interactive Player Input panel does not enumerate authored Hotspot definitions. Runtime debug
 snapshots publish semantic clickable targets that are currently presented and eligible: either an

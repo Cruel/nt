@@ -1,5 +1,7 @@
 import { create } from 'zustand';
-import type { WorkingSourceRepresentations } from '../../shared/editor-tooling';
+import type { ToolDiagnostic, WorkingSourceRepresentations } from '../../shared/editor-tooling';
+import { usePreviewManagerStore } from '../preview/preview-manager-store';
+import type { PreviewDiagnosticRecord } from '../preview/preview-types';
 import { useProjectStore } from './project-store';
 import { useWorkspaceStore } from '../stores/workspace-store';
 import { useCommandStore } from '../commands/command-store';
@@ -14,8 +16,30 @@ import {
   type RepairPromptScope,
 } from './repair-prompt';
 
+export function previewDiagnosticForRepair(record: PreviewDiagnosticRecord): ToolDiagnostic {
+  return {
+    code: `preview.${record.source}`,
+    severity: record.severity,
+    path:
+      record.path ??
+      (record.target?.collection && record.target.entityId
+        ? `/${record.target.collection}/${record.target.entityId}`
+        : '/preview'),
+    message: [
+      record.message,
+      `Preview source: ${record.source}`,
+      ...(record.sessionId ? [`Session: ${record.sessionId}`] : []),
+      ...(record.target?.collection && record.target.entityId
+        ? [`Target: ${record.target.collection}/${record.target.entityId}`]
+        : []),
+    ].join('\n'),
+    category: `Preview Diagnostics · ${record.source}`,
+  };
+}
+
 export interface RepairPromptRequest {
-  kind: 'active' | 'candidate';
+  kind: 'active' | 'candidate' | 'preview';
+  intent?: 'fix' | 'explain';
   id: string;
   scope: RepairPromptScope;
   selectedKey?: string;
@@ -71,13 +95,23 @@ function currentInput(
     (project.projectSessionId ?? project.projectInstanceId) !== request.id
   )
     return null;
+  const previewDiagnostics =
+    request.kind === 'preview'
+      ? usePreviewManagerStore
+          .getState()
+          .diagnosticOrder.map((key) => usePreviewManagerStore.getState().diagnosticsById[key])
+          .filter((diagnostic): diagnostic is PreviewDiagnosticRecord => Boolean(diagnostic))
+          .map(previewDiagnosticForRepair)
+      : null;
   return {
     input: {
       root: project.projectPath,
       kind: 'active',
       scope: request.scope,
+      intent: request.intent,
+      sourceKind: request.kind === 'preview' ? 'preview' : 'validation',
       selectedKey: request.selectedKey,
-      diagnostics: useWorkspaceStore.getState().diagnostics,
+      diagnostics: previewDiagnostics ?? useWorkspaceStore.getState().diagnostics,
       savedDocument: project.savedDocument,
       workingDocument: project.document,
     },
@@ -85,6 +119,9 @@ function currentInput(
       project.projectRevision,
       useCommandStore.getState().nativeProjectSessionId === request.id
         ? useCommandStore.getState().nativeWorkingRevision
+        : null,
+      request.kind === 'preview'
+        ? selectedRepairDiagnostics(previewDiagnostics ?? [], request.scope, request.selectedKey)
         : null,
     ]),
   };
@@ -175,11 +212,12 @@ export const useRepairPromptStore = create<RepairPromptStore>()((set) => ({
     const draft = useRepairPromptStore.getState().draft;
     if (
       !draft ||
-      draft.kind !== 'active' ||
+      (draft.kind !== 'active' && draft.kind !== 'preview') ||
       draft.kind !== request.kind ||
       draft.id !== request.id ||
       draft.scope !== request.scope ||
       draft.selectedKey !== request.selectedKey ||
+      draft.intent !== request.intent ||
       draft.sourceFingerprint !== sourceFingerprint ||
       !repairPromptIsCurrent(draft)
     )
@@ -210,7 +248,9 @@ export const useRepairPromptStore = create<RepairPromptStore>()((set) => ({
 export function repairPromptRunAuthorized(draft: RepairPromptDraft): boolean {
   return (
     repairPromptIsCurrent(draft) &&
-    (draft.kind !== 'active' || draft.workingSources !== undefined) &&
+    (draft.intent === 'explain' ||
+      (draft.kind !== 'active' && draft.kind !== 'preview') ||
+      draft.workingSources !== undefined) &&
     (draft.kind !== 'candidate' || draft.formatRisk !== 'unknown' || draft.manifestAbsent) &&
     (draft.recognition !== 'weak' || draft.authorizeWeak) &&
     (draft.formatRisk !== 'newer' || draft.authorizeNewer) &&

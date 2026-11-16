@@ -136,6 +136,34 @@ describe('preview manager store', () => {
     expect(diagnostics[0]?.message).toContain('Entity preview pool is full');
   });
 
+  it('clears resolved focused-preview manager failures without removing unrelated or transport errors', () => {
+    const manager = usePreviewManagerStore.getState();
+    const room = { kind: 'room', collection: 'rooms', entityId: 'foyer' };
+    const resolved = manager.recordPreviewDiagnostic({
+      severity: 'error',
+      source: 'manager',
+      message: 'Build failed',
+      target: room,
+    });
+    const other = manager.recordPreviewDiagnostic({
+      severity: 'error',
+      source: 'manager',
+      message: 'Other Room',
+      target: { ...room, entityId: 'other' },
+    });
+    const transport = manager.recordPreviewDiagnostic({
+      severity: 'error',
+      source: 'transport',
+      message: 'Disconnected',
+      target: room,
+    });
+    manager.clearPreviewDiagnosticsForTarget(room);
+    expect(usePreviewManagerStore.getState().diagnosticOrder).toEqual([transport.id, other.id]);
+    expect(usePreviewManagerStore.getState().diagnosticsById[resolved.id]).toBeUndefined();
+    manager.clearPreviewDiagnostics();
+    expect(usePreviewManagerStore.getState().diagnosticOrder).toEqual([]);
+  });
+
   it('dedupes identical preview diagnostics', () => {
     const first = usePreviewManagerStore.getState().recordPreviewDiagnostic({
       sessionId: PRIMARY_PREVIEW_SESSION_ID,

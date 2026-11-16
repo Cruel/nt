@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { legacyPreviewContentKey } from '@/preview/DerivedPreviewPane';
+import { focusedPreviewTarget, legacyPreviewContentKey } from '@/preview/DerivedPreviewPane';
 import type { PreviewDocument } from '../../shared/preview-protocol';
 
 function dialoguePreview(data: Record<string, unknown>): PreviewDocument {
@@ -10,6 +10,26 @@ function dialoguePreview(data: Record<string, unknown>): PreviewDocument {
     data,
   };
 }
+
+describe('focusedPreviewTarget', () => {
+  it('matches the diagnostic collection when clearing successful Room, Layout and Shader previews', () => {
+    expect(focusedPreviewTarget({ kind: 'room-preview', recordId: 'room-a' })).toEqual({
+      collection: 'rooms',
+      entityId: 'room-a',
+      kind: 'room',
+    });
+    expect(focusedPreviewTarget({ kind: 'layout-preview', recordId: 'layout-a' })).toEqual({
+      collection: 'layouts',
+      entityId: 'layout-a',
+      kind: 'layout',
+    });
+    expect(focusedPreviewTarget({ kind: 'shader-preview', recordId: 'shader-a' })).toEqual({
+      collection: 'shaders',
+      entityId: 'shader-a',
+      kind: 'shader',
+    });
+  });
+});
 
 describe('legacyPreviewContentKey', () => {
   it('changes when preview-only payload state changes without a content revision', () => {

@@ -14,7 +14,7 @@ import type {
   PreviewRootKey,
 } from '../../shared/focused-preview-contracts';
 import { authoredPreviewEnvironment, effectivePreviewDisplay } from '../../shared/preview-display';
-import type { PreviewDocument, PreviewMode } from '../../shared/preview-protocol';
+import type { PreviewDocument, PreviewMode, PreviewTarget } from '../../shared/preview-protocol';
 import { isAuthoringProjectView } from '../../shared/project-schema/authoring-project-view';
 import { projectSettingsFromProject } from '../../shared/project-schema/authoring-project-settings';
 import { FocusedPreviewFreshnessCoordinator } from './focused-preview-coordinator';
@@ -47,6 +47,19 @@ type LegacyProps = {
   hostPolicy?: PreviewPanePolicy;
   enabled?: boolean;
 };
+
+export function focusedPreviewTarget(root: PreviewRootKey): PreviewTarget {
+  return {
+    collection:
+      root.kind === 'layout-preview'
+        ? 'layouts'
+        : root.kind === 'shader-preview'
+          ? 'shaders'
+          : 'rooms',
+    entityId: root.recordId,
+    kind: root.kind.replace('-preview', ''),
+  };
+}
 
 export function legacyPreviewContentKey(
   projectInstanceId: string | null,
@@ -160,23 +173,20 @@ export function DerivedPreviewPane(props: FocusedProps | LegacyProps) {
       inputs: effectiveInputs,
       lease,
       onLoadingChange: root.kind === 'room-preview' ? setFocusedLoading : undefined,
-      onApplied: onFocusedDocumentApplied,
+      onApplied: (result) => {
+        if (result.disposition !== 'superseded')
+          usePreviewManagerStore
+            .getState()
+            .clearPreviewDiagnosticsForTarget(focusedPreviewTarget(root));
+        onFocusedDocumentApplied?.(result);
+      },
       revealOnApplied: revealFocusedDocument,
       reportBuildFailure: (message) =>
         usePreviewManagerStore.getState().recordPreviewDiagnostic({
           severity: 'error',
           source: 'manager',
           message,
-          target: {
-            collection:
-              root.kind === 'layout-preview'
-                ? 'layouts'
-                : root.kind === 'shader-preview'
-                  ? 'shaders'
-                  : 'rooms',
-            entityId: root.recordId,
-            kind: root.kind.replace('-preview', ''),
-          },
+          target: focusedPreviewTarget(root),
         }),
     });
   }, [

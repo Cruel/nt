@@ -79,11 +79,19 @@ and Fix/agent prompt targeting remain unchanged. Rejected Save operation errors 
 status and Activity without temporarily replacing the last native validation findings; persistent
 recovery conflicts remain actionable in Problems until reconciled.
 
+Native editor admission must accept a revision-pinned Project whose localization catalog is
+structurally valid but contains unresolved named-Message references. The existing native
+validation pipeline reports those as ordinary Problems diagnostics with an exact record owner;
+editor-only complete projection retains the editable records while runtime, Test, and export
+preparation still reject the invalid localization. Do not make semantic localization findings
+fatal to editor Open or suppress them by substituting invented Message values. A structurally
+unusable catalog remains outside this fallback and follows normal source-recovery admission.
+
 Developer Mode is an editor-wide persisted preference that defaults off. Use it for optional technical detail or developer-focused behavior; ordinary editing, validation, and navigation must not depend on enabling it.
 
 Clickable diagnostics should open or focus the relevant tab, scroll to the closest meaningful section or field, and briefly highlight the destination. If exact field-level navigation is not available yet, link to the closest section and document the limitation in the implementation plan or follow-up notes.
 
-Do not duplicate diagnostic card markup across editors when adding new diagnostic surfaces. Prefer a shared diagnostic list/card component that accepts severity, message, path/detail, and an optional navigation target.
+Do not duplicate diagnostic card markup across editors when adding new diagnostic surfaces. Prefer a shared diagnostic list/card component that accepts severity, message, path/detail, and an optional navigation target. Problems and Preview Diagnostics share a diagnostic context menu for copying the message or full details, opening a navigable source, and launching the existing repair-prompt dialog for Explain or Fix. Individual diagnostic rows never show an inline Fix button; the right-click action preserves space and avoids extra controls. Bulk Fix All and candidate-level recovery actions remain separate. Explain requests investigation and no file edits; it neither flushes the active Project's working source publication nor prepares an Agent Kit, but the external AI tool retains its configured permissions (this is disclosed to the user). Preview diagnostic prompts are identified as preview evidence, not validation findings, and must not presume authored Project files are corrupt. Existing native working-source authorization and root checks still gate Fix.
 
 ### Project Save and Structural Persistence
 
