@@ -128,6 +128,21 @@ try {
     0,
     `Installed narrative CLI acceptance failed: ${narrativeAcceptance.stdout}\n${narrativeAcceptance.stderr}`,
   );
+  const metricsAcceptance = spawnSync(
+    process.env.PYTHON ?? (process.platform === 'win32' ? 'python' : 'python3'),
+    [
+      path.resolve(import.meta.dirname, '../../tests/native_cli/narrative_metrics.py'),
+      cli,
+      path.resolve(import.meta.dirname, '../..'),
+    ],
+    { env: environment, encoding: 'utf8', timeout: 180_000 },
+  );
+  assert.ifError(metricsAcceptance.error);
+  assert.equal(
+    metricsAcceptance.status,
+    0,
+    `Installed narrative metrics acceptance failed: ${metricsAcceptance.stdout}\n${metricsAcceptance.stderr}`,
+  );
   // Public command inventory owns executable coverage certification as well
   // as Story validation/context/readiness. Exercise the installed CLI, not a
   // separately built test-only executable.

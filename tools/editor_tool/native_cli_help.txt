@@ -19,6 +19,7 @@ Commands:
   narrative validate <catalog-root> [--base <verified-commit>]
                      [--readiness [--stage <foundation|architecture|interactive|composition|review>]
                      [--view <design|approved>] [--milestone <milestone-id>]...]
+  narrative metrics <catalog-root>
   narrative coverage <catalog-root> --project <project-directory> [--test-report <suite.json>]...
   narrative readiness <catalog-root> [--stage <foundation|architecture|interactive|composition|review>]
                       [--view <design|approved>] [--milestone <milestone-id>]...

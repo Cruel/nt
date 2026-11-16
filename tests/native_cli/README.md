@@ -20,6 +20,10 @@ selection, status-scoped evidence and read-only filesystem behavior. Its generat
 Node or sibling checkout at test time. See
 [the contract refresh procedure](../../docs/editor/NARRATIVE_CLI.md#one-upstream-contract-reproducible-native-distribution).
 Run it alone with `ctest --test-dir build/linux-debug -R '^native_cli_narrative$' --output-on-failure`.
+`narrative_metrics.py` covers optional typed planning metadata, canonical
+duration estimates, malformed values, simple route totals, missing-data
+uncertainty, and public read-only/usage contracts. It is also exercised against
+the installed CLI by `certify-native-cli-public-contracts.mjs`.
 `narrative_git.py` additionally exercises the public `--base` Git boundary,
 protected-decision status and source locations, graph impact witnesses, path
 moves, modified/untracked files, invalid history and read-only failure modes.

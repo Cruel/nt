@@ -123,6 +123,41 @@ The CLI deliberately has no `--allow-protected-change` bypass. Independent
 human review or a separately trusted GitHub review workflow must establish
 permission; the current CLI cannot certify it.
 
+## Read-only Story planning metrics
+
+`noveltea --json narrative metrics <catalog-root>` validates the native canonical
+Story catalog and returns a read-only, `metricsVersion: 1` envelope, independent
+of an engine Project, Room/Asset inventory, runtime package, daemon, Node or a
+Git checkout. Unsupported fields, incompatible planning dimensions, negative
+counts/durations, reversed ranges, and duplicate or undeclared route estimates
+are errors. Source revision evidence includes the pinned upstream
+`contractRevision`, deterministic `catalogSourceRevision`, and per-record
+`sourceRevisions`. An unchanged source tree yields byte-equivalent JSON.
+
+The `metrics.foundation` object carries Creative Direction pacing and production
+budgets, reusable illustration concepts (not counts of engine Rooms), and an
+`approvedFirstPlaythroughMinutes` range only when the direction is approved and
+defines a target. `metrics.milestones` reports Narrative/Exploration and total
+minute ranges separately; missing category estimates are `null`, never zero.
+For a Milestone with one declared fulfillment alternative, a matching optional
+route estimate overrides only the supplied duration categories. Milestones
+with multiple alternatives retain their common/base estimates but do not
+contribute to a route-level aggregate. The `metrics.route` sums Milestones only
+when each active Milestone has one alternative and is explicitly marked
+`provisional-single-alternative`. Every range is an authored planning estimate,
+not proof that content is independent, the route is realizable, the player will
+spend that long reading or solving Puzzles, or that production art exists.
+Coverage exposes counts of missing categories, unresolved alternatives,
+truncated bounded search, and availability of the approved target and aggregate.
+
+Malformed catalogs fail with exit code 1 and source-located diagnostics; they
+do not return partial route estimates. Usage errors (extra arguments, `--base`,
+`--project`) fail with exit code 2. This command observes the working filesystem,
+including dirty or uncommitted Story files, and reports a source fingerprint;
+it neither verifies human authorization nor changes Git protected-decision
+status. For baseline protection use `narrative validate --base` separately.
+The ordinary `narrative validate` path never computes metrics.
+
 ## Native narrative readiness and Milestone handoff
 
 `noveltea [--json] narrative readiness <catalog-root>` computes deterministic

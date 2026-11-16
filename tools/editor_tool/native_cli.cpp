@@ -3109,6 +3109,26 @@ int run(const std::vector<std::string>& argv)
                                 "presentation remain unverified."
                               : "Narrative coverage has invalid source or report input.");
         }
+        if (family == "narrative" && operation == "metrics") {
+            if (!args.project.empty() || args.command.size() != 3 || args.command[2].empty() ||
+                args.command[2].starts_with("--"))
+                return usage(args.json, "Expected narrative metrics <catalog-root>; "
+                                        "--project and command options are not supported.");
+            auto metrics = narrative::metrics_report(native_path_from_utf8(args.command[2]));
+            auto diagnostics = metrics.at("diagnostics");
+            for (auto& item : diagnostics)
+                item["sourceUrl"] = item.at("path");
+            metrics.erase("diagnostics");
+            const bool valid = diagnostics.empty();
+            return emit({{"success", valid},
+                         {"exitCode", valid ? 0 : 1},
+                         {"diagnostics", diagnostics},
+                         {"metrics", metrics}},
+                        args.json,
+                        valid ? "Read-only Narrative planning estimates inspected; "
+                                "route totals are provisional, not measured playtime."
+                              : "Narrative metrics has invalid Story metadata or references.");
+        }
         if (family == "narrative" && operation == "readiness") {
             if (!args.project.empty() || args.command.size() < 3 || args.command[2].empty() ||
                 args.command[2].starts_with("--"))

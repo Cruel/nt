@@ -6,7 +6,10 @@
 
 #include <libfyaml.h>
 #include <algorithm>
+#include <charconv>
+#include <cmath>
 #include <fstream>
+#include <limits>
 #include <memory>
 #include <regex>
 #include <set>
@@ -125,13 +128,41 @@ Json yaml_value(fy_node* node, Record& record, const std::string& pointer, unsig
     static const std::regex number(
         R"(^[-+]?(?:[0-9]+(?:\.[0-9]*)?(?:[eE][-+]?[0-9]+)?|\.[0-9]+(?:[eE][-+]?[0-9]+)?|0o[0-7]+|0x[0-9a-fA-F]+)$)");
     if ((tag.empty() || tag == "!!int" || tag == "!!float") && std::regex_match(value, number)) {
-        // The catalog has no numeric fields. Preserve numeric type rather than accidentally
-        // admitting text.
-        return 0;
+        std::string_view digits = value;
+        bool negative = false;
+        if (digits.starts_with("-") || digits.starts_with("+")) {
+            negative = digits.front() == '-';
+            digits.remove_prefix(1);
+        }
+        unsigned base = 10;
+        if (digits.starts_with("0x") || digits.starts_with("0o")) {
+            base = digits[1] == 'x' ? 16 : 8;
+            digits.remove_prefix(2);
+        }
+        if (base != 10 || digits.find_first_of(".eE") == std::string_view::npos) {
+            std::uint64_t integer = 0;
+            const auto [end, error] = std::from_chars(digits.data(), digits.data() + digits.size(),
+                                                      integer, static_cast<int>(base));
+            const auto bound =
+                static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()) +
+                static_cast<std::uint64_t>(negative);
+            if (error != std::errc{} || end != digits.data() + digits.size() || integer > bound)
+                throw YamlError("Numeric scalar is outside the supported integer range.", at);
+            if (negative)
+                return integer == bound ? std::numeric_limits<std::int64_t>::min()
+                                        : -static_cast<std::int64_t>(integer);
+            return static_cast<std::int64_t>(integer);
+        }
+        double decimal = 0;
+        const auto [end, error] = std::from_chars(digits.data(), digits.data() + digits.size(),
+                                                  decimal, std::chars_format::general);
+        if (error != std::errc{} || end != digits.data() + digits.size() || !std::isfinite(decimal))
+            throw YamlError("Numeric scalar must be finite and representable.", at);
+        return negative ? -decimal : decimal;
     }
     static const std::regex special_number(R"(^(?:[-+]?\.(?:inf|Inf|INF)|\.(?:nan|NaN|NAN))$)");
     if (tag.empty() && std::regex_match(value, special_number))
-        return 0;
+        throw YamlError("Non-finite numeric scalars are unsupported.", at);
     if (!tag.empty())
         throw YamlError("Invalid value for explicit YAML tag " + tag, at);
     return value;
@@ -199,10 +230,23 @@ bool admit(Json& value, const Json& schema, Catalog& catalog, const Record& reco
     }
     const auto type = schema.value("type", "");
     if ((type == "object" && !value.is_object()) || (type == "array" && !value.is_array()) ||
-        (type == "string" && !value.is_string()) || (type == "boolean" && !value.is_boolean()))
+        (type == "string" && !value.is_string()) || (type == "boolean" && !value.is_boolean()) ||
+        (type == "number" && !value.is_number()) ||
+        (type == "integer" && !(value.is_number_integer() ||
+                                (value.is_number_float() && std::isfinite(value.get<double>()) &&
+                                 std::trunc(value.get<double>()) == value.get<double>()))))
         return error("Expected " + type + ".");
     bool valid = true;
     if (value.is_object()) {
+        if (value.size() < schema.value("x-minProperties", std::size_t{0}))
+            valid = error("Specify at least one field.");
+        if (schema.contains("x-anyFields")) {
+            bool present = false;
+            for (const auto& name : schema["x-anyFields"])
+                present = present || value.contains(name.get<std::string>());
+            if (!present)
+                valid = error("Specify at least one of the declared alternative fields.");
+        }
         for (const auto& required : schema.value("required", Json::array()))
             if (!value.contains(required.get<std::string>())) {
                 catalog.report(record, "schema", "Required field: " + required.get<std::string>(),
@@ -260,6 +304,87 @@ bool admit(Json& value, const Json& schema, Catalog& catalog, const Record& reco
             valid =
                 error("Expected an identifier matching " + schema["pattern"].get<std::string>());
     }
+    if (valid && schema.contains("x-range")) {
+        const auto& names = schema["x-range"];
+        const auto minimum = names[0].get<std::string>();
+        const auto maximum = names[1].get<std::string>();
+        if (value.contains(minimum) &&
+            value[minimum].get<double>() > value[maximum].get<double>()) {
+            catalog.report(record, "schema", "Maximum must be at least the minimum.",
+                           path + "/" + maximum);
+            valid = false;
+        }
+    }
+    if (valid && schema.value("x-planningRules", false)) {
+        const auto check_count = [&](const char* dimension, const char* counts) {
+            if (!value.contains(dimension) || !value.contains(counts))
+                return;
+            const auto none = value[dimension] == "none";
+            const auto max = value[counts]["max"].get<std::uint64_t>();
+            if ((none && max > 0) || (!none && max == 0)) {
+                catalog.report(record, "schema", "Count conflicts with declared emphasis.",
+                               path + "/" + counts);
+                valid = false;
+            }
+        };
+        check_count("choice_frequency", "choice_points");
+        check_count("puzzle_emphasis", "puzzle_count");
+        if (value.contains("branching")) {
+            const auto& branching = value["branching"];
+            if (branching.value("depth", "") == "linear" &&
+                branching.value("route_exclusivity", "none") != "none") {
+                catalog.report(record, "schema", "A linear route cannot have exclusive content.",
+                               path + "/branching/route_exclusivity");
+                valid = false;
+            }
+        }
+        if (value.contains("production") && value.contains("illustration_concepts")) {
+            const auto& production = value["production"];
+            const auto& concepts = value["illustration_concepts"];
+            const auto exceeds = [&](const char* key, std::size_t used) {
+                if (!production.contains(key))
+                    return false;
+                const auto& budget = production[key];
+                return budget["firmness"] == "hard" &&
+                       used > budget["count"]["max"].get<std::uint64_t>();
+            };
+            std::size_t variants = 0;
+            for (const auto& illustration : concepts)
+                variants += illustration.value("variants", Json::array()).size();
+            if (exceeds("illustrated_backgrounds", concepts.size()) ||
+                exceeds("background_variants", variants)) {
+                catalog.report(record, "schema", "Illustration concepts exceed a hard artwork cap.",
+                               path + "/illustration_concepts");
+                valid = false;
+            }
+        }
+    }
+    if (valid && schema.value("x-routeFulfillment", false) && value.contains("route_estimates")) {
+        const auto key = [](const Json& ids) {
+            std::vector<std::string> sorted = ids.get<std::vector<std::string>>();
+            std::sort(sorted.begin(), sorted.end());
+            return Json(sorted).dump();
+        };
+        std::set<std::string> declared;
+        for (const auto& route : value["fulfillment"]["any_of"])
+            declared.insert(key(route));
+        std::set<std::string> seen;
+        for (std::size_t i = 0; i < value["route_estimates"].size(); ++i) {
+            const auto route_key = key(value["route_estimates"][i]["events"]);
+            if (!declared.contains(route_key) || !seen.insert(route_key).second) {
+                catalog.report(record, "schema",
+                               "Route estimate must uniquely match a fulfillment alternative.",
+                               path + "/route_estimates/" + std::to_string(i) + "/events");
+                valid = false;
+            }
+        }
+    }
+    if (schema.contains("minimum") && value.is_number() &&
+        value.get<double>() < schema["minimum"].get<double>())
+        valid = error("Number is below the declared minimum.");
+    if (schema.contains("maximum") && value.is_number() &&
+        value.get<double>() > schema["maximum"].get<double>())
+        valid = error("Number exceeds the declared maximum.");
     if (schema.contains("x-implies") && value.is_object()) {
         const auto& rule = schema["x-implies"];
         const auto when = rule["when"]["field"].get<std::string>();

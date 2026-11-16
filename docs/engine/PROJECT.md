@@ -50,7 +50,7 @@ location anchor.
 The link boundary checks **shape only** in the strict editor and generated
 native authoring schemas. It deliberately does not assert that a Story path,
 specific record, implemented narrative choice, or Scene mapping exists. The
-separate `noveltea narrative validate/context/readiness` commands own Story
+separate `noveltea narrative validate/context/readiness/metrics` commands own Story
 catalog semantics. Engine Scene *Event operations* remain execution steps,
 not Story *Events*. Scene, Dialogue, Interaction, Room and Conditions keep
 their existing gameplay authority; narrative locations and World Entities do

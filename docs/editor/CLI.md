@@ -31,7 +31,7 @@ is a development-only forwarder to an installed, authenticated C++ binary.
 Neither the public CLI nor resident workers require Node at runtime.
 Editor-only native tooling calls use the same installed executable through
 the private `__editor-native <operation>` entry point: bounded JSON stdin,
-native operation dispatch and JSON stdout. This is not part of the 44-path
+native operation dispatch and JSON stdout. This is not part of the 45-path
 public CLI inventory and does not start a ScriptC host or JavaScript runtime.
 
 ## Completed migration history
@@ -40,7 +40,7 @@ The pre-#551 direct-C++ candidate, partial compiler parity, native mutation tria
 ScriptC/QuickJS cutover gates, and dated certification notes are preserved in the
 [Native CLI cutover archive](../archive/reports/NATIVE_CLI_CUTOVER_HISTORY.md).
 Those candidate-only switches and historical acceptance states are not supported
-production operation. The current 44-path public command contract is verified by
+production operation. The current 45-path public command contract is verified by
 `node editor/scripts/certify-native-cli-inventory.mjs`, sourcing the canonical C++ help
 contract at `tools/editor_tool/native_cli_help.txt`. The obsolete `editor/src/cli`
 TypeScript command engine and its differential CI oracle are retired; Electron
@@ -68,6 +68,12 @@ The read-only `narrative readiness` CLI reports status-scoped minimum requiremen
 and bounded Milestone handoff clusters. A `passed` minimum does not establish
 creative quality, VN production feasibility, asset availability, or engine
 playability. See [Narrative CLI](NARRATIVE_CLI.md#native-narrative-readiness-and-milestone-handoff).
+
+`noveltea [--json] narrative metrics <catalog-root>` reports read-only,
+source-revision-bound Creative Direction targets, per-Milestone Narrative and
+Exploration estimates, and provisional single-alternative totals without a
+Project or runtime package. Missing estimates remain unknown rather than zero.
+See [Narrative CLI](NARRATIVE_CLI.md#read-only-story-planning-metrics).
 
 ## Private media-tool diagnosis
 
@@ -115,6 +121,7 @@ noveltea project export --output <bundle.ntproject>
 noveltea project import <bundle.ntproject> <destination-directory>
 noveltea validate
 noveltea narrative validate <catalog-root> [--base <verified-commit>]
+noveltea narrative metrics <catalog-root>
 noveltea narrative context <catalog-root> --kind dialogue --id <event-id> [--position <position-id>]
 noveltea narrative readiness <catalog-root> [--stage interactive] [--view design|approved]
                            [--milestone <milestone-id>]...

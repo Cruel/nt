@@ -22,4 +22,6 @@ nlohmann::ordered_json context_manifest(const std::filesystem::path& root, const
 nlohmann::ordered_json readiness_report(const std::filesystem::path& root, const std::string& stage,
                                         const std::string& view,
                                         const std::vector<std::string>& milestones);
+// Optional planning estimates; not part of ordinary validation's hot path.
+nlohmann::ordered_json metrics_report(const std::filesystem::path& root);
 } // namespace noveltea::narrative
