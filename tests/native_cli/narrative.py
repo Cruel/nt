@@ -228,6 +228,27 @@ Independent fictional occurrence.
     assert context(maya, *options)['manifest'] == manifest
     assert snapshot(maya) == original_snapshot
 
+    # The native request accepts the reviewer's 32 direct sources as one
+    # deterministic Context Manifest, but must reject the 33rd explicitly.
+    targets = [record['metadata']['id'] for record in report['catalog']['records']]
+    assert len(targets) >= 33 and len(set(targets)) == len(targets)
+    for count in (16, 32):
+        bounded_options = ('--kind', 'review', '--scope', 'focused',
+                           *(argument for target in targets[:count]
+                             for argument in ('--id', target)))
+        bounded = context(story, *bounded_options)['manifest']
+        direct = {item['id'] for item in bounded['files'] if item['priority'] == 'direct'}
+        assert set(targets[:count]) <= direct
+        assert bounded['bounded']['truncated'] is False
+    overflow = context(story, '--kind', 'review',
+                       *(argument for target in targets[:33]
+                         for argument in ('--id', target)), code=2)
+    assert overflow['diagnostics'] == [{
+        'code': 'CLI_USAGE', 'severity': 'error', 'path': '/',
+        'message': 'Narrative context accepts at most 32 IDs.'
+    }]
+    assert snapshot(maya) == original_snapshot
+
     focus = context(maya, '--kind', 'dialogue', '--id', 'event.post-trial',
                     '--scope', 'focused')['manifest']
     assert focus['bounded']['maxDepth'] == 1

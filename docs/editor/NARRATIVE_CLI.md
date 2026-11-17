@@ -334,7 +334,7 @@ accepts one or more `--id <typed-id>` options and/or a
 `--position <narrative-position-id>` option, plus optional
 `--scope focused|related` (default: `focused`). The supported kinds are
 `dialogue`, `event`, `character`, `puzzle`, `milestone`, and `review`.
-At most 16 explicitly resolved IDs may be supplied per request. Both commands
+At most 32 explicitly resolved IDs may be supplied per request. Both commands
 use the same pinned upstream contract, native Markdown parser, relationship
 index and structural analysis. Neither requires a Project, Git, daemon,
 compilation, network access or any source mutation.
