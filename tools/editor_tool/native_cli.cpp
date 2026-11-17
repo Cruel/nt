@@ -3207,9 +3207,11 @@ int run(const std::vector<std::string>& argv)
                 else if (option == "--scope" && !has_scope) {
                     scope = value;
                     has_scope = true;
-                } else if (option == "--id" && ids.size() < 16)
+                } else if (option == "--id") {
+                    if (ids.size() >= 32)
+                        return usage(args.json, "Narrative context accepts at most 32 IDs.");
                     ids.push_back(value);
-                else
+                } else
                     return usage(args.json,
                                  "Unknown or repeated narrative context option '" + option + "'.");
             }

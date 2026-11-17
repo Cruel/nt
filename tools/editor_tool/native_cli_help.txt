@@ -24,7 +24,7 @@ Commands:
   narrative readiness <catalog-root> [--stage <foundation|architecture|interactive|composition|review>]
                       [--view <design|approved>] [--milestone <milestone-id>]...
   narrative context <catalog-root> --kind <dialogue|event|character|puzzle|milestone|review>
-                    [--id <typed-id>]... [--position <narrative-position-id>]
+                    [--id <typed-id>]... (up to 32 IDs) [--position <narrative-position-id>]
                     [--scope <focused|related>]
   fmt [<tracked-yaml-path>] [--check] [--strip-defaults]
   localization sync [--dry-run]
