@@ -401,6 +401,39 @@ describe('project save coordinator', () => {
     Reflect.deleteProperty(window.noveltea, 'nativeProjectSaveText');
   });
 
+  it('saves a native-only dirty record supplied by Export readiness even without renderer recovery', async () => {
+    const project = projectWithRooms();
+    loadProject(project, project, emptyEditorProjectState());
+    useCommandStore.getState().enableNativeCommandMode(0);
+    const nativeSave = vi.fn().mockResolvedValue({
+      accepted: true,
+      error: '',
+      snapshot: { workingRevision: 0 },
+      affectedRecords: [],
+    });
+    Object.defineProperty(window.noveltea, 'nativeProjectSaveUnit', {
+      configurable: true,
+      writable: true,
+      value: nativeSave,
+    });
+    expect((await saveAllSaveUnits()).status).toBe('nothing-to-save');
+    const result = await saveAllSaveUnits([], ['rooms/foyer']);
+    expect(result).toMatchObject({
+      success: true,
+      status: 'saved',
+      savedSaveUnitIds: ['record:rooms:foyer'],
+    });
+    expect(nativeSave).toHaveBeenCalledWith('test-project-session', 0, 'record:rooms:foyer', {
+      comments: 'keep',
+    });
+    expect((useProjectStore.getState().savedDocument as typeof project).rooms.foyer).toEqual(
+      project.rooms.foyer,
+    );
+    expect((await saveAllSaveUnits([], ['not-a-record/with/source.lua'])).status).toBe('blocked');
+    expect(nativeSave).toHaveBeenCalledTimes(1);
+    Reflect.deleteProperty(window.noveltea, 'nativeProjectSaveUnit');
+  });
+
   it('uses native scoped Save to persist one owner without marking unrelated dirty owners saved', async () => {
     const saved = projectWithRooms();
     const working = projectWithRooms();
@@ -1637,6 +1670,13 @@ describe('project save coordinator', () => {
     loadProject(saved, working, editorState);
     const nativeSave = admitNativeSaveWithoutExternalChanges();
     useWorkbenchStore.getState().openTab(roomTab('foyer'));
+
+    const autosave = await saveActiveSaveUnit('record:rooms:foyer', {
+      requireExactSaveUnit: true,
+    });
+    expect(autosave).toMatchObject({ success: false, status: 'blocked', savedSaveUnitIds: [] });
+    expect(autosave.diagnostics[0]?.code).toBe('editor.settings-autosave.atomic-group-blocked');
+    expect(nativeSave).not.toHaveBeenCalled();
 
     const result = await saveActiveSaveUnit();
 

@@ -18,6 +18,13 @@ revision; Electron main does not independently reinterpret this mapping.
 Structural operations with explicit native owners still pass their reviewed
 transaction plan to the native Save boundary.
 
+A successful native Save reports the physical owners it committed. When projecting a changed
+`project.yaml` manifest, apply each of its top-level fields at its exact root pointer: the nested
+`project` metadata object belongs at `/project`, including `/project/name`, not at the manifest
+root. Misprojecting it can leave the renderer's saved baseline stale after a successful native
+Save and falsely create Project Settings recovery/unsaved warnings. Renderer Save tests must cover
+both scoped acknowledgement and the native affected-owner response shape.
+
 Native snapshots also include canonical `dirtyPatches` produced from native
 saved/working source values. The Electron recovery checkpoint translates those
 native deltas into owner-qualified replay instructions and retains exact source
@@ -894,6 +901,24 @@ The #522 manual acceptance cases remain separate and open.
   chosen destination, but Save As rejects pre-existing NovelTea canonical source/state namespaces
   and exact Asset-path collisions so the copy cannot silently merge stale records, Layout/Script
   sources, recovery state, or unrelated destination bytes into the copied workspace.
+- Opening Export performs a read-only native cleanliness check before runtime/package assessment.
+  Dirty native recovery owners (including a retained Room batch invisible to the renderer's
+  normalized document comparison) are returned as an ordinary `needs-save` readiness state,
+  with exact owner paths for review rather than an IPC error. Export itself still requires
+  clean, revision-verified saved sources and must not silently publish the dirty working view.
+  The Export surface links navigable owners and provides Save All. For a native-only dirty
+  record absent from renderer recovery, the existing native CAS Save is invoked with its exact
+  record Save unit. Other source types remain blocked for explicit resolution; no recovery
+  entries are discarded or rewritten automatically. Export readiness refreshes after Save settles.
+- Native authoring treats a broad `Replace` of an existing normalized Record object/array as
+  effective-value intent, projecting only actual differences onto the original authored source.
+  Existing ID-keyed array members retain their sparse field presence across edits, reorder,
+  removal and ordinary undo; explicitly authored defaults remain explicit. A field-level
+  `Add`, `Remove` or scalar `Replace` still expresses explicit authoring intent. Ordinary Save
+  never strips explicitly authored defaults, and the opt-in default compaction policy is
+  unchanged. This prevents normalization-only editor commands from creating new native dirty
+  recovery batches. Old recovery journals are not silently rewritten: they may contain
+  deliberately authored explicit defaults, so existing pending owners still need review.
 - Dirty source buffers are serialized into editor recovery metadata with their submitted disk
   baseline revision. Reopening restores the local buffer when the baseline still matches, or surfaces
   an external conflict when disk changed or the file disappeared. A successful source save advances

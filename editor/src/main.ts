@@ -164,6 +164,7 @@ import { NativeAuthoringWorkingProject } from './main/services/native-authoring-
 import { importNativeDesktopProject } from './main/services/native-desktop-project-import-service';
 import {
   exportNativeEditorPackage,
+  isSupersededExportAssessmentError,
   prepareNativeEditorExportAssessment,
   verifyNativeCleanExportAdmission,
 } from './main/services/native-editor-export-service';
@@ -1696,18 +1697,32 @@ void app.whenReady().then(async () => {
   guardedIpc.handle(
     IPC_CHANNELS.NATIVE_PROJECT_PREPARE_EXPORT,
     (arguments_) => nativeProjectPrepareExportArgumentsSchema.parse(arguments_),
-    (projectSessionId, expectedRevision, mode, profileId) => {
+    async (projectSessionId, expectedRevision, mode, profileId) => {
       if (!nativeEditorAdmission)
         throw new Error('Native export assessment is not enabled for this editor.');
       const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
-      return prepareNativeEditorExportAssessment(
-        nativeEditorAdmission,
-        projectSessionId,
-        expectedRevision,
-        projectRoot,
-        mode,
-        profileId,
-      );
+      try {
+        const dirtyOwners = nativeEditorAdmission.pendingExportOwners(
+          projectSessionId,
+          expectedRevision,
+        );
+        if (dirtyOwners.length > 0) return { status: 'needs-save' as const, dirtyOwners };
+        return await prepareNativeEditorExportAssessment(
+          nativeEditorAdmission,
+          projectSessionId,
+          expectedRevision,
+          projectRoot,
+          mode,
+          profileId,
+        );
+      } catch (error) {
+        // Export *assessment* is observational. A concurrent native patch or
+        // settings autosave may supersede the requested revision before or
+        // during preflight. Return a retry signal instead of surfacing a
+        // transient IPC exception (and red UI error) to the user.
+        if (isSupersededExportAssessmentError(error)) return { status: 'superseded' as const };
+        throw error;
+      }
     },
   );
 

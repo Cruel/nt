@@ -22,6 +22,18 @@ import type {
 
 type CleanExportOwner = Pick<NativeEditorSessionController, 'prepareCleanExportAdmission'>;
 
+/** A read-only assessment may be superseded while native patch/Save is
+ * underway. The actual publish operation still rejects stale revisions. */
+export function isSupersededExportAssessmentError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.message === 'Stale native Project export revision.' ||
+      error.message ===
+        'Native Project sources changed during export; retry with current sources.' ||
+      error.message === 'Save or resolve all dirty Project and source files before exporting.')
+  );
+}
+
 function assertExportRevision(
   admission: NativeCleanExportAdmission,
   expectedRevision: number,
@@ -118,7 +130,7 @@ export async function exportNativeEditorPackage(
     admittedAuthoringDiagnostics: admission.diagnostics,
     admittedRuntimeAssetReferences: admission.runtimeAssetReferences,
     projectRoot,
-    profile: { ...selectedExportProfile(admission.project), outputPath },
+    profile: selectedExportProfile(admission.project),
     intent: 'runtime-package-export',
     shaderCompiler: tools.shaderCompiler ?? nodeShaderCompilerAdapter(compileShaders),
     paths: tools.paths ?? nodeRuntimeArtifactPaths,

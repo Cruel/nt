@@ -7,6 +7,10 @@ import { diagnosticSeverityForRecord } from '@/diagnostics/project-diagnostic-se
 import { defaultEditorRegistry } from './default-editors';
 import { renderEditorToolbar } from './editor-registry';
 import { useProjectStore } from '@/project/project-store';
+import {
+  configurationTabShowsDirty,
+  useConfigurationAutosaveStatus,
+} from '@/project/project-configuration-autosave';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useCloseGuardStore } from './close-guard-store';
 import { selectDraftDirtyByTabId, useDraftDirtyStore } from './draft-dirty-store';
@@ -37,6 +41,8 @@ export function WorkbenchTabs({ group, tabs }: WorkbenchTabsProps) {
   });
   const project = useProjectStore((state) => state.document);
   const savedDocument = useProjectStore((state) => state.savedDocument);
+  const projectInstanceId = useProjectStore((state) => state.projectInstanceId);
+  const autosave = useConfigurationAutosaveStatus();
   const diagnostics = useWorkspaceStore((state) => state.diagnostics);
   const draftEntries = useDraftDirtyStore((state) => state.entriesByKey);
   const draftDirtyByTabId = selectDraftDirtyByTabId({ entriesByKey: draftEntries });
@@ -105,14 +111,15 @@ export function WorkbenchTabs({ group, tabs }: WorkbenchTabsProps) {
       >
         {tabs.map((tab, index) => {
           const active = tab.id === activeTabId;
-          const dirty = getTabDirtyState(
+          const dirtyState = getTabDirtyState(
             tab,
             project,
             savedDocument,
             draftDirtyByTabId,
             pendingSaveUnitIds,
             recoveryDirtySaveUnitIds,
-          ).dirty;
+          );
+          const dirty = configurationTabShowsDirty(dirtyState, autosave, projectInstanceId);
           return (
             <ContextMenu key={tab.id}>
               <ContextMenuTrigger className="contents">

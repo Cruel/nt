@@ -207,7 +207,11 @@ interface NovelTeaElectronApiContract {
     expectedRevision: number,
     mode: 'runtime' | 'platform',
     profileId?: string,
-  ): Promise<import('./runtime-artifact-preparation').PrepareRuntimeArtifactResult>;
+  ): Promise<
+    | import('./runtime-artifact-preparation').PrepareRuntimeArtifactResult
+    | { status: 'needs-save'; dirtyOwners: string[] }
+    | { status: 'superseded' }
+  >;
   nativeProjectExportPackage(
     projectSessionId: string,
     expectedRevision: number,

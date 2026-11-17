@@ -5,6 +5,7 @@ import { AppMenuBar } from '@/components/app-menu-bar';
 import { toJsonValue } from '@/project/json-value';
 import { useProjectStore } from '@/project/project-store';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 
 beforeEach(() => {
   useProjectStore.getState().clearProject();
@@ -41,6 +42,51 @@ describe('AppMenuBar', () => {
     expect(screen.getByTitle('Undo')).toBeInTheDocument();
     expect(screen.getByTitle('Redo')).toBeInTheDocument();
     expect(screen.getByTitle('Save')).toBeInTheDocument();
+  });
+
+  it('keeps Save and Save All inactive for autosaving settings but enables them for a dirty Room', async () => {
+    const user = userEvent.setup();
+    const saved = createAuthoringProject();
+    const working = structuredClone(saved);
+    act(() => {
+      useProjectStore.getState().loadProjectDocument({
+        document: toJsonValue(saved),
+        savedDocument: toJsonValue(saved),
+        projectPath: '/mock/project',
+        projectFilePath: '/mock/project/project.yaml',
+      });
+    });
+    render(<AppMenuBar />);
+    expect(screen.getByTitle('Save')).toBeDisabled();
+
+    working.project.name = 'New title';
+    working.settings.display.barColor = '#aabbcc';
+    act(() => {
+      useProjectStore.getState().replaceDocumentFromCommand(toJsonValue(working), 0);
+    });
+    expect(screen.getByTitle('Save')).toBeDisabled();
+
+    const fileMenu = screen.getByRole('menuitem', { name: 'File' });
+    fireEvent.pointerDown(fileMenu, { button: 0, pointerType: 'mouse' });
+    await user.click(fileMenu);
+    expect(await screen.findByRole('menuitem', { name: 'SaveCtrl+S' })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
+    expect(screen.getByRole('menuitem', { name: 'Save All' })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
+
+    working.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    act(() => {
+      useProjectStore.getState().replaceDocumentFromCommand(toJsonValue(working), 1);
+    });
+    expect(screen.getByTitle('Save')).toBeEnabled();
+    expect(screen.getByRole('menuitem', { name: 'Save All' })).not.toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
   });
 
   it('shows Save All in the File menu without replacing the Save As shortcut', async () => {

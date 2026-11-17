@@ -49,16 +49,38 @@ export const DEFAULT_EXPORT_PREFERENCES: ExportPreferences = {
   profileSigningProfileIds: {},
 };
 
+// Only the current project-ID / provisional-project-path representation is
+// readable. Historical bare filesystem keys are discarded, not migrated.
+const exportProjectKeyPattern = /^(?:project-id:[^:]+|project-path:.+)$/u;
+const exportProfileKeyPattern = /^(?:project-id:[^:]+|project-path:.+)::[^:]+$/u;
+
+function currentExportKeys(
+  entries: Record<string, string> | undefined,
+  pattern: RegExp,
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(entries ?? {}).filter(
+      ([key, value]) => pattern.test(key) && typeof value === 'string',
+    ),
+  );
+}
+
 export function normalizeExportPreferences(
   value: Partial<ExportPreferences> | null | undefined,
 ): ExportPreferences {
   return {
     ...DEFAULT_EXPORT_PREFERENCES,
     ...value,
-    selectedProfileIds: { ...value?.selectedProfileIds },
-    profileOutputDirectories: { ...value?.profileOutputDirectories },
-    profileTemplateTokens: { ...value?.profileTemplateTokens },
-    profileSigningProfileIds: { ...value?.profileSigningProfileIds },
+    selectedProfileIds: currentExportKeys(value?.selectedProfileIds, exportProjectKeyPattern),
+    profileOutputDirectories: currentExportKeys(
+      value?.profileOutputDirectories,
+      exportProfileKeyPattern,
+    ),
+    profileTemplateTokens: currentExportKeys(value?.profileTemplateTokens, exportProfileKeyPattern),
+    profileSigningProfileIds: currentExportKeys(
+      value?.profileSigningProfileIds,
+      exportProfileKeyPattern,
+    ),
   };
 }
 

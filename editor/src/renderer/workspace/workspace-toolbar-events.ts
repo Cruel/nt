@@ -1,4 +1,5 @@
 export const WORKSPACE_TOOLBAR_COMMAND_EVENT = 'noveltea-workspace-toolbar-command';
+export const WORKSPACE_SAVE_SETTLED_EVENT = 'noveltea-workspace-save-settled';
 
 // A new user-initiated Open supersedes a pending candidate Save/auto-open,
 // even while the new Project is still loading and the active Project identity
@@ -43,6 +44,8 @@ export type WorkspaceToolbarCommandDetail =
       projectPath?: string;
       repairCandidateId?: string;
       readyRevision?: string;
+      /** Exact pending owners reported by the native Export readiness boundary. */
+      nativeExportOwners?: string[];
     };
 
 export function dispatchWorkspaceToolbarCommand(detail: WorkspaceToolbarCommandDetail) {

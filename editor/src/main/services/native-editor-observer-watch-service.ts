@@ -1,4 +1,7 @@
 import path from 'node:path';
+import { createHash } from 'node:crypto';
+import { constants } from 'node:fs';
+import { open, readdir } from 'node:fs/promises';
 import chokidar, { type FSWatcher } from 'chokidar';
 import { WORKING_SOURCE_ROOT } from '../../shared/project-workspace/working-source-contract';
 import type { ProjectWorkspaceWatchEvent } from '../../shared/project-watch-events';
@@ -135,12 +138,78 @@ export function watchEventFromNativeObservation(
   };
 }
 
+// Polling protects against dropped OS notifications, but unchanged working
+// proposals must not provoke a native import/mutation cycle. Hash exact bytes
+// (not size/mtime) so even same-length edits with restored timestamps count.
+async function workingTreeFingerprint(root: string): Promise<string> {
+  const hash = createHash('sha256');
+  async function visit(directory: string, relative: string): Promise<void> {
+    let entries;
+    try {
+      entries = await readdir(directory, { withFileTypes: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        hash.update(`absent:\0${relative}\0`);
+        return;
+      }
+      throw error;
+    }
+    entries.sort((left, right) => left.name.localeCompare(right.name));
+    for (const entry of entries) {
+      const subpath = relative ? `${relative}/${entry.name}` : entry.name;
+      hash.update(`path:\0${subpath}\0`);
+      if (entry.isDirectory()) {
+        hash.update('directory\0');
+        await visit(path.join(directory, entry.name), subpath);
+      } else if (entry.isFile()) {
+        hash.update('file\0');
+        const handle = await open(
+          path.join(directory, entry.name),
+          constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0),
+        );
+        try {
+          const stat = await handle.stat();
+          if (!stat.isFile()) throw new Error('Working tree entry changed type.');
+          hash.update(String(stat.size));
+          hash.update('\0');
+          // Large/hostile working files must never be loaded into one buffer
+          // merely to decide whether a native fallback import is necessary.
+          const buffer = Buffer.allocUnsafe(64 * 1024);
+          let offset = 0;
+          while (offset < stat.size) {
+            const { bytesRead } = await handle.read(
+              buffer,
+              0,
+              Math.min(buffer.length, stat.size - offset),
+              offset,
+            );
+            if (bytesRead === 0) throw new Error('Working tree entry changed during poll.');
+            hash.update(buffer.subarray(0, bytesRead));
+            offset += bytesRead;
+          }
+        } finally {
+          await handle.close();
+        }
+      } else {
+        // Unsafe/special file types remain visible to native import rather
+        // than being followed by this best-effort observer.
+        hash.update('special\0');
+      }
+    }
+  }
+  await visit(root, '');
+  return hash.digest('hex');
+}
+
 export class NativeEditorObserverWatchService {
   private unsubscribe: (() => void)[] = [];
   private workingWatcher: FSWatcher | null = null;
   private workingTimer: ReturnType<typeof setTimeout> | null = null;
   private workingRecheck: ReturnType<typeof setInterval> | null = null;
   private workingGeneration = 0;
+  private workingFingerprint: string | null = null;
+  private fingerprintSequence = 0;
+  private workingPath: string | null = null;
 
   constructor(
     private readonly bridge: NativeBridge,
@@ -165,7 +234,53 @@ export class NativeEditorObserverWatchService {
         assetChangedPaths: [],
         workingSourceChanged: true,
       });
+      // Establish the post-event baseline to avoid rediscovering the same
+      // filesystem change on the next fallback poll.
+      void this.captureWorkingFingerprint(projectSessionId, generation);
     }, 200);
+  }
+
+  private async captureWorkingFingerprint(projectSessionId: string, generation: number) {
+    const working = this.workingPath;
+    if (!working) return;
+    const sequence = ++this.fingerprintSequence;
+    try {
+      const fingerprint = await workingTreeFingerprint(working);
+      if (
+        sequence === this.fingerprintSequence &&
+        generation === this.workingGeneration &&
+        this.authority.isCurrent(projectSessionId)
+      )
+        this.workingFingerprint = fingerprint;
+    } catch {
+      if (sequence === this.fingerprintSequence) this.workingFingerprint = null;
+    }
+  }
+
+  private async pollWorking(projectSessionId: string, generation: number) {
+    const working = this.workingPath;
+    if (!working) return;
+    const sequence = ++this.fingerprintSequence;
+    const previous = this.workingFingerprint;
+    try {
+      const fingerprint = await workingTreeFingerprint(working);
+      if (
+        sequence !== this.fingerprintSequence ||
+        generation !== this.workingGeneration ||
+        !this.authority.isCurrent(projectSessionId)
+      )
+        return;
+      this.workingFingerprint = fingerprint;
+      if (previous !== null && fingerprint !== previous)
+        this.notifyWorking(projectSessionId, generation);
+    } catch {
+      // If exact polling cannot prove the tree is unchanged, fall back to
+      // native verification rather than silently losing an external edit.
+      if (sequence === this.fingerprintSequence) {
+        this.workingFingerprint = null;
+        this.notifyWorking(projectSessionId, generation);
+      }
+    }
   }
 
   start(projectSessionId: string): void {
@@ -176,6 +291,8 @@ export class NativeEditorObserverWatchService {
       // working proposal tree is watched here. Polling is a portable fallback
       // for a missing initial directory or dropped platform notifications.
       const working = path.join(this.workingRoot(projectSessionId), WORKING_SOURCE_ROOT);
+      this.workingPath = working;
+      void this.captureWorkingFingerprint(projectSessionId, generation);
       this.workingWatcher = chokidar.watch(working, {
         ignoreInitial: true,
         followSymlinks: false,
@@ -197,10 +314,9 @@ export class NativeEditorObserverWatchService {
       // A failed native OS watch is not permission to drop future external
       // edits. The bounded snapshot import can still recheck periodically.
       this.workingWatcher.on('error', () => this.notifyWorking(projectSessionId, generation));
-      this.workingRecheck = setInterval(
-        () => this.notifyWorking(projectSessionId, generation),
-        5000,
-      );
+      this.workingRecheck = setInterval(() => {
+        void this.pollWorking(projectSessionId, generation);
+      }, 5000);
       this.workingRecheck.unref?.();
     }
     this.unsubscribe.push(
@@ -227,6 +343,9 @@ export class NativeEditorObserverWatchService {
 
   close(): void {
     ++this.workingGeneration;
+    ++this.fingerprintSequence;
+    this.workingPath = null;
+    this.workingFingerprint = null;
     if (this.workingTimer) clearTimeout(this.workingTimer);
     if (this.workingRecheck) clearInterval(this.workingRecheck);
     this.workingTimer = null;

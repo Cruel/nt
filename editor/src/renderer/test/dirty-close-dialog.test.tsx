@@ -8,6 +8,8 @@ import { usePendingInputStore } from '@/workbench/pending-input-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { ROOT_GROUP_ID } from '@/workbench/workbench-model';
 import { useProjectStore } from '@/project/project-store';
+import { useConfigurationAutosaveStatus } from '@/project/project-configuration-autosave';
+import { buildProjectSettingsTab } from '@/workbench/editor-registry';
 import { useProjectSourceStore } from '@/project/project-source-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useCommandStore } from '@/commands/command-store';
@@ -112,6 +114,14 @@ beforeEach(() => {
   useProjectSourceStore.getState().clear();
   clearWorkbenchTabStates();
   setLoadedEditorProjectState(emptyEditorProjectState());
+  useConfigurationAutosaveStatus.setState({
+    projectInstanceId: null,
+    pendingOwners: [],
+    failedOwners: [],
+    blockedOwners: [],
+    recoveredOwners: [],
+    errorsByOwner: {},
+  });
   vi.clearAllMocks();
 });
 
@@ -732,6 +742,38 @@ describe('dirty tab close guard', () => {
       typeof authoringProjectWithRooms
     >;
     expect(current.rooms.foyer?.label).toBe('New Foyer');
+  });
+
+  it('closes a normally autosaving Project Settings tab without asking for manual Save', async () => {
+    admitNativeRendererCommandFixture(createAuthoringProject(), 'test-project-session');
+    const settingsTab = buildProjectSettingsTab();
+    useWorkbenchStore.getState().openTab(settingsTab);
+    const result = await projectEdits.execute({
+      type: 'project.replaceAtPath',
+      label: 'Rename project',
+      payload: { path: '/project/name', value: 'Typing new title' },
+      originSaveUnitId: 'project:settings',
+      persistencePolicy: 'manual-save',
+    });
+    expect(result.ok).toBe(true);
+    useConfigurationAutosaveStatus.setState({
+      projectInstanceId: useProjectStore.getState().projectInstanceId,
+      pendingOwners: ['project:settings'],
+      failedOwners: [],
+      blockedOwners: [],
+      recoveredOwners: [],
+      errorsByOwner: {},
+    });
+    expect(
+      buildEditorProjectStateSnapshot().recovery.saveUnitsById['project:settings'],
+    ).toBeDefined();
+    act(() => useCloseGuardStore.getState().requestCloseTab(ROOT_GROUP_ID, settingsTab.id));
+    expect(useCloseGuardStore.getState().pendingClose).toBeNull();
+    expect(useWorkbenchStore.getState().tabsById[settingsTab.id]).toBeUndefined();
+    // Closing the view must not discard owner-scoped recovery or native intent.
+    expect(
+      buildEditorProjectStateSnapshot().recovery.saveUnitsById['project:settings'],
+    ).toBeDefined();
   });
 
   it('shares pending Project Settings input across duplicate views and blocks Save on final close', async () => {

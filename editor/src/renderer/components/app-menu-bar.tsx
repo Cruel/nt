@@ -18,8 +18,8 @@ import {
   MenubarTrigger,
 } from '@/components/ui/menubar';
 import { useCommandStore } from '@/commands/command-store';
-import { selectProjectDirty, useProjectStore } from '@/project/project-store';
-import { useDraftDirtyStore } from '@/workbench/draft-dirty-store';
+import { useProjectStore } from '@/project/project-store';
+import { useManualSaveDirty } from '@/project/manual-save-state';
 import {
   isPreviewVisibleFromState,
   setTabPreviewVisible,
@@ -47,12 +47,9 @@ const noDragStyle = { WebkitAppRegion: 'no-drag' } as CSSProperties;
 function WorkspaceTopToolbar() {
   const { t } = useTranslation('common');
   const project = useProjectStore((state) => state.document);
-  const projectDirty = useProjectStore(selectProjectDirty);
   const isSaving = useProjectStore((state) => state.isSaving);
   const commandHistory = useCommandStore((state) => state.history);
-  const draftEntries = useDraftDirtyStore((state) => state.entriesByKey);
-  const hasDraftDirty = Object.values(draftEntries).some((entry) => entry.dirty);
-  const saveDirty = !!project && (projectDirty || hasDraftDirty);
+  const saveDirty = useManualSaveDirty();
   const canUndo = !!project && commandHistory.cursor >= 0 && !commandHistory.activeTransaction;
   const canRedo =
     !!project &&
@@ -116,11 +113,8 @@ export function AppMenuBar() {
   const [aboutOpen, setAboutOpen] = useState(false);
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
   const project = useProjectStore((state) => state.document);
-  const projectDirty = useProjectStore(selectProjectDirty);
   const isSaving = useProjectStore((state) => state.isSaving);
-  const draftEntries = useDraftDirtyStore((state) => state.entriesByKey);
-  const hasDraftDirty = Object.values(draftEntries).some((entry) => entry.dirty);
-  const saveDirty = projectDirty || hasDraftDirty;
+  const saveDirty = useManualSaveDirty();
   const recentProjects = useRecentProjectsStore((state) => state.recentProjects);
   const activeGroupId = useWorkbenchStore((state) => state.activeGroupId);
   const activeGroup = useWorkbenchStore((state) => state.groupsById[activeGroupId]);

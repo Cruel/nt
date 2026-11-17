@@ -151,13 +151,13 @@ describe('preferences-store', () => {
   it('keeps export preferences out of browser-local persistence', () => {
     usePreferencesStore.getState().setExportPreferences({
       defaultOutputDirectory: '/tmp/exports',
-      profileTemplateTokens: { release: 'windows/build-1' },
-      profileSigningProfileIds: { release: 'windows-release' },
+      profileTemplateTokens: { 'project-id:game::release': 'windows/build-1' },
+      profileSigningProfileIds: { 'project-id:game::release': 'windows-release' },
     });
     expect(usePreferencesStore.getState().exportPreferences).toMatchObject({
       defaultOutputDirectory: '/tmp/exports',
-      profileTemplateTokens: { release: 'windows/build-1' },
-      profileSigningProfileIds: { release: 'windows-release' },
+      profileTemplateTokens: { 'project-id:game::release': 'windows/build-1' },
+      profileSigningProfileIds: { 'project-id:game::release': 'windows-release' },
     });
     const persisted = JSON.parse(localStorage.getItem('noveltea-preferences')!);
     expect(persisted.state.exportPreferences).toBeUndefined();

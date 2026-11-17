@@ -68,6 +68,31 @@ const recovery = {
 };
 
 describe('native editor external projection (#509)', () => {
+  it('applies nested project manifest metadata at /project rather than creating root fields', () => {
+    const saved = structuredClone(original);
+    const working = structuredClone(original);
+    working.project.name = 'Title while typing';
+    const manifest = {
+      project: { ...original.project, name: 'Title while typing' },
+      settings: original.settings,
+    };
+    const acknowledged = result(baseRoom, baseRoom);
+    acknowledged.affectedRecords = ['project'];
+    acknowledged.snapshot.source = manifest;
+    acknowledged.snapshot.baseline = manifest;
+    const projection = projectNativeExternalResult({
+      saved: saved as JsonValue,
+      working: working as JsonValue,
+      recovery: { sequence: 0, saveUnitsById: {} },
+      result: acknowledged,
+    });
+    expect((projection.saved as typeof original).project.name).toBe('Title while typing');
+    expect((projection.working as typeof original).project.name).toBe('Title while typing');
+    expect((projection.saved as Record<string, unknown>).name).toBeUndefined();
+    expect((projection.working as Record<string, unknown>).name).toBeUndefined();
+    expect(projection.recovery.saveUnitsById['project:settings']).toBeUndefined();
+    expect((projection.saved as typeof original).rooms.hall).toEqual(baseRoom);
+  });
   it('keeps native Room records effective after a clean watcher reconciliation', () => {
     const sparseRoom = {
       ...baseRoom,

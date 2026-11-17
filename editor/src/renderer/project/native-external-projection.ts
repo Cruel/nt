@@ -5,7 +5,12 @@ import type {
 } from '../../shared/project-schema/editor-project-state';
 import { stripLocalEditorProjectState } from '../../shared/project-schema/editor-project-state';
 import { applyJsonPatch, type JsonPatchOperation } from './json-patch';
-import { getJsonAtPointer, hasJsonAtPointer, type JsonPointer } from './json-pointer';
+import {
+  buildJsonPointer,
+  getJsonAtPointer,
+  hasJsonAtPointer,
+  type JsonPointer,
+} from './json-pointer';
 import { cloneJsonValue, type JsonValue } from './json-value';
 import { diffJsonDocuments } from './project-external-reconciliation';
 import { rebaseRecoveryOverlays } from './project-recovery-rebase';
@@ -128,7 +133,12 @@ function applySource(document: JsonValue, owner: string, source: unknown): JsonV
     if (!source || typeof source !== 'object' || Array.isArray(source))
       throw new Error('Native manifest projection is not an object.');
     let next = document;
-    for (const [key, value] of Object.entries(source)) next = applySource(next, key, value);
+    // The project.yaml manifest is a physical owner, not a recursive set of
+    // owner identifiers. In particular its `project` field is metadata at
+    // /project, not another manifest root. Recursing through applySource here
+    // wrote /name instead of /project/name and left a false unsaved diff.
+    for (const [key, value] of Object.entries(source))
+      next = applyAtPath(next, buildJsonPointer([key]), value);
     return next;
   }
   return applyAtPath(document, root, source);

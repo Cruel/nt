@@ -1153,6 +1153,7 @@
     "show": "Mostrar prévia"
   },
   "projectSettings": {
+    "autosaveFailed": "Não foi possível salvar automaticamente as configurações do Projeto",
     "distributionNotices": {
       "categoryLabel": "Avisos de distribuição",
       "categoryDescription": "Avisos em texto simples incluídos em cada pacote de execução.",

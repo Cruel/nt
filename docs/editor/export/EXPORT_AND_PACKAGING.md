@@ -63,7 +63,29 @@ Project Settings data.
 Profile creation chooses name and platform first, then enters the same target-specific editor used by
 `Edit Profile`. Platform identity is immutable after creation. The currently selected profile, output
 directory, installed-template build token, and signing identity are user-local execution state rather
-than committed profile data. Each authored platform profile owns `playerVariant: standard | devtools`
+than committed profile data. These choices persist automatically in
+`~/.noveltea/config.json` under user export preferences, keyed by project ID and profile ID
+(or a `project-path:` key for a Project without a durable ID). Current-only readers discard old
+bare path-keyed entries; opening Export never migrates them. A moved Project with a durable ID
+retains its selections. Two local checkouts with the same authored Project ID share these
+preferences, so their destination selections must be managed accordingly. Output destinations
+are passed as separate native export arguments. The historical `/export/runtime/outputPath`
+project field is deprecated and accepts only the empty placeholder; new fixtures omit it.
+An output directory must never be stored in that tracked field.
+Edits to the portable Runtime Package policy, platform export profiles, and named Project asset
+memory policies automatically persist through their exact native Project Save units after a short
+debounce. Unsaved authoring records and other unrelated configuration units remain untouched; invalid
+or externally conflicted edits retain recovery state and surface a save failure. Runtime Package
+preparation continues to use clean native Project sources, so export can begin once that scoped
+autosave finishes without a separate manual project Save. The Export page retains its last coherent
+assessment while a native patch and scoped settings Save complete; it refreshes readiness once after
+persistence rather than remounting the form on each native revision. The acknowledged
+Project remains authoritative for policy/profile controls after Undo, Redo, and external
+reconciliation; only an in-flight control edit uses temporary optimistic state. Profile and
+destination selections remain stable independently of this synchronization. Concurrently superseded read-only
+assessments are retried without a transient IPC error. The ordinary autosave interval is not presented
+as a dirty Export tab; blocked or failed changes remain visibly unsaved.
+Each authored platform profile owns `playerVariant: standard | devtools`
 when an explicit variant is selected. Standard players use `buildFlavor: release` and no developer
 instrumentation; optimized devtools players also use `buildFlavor: release` but compile the debug
 frontend and instrumentation. Android's `buildFlavor: debug` remains a distinct packaging/signing

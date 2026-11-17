@@ -73,20 +73,43 @@ mode so the command never creates a transiently invalid combination.
 Numeric text that is not yet representable by the project type, such as an empty required number,
 `-`, or `1.`, is stored as one field-level pending input keyed by the `project:settings` save unit and
 the field's JSON pointer. Pending input preserves the exact text through tab switches, project or
-window close, and reopen. It marks every duplicate Project Settings view dirty, appears as an error
-in Problems, and blocks only the Project Settings save unit. It clears only after the field commits a
-representable number or Project Settings is explicitly discarded.
+window close, and reopen. It remains internally dirty for recovery and close protection, appears as
+an error in Problems when invalid, and blocks only the Project Settings save unit. It clears only
+after the field commits a representable number or Project Settings is explicitly discarded. Ordinary
+in-progress typing does not flash a manual-unsaved dot on the Project Settings tab.
 
-`Ctrl+S` saves only `project:settings` when a Project Settings tab is active. Save All can still save
-unrelated valid units while leaving blocked Project Settings values dirty. Duplicate tabs share one
-logical dirty/save state; closing a non-final duplicate does not prompt, while closing the final dirty
-view uses the standard Save / Don't Save / Cancel flow. Undo and Redo operate on the same focused
-commands used by the controls.
+Project Settings edits are autosaved after a 550 ms trailing debounce, once their native field
+acknowledgments have settled. Typing updates its field presentation immediately; the native field
+transport already coalesces keystrokes independently, and disk writes are never dispatched for
+each keystroke. Autosave uses the ordinary native `project:settings` scoped Save, not Save All;
+it must never persist unrelated dirty Rooms, records, or export profiles. The native working/saved document
+difference for this Save unit determines when to queue persistence, including Undo/Redo; there is no
+separate guess based on mutation event path prefixes. The tab dot indicates an owner that requires
+attention (recovered changes, a blocked Save, or a failed Save), not an ordinary pending or in-flight
+autosave. Raw-only invalid input triggers its own debounced blocked-attention check even when
+no acknowledged content Save is queued. A blocked Settings unit cannot starve an independent
+Export-profile Save; eligible units continue while the blocked unit retains recovery.
+Absence of a queued timer is not evidence of a failed Save. Each Save acknowledges the
+specific edit generation it persisted; newer accepted edits require a later scoped Save, rather than
+being mistaken for an unsuccessful earlier Save. The recovery journal retains the physical dirty state throughout, even though ordinary autosave
+is excluded from the editor-wide manual-Save indicator, status bar, toolbar Save icon, and File
+menu Save/Save All enablement. Those surfaces share one Save-unit-policy calculation, so an
+unrelated dirty Room still enables manual Save. Closing a normally autosaving Settings tab does
+not prompt, since its native field intents and autosave controller survive the view's lifetime;
+invalid raw input or a blocked/failed/recovered Save still requires resolution on final close.
+Existing recovery is not silently committed merely because the Project is opened. Invalid raw input, external
+conflicts, native mutation failures, and atomic groups spanning other Save units block autosave rather
+than weakening native validation or widening the transaction. A failed Save retains its recovery,
+reports its actual error in Project Settings, and stays visibly unsaved through further typing until
+a subsequent native Save succeeds.
 
-Project and window close persist the exact dirty settings state through editor recovery metadata but
-do not commit it into project content. Save As copies the saved baseline and that recovery state
-without applying or validating the dirty values. See
-`PROJECT_SAVE_UNITS_AND_RECOVERY.md` for the complete save and recovery contract.
+`Ctrl+S` still explicitly saves only `project:settings` when its tab is active. Save All can still
+save unrelated valid units while leaving blocked settings dirty. Duplicate tabs share one logical
+working/save state; closing the final view of settings requiring manual intervention uses the
+normal Save / Don't Save / Cancel flow. Project and window close preserve any outstanding dirty settings and raw
+input through editor recovery metadata; they must not silently commit an invalid value. Save As
+copies the saved baseline and retained recovery without forcing invalid values into project content.
+See `PROJECT_SAVE_UNITS_AND_RECOVERY.md` for the complete save and recovery contract.
 
 Metadata uses existing project root fields:
 

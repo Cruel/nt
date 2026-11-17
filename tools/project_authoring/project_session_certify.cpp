@@ -73,6 +73,45 @@ struct TemporaryProject {
     }
 };
 
+void settings_fallback_scoped_save(const std::filesystem::path& fixture)
+{
+    TemporaryProject temp(fixture);
+    std::string error;
+    auto project = ProjectSession::open(temp.root, error);
+    require(project != nullptr, "Project Settings scoped Save fixture must open");
+    const auto room_path = temp.root / "records/rooms/properties-and-traits.yaml";
+    const auto project_path = temp.root / "project.yaml";
+    const auto room_bytes = read(room_path);
+    const auto source = read(project_path);
+    const auto room = project->patch(
+        project->working_revision(),
+        {{RoomPatch::Operation::Replace, "/rooms/properties-and-traits/data/displayName",
+          "\"A Room left unsaved\""}});
+    require(room.accepted && room.snapshot.dirty, "Room edit is staged but not saved");
+    const auto fallback = project->patch(
+        project->working_revision(),
+        {{RoomPatch::Operation::Replace, "/undefinedInteractionProgram/outcome", "\"handled\""}});
+    require(fallback.accepted && fallback.snapshot.dirty,
+            "Project Settings fallback edit is staged in native Project");
+    const auto paths = project->resolve_save_units({"project:settings"});
+    require(paths.contains("project"), "Settings logical unit resolves to Project source");
+    const auto saved = project->save_owners(project->working_revision(), {"project"}, false,
+                                            TransactionDecision::KeepComments, paths);
+    require(saved.accepted,
+            "Project Settings scoped Save must accept fallback edit: " + saved.error);
+    require(read(project_path) != source,
+            "Project Settings scoped Save must modify the project manifest source");
+    require(read(project_path).find("outcome: handled") != std::string::npos,
+            "Project Settings scoped Save must persist the edited fallback outcome");
+    require(read(room_path) == room_bytes,
+            "Project Settings scoped Save must leave unsaved Room source unchanged");
+    require(project->record_snapshots().at("rooms/properties-and-traits").dirty,
+            "Project Settings scoped Save must retain the unsaved Room overlay");
+    auto cold = ProjectSession::open(temp.root, error);
+    require(cold != nullptr && read(project_path).find("outcome: handled") != std::string::npos,
+            "Saved Project settings survive reopening without altering unsaved Room source");
+}
+
 void presentation_edit_roundtrip(const std::filesystem::path& fixture)
 {
     TemporaryProject temp(fixture);
@@ -196,6 +235,64 @@ void presentation_edit_roundtrip(const std::filesystem::path& fixture)
                     .at("data")
                     .at("displayName") == "Presentation edit 2",
             "Reopening must read the final saved Room display name");
+
+    // Native Project Patch must not dirty a different Room because an editor
+    // submitted its fully normalized Interactable array. This also exercises
+    // the scoped native Save boundary and physical YAML preservation.
+    const std::string inventory_owner = "rooms/inventory-workbench";
+    const auto inventory_path = temp.root / "records/rooms/inventory-workbench.yaml";
+    const auto inventory_bytes = read(inventory_path);
+    const auto unrelated_bytes = read(room_path);
+    require(reopened->inspect_record(inventory_owner).accepted,
+            "Sparse Inventory Room is admitted for native Project Patch");
+    const auto inventory_baseline = reopened->record_snapshots().at(inventory_owner);
+    const auto original_items =
+        Json::parse(inventory_baseline.normalized_json).at("data").at("interactables");
+    const auto revision = reopened->working_revision();
+    const auto no_op = reopened->patch(
+        revision, {{RoomPatch::Operation::Replace, "/rooms/inventory-workbench/data/interactables",
+                    original_items.to_string()}});
+    require(no_op.accepted && no_op.affected_records.empty() &&
+                no_op.snapshot.working_revision == revision &&
+                !reopened->record_snapshots().at(inventory_owner).dirty &&
+                read(inventory_path) == inventory_bytes,
+            "Normalized nested array no-op neither patches nor dirties the native Project");
+    auto edited_items = original_items;
+    edited_items[0]["order"] = 211;
+    const auto changed = reopened->patch(
+        revision, {{RoomPatch::Operation::Replace, "/rooms/inventory-workbench/data/interactables",
+                    edited_items.to_string()}});
+    const auto working = reopened->record_snapshots().at(inventory_owner);
+    require(changed.accepted &&
+                changed.affected_records == std::vector<std::string>{inventory_owner} &&
+                working.dirty && working.dirty_patches.size() == 1 &&
+                working.dirty_patches.front().path == "/data/interactables" &&
+                !Json::parse(working.source_json)
+                     .at("data")
+                     .at("interactables")
+                     .at(0)
+                     .contains("visible") &&
+                read(inventory_path) == inventory_bytes && read(room_path) == unrelated_bytes,
+            "Native Project Patch changes only the selected Room and retains sparse defaults");
+    const auto save = reopened->save_owners(reopened->working_revision(), {inventory_owner}, false,
+                                            TransactionDecision::KeepComments);
+    const auto saved_bytes = read(inventory_path);
+    require(save.accepted && !reopened->record_snapshots().at(inventory_owner).dirty &&
+                saved_bytes != inventory_bytes &&
+                saved_bytes.find("order: 211") != std::string::npos &&
+                saved_bytes.find("visible:") == std::string::npos &&
+                saved_bytes.find("condition:") == std::string::npos &&
+                read(room_path) == unrelated_bytes,
+            "Scoped native Save writes only the real Interactable edit, never implicit defaults");
+    auto cold = ProjectSession::open(temp.root, error);
+    require(cold && cold->inspect_record(inventory_owner).accepted &&
+                Json::parse(cold->record_snapshots().at(inventory_owner).normalized_json)
+                        .at("data")
+                        .at("interactables")
+                        .at(0)
+                        .at("order") == 211 &&
+                read(inventory_path) == saved_bytes,
+            "Reopening scoped Save retains the exact sparse authored Room");
 }
 
 void single_file_save_intent_roundtrip(const std::filesystem::path& fixture)
@@ -4389,6 +4486,7 @@ int main(int argc, char** argv)
         }
         if (argc == 3 && std::string_view(argv[1]) == "--presentation-edit") {
             presentation_edit_roundtrip(argv[2]);
+            settings_fallback_scoped_save(argv[2]);
             std::cout << "Native Room presentation edit certification passed.\n";
             return 0;
         }

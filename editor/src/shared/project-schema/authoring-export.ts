@@ -42,7 +42,9 @@ export const exportProfileSchema = z
     id: z.string().min(1).default('runtime-default'),
     label: z.string().min(1).default('Runtime Package'),
     kind: z.enum(exportPackageKindValues).default('runtime'),
-    outputPath: z.string().default(''),
+    // Runtime destinations live in user-local export preferences, never in shared profiles.
+    // Keep only the empty historical placeholder until the next atomic schema cutover.
+    outputPath: z.literal('').default(''),
     includeChecksums: z.boolean().default(true),
     stripEditorData: z.boolean().default(true),
     stripShaderSources: z.boolean().default(true),
@@ -66,7 +68,7 @@ export interface ExportProfileData {
   id: string;
   label: string;
   kind: ExportPackageKind;
-  outputPath: string;
+  outputPath: '';
   includeChecksums: boolean;
   stripEditorData: boolean;
   stripShaderSources: boolean;
@@ -148,7 +150,6 @@ export function normalizeExportProfile(
     ...profile,
     id: profile.id.trim() || 'runtime-default',
     label: profile.label.trim() || 'Runtime Package',
-    outputPath: profile.outputPath.trim(),
     shaderVariants: Array.from(new Set(variants)),
   };
 }

@@ -1,4 +1,5 @@
 import { useCommandStore } from '@/commands/command-store';
+import { useConfigurationAutosaveStatus } from '@/project/project-configuration-autosave';
 import { projectEdits } from '@/commands/project-editing';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -12,15 +13,19 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { localizedDiagnosticMessage } from '@/diagnostics/diagnostic-i18n';
+import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
 import { useProjectStore } from '@/project/project-store';
 import { MUTATION_SURFACE_ATTRIBUTIONS } from '@/project/save-unit-registry';
 import { usePreferencesStore } from '@/stores/preferences-store';
 import { buildProjectSettingsTab, buildSettingsTab } from '@/workbench/editor-registry';
 import { editorProjectStateFromProject } from '@/workbench/project-editor-state';
 import { navigateToWorkbenchTarget } from '@/workbench/workbench-navigation';
-import { dispatchWorkspaceToolbarCommand } from '@/workspace/workspace-toolbar-events';
+import {
+  dispatchWorkspaceToolbarCommand,
+  WORKSPACE_SAVE_SETTLED_EVENT,
+} from '@/workspace/workspace-toolbar-events';
 import { Copy, Plus, Trash2 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { ToolDiagnostic } from '../../shared/editor-tooling';
 import { localizationWarningDiagnostics } from '../../shared/export-localization-closure';
@@ -58,6 +63,7 @@ import {
   type RuntimeArtifactAssessment,
 } from '../../shared/runtime-artifact-preparation';
 import { hostPathDirname, joinHostPath } from '../host-filesystem-path';
+import { exportProjectPreferenceKey } from './export-local-preferences';
 import { usePackageExportStore } from './package-export-store';
 import { runPackageExportWorkflow } from './package-export-workflow';
 import { resolvePlatformExportDiagnosticTarget } from './platform-export-navigation';
@@ -309,8 +315,15 @@ export function PackageExportDialog({
 
   const [mode, setMode] = useState<ExportMode>(initialMode);
   const [runtimeProfile, setRuntimeProfile] = useState<ExportProfileData | null>(null);
-  const [platformSettings, setPlatformSettings] = useState<ProjectPlatformExportSettings | null>(
-    null,
+  // These are optimistic drafts only. The Project prop remains authoritative
+  // after native acknowledgment, Undo/Redo and external reconciliation.
+  const [platformSettingsDraft, setPlatformSettings] =
+    useState<ProjectPlatformExportSettings | null>(null);
+  const runtimeEditSequence = useRef(0);
+  const platformEditSequence = useRef(0);
+  const platformSettings = useMemo(
+    () => platformSettingsDraft ?? (project ? profileSettings(project) : null),
+    [platformSettingsDraft, project],
   );
   const [selectedPlatformProfileId, setSelectedPlatformProfileId] = useState<string | null>(null);
   const [runtimeOutput, setRuntimeOutput] = useState('');
@@ -333,7 +346,11 @@ export function PackageExportDialog({
   const [profileDraft, setProfileDraft] = useState<PlatformExportProfile | null>(null);
 
   function projectLocalKey() {
-    return projectFilePath ?? projectRoot ?? 'unsaved';
+    return exportProjectPreferenceKey({
+      projectId: project?.project.id ?? '',
+      projectRoot,
+      projectFilePath,
+    });
   }
 
   function localProfileKey(profileId: string) {
@@ -347,9 +364,9 @@ export function PackageExportDialog({
     });
   }
 
-  function outputForProfile(profile: PlatformExportProfile) {
+  function outputForProfile(profile: PlatformExportProfile, preferences = localState) {
     return (
-      localState.profileOutputDirectories[localProfileKey(profile.id)] ||
+      preferences.profileOutputDirectories[localProfileKey(profile.id)] ||
       defaultPlatformOutput(projectRoot, profile)
     );
   }
@@ -364,9 +381,11 @@ export function PackageExportDialog({
 
   useEffect(() => {
     if (!open || !project) return;
-    const nextRuntime = selectedExportProfile(project);
+    const preferences = usePreferencesStore.getState().exportPreferences;
     const settings = profileSettings(project);
-    const rememberedProfileId = localState.selectedProfileIds[projectLocalKey()];
+    ++runtimeEditSequence.current;
+    ++platformEditSequence.current;
+    const rememberedProfileId = preferences.selectedProfileIds[projectLocalKey()];
     const rememberedProfile = settings.profiles.find((item) => item.id === rememberedProfileId);
     const selected =
       rememberedProfile ??
@@ -381,24 +400,27 @@ export function PackageExportDialog({
           ? 'platform'
           : initialMode,
     );
-    setRuntimeProfile(nextRuntime);
+    setRuntimeProfile(null);
     setRuntimeOutput(
-      localState.profileOutputDirectories[localProfileKey('runtime-package')] ||
+      preferences.profileOutputDirectories[localProfileKey('runtime-package')] ||
         defaultRuntimeOutput(project, projectRoot, projectFilePath),
     );
-    setPlatformSettings(settings);
+    setPlatformSettings(null);
     setSelectedPlatformProfileId(selected?.id ?? null);
-    setPlatformOutput(selected ? outputForProfile(selected) : '');
+    setPlatformOutput(selected ? outputForProfile(selected, preferences) : '');
     setSelectedTemplateToken(
-      selected ? (localState.profileTemplateTokens[localProfileKey(selected.id)] ?? '') : '',
+      selected ? (preferences.profileTemplateTokens[localProfileKey(selected.id)] ?? '') : '',
     );
     setSelectedSigningProfileId(
-      selected ? (localState.profileSigningProfileIds[localProfileKey(selected.id)] ?? '') : '',
+      selected ? (preferences.profileSigningProfileIds[localProfileKey(selected.id)] ?? '') : '',
     );
     setProfileEditMode('none');
     setProfileDraft(null);
     void window.noveltea.loadUserExportConfig().then(setUserExportConfig);
-  }, [open, project, projectRoot]); // oxlint-disable-line react-hooks/exhaustive-deps
+    // Reinitialize only on Project/open transitions. Native acknowledgments and
+    // autosaves change the Project object reference; reinitializing from it would
+    // overwrite the selected control and flash the entire Export form.
+  }, [open, project?.project.id, projectRoot, projectFilePath, initialMode]); // oxlint-disable-line react-hooks/exhaustive-deps
 
   const selectedPlatformProfile = useMemo(() => {
     if (!platformSettings) return null;
@@ -419,62 +441,138 @@ export function PackageExportDialog({
       stripShaderSources: !selectedPlatformProfile.includeShaderSources,
     };
   }, [project, selectedPlatformProfile]);
-  const previewProfile =
-    mode === 'platform' && platformRuntimeProfile ? platformRuntimeProfile : activeRuntimeProfile;
+  const exportProjectId = project?.project.id ?? null;
   const [preview, setPreview] = useState<RuntimeArtifactAssessment | null>(null);
   const [previewPending, setPreviewPending] = useState(false);
   const [previewFailure, setPreviewFailure] = useState<string | null>(null);
-  const nativeRevision = useCommandStore((state) => state.nativeWorkingRevision);
+  const [pendingExportOwners, setPendingExportOwners] = useState<string[]>([]);
+  const [readinessGeneration, setReadinessGeneration] = useState(0);
+  const lastAssessedContext = useRef<{
+    sessionId: string;
+    nativeRevision: number;
+    mode: ExportMode;
+    profileId: string | null;
+  } | null>(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const refresh = () => {
+      const context = lastAssessedContext.current;
+      const native = useCommandStore.getState();
+      const sessionId = useProjectStore.getState().projectSessionId;
+      const profileId = mode === 'platform' ? (selectedPlatformProfile?.id ?? null) : null;
+      // A Save All with nothing to persist (or an editor-metadata-only Save)
+      // must not briefly disable Export and repeat an identical native preflight.
+      // A changed native revision, unresolved owner, or settings autosave still
+      // requires a fresh authoritative readiness assessment.
+      if (
+        context?.sessionId === sessionId &&
+        context.nativeRevision === native.nativeWorkingRevision &&
+        context.mode === mode &&
+        context.profileId === profileId &&
+        pendingExportOwners.length === 0 &&
+        !previewFailure &&
+        !native.nativeMutationPending &&
+        useConfigurationAutosaveStatus.getState().pendingOwners.length === 0
+      )
+        return;
+      setReadinessGeneration((generation) => generation + 1);
+    };
+    window.addEventListener(WORKSPACE_SAVE_SETTLED_EVENT, refresh);
+    return () => window.removeEventListener(WORKSPACE_SAVE_SETTLED_EVENT, refresh);
+  }, [open, mode, selectedPlatformProfile?.id, pendingExportOwners.length, previewFailure]);
+  const nativeReady = useCommandStore((state) => state.nativeWorkingRevision !== null);
+  const nativeMutationPending = useCommandStore((state) => state.nativeMutationPending);
   const projectSessionId = useProjectStore((state) => state.projectSessionId);
+  const projectInstanceId = useProjectStore((state) => state.projectInstanceId);
+  const configurationAutosave = useConfigurationAutosaveStatus();
+  const configurationPending =
+    configurationAutosave.projectInstanceId === projectInstanceId &&
+    configurationAutosave.pendingOwners.length > 0;
+  const configurationFailed =
+    configurationAutosave.projectInstanceId === projectInstanceId &&
+    configurationAutosave.failedOwners.length > 0;
   useEffect(() => {
     let current = true;
-    if (!project || !previewProfile) {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    if (!open || !exportProjectId) {
+      lastAssessedContext.current = null;
       setPreview(null);
+      setPendingExportOwners([]);
       setPreviewPending(false);
-      return () => {
-        current = false;
-      };
+      return;
+    }
+    // Native patch acknowledgment is followed by a scoped settings autosave.
+    // Never assess the intervening dirty revision. A single readiness refresh
+    // runs once the relevant settings are persisted.
+    if (nativeMutationPending || configurationPending) return;
+    if (!projectSessionId || !nativeReady) {
+      setPreviewFailure('Native export readiness requires an active Project session.');
+      return;
     }
     setPreviewPending(true);
-    setPreviewFailure(null);
-
-    setPreview(null);
-    if (!projectSessionId || nativeRevision === null) {
-      setPreviewFailure('Native export readiness requires an active Project session.');
-      setPreviewPending(false);
-      return () => {
-        current = false;
-      };
-    }
-    void window.noveltea
-      .nativeProjectPrepareExport(
-        projectSessionId,
-        nativeRevision,
-        mode,
-        mode === 'platform' ? (selectedPlatformProfile?.id ?? undefined) : undefined,
+    const run = () => {
+      if (!current) return;
+      const native = useCommandStore.getState();
+      if (
+        native.nativeMutationPending ||
+        useConfigurationAutosaveStatus.getState().pendingOwners.length > 0
       )
-      .then((result) => {
-        if (!current) return;
-        setPreview(result.status === 'cancelled' ? null : result.assessment);
-      })
-      .catch((error: unknown) => {
-        if (!current) return;
-        setPreview(null);
-        setPreviewFailure(error instanceof Error ? error.message : String(error));
-      })
-      .finally(() => {
-        if (current) setPreviewPending(false);
-      });
+        return;
+      const revision = native.nativeWorkingRevision;
+      if (revision === null) return;
+      void window.noveltea
+        .nativeProjectPrepareExport(
+          projectSessionId,
+          revision,
+          mode,
+          mode === 'platform' ? (selectedPlatformProfile?.id ?? undefined) : undefined,
+        )
+        .then((result) => {
+          if (!current) return;
+          if (result.status === 'superseded') {
+            // An expected concurrent Save is not a user-facing export error.
+            timer = setTimeout(run, 180);
+            return;
+          }
+          if (result.status === 'needs-save') {
+            setPendingExportOwners(result.dirtyOwners);
+          } else {
+            setPendingExportOwners([]);
+            setPreview(result.status === 'cancelled' ? null : result.assessment);
+            if (result.status !== 'cancelled')
+              lastAssessedContext.current = {
+                sessionId: projectSessionId,
+                nativeRevision: revision,
+                mode,
+                profileId: mode === 'platform' ? (selectedPlatformProfile?.id ?? null) : null,
+              };
+          }
+          setPreviewFailure(null);
+          setPreviewPending(false);
+        })
+        .catch((error: unknown) => {
+          if (!current) return;
+          setPreviewFailure(error instanceof Error ? error.message : String(error));
+          setPreviewPending(false);
+        });
+    };
+    // Collapse synchronous React publications and the native IPC reply into
+    // one assessment. Keep the previous preview in place while refreshing.
+    timer = setTimeout(run, 120);
     return () => {
       current = false;
+      if (timer) clearTimeout(timer);
     };
   }, [
+    open,
     mode,
-    project,
+    exportProjectId,
     projectRoot,
-    previewProfile,
-    nativeRevision,
     projectSessionId,
+    nativeReady,
+    nativeMutationPending,
+    configurationPending,
+    readinessGeneration,
     selectedPlatformProfile?.id,
   ]);
 
@@ -586,6 +684,10 @@ export function PackageExportDialog({
     profileEditMode === 'none' &&
     !running &&
     !previewPending &&
+    !nativeMutationPending &&
+    !configurationPending &&
+    !configurationFailed &&
+    pendingExportOwners.length === 0 &&
     (mode === 'runtime'
       ? preview !== null && blockingDiagnostics.length === 0 && outputPath.trim().length > 0
       : templatesLoaded && !!selectedPlatformProfile && readiness?.ok === true && !!template);
@@ -625,9 +727,14 @@ export function PackageExportDialog({
     : [];
 
   async function commitPlatformSettings(next: ProjectPlatformExportSettings) {
-    const result = await persistPlatformSettings(currentProject, next);
-    if (result.ok) setPlatformSettings(next);
-    return result.ok;
+    const edit = ++platformEditSequence.current;
+    setPlatformSettings(next);
+    try {
+      const result = await persistPlatformSettings(currentProject, next);
+      return result.ok;
+    } finally {
+      if (edit === platformEditSequence.current) setPlatformSettings(null);
+    }
   }
 
   async function updateRuntimePackaging(patch: Partial<ExportProfileData>) {
@@ -638,8 +745,13 @@ export function PackageExportDialog({
         ? { stripShaderSources: !patch.includeShaderSources }
         : {}),
     };
-    const result = await persistRuntimeProfile(currentProject, next);
-    if (result.ok) setRuntimeProfile(next);
+    const edit = ++runtimeEditSequence.current;
+    setRuntimeProfile(next);
+    try {
+      await persistRuntimeProfile(currentProject, next);
+    } finally {
+      if (edit === runtimeEditSequence.current) setRuntimeProfile(null);
+    }
   }
 
   function updatePlatformPackaging(patch: Partial<PlatformExportProfile>) {
@@ -802,10 +914,7 @@ export function PackageExportDialog({
       (item) => item.id !== selectedPlatformProfile.id,
     );
     if (profiles.length === 0) {
-      const nextSettings = { ...currentPlatformSettings, profiles: [] };
-      const result = await persistPlatformSettings(currentProject, nextSettings);
-      if (!result.ok) return;
-      setPlatformSettings(nextSettings);
+      if (!(await commitPlatformSettings({ ...currentPlatformSettings, profiles: [] }))) return;
       setSelectedPlatformProfileId(null);
       setMode('runtime');
       rememberSelectedProfile('runtime-package');
@@ -941,7 +1050,7 @@ export function PackageExportDialog({
         project: currentProject,
         projectRoot,
         outputPath,
-        profile: { ...currentRuntimeProfile, outputPath },
+        profile: currentRuntimeProfile,
         allowLocalizationWarnings,
       });
       return;
@@ -1766,6 +1875,46 @@ export function PackageExportDialog({
             </div>
           </div>
 
+          {pendingExportOwners.length > 0 ? (
+            <div role="status" className="rounded border p-3 text-sm">
+              <p className="font-medium">{t('settings:exportUi.pendingNativeTitle')}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {t('settings:exportUi.pendingNativeDescription')}
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {pendingExportOwners.map((owner) => {
+                  const target = resolveProjectDiagnosticTarget(currentProject, `/${owner}`);
+                  return target ? (
+                    <button
+                      key={owner}
+                      type="button"
+                      className="rounded border px-2 py-1 font-mono text-xs hover:bg-accent"
+                      onClick={() => navigateToWorkbenchTarget(target)}
+                    >
+                      {owner}
+                    </button>
+                  ) : (
+                    <span key={owner} className="rounded border px-2 py-1 font-mono text-xs">
+                      {owner}
+                    </span>
+                  );
+                })}
+              </div>
+              <Button
+                className="mt-2"
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  dispatchWorkspaceToolbarCommand({
+                    command: 'save-all',
+                    nativeExportOwners: pendingExportOwners,
+                  })
+                }
+              >
+                {t('settings:exportUi.savePendingNative')}
+              </Button>
+            </div>
+          ) : null}
           {previewFailure ? (
             <div
               role="alert"

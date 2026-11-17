@@ -24,7 +24,7 @@ import type {
 import { buildRuntimeTestCatalog } from '../../shared/runtime-test-catalog';
 import { invokeNovelTeaNativeOperation } from '../../shared/noveltea-cli-subprocess';
 import { NativeDirtyCheckpointStore } from './native-dirty-checkpoint-store';
-import type { NativeDirtyCheckpoint } from './native-authoring-working-project';
+import { patchOwner, type NativeDirtyCheckpoint } from './native-authoring-working-project';
 import { NativeAssetStagingService } from './native-asset-staging-service';
 import type { ProjectSourceStructuralRequest } from '../../shared/project-source-files';
 import { planNativeProjectSourceTransaction } from './native-project-source-transactions';
@@ -1216,6 +1216,24 @@ export class NativeEditorSessionController {
       return projectFromNativeCompletePreparation(prepared);
     }
     throw new Error('Native working Project changed repeatedly during Asset discovery.');
+  }
+
+  /** Main-owned, read-only evidence for Export page readiness. Never infer
+   * source cleanliness from the renderer's normalized document or dirty tabs. */
+  pendingExportOwners(projectSessionId: string, expectedRevision: number): string[] {
+    if (!this.isAdmitted(projectSessionId))
+      throw new Error('Export requires an admitted native Project.');
+    if (expectedRevision !== this.currentRevision(projectSessionId))
+      throw new Error('Stale native Project export revision.');
+    const dirty = this.working.dirtyCheckpoint();
+    return [
+      ...new Set([
+        ...dirty.batches.flatMap((batch) => Object.keys(batch.diskPreconditions)),
+        ...Object.keys(dirty.textSources),
+        ...Object.keys(dirty.conflicts),
+        ...Object.keys(dirty.pendingFields).map(patchOwner),
+      ]),
+    ].sort();
   }
 
   /** Export uses admitted, *saved* native source, never a renderer document or

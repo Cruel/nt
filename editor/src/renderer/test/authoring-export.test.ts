@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { projectExportSettingsSchema } from '../../shared/project-schema/authoring-project-export';
 import {
   defaultExportProfile,
   normalizeExportProfile,
@@ -21,6 +22,26 @@ describe('authoring export settings', () => {
       includeTests: false,
     });
     expect(project.export.runtime.id).toBe('runtime-default');
+  });
+
+  it('rejects machine-local paths in tracked runtime export configuration', () => {
+    const project = createAuthoringProject();
+    expect(
+      projectExportSettingsSchema.safeParse({
+        ...project.export,
+        runtime: { ...project.export.runtime, outputPath: '/home/user/releases/game.ntpkg' },
+      }).success,
+    ).toBe(false);
+    expect(projectExportSettingsSchema.safeParse(project.export).success).toBe(true);
+    // A missing historical placeholder is valid; newly authored files need
+    // not carry an empty destination key.
+    const { outputPath: _oldPlaceholder, ...portableRuntime } = project.export.runtime;
+    expect(
+      projectExportSettingsSchema.safeParse({
+        ...project.export,
+        runtime: portableRuntime,
+      }).success,
+    ).toBe(true);
   });
 
   it('normalizes malformed runtime profiles', () => {

@@ -153,6 +153,7 @@ describe('workbench dirty state', () => {
         '/prefetchHints',
         '/project',
         '/settings',
+        '/undefinedInteractionProgram',
       ],
     });
     expect(restoreSaveUnitPatchesFromSaved(settingsTab, current, saved)).toEqual([

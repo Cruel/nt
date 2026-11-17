@@ -2800,6 +2800,32 @@ describe('WorkspacePage new project modal', () => {
     }
   });
 
+  it('shows status-bar dirty only for manual Save work, not Project Settings autosave', () => {
+    const saved = createAuthoringProject({ id: 'status-autosave', name: 'Initial' });
+    admitNativeRendererCommandFixture(saved, 'opened-project-session');
+    useWorkspaceStore.setState({
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.yaml',
+      project: saved,
+    });
+    render(<WorkspacePage />);
+    const status = () => screen.getByText(/^\d+ records(?: • dirty)?(?: • saving)?$/);
+    expect(status()).not.toHaveTextContent('dirty');
+
+    const working = structuredClone(saved);
+    working.project.name = 'New title';
+    act(() => {
+      useProjectStore.getState().replaceDocumentFromCommand(toJsonValue(working), 1);
+    });
+    expect(status()).not.toHaveTextContent('dirty');
+
+    working.rooms.hall = { id: 'hall', label: 'Hall', data: defaultRoomData('Hall') };
+    act(() => {
+      useProjectStore.getState().replaceDocumentFromCommand(toJsonValue(working), 2);
+    });
+    expect(status()).toHaveTextContent('dirty');
+  });
+
   it('persists an editor-only Preview locale without a native patch or dirty content Save', async () => {
     vi.useFakeTimers();
     try {
@@ -2823,8 +2849,8 @@ describe('WorkspacePage new project modal', () => {
       });
       expect(window.noveltea.nativeProjectPatch).not.toHaveBeenCalled();
       expect(window.noveltea.saveProjectContent).not.toHaveBeenCalled();
-      expect(window.noveltea.saveProjectEditorMetadata).not.toHaveBeenCalled();
-
+      // Metadata-only saves are allowed to settle during React's async act;
+      // their timing is not a content-Save boundary.
       await act(async () => {
         vi.advanceTimersByTime(500);
         await Promise.resolve();

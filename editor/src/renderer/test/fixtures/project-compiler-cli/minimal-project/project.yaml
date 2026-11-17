@@ -93,7 +93,6 @@ export:
     id: runtime-default
     label: Runtime Package
     kind: runtime
-    outputPath: ''
     includeChecksums: true
     stripEditorData: true
     stripShaderSources: true

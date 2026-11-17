@@ -63,6 +63,7 @@ export function holdFirstNativeProjectPatch() {
 export function admitNativeRendererCommandFixture(
   project: AuthoringProject,
   session = defaultSession,
+  fixtureOptions: { includeSavedOwners?: boolean } = {},
 ) {
   let revision = 0;
   let document: JsonValue = toJsonValue(project);
@@ -162,16 +163,22 @@ export function admitNativeRendererCommandFixture(
       if (id !== session || expected !== revision)
         throw new Error('Native fixture received a stale Save revision.');
       revision++;
-      // A scoped Save without an external disk change acknowledges its transaction
-      // but has no reconciled owners. The editor constructs the saved projection
-      // from the selected logical Save unit; reporting all owners here would
-      // falsely claim unrelated dirty units were externally rewritten.
+      // Ordinary renderer tests omit physical owner data to isolate scoped
+      // Save projection. Opt-in reconciliation tests must exercise the real
+      // native response shape, which reports committed physical owners even
+      // when there was no external disk change.
       const acknowledgement = acknowledgments(
         options?.structuralPathsByOwner ? lastPatchedPaths : ['/project'],
       );
-      return options?.structuralPathsByOwner
-        ? acknowledgement
-        : { ...acknowledgement, affectedRecords: [] };
+      if (options?.structuralPathsByOwner) return acknowledgement;
+      if (fixtureOptions.includeSavedOwners) {
+        return {
+          ...acknowledgement,
+          affectedRecords: ['project'],
+          snapshot: { ...acknowledgement.snapshot, baseline: document },
+        };
+      }
+      return { ...acknowledgement, affectedRecords: [] };
     },
   );
   Object.defineProperty(window.noveltea, 'nativeProjectPatch', {

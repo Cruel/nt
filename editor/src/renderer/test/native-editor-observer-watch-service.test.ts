@@ -89,6 +89,58 @@ describe('native observer as sole physical Project watcher', () => {
     }
   }, 12_000);
 
+  it('skips idle fallback polling but detects exact changes that OS events intentionally ignore', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'noveltea-working-poll-'));
+    const working = path.join(root, '.noveltea/editor/working');
+    await mkdir(path.join(working, 'files'), { recursive: true });
+    const manifest = path.join(working, 'manifest.json');
+    await writeFile(manifest, 'first manifest');
+    const publish = vi.fn();
+    const intervals = vi.spyOn(globalThis, 'setInterval');
+    const watcher = new NativeEditorObserverWatchService(
+      { subscribe: () => () => {}, onFailure: () => () => {} },
+      { isCurrent: () => true },
+      publish,
+      () => root,
+    );
+    try {
+      watcher.start('project-1');
+      const scheduled = intervals.mock.calls.find(([, interval]) => interval === 5000)?.[0];
+      expect(scheduled).toBeTypeOf('function');
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      // Five seconds of idle time is not a mutation and must not disable Export.
+      (scheduled as () => void)();
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(publish).not.toHaveBeenCalled();
+
+      // The manifest is ignored by Chokidar; exact fallback scanning must
+      // still discover its change even when the file size is unchanged.
+      await writeFile(manifest, 'other manifest');
+      (scheduled as () => void)();
+      await vi.waitFor(
+        () =>
+          expect(publish).toHaveBeenCalledWith(
+            expect.objectContaining({ workingSourceChanged: true }),
+          ),
+        { timeout: 2500 },
+      );
+      publish.mockClear();
+
+      (scheduled as () => void)();
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(publish).not.toHaveBeenCalled();
+      watcher.close();
+      (scheduled as () => void)();
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(publish).not.toHaveBeenCalled();
+    } finally {
+      intervals.mockRestore();
+      watcher.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 12_000);
+
   it('settles two in-place writes and observes deleted working paths without watching authored YAML', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'noveltea-live-watch-settle-'));
     const working = path.join(root, '.noveltea/editor/working');

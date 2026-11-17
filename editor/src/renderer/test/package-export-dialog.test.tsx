@@ -5,20 +5,26 @@ import {
   runtimeExportProfileForPlatform,
 } from '../../shared/project-schema/authoring-export';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { PackageExportDialog } from '@/export/PackageExportDialog';
 import { usePackageExportStore } from '@/export/package-export-store';
 import { useTemplateRegistryStore } from '@/export/template-registry-store';
 import { useCommandStore } from '@/commands/command-store';
+import { projectEdits } from '@/commands/project-editing';
+import { startProjectConfigurationAutosave } from '@/project/project-configuration-autosave';
 import { usePreferencesStore } from '@/stores/preferences-store';
 import { useProjectStore } from '@/project/project-store';
 import { editorI18n } from '@/i18n';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { defaultPlatformExportProfile } from '../../shared/project-schema/platform-export-contracts';
+import {
+  WORKSPACE_TOOLBAR_COMMAND_EVENT,
+  WORKSPACE_SAVE_SETTLED_EVENT,
+} from '@/workspace/workspace-toolbar-events';
 
 function exportableProject(withPlatformProfile = true) {
-  const project = createAuthoringProject({ name: 'Dialog Export' });
+  const project = createAuthoringProject({ id: 'dialog-export', name: 'Dialog Export' });
   const room = defaultRoomData('Foyer');
   room.description.source = { kind: 'inline', text: 'Ready.' };
   project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
@@ -96,17 +102,21 @@ function renderExport(
   initialMode: 'runtime' | 'platform' = 'runtime',
 ) {
   if (!useProjectStore.getState().document) admitNativeRendererCommandFixture(project);
-  return render(
-    <PackageExportDialog
-      embedded
-      initialMode={initialMode}
-      open
-      onOpenChange={vi.fn()}
-      project={project}
-      projectRoot="/project"
-      projectFilePath="/project/project.yaml"
-    />,
-  );
+  function LiveExport() {
+    const document = useProjectStore((state) => state.document);
+    return (
+      <PackageExportDialog
+        embedded
+        initialMode={initialMode}
+        open
+        onOpenChange={vi.fn()}
+        project={(document ?? project) as ReturnType<typeof exportableProject>}
+        projectRoot="/project"
+        projectFilePath="/project/project.yaml"
+      />
+    );
+  }
+  return render(<LiveExport />);
 }
 
 beforeEach(() => {
@@ -169,6 +179,231 @@ beforeEach(() => {
 });
 
 describe('PackageExportDialog', () => {
+  it('keeps Export available and avoids re-preparing after redundant Save settled notifications', async () => {
+    renderExport(exportableProject(false), 'runtime');
+    const exportButton = screen.getByRole('button', { name: 'Export' });
+    await waitFor(() => expect(exportButton).toBeEnabled());
+    expect(window.noveltea.nativeProjectPrepareExport).toHaveBeenCalledTimes(1);
+
+    for (let index = 0; index < 3; index++) {
+      fireEvent(window, new Event(WORKSPACE_SAVE_SETTLED_EVENT));
+      expect(exportButton).toBeEnabled();
+    }
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(window.noveltea.nativeProjectPrepareExport).toHaveBeenCalledTimes(1);
+    expect(exportButton).toBeEnabled();
+
+    // An actual new native working generation must still be rechecked.
+    const revision = useCommandStore.getState().nativeWorkingRevision!;
+    act(() => useCommandStore.setState({ nativeWorkingRevision: revision + 1 }));
+    fireEvent(window, new Event(WORKSPACE_SAVE_SETTLED_EVENT));
+    await waitFor(() =>
+      expect(window.noveltea.nativeProjectPrepareExport).toHaveBeenCalledTimes(2),
+    );
+    await waitFor(() => expect(exportButton).toBeEnabled());
+  });
+
+  it('synchronizes acknowledged runtime policy changes while retaining the Export tab', async () => {
+    const project = exportableProject(false);
+    admitNativeRendererCommandFixture(project);
+    const view = render(
+      <PackageExportDialog
+        embedded
+        initialMode="runtime"
+        open
+        onOpenChange={vi.fn()}
+        project={project}
+        projectRoot="/project"
+        projectFilePath="/project/project.yaml"
+      />,
+    );
+    const quality = document.getElementById('export-localization-quality') as HTMLSelectElement;
+    expect(quality).toHaveValue('development');
+    const revised = structuredClone(project);
+    revised.export.runtime.localization.quality = 'release';
+    view.rerender(
+      <PackageExportDialog
+        embedded
+        initialMode="runtime"
+        open
+        onOpenChange={vi.fn()}
+        project={revised}
+        projectRoot="/project"
+        projectFilePath="/project/project.yaml"
+      />,
+    );
+    expect(quality).toHaveValue('release');
+  });
+
+  it('synchronizes updated platform profile fields without losing the selected profile', async () => {
+    usePreferencesStore.getState().setDeveloperMode(true);
+    const project = exportableProject();
+    admitNativeRendererCommandFixture(project);
+    const view = render(
+      <PackageExportDialog
+        embedded
+        initialMode="platform"
+        open
+        onOpenChange={vi.fn()}
+        project={project}
+        projectRoot="/project"
+        projectFilePath="/project/project.yaml"
+      />,
+    );
+    const toggle = screen.getByRole('checkbox', { name: 'Exclude Unused Assets' });
+    expect(toggle).toBeChecked();
+    const revised = structuredClone(project);
+    revised.export.profiles[0]!.excludeUnusedAssets = false;
+    view.rerender(
+      <PackageExportDialog
+        embedded
+        initialMode="platform"
+        open
+        onOpenChange={vi.fn()}
+        project={revised}
+        projectRoot="/project"
+        projectFilePath="/project/project.yaml"
+      />,
+    );
+    expect(toggle).not.toBeChecked();
+    expect(screen.getByRole('button', { name: /Linux/ })).toBeInTheDocument();
+  });
+
+  it('builds subsequent packaging edits from the latest native-acknowledged Project state', async () => {
+    usePreferencesStore.getState().setDeveloperMode(true);
+    const project = exportableProject(false);
+    admitNativeRendererCommandFixture(project);
+    function LiveExport() {
+      const document = useProjectStore((state) => state.document);
+      return (
+        <PackageExportDialog
+          embedded
+          initialMode="runtime"
+          open
+          onOpenChange={vi.fn()}
+          project={document as ReturnType<typeof exportableProject>}
+          projectRoot="/project"
+          projectFilePath="/project/project.yaml"
+        />
+      );
+    }
+    render(<LiveExport />);
+    const quality = document.getElementById('export-localization-quality') as HTMLSelectElement;
+    const change = await projectEdits.execute({
+      type: 'project.replaceAtPath',
+      payload: { path: '/export/runtime/excludeUnusedAssets', value: false },
+      label: 'External export policy change',
+      originSaveUnitId: 'project:platform-export-profiles',
+      persistencePolicy: 'manual-save',
+    });
+    expect(change.ok).toBe(true);
+    await waitFor(() =>
+      expect(screen.getByRole('checkbox', { name: 'Exclude Unused Assets' })).not.toBeChecked(),
+    );
+    fireEvent.change(quality, { target: { value: 'release' } });
+    await waitFor(
+      () =>
+        expect(
+          (useProjectStore.getState().document as ReturnType<typeof exportableProject>).export
+            .runtime.localization.quality,
+        ).toBe('release'),
+      { timeout: 5000 },
+    );
+    expect(
+      (useProjectStore.getState().document as ReturnType<typeof exportableProject>).export.runtime
+        .excludeUnusedAssets,
+    ).toBe(false);
+  });
+
+  it('keeps one stable readiness assessment while Quality Policy patches and autosaves', async () => {
+    const initial = exportableProject(false);
+    const native = admitNativeRendererCommandFixture(initial);
+    const stop = startProjectConfigurationAutosave();
+    function LiveExport() {
+      const document = useProjectStore((state) => state.document);
+      return (
+        <PackageExportDialog
+          embedded
+          initialMode="runtime"
+          open
+          onOpenChange={vi.fn()}
+          project={document as ReturnType<typeof exportableProject>}
+          projectRoot="/project"
+          projectFilePath="/project/project.yaml"
+        />
+      );
+    }
+    try {
+      render(<LiveExport />);
+      await waitFor(() =>
+        expect(window.noveltea.nativeProjectPrepareExport).toHaveBeenCalledTimes(1),
+      );
+      const quality = document.getElementById('export-localization-quality') as HTMLSelectElement;
+      const nextQuality = quality.value === 'release' ? 'development' : 'release';
+      fireEvent.change(quality, { target: { value: nextQuality } });
+      expect(quality).toHaveValue(nextQuality);
+
+      await waitFor(() => expect(native.save).toHaveBeenCalledTimes(1), { timeout: 5000 });
+      await waitFor(
+        () => expect(window.noveltea.nativeProjectPrepareExport).toHaveBeenCalledTimes(2),
+        { timeout: 5000 },
+      );
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(window.noveltea.nativeProjectPrepareExport).toHaveBeenCalledTimes(2);
+      expect(quality).toHaveValue(nextQuality);
+      expect(
+        (useProjectStore.getState().savedDocument as ReturnType<typeof exportableProject>).export
+          .runtime.localization.quality,
+      ).toBe(nextQuality);
+      expect(screen.queryByText(/Stale native Project export revision/)).not.toBeInTheDocument();
+    } finally {
+      stop();
+    }
+  });
+
+  it('retries a superseded preflight without showing a transient error', async () => {
+    const original = window.noveltea.nativeProjectPrepareExport;
+    const prepare = vi
+      .fn()
+      .mockResolvedValueOnce({ status: 'superseded' })
+      .mockImplementation(original);
+    Object.defineProperty(window.noveltea, 'nativeProjectPrepareExport', {
+      configurable: true,
+      value: prepare,
+    });
+    renderExport(exportableProject(false), 'runtime');
+    await waitFor(() => expect(prepare).toHaveBeenCalledTimes(2), { timeout: 5000 });
+    expect(screen.queryByText(/Stale native Project export revision/)).not.toBeInTheDocument();
+  });
+
+  it('shows native dirty owners as actionable export readiness instead of a remote error', async () => {
+    const project = exportableProject(false);
+    Object.defineProperty(window.noveltea, 'nativeProjectPrepareExport', {
+      configurable: true,
+      value: vi.fn().mockResolvedValue({
+        status: 'needs-save',
+        dirtyOwners: ['rooms/foyer'],
+      }),
+    });
+    renderExport(project, 'runtime');
+    expect(await screen.findByText('Save or resolve pending Project changes')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'rooms/foyer' })).toBeInTheDocument();
+    const onCommand = vi.fn();
+    window.addEventListener(WORKSPACE_TOOLBAR_COMMAND_EVENT, onCommand);
+    fireEvent.click(screen.getByRole('button', { name: 'Save All' }));
+    expect(onCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        detail: { command: 'save-all', nativeExportOwners: ['rooms/foyer'] },
+      }),
+    );
+    window.removeEventListener(WORKSPACE_TOOLBAR_COMMAND_EVENT, onCommand);
+    window.dispatchEvent(new Event(WORKSPACE_SAVE_SETTLED_EVENT));
+    await waitFor(() =>
+      expect(window.noveltea.nativeProjectPrepareExport).toHaveBeenCalledTimes(2),
+    );
+    expect(screen.getByRole('button', { name: 'Export' })).toBeDisabled();
+    expect(screen.queryByText(/Error invoking remote method/)).not.toBeInTheDocument();
+  });
   it('localizes inert Hotspot diagnostics in the runtime diagnostic preview', async () => {
     const project = exportableProject(false);
     const room = project.rooms.foyer!.data as ReturnType<typeof defaultRoomData>;
@@ -191,7 +426,12 @@ describe('PackageExportDialog', () => {
       configurable: true,
       value: vi.fn(async (...args: Parameters<typeof nativePrepare>) => {
         const result = await nativePrepare(...args);
-        if (result.status === 'cancelled') return result;
+        if (
+          result.status === 'cancelled' ||
+          result.status === 'needs-save' ||
+          result.status === 'superseded'
+        )
+          return result;
         const diagnostic = {
           code: 'hotspot.authoring.target.none',
           severity: 'info' as const,
@@ -262,9 +502,21 @@ describe('PackageExportDialog', () => {
       expect(
         usePreferencesStore.getState().exportPreferences.profileOutputDirectories,
       ).toMatchObject({
-        '/project/project.yaml::runtime-package': '/project/custom/dialog-export.ntpkg',
+        'project-id:dialog-export::runtime-package': '/project/custom/dialog-export.ntpkg',
       }),
     );
+  });
+
+  it('does not promote unsupported bare path-keyed output directories on open', async () => {
+    usePreferencesStore.getState().setExportPreferences({
+      profileOutputDirectories: {
+        '/project/project.yaml::runtime-package': '/project/prior/game.ntpkg',
+      },
+    });
+    renderExport(exportableProject(false), 'runtime');
+
+    expect(screen.getByDisplayValue('/project/dist/dialog-export.ntpkg')).toBeInTheDocument();
+    expect(usePreferencesStore.getState().exportPreferences.profileOutputDirectories).toEqual({});
   });
 
   it('creates a profile as Name + Platform followed by the shared profile editor', async () => {
@@ -382,7 +634,12 @@ describe('PackageExportDialog', () => {
       configurable: true,
       value: vi.fn(async (...args: Parameters<typeof nativePrepare>) => {
         const result = await nativePrepare(...args);
-        if (result.status === 'cancelled') return result;
+        if (
+          result.status === 'cancelled' ||
+          result.status === 'needs-save' ||
+          result.status === 'superseded'
+        )
+          return result;
         const warning = {
           code: 'localization.export.message_missing',
           severity: 'warning' as const,
@@ -480,7 +737,7 @@ describe('PackageExportDialog', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Windows/ }));
     expect(screen.getByRole('heading', { name: 'Windows' })).toBeInTheDocument();
     expect(usePreferencesStore.getState().exportPreferences.selectedProfileIds).toMatchObject({
-      '/project/project.yaml': windows.id,
+      'project-id:dialog-export': windows.id,
     });
     first.unmount();
 

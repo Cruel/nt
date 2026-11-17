@@ -562,6 +562,135 @@ std::optional<Json> at_pointer(const Json& value, std::string_view pointer)
     }
 }
 
+// A broad editor Replace contains an effective value, including schema defaults
+// that are omitted from authored YAML. Retain the existing source representation
+// of every effectively unchanged field instead of manufacturing those defaults.
+// This is deliberately not used for an explicit Add/Remove or a scalar Replace:
+// those operations express source-field intent, including an explicit default.
+std::optional<Json> preserve_authored_effective_fields(const Json* authored, const Json* effective,
+                                                       const Json& replacement,
+                                                       const Json* baseline_authored = nullptr,
+                                                       const Json* baseline_effective = nullptr)
+{
+    if (effective && *effective == replacement)
+        return authored ? std::optional<Json>(*authored) : std::nullopt;
+    if (!effective)
+        return replacement;
+
+    if (effective->is_object() && replacement.is_object()) {
+        Json projected = authored && authored->is_object() ? *authored : Json::object();
+        if (authored && !authored->is_object())
+            return replacement;
+        if (authored && authored->is_object()) {
+            for (const auto& field : authored->object_range())
+                if (!replacement.contains(field.key()))
+                    projected.erase(field.key());
+        }
+        for (const auto& field : replacement.object_range()) {
+            const auto* prior_effective =
+                effective->contains(field.key()) ? &effective->at(field.key()) : nullptr;
+            const auto* prior_authored =
+                authored && authored->is_object() && authored->contains(field.key())
+                    ? &authored->at(field.key())
+                    : nullptr;
+            const auto* baseline_field = baseline_authored && baseline_authored->is_object() &&
+                                                 baseline_authored->contains(field.key())
+                                             ? &baseline_authored->at(field.key())
+                                             : nullptr;
+            const auto* effective_baseline_field = baseline_effective &&
+                                                           baseline_effective->is_object() &&
+                                                           baseline_effective->contains(field.key())
+                                                       ? &baseline_effective->at(field.key())
+                                                       : nullptr;
+            const auto value =
+                preserve_authored_effective_fields(prior_authored, prior_effective, field.value(),
+                                                   baseline_field, effective_baseline_field);
+            if (value)
+                projected.insert_or_assign(field.key(), *value);
+            else
+                projected.erase(field.key());
+        }
+        return projected.empty() && !authored ? std::nullopt : std::optional<Json>(projected);
+    }
+
+    if (effective->is_array() && replacement.is_array() && authored && authored->is_array()) {
+        const auto entry_id = [](const Json& entry) -> std::optional<std::string> {
+            if (entry.is_object() && entry.contains("id") && entry.at("id").is_string())
+                return entry.at("id").as<std::string>();
+            return std::nullopt;
+        };
+        std::map<std::string, std::size_t> positions;
+        bool keyed = effective->size() == authored->size();
+        for (std::size_t i = 0; keyed && i < effective->size(); ++i) {
+            const auto id = entry_id(effective->at(i));
+            keyed = id && id == entry_id(authored->at(i)) && positions.emplace(*id, i).second;
+        }
+        if (keyed) {
+            std::set<std::string> new_ids;
+            for (const auto& entry : replacement.array_range()) {
+                const auto id = entry_id(entry);
+                if (!id || !new_ids.insert(*id).second) {
+                    keyed = false;
+                    break;
+                }
+            }
+        }
+        std::map<std::string, std::size_t> baseline_positions;
+        if (baseline_authored && baseline_effective && baseline_authored->is_array() &&
+            baseline_effective->is_array() &&
+            baseline_authored->size() == baseline_effective->size()) {
+            for (std::size_t i = 0; i < baseline_authored->size(); ++i) {
+                const auto id = entry_id(baseline_authored->at(i));
+                if (!id || id != entry_id(baseline_effective->at(i)) ||
+                    !baseline_positions.emplace(*id, i).second) {
+                    baseline_positions.clear();
+                    break;
+                }
+            }
+        }
+        Json projected = Json::array();
+        for (std::size_t i = 0; i < replacement.size(); ++i) {
+            const Json* prior_effective = nullptr;
+            const Json* prior_authored = nullptr;
+            if (keyed) {
+                const auto id = entry_id(replacement.at(i));
+                if (const auto old = positions.find(*id); old != positions.end()) {
+                    prior_effective = &effective->at(old->second);
+                    prior_authored = &authored->at(old->second);
+                }
+            } else if (replacement.size() == effective->size() &&
+                       authored->size() == effective->size()) {
+                const auto old_id = entry_id(effective->at(i));
+                const auto new_id = entry_id(replacement.at(i));
+                if (!old_id || !new_id || old_id == new_id) {
+                    prior_effective = &effective->at(i);
+                    prior_authored = &authored->at(i);
+                }
+            }
+            const auto id = entry_id(replacement.at(i));
+            // Undoing removal of an existing ID must restore its authored
+            // presence from the saved baseline. Otherwise reintroducing the
+            // same normalized item would materialize all its implicit fields.
+            if (!prior_authored && !prior_effective && id && baseline_authored &&
+                baseline_effective) {
+                if (const auto old = baseline_positions.find(*id);
+                    old != baseline_positions.end()) {
+                    prior_authored = &baseline_authored->at(old->second);
+                    prior_effective = &baseline_effective->at(old->second);
+                }
+            }
+            const auto value = preserve_authored_effective_fields(prior_authored, prior_effective,
+                                                                  replacement.at(i));
+            if (value)
+                projected.push_back(*value);
+            else
+                projected.push_back(replacement.at(i));
+        }
+        return projected;
+    }
+    return replacement;
+}
+
 void json_delta(const Json* base, const Json* next, const std::string& path,
                 std::vector<RoomPatch>& result)
 {
@@ -587,6 +716,49 @@ void json_delta(const Json* base, const Json* next, const std::string& path,
     patch.path = path;
     patch.value_json = next ? next->to_string() : "";
     result.push_back(std::move(patch));
+}
+
+// Only for an already source-projected effective Replace: traverse stable
+// array members instead of replacing the whole collection when their order
+// and identities did not change. Structural insert/delete/reorder still uses
+// one atomic array replacement, with each old item's authored shape retained.
+void projected_authored_delta(const Json* base, const Json* next, const std::string& path,
+                              std::vector<RoomPatch>& result)
+{
+    if (base && next && *base == *next)
+        return;
+    if (base && next && base->is_object() && next->is_object()) {
+        for (const auto& field : base->object_range()) {
+            const auto child = path + "/" + pointer_token(field.key());
+            projected_authored_delta(&field.value(),
+                                     next->contains(field.key()) ? &next->at(field.key()) : nullptr,
+                                     child, result);
+        }
+        for (const auto& field : next->object_range())
+            if (!base->contains(field.key()))
+                projected_authored_delta(nullptr, &field.value(),
+                                         path + "/" + pointer_token(field.key()), result);
+        return;
+    }
+    if (base && next && base->is_array() && next->is_array() && base->size() == next->size()) {
+        bool same_order = true;
+        for (std::size_t i = 0; i < base->size(); ++i) {
+            const auto& old_item = base->at(i);
+            const auto& new_item = next->at(i);
+            if (old_item.is_object() && new_item.is_object() && old_item.contains("id") &&
+                new_item.contains("id") && old_item.at("id") != new_item.at("id")) {
+                same_order = false;
+                break;
+            }
+        }
+        if (same_order) {
+            for (std::size_t i = 0; i < base->size(); ++i)
+                projected_authored_delta(&base->at(i), &next->at(i), path + "/" + std::to_string(i),
+                                         result);
+            return;
+        }
+    }
+    json_delta(base, next, path, result);
 }
 
 // Editor patches target an effective record: a container supplied by schema
@@ -4643,8 +4815,9 @@ ProjectSession::resolve_save_units(const std::vector<std::string>& save_unit_ids
             add("editor", "/tags");
             add("editor", "/recordMetadata");
         } else if (unit == "project:settings") {
-            for (const auto* path : {"/project", "/settings", "/bootstrapModule", "/entrypoint",
-                                     "/prefetchHints", "/export/assetMemoryPolicies"})
+            for (const auto* path :
+                 {"/project", "/settings", "/bootstrapModule", "/entrypoint",
+                  "/undefinedInteractionProgram", "/prefetchHints", "/export/assetMemoryPolicies"})
                 add("project", path);
             // Project Settings also owns the initial Project Inventory. A
             // location edit may move an Instance out of it, so include the
@@ -6975,7 +7148,65 @@ RoomSessionResult RoomSession::patch(std::uint64_t expected_working_revision,
                         const auto effective = Json::parse(current.effective_json);
                         if (auto previous = at_pointer(effective, "/data");
                             previous && previous->is_object()) {
-                            json_delta(&*previous, &replacement, "/data", effective_changes);
+                            // The incoming /data is a normalized editor
+                            // value. Preserve authored source presence (and
+                            // explicit defaults), not the expanded defaults
+                            // of unchanged nested arrays and objects.
+                            const auto authored = at_pointer(next, "/data");
+                            if (authored && authored->is_object()) {
+                                const auto source_baseline = at_pointer(baseline, "/data");
+                                const auto normalized_baseline =
+                                    baseline_effective ? at_pointer(*baseline_effective, "/data")
+                                                       : std::nullopt;
+                                const auto projected = preserve_authored_effective_fields(
+                                    &*authored, &*previous, replacement,
+                                    source_baseline ? &*source_baseline : nullptr,
+                                    normalized_baseline ? &*normalized_baseline : nullptr);
+                                if (projected) {
+                                    projected_authored_delta(&*authored, &*projected, "/data",
+                                                             effective_changes);
+                                    for (auto& change : effective_changes)
+                                        change.comments = operations.front().comments;
+                                    projected_effective_data = true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // A nested Replace is also an effective-model edit when it replaces an
+        // existing object/array. A previous source field that was omitted and
+        // supplied only by normalization must stay omitted. Field-level
+        // Replace/Add/Remove operations remain explicit source intent.
+        if (!projected_effective_data && operations.size() == 1 &&
+            operations.front().operation == RoomPatch::Operation::Replace &&
+            operations.front().path != "/data" && !is_project_ && !is_editor_ && !is_traits_ &&
+            !is_localization_ && !previous.normalized_json.empty()) {
+            const auto replacement = Json::parse(operations.front().value_json);
+            // Do not parse the full normalized Record for an ordinary scalar
+            // keystroke. Only broad composite replacements need projection.
+            if (replacement.is_object() || replacement.is_array()) {
+                const auto path = resolve_id_pointer(next, operations.front().path);
+                const auto authored = at_pointer(next, path);
+                if (authored &&
+                    ((authored->is_object() && replacement.is_object()) ||
+                     (authored->is_array() && replacement.is_array())) &&
+                    *authored != replacement) {
+                    const auto effective = at_pointer(Json::parse(previous.normalized_json), path);
+                    if (effective && ((effective->is_object() && replacement.is_object()) ||
+                                      (effective->is_array() && replacement.is_array()))) {
+                        const auto source_baseline = at_pointer(baseline, path);
+                        const auto normalized_baseline = baseline_effective
+                                                             ? at_pointer(*baseline_effective, path)
+                                                             : std::nullopt;
+                        const auto projected = preserve_authored_effective_fields(
+                            &*authored, &*effective, replacement,
+                            source_baseline ? &*source_baseline : nullptr,
+                            normalized_baseline ? &*normalized_baseline : nullptr);
+                        if (projected) {
+                            projected_authored_delta(&*authored, &*projected, path,
+                                                     effective_changes);
                             for (auto& change : effective_changes)
                                 change.comments = operations.front().comments;
                             projected_effective_data = true;

@@ -157,6 +157,193 @@ int main(int argc, char** argv)
                     Json::parse(initial.normalized_json).at("data").at("kind") == "room",
                 "valid Room source expands into a native effective Room");
 
+        // A replacement of a normalized nested collection must never turn
+        // implicit YAML defaults into authored fields on its other members.
+        {
+            const auto inventory_path =
+                temp.root / "records" / "rooms" / "inventory-workbench.yaml";
+            auto bytes =
+                read(std::filesystem::path(argv[1]) / "records/rooms/inventory-workbench.yaml");
+            const auto first = bytes.find("    - id: identity-control\n");
+            require(first != std::string::npos, "Sparse Interactable fixture has a first item");
+            if (first != std::string::npos)
+                bytes.insert(first + std::string_view("    - id: identity-control\n").size(),
+                             "      visible: true # deliberately explicit\n");
+            write(inventory_path, bytes);
+            auto inventory = RoomSession::open(temp.root, "inventory-workbench", error);
+            require(inventory && inventory->snapshot().valid,
+                    "Sparse Interactable Room admits with one explicit default");
+            if (!inventory)
+                throw std::runtime_error(error);
+            const auto opened = inventory->snapshot();
+            const auto effective = Json::parse(opened.normalized_json);
+            const auto original_items = effective.at("data").at("interactables");
+            const auto baseline = Json::parse(opened.source_json);
+            require(!baseline.at("data").at("interactables").at(1).contains("visible") &&
+                        baseline.at("data").at("interactables").at(0).contains("visible"),
+                    "Test Room distinguishes omitted and explicitly authored defaults");
+            const auto no_op =
+                inventory->patch(0, {{RoomPatch::Operation::Replace, "/data/interactables",
+                                      original_items.to_string()}});
+            require(no_op.accepted && no_op.snapshot.working_revision == 0 &&
+                        !no_op.snapshot.dirty && no_op.snapshot.source_json == opened.source_json &&
+                        read(inventory_path) == bytes,
+                    "Replacing a normalized collection without changes is a true no-op");
+            auto edited_items = original_items;
+            edited_items[0]["order"] = 222;
+            const auto changed = inventory->patch(
+                0,
+                {{RoomPatch::Operation::Replace, "/data/interactables", edited_items.to_string()}});
+            const auto changed_source = Json::parse(changed.snapshot.source_json);
+            require(
+                changed.accepted && changed.snapshot.dirty &&
+                    changed.snapshot.dirty_patches.size() == 1 &&
+                    changed.snapshot.dirty_patches.front().path == "/data/interactables" &&
+                    changed_source.at("data").at("interactables").at(0).at("order") == 222 &&
+                    changed_source.at("data").at("interactables").at(0).contains("visible") &&
+                    !changed_source.at("data").at("interactables").at(0).contains("condition") &&
+                    !changed_source.at("data").at("interactables").at(1).contains("visible") &&
+                    !changed_source.at("data").at("interactables").at(1).contains("condition") &&
+                    read(inventory_path) == bytes,
+                "Nested effective array edit changes only the authored value");
+            const auto undo =
+                inventory->patch(changed.snapshot.working_revision,
+                                 {{RoomPatch::Operation::Replace, "/data/interactables",
+                                   original_items.to_string()}});
+            require(undo.accepted && !undo.snapshot.dirty &&
+                        Json::parse(undo.snapshot.source_json) == baseline,
+                    "Undo restores sparse source presence and the clean native working state");
+            auto reordered_items = original_items;
+            const auto first_item = reordered_items[0];
+            reordered_items[0] = reordered_items[1];
+            reordered_items[1] = first_item;
+            const auto reordered =
+                inventory->patch(undo.snapshot.working_revision,
+                                 {{RoomPatch::Operation::Replace, "/data/interactables",
+                                   reordered_items.to_string()}});
+            const auto reordered_source =
+                Json::parse(reordered.snapshot.source_json).at("data").at("interactables");
+            require(reordered.accepted && reordered_source.at(0).at("id") == "inventory-control" &&
+                        reordered_source.at(1).at("id") == "identity-control" &&
+                        reordered_source.at(1).contains("visible") &&
+                        !reordered_source.at(0).contains("visible"),
+                    "Reordering ID-keyed array members retains their source-field presence");
+            const auto reorder_undo =
+                inventory->patch(reordered.snapshot.working_revision,
+                                 {{RoomPatch::Operation::Replace, "/data/interactables",
+                                   original_items.to_string()}});
+            require(reorder_undo.accepted && !reorder_undo.snapshot.dirty &&
+                        Json::parse(reorder_undo.snapshot.source_json) == baseline,
+                    "Undoing a collection reorder restores clean authored source");
+            Json removed_items = Json::array();
+            for (std::size_t i = 0; i < original_items.size(); ++i)
+                if (i != 1)
+                    removed_items.push_back(original_items.at(i));
+            const auto removed =
+                inventory->patch(reorder_undo.snapshot.working_revision,
+                                 {{RoomPatch::Operation::Replace, "/data/interactables",
+                                   removed_items.to_string()}});
+            require(removed.accepted && removed.snapshot.dirty &&
+                        Json::parse(removed.snapshot.source_json)
+                                .at("data")
+                                .at("interactables")
+                                .size() == original_items.size() - 1 &&
+                        !Json::parse(removed.snapshot.source_json)
+                             .at("data")
+                             .at("interactables")
+                             .at(1)
+                             .contains("visible"),
+                    "Removing an array member does not expand remaining members");
+            const auto removal_undo =
+                inventory->patch(removed.snapshot.working_revision,
+                                 {{RoomPatch::Operation::Replace, "/data/interactables",
+                                   original_items.to_string()}});
+            require(removal_undo.accepted && !removal_undo.snapshot.dirty &&
+                        Json::parse(removal_undo.snapshot.source_json) == baseline,
+                    "Undoing array removal restores the removed item's original sparse source");
+            const auto view = effective.at("data").at("presentationSpace").at("defaultView");
+            const auto view_no_op =
+                inventory->patch(removal_undo.snapshot.working_revision,
+                                 {{RoomPatch::Operation::Replace,
+                                   "/data/presentationSpace/defaultView", view.to_string()}});
+            require(view_no_op.accepted && !view_no_op.snapshot.dirty,
+                    "Replacing a normalized nested object is also a no-op");
+            auto zoomed = view;
+            zoomed["zoom"] = 1.5;
+            const auto zoom_change =
+                inventory->patch(view_no_op.snapshot.working_revision,
+                                 {{RoomPatch::Operation::Replace,
+                                   "/data/presentationSpace/defaultView", zoomed.to_string()}});
+            const auto zoom_source = Json::parse(zoom_change.snapshot.source_json);
+            require(
+                zoom_change.accepted && zoom_change.snapshot.dirty &&
+                    zoom_source.at("data").at("presentationSpace").at("defaultView").at("zoom") ==
+                        1.5 &&
+                    !zoom_source.at("data").at("interactables").at(1).contains("visible"),
+                "Nested object edits preserve unrelated sparse array fields");
+            const auto zoom_undo =
+                inventory->patch(zoom_change.snapshot.working_revision,
+                                 {{RoomPatch::Operation::Replace,
+                                   "/data/presentationSpace/defaultView", view.to_string()}});
+            require(zoom_undo.accepted && !zoom_undo.snapshot.dirty &&
+                        Json::parse(zoom_undo.snapshot.source_json) == baseline,
+                    "Undo restores omitted nested object defaults");
+            auto whole_data = effective.at("data");
+            whole_data["displayName"] = "Focused projection";
+            const auto whole_data_changed = inventory->patch(
+                zoom_undo.snapshot.working_revision,
+                {{RoomPatch::Operation::Replace, "/data", whole_data.to_string()}});
+            require(whole_data_changed.accepted && whole_data_changed.snapshot.dirty &&
+                        Json::parse(whole_data_changed.snapshot.source_json)
+                                .at("data")
+                                .at("displayName") == "Focused projection" &&
+                        !Json::parse(whole_data_changed.snapshot.source_json)
+                             .at("data")
+                             .at("interactables")
+                             .at(1)
+                             .contains("visible"),
+                    "Existing whole-data replacement also preserves nested sparse defaults");
+            const auto whole_data_undo = inventory->patch(
+                whole_data_changed.snapshot.working_revision,
+                {{RoomPatch::Operation::Replace, "/data", effective.at("data").to_string()}});
+            require(whole_data_undo.accepted && !whole_data_undo.snapshot.dirty &&
+                        Json::parse(whole_data_undo.snapshot.source_json) == baseline,
+                    "Whole-data Undo restores the clean original authored source");
+            const auto explicitly_added = inventory->patch(
+                whole_data_undo.snapshot.working_revision,
+                {{RoomPatch::Operation::Replace, "/data/interactables/1/visible", "true"}});
+            require(explicitly_added.accepted && explicitly_added.snapshot.dirty &&
+                        Json::parse(explicitly_added.snapshot.source_json)
+                                .at("data")
+                                .at("interactables")
+                                .at(1)
+                                .at("visible") == true,
+                    "Explicit scalar default edit still authors its field");
+            const auto explicitly_removed = inventory->patch(
+                explicitly_added.snapshot.working_revision,
+                {{RoomPatch::Operation::Remove, "/data/interactables/1/visible", ""}});
+            require(explicitly_removed.accepted && !explicitly_removed.snapshot.dirty,
+                    "Removing an explicitly authored default restores clean sparse source");
+            const auto commit = inventory->patch(
+                explicitly_removed.snapshot.working_revision,
+                {{RoomPatch::Operation::Replace, "/data/interactables", edited_items.to_string()}});
+            const auto saved = inventory->save(commit.snapshot.disk_source_revision);
+            require(commit.accepted && saved.accepted && !saved.snapshot.dirty &&
+                        read(inventory_path).find("visible: true # deliberately explicit") !=
+                            std::string::npos &&
+                        read(inventory_path).find("order: 222") != std::string::npos &&
+                        read(inventory_path).find("condition:") == std::string::npos,
+                    "Native Save retains explicitly authored default comments and sparse peers");
+            auto cold = RoomSession::open(temp.root, "inventory-workbench", error);
+            require(cold && cold->snapshot().valid && !cold->snapshot().dirty &&
+                        Json::parse(cold->snapshot().normalized_json)
+                                .at("data")
+                                .at("interactables")
+                                .at(0)
+                                .at("order") == 222,
+                    "Native Save and reopen preserve sparse nested authoring");
+        }
+
         const auto invalid_batch =
             session->patch(0, {{RoomPatch::Operation::Replace, "/label", "\"Broken\""},
                                {RoomPatch::Operation::Remove, "/data/doesNotExist", ""}});

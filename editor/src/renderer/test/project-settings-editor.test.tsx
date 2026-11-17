@@ -2,6 +2,11 @@ import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { ProjectSettingsEditor } from '@/editors/project/ProjectSettingsEditor';
 import { useCommandStore } from '@/commands/command-store';
+import {
+  configurationTabShowsDirty,
+  startProjectConfigurationAutosave,
+  useConfigurationAutosaveStatus,
+} from '@/project/project-configuration-autosave';
 import { useProjectStore } from '@/project/project-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { invokeWorkbenchTargetHandler } from '@/workbench/workbench-navigation';
@@ -11,6 +16,7 @@ import { getTabDirtyState } from '@/workbench/dirty-state';
 import { captureWorkbenchTabState, clearWorkbenchTabStates } from '@/workbench/workbench-tab-state';
 import {
   buildEditorProjectStateSnapshot,
+  currentRecoveryDirtySaveUnitIds,
   setLoadedEditorProjectState,
 } from '@/workbench/project-editor-state';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
@@ -143,6 +149,145 @@ beforeEach(() => {
 });
 
 describe('ProjectSettingsEditor', () => {
+  it('never flashes the dirty tab marker through typing, native acknowledgment and scoped Save', async () => {
+    const native = admitNativeRendererCommandFixture(project());
+    const stop = startProjectConfigurationAutosave();
+    function dirtyPresentation() {
+      const current = useProjectStore.getState();
+      const dirtyState = getTabDirtyState(
+        tab,
+        current.document,
+        current.savedDocument,
+        {},
+        selectPendingSaveUnitIds({
+          entriesBySaveUnitId: usePendingInputStore.getState().entriesBySaveUnitId,
+        }),
+        currentRecoveryDirtySaveUnitIds(),
+      );
+      return {
+        underlyingDirty: dirtyState.dirty,
+        displayedDirty: configurationTabShowsDirty(
+          dirtyState,
+          useConfigurationAutosaveStatus.getState(),
+          current.projectInstanceId,
+        ),
+      };
+    }
+    try {
+      render(<ProjectSettingsEditor tab={tab} />);
+      const title = screen.getByLabelText('Project title');
+      expect(dirtyPresentation()).toEqual({ underlyingDirty: false, displayedDirty: false });
+
+      fireEvent.change(title, { target: { value: 'Old Title A' } });
+      expect(title).toHaveValue('Old Title A');
+      expect(useConfigurationAutosaveStatus.getState().pendingOwners).toContain('project:settings');
+      expect(dirtyPresentation().displayedDirty).toBe(false);
+      fireEvent.change(title, { target: { value: 'Old Title Again' } });
+      expect(dirtyPresentation().displayedDirty).toBe(false);
+
+      await waitFor(
+        () =>
+          expect(
+            (useProjectStore.getState().document as ReturnType<typeof project>).project.name,
+          ).toBe('Old Title Again'),
+        { timeout: 5000 },
+      );
+      expect(dirtyPresentation()).toEqual({ underlyingDirty: true, displayedDirty: false });
+      expect(native.save).not.toHaveBeenCalled();
+
+      await waitFor(() => expect(native.save).toHaveBeenCalledTimes(1), { timeout: 5000 });
+      await waitFor(
+        () =>
+          expect(dirtyPresentation()).toEqual({
+            underlyingDirty: false,
+            displayedDirty: false,
+          }),
+        { timeout: 5000 },
+      );
+      expect(
+        (useProjectStore.getState().savedDocument as ReturnType<typeof project>).project.name,
+      ).toBe('Old Title Again');
+    } finally {
+      stop();
+    }
+  });
+
+  it('explains a native autosave failure in the editor until a subsequent Save succeeds', async () => {
+    const native = admitNativeRendererCommandFixture(project());
+    native.save.mockResolvedValueOnce({
+      accepted: false,
+      error: 'Project settings disk permission denied',
+      diagnosticsAdded: [],
+      commentImpacts: [],
+    } as never);
+    const stop = startProjectConfigurationAutosave();
+    try {
+      render(<ProjectSettingsEditor tab={tab} />);
+      fireEvent.change(screen.getByLabelText('Project title'), {
+        target: { value: 'Unsaved Title' },
+      });
+      await waitFor(() => expect(native.save).toHaveBeenCalledTimes(1), { timeout: 5000 });
+      await waitFor(
+        () =>
+          expect(
+            useConfigurationAutosaveStatus.getState().errorsByOwner['project:settings'],
+          ).toContain('Project settings disk permission denied'),
+        { timeout: 5000 },
+      );
+      await waitFor(
+        () =>
+          expect(screen.getByRole('alert')).toHaveTextContent(
+            'Project settings disk permission denied',
+          ),
+        { timeout: 5000 },
+      );
+      fireEvent.change(screen.getByLabelText('Project title'), {
+        target: { value: 'Saved Title' },
+      });
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'Project settings disk permission denied',
+      );
+      await waitFor(() => expect(native.save).toHaveBeenCalledTimes(2), { timeout: 5000 });
+      await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument(), {
+        timeout: 5000,
+      });
+      expect(
+        (useProjectStore.getState().savedDocument as ReturnType<typeof project>).project.name,
+      ).toBe('Saved Title');
+    } finally {
+      stop();
+    }
+  });
+
+  it('autosaves an actual Project Settings field after native acknowledgment', async () => {
+    const native = admitNativeRendererCommandFixture(project());
+    const stop = startProjectConfigurationAutosave();
+    try {
+      render(<ProjectSettingsEditor tab={tab} />);
+      selectProjectSettingsCategory('Display');
+      fireEvent.change(screen.getByLabelText('Presentation bar color'), {
+        target: { value: '#aabbcc' },
+      });
+      await waitFor(() => {
+        expect(
+          (useProjectStore.getState().document as ReturnType<typeof project>).settings.display
+            .barColor,
+        ).toBe('#aabbcc');
+      });
+      await waitFor(() => expect(native.save).toHaveBeenCalledTimes(1), { timeout: 5000 });
+      expect(native.save.mock.calls[0]?.[2]).toBe('project:settings');
+      expect(
+        (useProjectStore.getState().savedDocument as ReturnType<typeof project>).settings.display
+          .barColor,
+      ).toBe('#aabbcc');
+      expect(
+        buildEditorProjectStateSnapshot().recovery.saveUnitsById['project:settings'],
+      ).toBeUndefined();
+    } finally {
+      stop();
+    }
+  });
+
   it('paints Display and Accessibility edits while native is blocked and persists both without stale overwrite', async () => {
     const native = admitNativeRendererCommandFixture(project());
     const held = holdFirstNativeProjectPatch();

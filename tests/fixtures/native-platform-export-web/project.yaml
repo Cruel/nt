@@ -102,7 +102,6 @@ export:
     id: runtime-canonical
     label: Canonical Runtime Package
     kind: runtime
-    outputPath: ""
     includeChecksums: true
     stripEditorData: true
     stripShaderSources: true

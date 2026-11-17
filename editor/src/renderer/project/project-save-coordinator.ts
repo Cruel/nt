@@ -46,6 +46,8 @@ import {
 } from './project-source-store';
 import { useProjectStore } from './project-store';
 import {
+  RECORD_SAVE_UNIT_COLLECTIONS,
+  recordSaveUnitId,
   resolveSaveUnitForTab,
   sourceIdFromSaveUnitId,
   sourceSaveUnitId,
@@ -425,14 +427,20 @@ async function commitSelectedNativeSaveUnits(
 
 export async function saveActiveSaveUnit(
   explicitSaveUnitId?: SaveUnitId,
-  options: { allowExternalConflict?: boolean; acceptExternalSourceBase?: boolean } = {},
+  options: {
+    allowExternalConflict?: boolean;
+    acceptExternalSourceBase?: boolean;
+    requireExactSaveUnit?: boolean;
+  } = {},
 ): Promise<ProjectSaveCoordinatorResult> {
   const projectState = useProjectStore.getState();
   const tab = activeTab();
-  const resolution = tab
-    ? resolveSaveUnitForTab(tab, projectState.document)
-    : explicitSaveUnitId
-      ? null
+  // An explicit save-unit request (including settings autosave) is independent
+  // of the focused tab. A non-content tool must not turn it into a no-op.
+  const resolution = explicitSaveUnitId
+    ? null
+    : tab
+      ? resolveSaveUnitForTab(tab, projectState.document)
       : undefined;
   const saveUnitId =
     explicitSaveUnitId ?? (resolution?.status === 'savable' ? resolution.descriptor.id : null);
@@ -530,6 +538,25 @@ export async function saveActiveSaveUnit(
     };
   }
   const selectedIds = atomicClosure(snapshot.recovery, saveUnitId);
+  // Settings autosave must never commit a Room or other authored owner merely
+  // because the recovery graph groups its patch with this Project setting.
+  if (options.requireExactSaveUnit && (selectedIds.size !== 1 || !selectedIds.has(saveUnitId))) {
+    return {
+      success: false,
+      status: 'blocked',
+      diagnostics: [
+        {
+          code: 'editor.settings-autosave.atomic-group-blocked',
+          severity: 'error',
+          category: 'Project save',
+          path: '/',
+          message: `Automatic scoped Save cannot persist '${saveUnitId}' because it is linked to other unsaved content. Use Save All to commit the atomic group.`,
+        },
+      ],
+      savedSaveUnitIds: [],
+      remainingDirtySaveUnitIds: Object.keys(snapshot.recovery.saveUnitsById).sort(),
+    };
+  }
   const selectedEntries = orderedEntries(snapshot.recovery, selectedIds);
   const selectedPaths = componentPaths(selectedEntries);
   const conflictDiagnostics = selectedEntries
@@ -600,6 +627,7 @@ export async function saveActiveSaveUnit(
 
 export async function saveAllSaveUnits(
   blockedFieldSaveUnitIds: readonly SaveUnitId[] = [],
+  additionalNativeOwners: readonly string[] = [],
 ): Promise<ProjectSaveCoordinatorResult> {
   const unresolvedFields = unresolvedNativeFieldOwners();
   const blockedOwners = uniqueSorted([...blockedFieldSaveUnitIds, ...unresolvedFields.saveUnitIds]);
@@ -620,8 +648,28 @@ export async function saveAllSaveUnits(
     .filter(([, buffer]) => buffer.dirty)
     .map(([id]) => id);
   const dirtySources = sourceIds.map((id) => sourceSaveUnitId(id));
-  const dirtyRecords = Object.keys(buildEditorProjectStateSnapshot().recovery.saveUnitsById);
-  const all = uniqueSorted([...dirtySources, ...dirtyRecords, ...blockedOwners]);
+  // A native recovery journal can retain an edit omitted by sparse YAML
+  // defaults even when the normalized renderer document reports no dirty tab.
+  // Export supplies exact main-owned owners; include supported record units in
+  // the existing native CAS Save instead of bypassing Save or clearing recovery.
+  const nativeRecordIds: SaveUnitId[] = [];
+  const unsupportedNativeOwners: string[] = [];
+  for (const owner of additionalNativeOwners) {
+    const match = /^([^/]+)\/([^/]+)$/.exec(owner);
+    if (match && RECORD_SAVE_UNIT_COLLECTIONS.has(match[1]!) && match[2])
+      nativeRecordIds.push(recordSaveUnitId(match[1]!, match[2]));
+    else unsupportedNativeOwners.push(owner);
+  }
+  const dirtyRecords = uniqueSorted([
+    ...Object.keys(buildEditorProjectStateSnapshot().recovery.saveUnitsById),
+    ...nativeRecordIds,
+  ]);
+  const all = uniqueSorted([
+    ...dirtySources,
+    ...dirtyRecords,
+    ...blockedOwners,
+    ...unsupportedNativeOwners,
+  ]);
   if (unresolvedFields.unattributed) {
     return {
       success: false,
@@ -635,6 +683,21 @@ export async function saveAllSaveUnits(
           message: 'An unresolved field recovery entry has invalid ownership.',
         },
       ],
+      savedSaveUnitIds: [],
+      remainingDirtySaveUnitIds: all,
+    };
+  }
+  if (unsupportedNativeOwners.length) {
+    return {
+      success: false,
+      status: 'blocked',
+      diagnostics: unsupportedNativeOwners.map((owner) => ({
+        code: 'editor.native-save-all.unsupported-export-owner',
+        severity: 'error' as const,
+        category: 'Project save',
+        path: '/',
+        message: `Native pending source '${owner}' cannot be saved from this view. Open and resolve its source before exporting.`,
+      })),
       savedSaveUnitIds: [],
       remainingDirtySaveUnitIds: all,
     };

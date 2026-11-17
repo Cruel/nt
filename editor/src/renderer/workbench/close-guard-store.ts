@@ -10,6 +10,10 @@ import {
 } from '@/commands/native-field-drafts';
 import { getTabDirtyState } from './dirty-state';
 import { useProjectStore } from '@/project/project-store';
+import {
+  configurationTabShowsDirty,
+  useConfigurationAutosaveStatus,
+} from '@/project/project-configuration-autosave';
 import { useWorkbenchStore } from './workbench-store';
 import { resolveSaveUnitForTab } from '@/project/save-unit-registry';
 import { selectPendingSaveUnitIds, usePendingInputStore } from './pending-input-store';
@@ -82,7 +86,19 @@ export function tabCloseRequiresDirtyPrompt(
     recoveryDirtySaveUnitIds,
     unresolvedNativeFieldOwners().saveUnitIds,
   );
-  if (!dirty.dirty) return false;
+  // Autosaved configuration remains recoverable after its tab is closed:
+  // native field intents and the project-level autosave controller outlive
+  // their views. Invalid raw input, failures, recovered or blocked units
+  // still require explicit resolution on the final view.
+  if (
+    !dirty.pendingInputDirty &&
+    !configurationTabShowsDirty(
+      dirty,
+      useConfigurationAutosaveStatus.getState(),
+      project.projectInstanceId,
+    )
+  )
+    return false;
   return !dirty.saveUnitId || !hasRemainingViewForSaveUnit(dirty.saveUnitId, requestedTabIds);
 }
 

@@ -1117,6 +1117,7 @@
     "show": "⟦Show Preview⟧"
   },
   "projectSettings": {
+    "autosaveFailed": "⟦Project settings could not be saved automatically⟧",
     "distributionNotices": {
       "categoryLabel": "⟦Distribution Notices⟧",
       "categoryDescription": "⟦Plain-text notices included with every Runtime Package.⟧",

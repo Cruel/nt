@@ -29,6 +29,7 @@ import { Switch } from '@/components/ui/switch';
 import { DiagnosticList } from '@/diagnostics/DiagnosticList';
 import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
 import { useNativeProjectDiagnostics } from '@/project/native-project-diagnostics';
+import { useConfigurationAutosaveStatus } from '@/project/project-configuration-autosave';
 import { projectForEditor } from '@/project/project-for-editor';
 import { buildJsonPointer } from '@/project/json-pointer';
 import { toJsonValue } from '@/project/json-value';
@@ -1187,6 +1188,9 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
   const sourceEditors = useSourceEditorViewStateRefs<'startupInitScript'>();
   const projectDocument = useProjectStore((state) => state.document);
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
+  const settingsAutosaveError = useConfigurationAutosaveStatus(
+    (state) => state.errorsByOwner[PROJECT_SETTINGS_SAVE_UNIT_ID] ?? null,
+  );
   const developerMode = usePreferencesStore((state) => state.developerMode);
   const nativeSession = useProjectStore((state) => state.nativeSession);
   const nativeDiagnostics = useNativeProjectDiagnostics();
@@ -1787,6 +1791,11 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
         </h2>
       }
     >
+      {settingsAutosaveError ? (
+        <p role="alert" className="px-2 text-xs text-destructive break-words">
+          {t('projectSettings.autosaveFailed')}: {settingsAutosaveError}
+        </p>
+      ) : null}
       {activeCategory === 'general' ? (
         <>
           <Card size="sm" data-workbench-anchor="projectSettings.metadata">

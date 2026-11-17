@@ -7,6 +7,7 @@ import type { PrepareRuntimeArtifactOptions } from '../../shared/runtime-artifac
 import type { NativeCleanExportAdmission } from '../../main/services/native-editor-session-controller';
 import {
   exportNativeEditorPackage,
+  isSupersededExportAssessmentError,
   prepareNativeEditorExportAssessment,
   type NativeEditorPackageTools,
 } from '../../main/services/native-editor-export-service';
@@ -41,6 +42,26 @@ function tools() {
 }
 
 describe('native editor package export admission', () => {
+  it('classifies only transient preflight races as superseded, not actual export failures', () => {
+    expect(
+      isSupersededExportAssessmentError(new Error('Stale native Project export revision.')),
+    ).toBe(true);
+    expect(
+      isSupersededExportAssessmentError(
+        new Error('Native Project sources changed during export; retry with current sources.'),
+      ),
+    ).toBe(true);
+    expect(
+      isSupersededExportAssessmentError(
+        new Error('Save or resolve all dirty Project and source files before exporting.'),
+      ),
+    ).toBe(true);
+    expect(isSupersededExportAssessmentError(new Error('Disk write failed'))).toBe(false);
+    expect(isSupersededExportAssessmentError(new Error('Invalid native Project source'))).toBe(
+      false,
+    );
+  });
+
   it('rejects stale export assessment before compiling from an obsolete revision', async () => {
     const owner = { prepareCleanExportAdmission: vi.fn(async () => sourceAdmission()) };
     await expect(
@@ -70,6 +91,7 @@ describe('native editor package export admission', () => {
           intent: 'runtime-package-export',
         }),
       );
+      expect(test.prepare.mock.calls[0]?.[0].profile.outputPath).toBe('');
       expect(owner.prepareCleanExportAdmission).toHaveBeenCalledTimes(3);
       expect((await readdir(root)).filter((file) => file.startsWith('.noveltea-package-'))).toEqual(
         [],

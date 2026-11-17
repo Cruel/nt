@@ -57,6 +57,7 @@ import {
 } from '@/project/project-external-reconciliation';
 import { projectForEditor as authoringProjectForEditor } from '@/project/project-for-editor';
 import { applyProjectMutationValues } from '@/project/project-mutation-values';
+import { startProjectConfigurationAutosave } from '@/project/project-configuration-autosave';
 import {
   resolveExternalConflictUseDisk,
   saveActiveSaveUnit,
@@ -70,6 +71,7 @@ import { useCandidateRepairStore } from '@/project/candidate-repair-store';
 import { CandidateRepairReadyDialog } from '@/project/CandidateRepairReadyDialog';
 import { useRepairPromptStore } from '@/project/repair-prompt-store';
 import { selectProjectDirty, useProjectStore } from '@/project/project-store';
+import { useManualSaveDirty } from '@/project/manual-save-state';
 import { MUTATION_SURFACE_ATTRIBUTIONS, resolveSaveUnitForTab } from '@/project/save-unit-registry';
 import { usePreferencesStore } from '@/stores/preferences-store';
 import { usePreviewManagerStore } from '@/preview/preview-manager-store';
@@ -114,6 +116,7 @@ import { useRecentProjectsStore } from '@/workspace/recent-projects-store';
 import {
   dispatchWorkspaceToolbarCommand,
   WORKSPACE_TOOLBAR_COMMAND_EVENT,
+  WORKSPACE_SAVE_SETTLED_EVENT,
   beginProjectOpenRequest,
   type WorkspaceToolbarCommandDetail,
 } from '@/workspace/workspace-toolbar-events';
@@ -265,6 +268,7 @@ function projectOpenDiagnosticDetails(diagnostics: readonly ToolDiagnostic[]) {
 
 export function WorkspacePage() {
   const { t } = useTranslation('workspace');
+  useEffect(() => startProjectConfigurationAutosave(), []);
   const [, setBusy] = useState(false);
   const [projectOpening, setProjectOpening] = useState(false);
   const [alert, setAlert] = useState<WorkspaceAlert | null>(null);
@@ -361,7 +365,7 @@ export function WorkspacePage() {
       .join('|'),
   );
   const hasPendingInput = pendingInputSignature.length > 0;
-  const saveDirty = projectDirty || hasSourceDirty || hasDraftDirty || hasPendingInput;
+  const saveDirty = useManualSaveDirty();
   const isSaving = useProjectStore((state) => state.isSaving);
   const loadProjectDocument = useProjectStore((state) => state.loadProjectDocument);
   const clearProjectDocument = useProjectStore((state) => state.clearProject);
@@ -2030,7 +2034,7 @@ export function WorkspacePage() {
       window.removeEventListener('noveltea-structural-persistence-result', onStructuralPersistence);
   }, [addTimelineEntry, setBottomPanelVisible, setDiagnostics, setStatusMessage]);
 
-  async function saveAllProjectUnits() {
+  async function saveAllProjectUnits(additionalNativeOwners: readonly string[] = []) {
     if (!project) return false;
     setProjectSaving(true);
     try {
@@ -2080,7 +2084,7 @@ export function WorkspacePage() {
       await flushStructuralCommandPersistence();
       await settleProjectEditorMetadataWrites();
       return publishSaveResult(
-        await saveAllSaveUnits(blockedFieldSaveUnits),
+        await saveAllSaveUnits(blockedFieldSaveUnits, additionalNativeOwners),
         'Saved all valid items',
       );
     } catch (error) {
@@ -2091,6 +2095,7 @@ export function WorkspacePage() {
       return false;
     } finally {
       useProjectStore.getState().setSaving(false);
+      window.dispatchEvent(new Event(WORKSPACE_SAVE_SETTLED_EVENT));
     }
   }
 
@@ -2652,7 +2657,9 @@ export function WorkspacePage() {
           void saveActiveProjectUnit();
           break;
         case 'save-all':
-          void saveAllProjectUnits();
+          void saveAllProjectUnits(
+            typeof detail === 'string' ? [] : (detail.nativeExportOwners ?? []),
+          );
           break;
         case 'save-as':
           void saveProjectCopy();

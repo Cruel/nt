@@ -14,10 +14,27 @@ export const PROJECT_SETTINGS_OWNED_PATHS: JsonPointer[] = [
   '/project',
   '/settings',
   '/bootstrapModule',
+  '/undefinedInteractionProgram',
   '/entrypoint',
   '/prefetchHints',
   '/export/assetMemoryPolicies',
 ];
+
+export const EXPORT_PROFILE_OWNED_PATHS: JsonPointer[] = ['/export/runtime', '/export/profiles'];
+
+/** These project-scoped Save units persist automatically, unlike authored
+ * records. All callers use the native scoped Save, never a second YAML writer. */
+export const CONFIGURATION_AUTOSAVE_SAVE_UNIT_IDS = [
+  PROJECT_SETTINGS_SAVE_UNIT_ID,
+  'project:platform-export-profiles',
+] as const;
+
+export function isConfigurationAutosaveSaveUnit(saveUnitId: SaveUnitId | null): boolean {
+  return (
+    saveUnitId !== null &&
+    (CONFIGURATION_AUTOSAVE_SAVE_UNIT_IDS as readonly string[]).includes(saveUnitId)
+  );
+}
 
 export const SAVE_UNIT_IDS = {
   assetCollection: 'collection:assets',
@@ -307,7 +324,7 @@ export function resolveSaveUnitForResource(
           ? {
               id: SAVE_UNIT_IDS.platformExportProfiles,
               kind: 'project-tool' as const,
-              paths: ['/export/runtime', '/export/profiles'],
+              paths: EXPORT_PROFILE_OWNED_PATHS,
             }
           : editorType === 'project-chapters'
             ? {

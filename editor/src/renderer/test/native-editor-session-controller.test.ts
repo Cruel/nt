@@ -328,6 +328,42 @@ describe('native admission at the editor main Project lifecycle', () => {
     test.controller.dispose();
   });
 
+  it('identifies native dirty owners for Export readiness without permitting an unsafe export', async () => {
+    const test = fixture();
+    try {
+      await test.controller.admit('one', test.saved);
+      test.dirtyCheckpoint.mockReturnValue({
+        batches: [
+          {
+            patches: [
+              {
+                operation: 'replace',
+                path: '/rooms/inventory-workbench/data/interactables',
+                value: [],
+              },
+            ],
+            diskPreconditions: { 'rooms/inventory-workbench': 'xxh3-128:' + 'a'.repeat(32) },
+          },
+        ],
+        textSources: {
+          'records/layouts/title/layout.lua': { text: 'test', diskRevision: 'absent' },
+        },
+        conflicts: { 'rooms/inventory-workbench': ['/data/interactables'] },
+        pendingFields: { '/rooms/inventory-workbench/data/displayName': 'work in progress' },
+      } as unknown as ReturnType<typeof test.dirtyCheckpoint>);
+      expect(test.controller.pendingExportOwners('one', 0)).toEqual([
+        'records/layouts/title/layout.lua',
+        'rooms/inventory-workbench',
+      ]);
+      expect(() => test.controller.pendingExportOwners('one', 1)).toThrow(/Stale/);
+      await expect(test.controller.prepareCleanExportAdmission('one')).rejects.toThrow(
+        /Save or resolve/,
+      );
+    } finally {
+      test.controller.dispose();
+    }
+  });
+
   it('exports only a clean native snapshot whose saved file revisions are still current', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'noveltea-native-export-'));
     try {
