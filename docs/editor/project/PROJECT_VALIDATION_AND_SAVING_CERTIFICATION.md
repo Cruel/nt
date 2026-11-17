@@ -98,9 +98,10 @@ Lab** and record pass/fail and affected files for each item, in this order:
 1. Open two distinct dirty records, make one invalid; Save the active valid
    tab, then Save All. Verify only independently valid units reach disk;
    invalid/blocked units and their recovery remain dirty.
-2. Save As with another unsaved change. Reopen both original and destination:
-   saved baseline stays on disk, unsaved overlay is recoverable, and the
-   active Project does not switch during Save As.
+2. Save As with another unsaved change. Verify the copied destination becomes
+   the active Project, that subsequent scoped Saves target the destination,
+   and that reopening both original and destination preserves their saved
+   baseline and recoverable unsaved overlays independently.
 3. Open two views of one dirty save unit. Close the first without a content
    prompt; close the last and exercise Save, Don't Save and Cancel.
 4. Perform an Explorer structural auto-commit; Undo and Redo it and reopen
@@ -1056,3 +1057,76 @@ evidence; and native addon/editor qualification on physical Linux,
 Windows 11, and macOS hosts. No manual acceptance cases were executed by
 this harness, and **all three issues remain open** pending independent
 physical-platform evidence or an explicit issue-owner resolution.
+
+### #609 November 17, 2026 current-commit performance hold point (not a 16-ms certification)
+
+**Scope and policy:** After the user completed all eight functional human cases, the user
+indicated that further timing optimization may not be worth the time, and requested a
+current measurement/documentation review. This is a **pause in optimization**, **not**
+a claim of meeting the original 16-ms p95 physical key-to-paint target, a formal waiver
+of that requirement, or qualification of untested hosts. Do not reopen broad scheduler
+refactors solely to chase Xvfb outliers without new evidence of an actual UX defect.
+
+**Fresh candidate:** clean tracked checkout `4ca20e9107c00b5c917dd55ef512ddd84973ec16`;
+Linux x64 WSL2 `6.6.114.1-microsoft-standard-WSL2`, Intel Core Ultra 7 265K,
+Node 24.18.0; Electron 43.1.1, Chromium 150.0.7871.114. Native-addon
+SHA-256 `cc81b1fa9e83b312f5d01e57050b3286f53007ed7587925d810302250f2072b3`.
+Packaged identity `1.0.0-dev.4ca20e9107c0`. Unrelated untracked `rmlui-bgfx/`
+was not included. Rebuilt the native addon and unpacked Linux package using
+`NOVELTEA_AUTHORING_NODE_ADDON`, then passed `pnpm -C editor run package`,
+`pnpm -C editor run package:smoke`, and
+`pnpm -C editor run benchmark:packaged-fields`. Smoke verified main, renderer,
+preload, native CLI, media/tools, recovery and packaged protocols. The
+benchmark passed **41/41** cases (37 twenty-character typing cases and
+four single-event selection/paste/numeric cases); exact displayed input,
+bounded native patches, acknowledgments and scoped Save/YAML readback passed.
+The harness used **Xvfb/software display**, not an interactive physical desktop.
+
+**What the timing actually measures:** input handler to the next animation
+frame after React commit, **not** compositor scanout or physical photons.
+The isolated controlled-React baseline (20 samples) measured **8.22 ms
+median, 15.02 ms p95, 16.29 ms max**. Among the 37 cases with 20 input samples,
+**29 had a p95 greater than 16 ms**. The four single-event results are not
+statistical p95 estimates. Representative case timings, in milliseconds:
+
+| Surface | 0-ms ack median / p95 | 500-ms ack median / p95 | 1,000-ms ack median / p95 |
+| --- | --- | --- | --- |
+| Project title | 12.70 / 23.31 | 13.69 / 25.16 | 3.78 / 17.20 |
+| Room display name | 22.88 / 116.02 | 21.22 / 24.33 | 21.07 / 22.71 |
+| Character display name | 9.64 / 56.55 | 4.25 / 15.59 | 6.18 / 7.70 |
+| Scene display name | 9.10 / 25.03 | 9.94 / 17.14 | 10.74 / 21.61 |
+| Dialogue display name | 8.57 / 58.20 | 8.87 / 15.80 | 9.48 / 18.15 |
+| Authored Test display name | 15.80 / 133.78 | 9.93 / 16.10 | 10.20 / 15.82 |
+| Interactable definition name | 10.48 / 85.80 | 11.17 / 60.95 | 9.50 / 17.37 |
+| Exact Interactable Instance label | 10.37 / 32.60 | 9.08 / 62.83 | 10.78 / 16.69 |
+
+The 0/500/1,000-ms values are **injected native acknowledgment delays**, not
+physical input delay. Their non-monotonic timing and the high zero-delay outliers
+show significant variability; a single run cannot partition it definitively
+between Xvfb scheduling, Chromium/React work, and native activity. The 16-ms
+p95 physical target therefore remains **unproven, not passed**. A higher p95
+in the proxy is a performance characterization, not proof of identical
+physical-display latency. Conversely, successful typing/Save does not waive
+the timing criterion.
+
+**Functional acceptance and remaining scope:** The user reported all **8/8
+manual acceptance cases passed** by November 17, including follow-up retests
+of Save As, deleted Room tabs after Undo, and deferred external-conflict
+diagnostics. This is user-reported functional behavior, not independent
+per-case host/screenshot evidence or a physical-display latency measurement.
+The canonical Save As case above now expects **the destination to become active**
+while its unsaved recovery is restored, rather than the original copy-only
+behavior. #604-#608 are closed and integrated. The benchmark still lacks
+cold first-input, caret/navigation, duplicate-tab/draft-switching, nested
+Property Manager, Interaction/Verb, Layout/Map/Material, collection operations
+and separate compositor/native timing. Physical packaged Linux, Windows 11
+and macOS acceptance evidence remains outstanding. The parent #602 and
+#522 gates are independent.
+
+**Decision needed before #609 closure:** Retain this functional implementation
+without further optimization for now. To close #609 under a different timing
+or platform acceptance policy, record an explicit issue-owner resolution
+identifying which requirements are deferred or waived, the evidence above,
+and the separate issue/owner (if any) for future physical latency/platform
+qualification. Until then, keep #609 open and never label these proxy
+results a certified physical <=16-ms p95 pass.
