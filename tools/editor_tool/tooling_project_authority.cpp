@@ -861,7 +861,19 @@ public:
         }
         try {
             enumerate_directories();
-            thread_ = std::thread([this] { run(); });
+            thread_ = std::thread([this] {
+                try {
+                    run();
+                } catch (...) {
+                    unknown_callback_();
+                }
+                signal_startup();
+            });
+            // Opening a directory handle does not arm ReadDirectoryChangesW. Without this
+            // handshake, an edit immediately after a recovery scan can land before the
+            // watcher thread's first overlapped read and never reach the dirty-path state.
+            std::unique_lock lock(startup_mutex_);
+            startup_cv_.wait(lock, [this] { return startup_complete_; });
         } catch (...) {
             CloseHandle(read_event_);
             CloseHandle(stop_event_);
@@ -904,6 +916,20 @@ public:
     void protect_source(std::string_view path) override { journal_.protect_source(path); }
 
 private:
+    void signal_startup()
+    {
+        bool notify = false;
+        {
+            std::scoped_lock lock(startup_mutex_);
+            if (!startup_complete_) {
+                startup_complete_ = true;
+                notify = true;
+            }
+        }
+        if (notify)
+            startup_cv_.notify_all();
+    }
+
     void enumerate_directories()
     {
         known_directories_.insert("");
@@ -991,11 +1017,15 @@ private:
             const auto start_error = started ? ERROR_SUCCESS : GetLastError();
             if (!started && start_error != ERROR_IO_PENDING) {
                 const auto error = start_error;
+                signal_startup();
                 unknown_callback_();
                 if (error == ERROR_NOTIFY_ENUM_DIR)
                     continue;
                 return;
             }
+            // The first overlapped read is now registered with Windows. The constructor
+            // can safely publish this watcher, including after recursive coverage rebuild.
+            signal_startup();
 
             const std::array<HANDLE, 2> wait_handles{stop_event_, read_event_};
             const auto wait = WaitForMultipleObjects(static_cast<DWORD>(wait_handles.size()),
@@ -1058,6 +1088,9 @@ private:
     HANDLE stop_event_ = nullptr;
     HANDLE read_event_ = nullptr;
     std::set<std::string> known_directories_;
+    std::mutex startup_mutex_;
+    std::condition_variable startup_cv_;
+    bool startup_complete_ = false;
     std::thread thread_;
 };
 #elif defined(__APPLE__)
