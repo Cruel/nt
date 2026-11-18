@@ -116,7 +116,11 @@ with tempfile.TemporaryDirectory(prefix='noveltea-repair-cli-') as temporary:
     assert not (missing / 'project.yaml').exists()
     assert unrelated.read_text() == 'untouched'
     assert repair(missing)['agentKitChanged'] is False
-    assert reply('repair', 'project', cwd=missing)['projectRoot'] == str(missing)
+    repaired_from_cwd = reply('repair', 'project', cwd=missing)
+    # Windows CLI paths may resolve to a long spelling while Python's temp
+    # root uses an 8.3 alias (or vice versa). Verify the same actual directory,
+    # not a platform-dependent spelling of its absolute path.
+    assert Path(repaired_from_cwd['projectRoot']).samefile(missing), repaired_from_cwd
 
     # Contextual NovelTea sources provide independent evidence without record
     # placeholders. A single generic/empty file is never sufficient.

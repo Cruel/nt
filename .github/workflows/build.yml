@@ -336,11 +336,15 @@ jobs:
             -DNOVELTEA_COMPILE_SHADERS=OFF \
             -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" \
             -DBUILD_TESTING=ON \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
       - name: Build
         run: cmake --build --preset linux-debug
+
+      - name: Clang-certify standalone host Narrative sources
+        run: python3 scripts/check-host-narrative-clang.py build/linux-debug/compile_commands.json
 
       # The authoring CLI certification executable is EXCLUDE_FROM_ALL, but
       # CTest still registers its named test. Build it before running CTest.
