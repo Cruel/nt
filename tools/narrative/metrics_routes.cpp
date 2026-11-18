@@ -7,6 +7,7 @@
 #include <map>
 #include <set>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace noveltea::narrative {
@@ -278,10 +279,10 @@ Json route_metrics(const Catalog& catalog, const Json& coverage)
         const bool exceeded =
             !observed.is_null() &&
             observed.get<std::uint64_t>() > budget["count"]["max"].get<std::uint64_t>();
-        const auto status = !approved   ? "unapproved"
-                            : exceeded  ? hard ? "hard-violation" : "soft-overage"
-                            : uncertain ? "unverified"
-                                        : "within-budget";
+        const std::string_view status = !approved   ? "unapproved"
+                                        : exceeded  ? hard ? "hard-violation" : "soft-overage"
+                                        : uncertain ? "unverified"
+                                                    : "within-budget";
         const auto severity = exceeded && approved     ? hard ? "error" : "warning"
                               : uncertain || !approved ? "unverified"
                                                        : "info";
