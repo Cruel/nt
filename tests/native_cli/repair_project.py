@@ -165,6 +165,16 @@ with tempfile.TemporaryDirectory(prefix='noveltea-repair-cli-') as temporary:
     assert any(x['code'] == 'AGENT_LOCAL_STATE_NOT_IGNORED' for x in warned['diagnostics'])
     assert custom_ignore.read_bytes() == b'# custom\n/dist/\n'
 
+    # A preexisting pair of real Agent Kit directories is safe, including on
+    # Windows; the unsafe-path cases below instead supply objects of the wrong
+    # type at the locations that repair owns.
+    existing_directories = candidate('existing-agent-directories')
+    canonical_record(existing_directories, 'rooms', 'a')
+    canonical_record(existing_directories, 'characters', 'b')
+    (existing_directories / '.noveltea/agent').mkdir(parents=True)
+    assert repair(existing_directories)['candidateRecognition'] == 'strong'
+    assert (existing_directories / '.noveltea/agent/GUIDE.md').is_file()
+
     # All targets must be authenticated before any write. Existing generated
     # kit is rolled back if activation fails after moving the prior version.
     path_cases = ['AGENTS.md', '.gitignore', '.noveltea', '.noveltea/agent']
@@ -178,8 +188,13 @@ with tempfile.TemporaryDirectory(prefix='noveltea-repair-cli-') as temporary:
             target.parent.mkdir(exist_ok=True)
         if os.name != 'nt':
             target.symlink_to(unrelated)
-        else:
+        elif name in ('AGENTS.md', '.gitignore'):
+            # A directory in place of either generated file is invalid.
             target.mkdir()
+        else:
+            # .noveltea and .noveltea/agent are valid *directories*. A regular
+            # file at either position is the invalid Windows case to reject.
+            target.write_bytes(b'not a directory')
         blocked = repair(bad, code=5)
         assert blocked['diagnostics'][0]['code'] == 'REPAIR_PREPARATION_FAILED'
         assert not (bad / '.noveltea/agent/GUIDE.md').exists()

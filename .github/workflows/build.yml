@@ -1081,6 +1081,12 @@ jobs:
           ctest --test-dir build/windows-release --output-on-failure -R '^native_cli_(windows_pe_resources|platform_publication|platform_commands|public_contract|macos_export)$'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Certify Windows installed CLI candidate repair and unsafe paths
+        shell: pwsh
+        run: |
+          ctest --test-dir build/windows-release --output-on-failure -R '^native_cli_repair_project$'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Certify native Windows incremental validation, external stages and recovery
         shell: pwsh
         run: |
