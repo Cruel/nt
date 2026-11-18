@@ -1081,7 +1081,14 @@ TEST_CASE("exact validation proof detects disk changes without watcher delivery"
     const auto unchanged = prove_exact_validation_result(
         authority, store, initial.manifest.canonical_root, "validation-v1", 20);
     REQUIRE(unchanged.observation.has_value());
+#if defined(_WIN32)
+    // The Windows broker observes/invalidates the manifest but cannot
+    // certify the precise bytes from NTFS metadata or journal silence.
+    // Only the native owner may supply the public result on this platform.
+    CHECK_FALSE(unchanged.result.has_value());
+#else
     REQUIRE(unchanged.result.has_value());
+#endif
 
     write_project_file(root.path / "records/room.yaml", "id: room-changed\n");
     const auto stale = prove_exact_validation_result(

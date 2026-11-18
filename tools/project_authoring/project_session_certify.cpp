@@ -4027,7 +4027,10 @@ void clean_cache_offline_roundtrip(const std::filesystem::path& fixture)
     const auto after_resolve = resolved->validate_clean_project();
     require(!after_resolve.cache_hit && after_resolve.snapshot.valid &&
                 resolved->validation_work().retained_records >= 200,
-            "Restoring a missing reference must incrementally revoke previous invalid diagnostics");
+            "Restoring a missing reference must incrementally revoke previous invalid diagnostics" +
+                std::string(" (cacheHit=") + std::to_string(after_resolve.cache_hit) +
+                ", valid=" + std::to_string(after_resolve.snapshot.valid) +
+                ", retained=" + std::to_string(resolved->validation_work().retained_records) + ")");
     certify_fresh(after_resolve.snapshot, "resolved");
     resolved.reset();
 

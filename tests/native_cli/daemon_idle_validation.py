@@ -51,16 +51,60 @@ with tempfile.TemporaryDirectory(prefix="nt-600-") as directory:
     def publications():
         return status()["engineeringCounters"]["idleValidationPublications"]
 
-    def await_publication(previous, *, since, timeout=14):
+    def cached_generation_matches(target):
+        # idleValidationPublications counts *all* broker owners, including an
+        # older generation whose completion can arrive after a new edit. The
+        # counter alone does not identify which Project or source was published.
+        cache = target / ".noveltea/cache/authoring/current.json"
+        try:
+            published = json.loads(cache.read_text(encoding="utf-8"))
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            return False
+        if published.get("projectRoot") != str(target.resolve()):
+            return False
+        inputs = {entry["path"]: entry for entry in published.get("inputs", [])}
+        for relative in ("project.yaml", "records/rooms/entry.yaml"):
+            entry = inputs.get(relative)
+            if not entry:
+                return False
+            try:
+                actual = (target / relative).stat()
+            except OSError:
+                return False
+            if (entry.get("byteSize") != actual.st_size or
+                    entry.get("mtimeNanoseconds") != str(actual.st_mtime_ns)):
+                return False
+        return True
+
+    def await_publication(previous, *, since, target=project, timeout=16):
         deadline = time.monotonic() + timeout
+        observed = previous
+        last_publication_ms = None
         while time.monotonic() < deadline:
             count = publications()
-            if count > previous:
-                elapsed = 1000 * (time.monotonic() - since)
-                assert elapsed >= 4900, ("quiet-window publication was premature", elapsed)
-                return elapsed
-            time.sleep(.08)
-        raise AssertionError("No proactive broker publication after quiet-window maintenance")
+            if count > observed:
+                observed = count
+                last_publication_ms = 1000 * (time.monotonic() - since)
+            if observed > previous:
+                # Persisted broker proofs are deliberately written only after
+                # a separate 500-ms idle period. Continuously polling status
+                # resets that idle timer and can starve the proof indefinitely.
+                time.sleep(1)
+                if cached_generation_matches(target):
+                    assert last_publication_ms >= 4900, (
+                        "quiet-window publication was premature", last_publication_ms)
+                    return last_publication_ms
+            else:
+                time.sleep(.08)
+        cache = target / ".noveltea/cache/authoring/current.json"
+        published = json.loads(cache.read_text()) if cache.is_file() else {}
+        expected = {name: ((target / name).stat().st_size, (target / name).stat().st_mtime_ns)
+                    for name in ("project.yaml", "records/rooms/entry.yaml")}
+        actual = {entry["path"]: (entry.get("byteSize"), entry.get("mtimeNanoseconds"))
+                  for entry in published.get("inputs", [])}
+        raise AssertionError(("No matching Project publication after quiet-window maintenance",
+                              previous, publications(), published.get("projectRoot"),
+                              str(target.resolve()), expected, actual))
 
     def first_hit(expected, target=project):
         before = hits()
@@ -190,7 +234,7 @@ with tempfile.TemporaryDirectory(prefix="nt-600-") as directory:
                 # The shared broker can also publish a different Project's
                 # result during this test, so require the competing Project's
                 # own cache and first public result after the lock is released.
-                await_publication(before, since=last_changed_at)
+                await_publication(before, since=last_changed_at, target=competing)
                 first_hit(0, target=competing)
 
         print(json.dumps({"saveToDiagnosticsMs": saved_ms,

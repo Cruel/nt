@@ -416,6 +416,18 @@ export function WorkspacePage() {
     imageThumbnailPrewarmRef.current = new ImageThumbnailPrewarmCoordinator();
   }
 
+  // One recovery metadata clock for changes from content, draft and raw input.
+  // The latest edit supersedes timers from every source of dirty state.
+  const scheduleProjectEditorMetadataFlush = useCallback(() => {
+    if (metadataFlushTimerRef.current !== null) window.clearTimeout(metadataFlushTimerRef.current);
+    const timer = window.setTimeout(() => {
+      if (metadataFlushTimerRef.current === timer) metadataFlushTimerRef.current = null;
+      void flushProjectEditorMetadataRef.current('debounce');
+    }, 500);
+    metadataFlushTimerRef.current = timer;
+    return timer;
+  }, []);
+
   // Draft payload changes should extend the recovery debounce without causing
   // the whole workspace to rerender for every printable character.
   useEffect(
@@ -426,15 +438,9 @@ export function WorkspacePage() {
           !useProjectStore.getState().projectFilePath
         )
           return;
-        if (metadataFlushTimerRef.current !== null)
-          window.clearTimeout(metadataFlushTimerRef.current);
-        const timer = window.setTimeout(() => {
-          if (metadataFlushTimerRef.current === timer) metadataFlushTimerRef.current = null;
-          void flushProjectEditorMetadataRef.current('debounce');
-        }, 500);
-        metadataFlushTimerRef.current = timer;
+        scheduleProjectEditorMetadataFlush();
       }),
-    [],
+    [scheduleProjectEditorMetadataFlush],
   );
 
   // Invalid numeric text changes without changing its pending path. Refresh
@@ -448,15 +454,9 @@ export function WorkspacePage() {
           !useProjectStore.getState().projectFilePath
         )
           return;
-        if (metadataFlushTimerRef.current !== null)
-          window.clearTimeout(metadataFlushTimerRef.current);
-        const timer = window.setTimeout(() => {
-          if (metadataFlushTimerRef.current === timer) metadataFlushTimerRef.current = null;
-          void flushProjectEditorMetadataRef.current('debounce');
-        }, 500);
-        metadataFlushTimerRef.current = timer;
+        scheduleProjectEditorMetadataFlush();
       }),
-    [],
+    [scheduleProjectEditorMetadataFlush],
   );
 
   // Store subscriptions schedule timers outside React effect ownership. A
@@ -1733,11 +1733,7 @@ export function WorkspacePage() {
         !previewLocaleMetadataRef.current?.pending)
     )
       return;
-    const timer = window.setTimeout(() => {
-      if (metadataFlushTimerRef.current === timer) metadataFlushTimerRef.current = null;
-      void flushProjectEditorMetadataRef.current('debounce');
-    }, 500);
-    metadataFlushTimerRef.current = timer;
+    const timer = scheduleProjectEditorMetadataFlush();
     return () => {
       window.clearTimeout(timer);
       if (metadataFlushTimerRef.current === timer) metadataFlushTimerRef.current = null;
@@ -1755,6 +1751,7 @@ export function WorkspacePage() {
     projectFilePath,
     projectSessionId,
     previewLocale,
+    scheduleProjectEditorMetadataFlush,
   ]);
 
   useEffect(() =>

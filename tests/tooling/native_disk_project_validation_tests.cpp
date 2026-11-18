@@ -1,4 +1,5 @@
 #include "tooling_native_c.h"
+#include "../../tools/editor_tool/tooling_native.hpp"
 #include "../../tools/editor_tool/tooling_native_project_localization.hpp"
 #include "../../tools/editor_tool/tooling_native_project_bundle.hpp"
 #include "../../tools/project_authoring/room_session.hpp"
@@ -65,6 +66,11 @@ struct Copy {
     }
     ~Copy()
     {
+        // The native disk-validation API retains a resident ProjectSession.
+        // Release it while its source tree and validation statics are still
+        // alive, before deleting files or letting the test process exit.
+        // The standalone CLI performs this same explicit shutdown step.
+        noveltea::tooling::release_native_disk_validation_owner();
         std::error_code ignored;
         std::filesystem::remove_all(root, ignored);
     }

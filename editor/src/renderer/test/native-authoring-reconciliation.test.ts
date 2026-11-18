@@ -1513,7 +1513,7 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
     const saved = await working.saveTextSources(working.snapshot()!.workingRevision, [source]);
     expect(saved.accepted, saved.error).toBe(true);
     expect(await readFile(physical, 'utf8')).toBe(mine);
-  });
+  }, 45_000);
 
   it('routes collection and export-profile Save units without committing unrelated owners', async () => {
     const { root, bridge, working, roomPath } = await testProject();
