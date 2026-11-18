@@ -154,6 +154,11 @@ jobs:
         run: >-
           ctest --test-dir build/native-authoring-host --output-on-failure
           -R '^native_authoring_(project_session|typed_reference_invalidation|source_watcher_races|clean_cache_path_alias|clean_cache_recovery|clean_cache_correctness|clean_cache_offline|cache_writer_processes)$'
+      - name: Repeat Windows offline source-cache invalidation certification
+        if: runner.os == 'Windows'
+        run: >-
+          ctest --test-dir build/native-authoring-host --output-on-failure
+          --repeat until-fail:3 -R '^native_authoring_clean_cache_offline$'
       - name: Bundle dedicated Project worker
         run: pnpm -C editor exec vp pack
       - name: Certify native worker session / external watcher / revision / recovery
@@ -1035,6 +1040,11 @@ jobs:
         shell: pwsh
         run: ctest --test-dir build/windows-release --output-on-failure -L early-windows
 
+      - name: Stress Windows broker proof and source mutation invalidation
+        shell: pwsh
+        run: |
+          ctest --test-dir build/windows-release --output-on-failure --repeat until-fail:10 -R '^noveltea_daemon::exact validation proof detects disk changes without watcher delivery$'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Diagnose Windows lightweight native crash
         if: failure()
         shell: pwsh
@@ -1075,6 +1085,12 @@ jobs:
         shell: pwsh
         run: |
           ctest --test-dir build/windows-release --output-on-failure -R '^native_cli_(incremental_validation_certification|shader_validation_cache|portable_validation_cache)$'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Repeat Windows incremental and portable source-cache certification
+        shell: pwsh
+        run: |
+          ctest --test-dir build/windows-release --output-on-failure --repeat until-fail:3 -R '^native_cli_(incremental_validation_certification|portable_validation_cache)$'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build Windows editor validation addon for real cache-writer interop

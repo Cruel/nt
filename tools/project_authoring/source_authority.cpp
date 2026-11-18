@@ -362,7 +362,14 @@ struct SourceAuthority::NativeWatch {
         : root(root), monitor(std::make_unique<PlatformSourceMonitor>(root))
     {
 #if defined(_WIN32)
-        require_physical_scans = windows_journal_unavailable().load();
+        // An NTFS USN read is not a synchronous source-byte fence. On hosted
+        // Windows volumes, rapid rename/recreate and same-size writes with
+        // restored mtimes can appear after a journal query has reported no
+        // relevant paths. Until a stronger fence is available, do not reuse
+        // source bytes solely because the journal reported no changes.
+        // Full source capture retains exact semantic reuse and costs only
+        // physical proof work, never a new validation stage by itself.
+        require_physical_scans = true;
 #endif
     }
     std::filesystem::path root;

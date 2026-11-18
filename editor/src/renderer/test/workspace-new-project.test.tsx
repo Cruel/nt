@@ -2800,6 +2800,54 @@ describe('WorkspacePage new project modal', () => {
     }
   });
 
+  it('extends the recovery debounce when a draft changes after a content edit', async () => {
+    vi.useFakeTimers();
+    try {
+      const project = createAuthoringProject({ id: 'my-story', name: 'My Story' });
+      admitNativeRendererCommandFixture(project, 'opened-project-session');
+      useWorkspaceStore.setState({
+        projectPath: '/mock/project',
+        projectFilePath: '/mock/project/project.yaml',
+        project,
+      });
+      render(<WorkspacePage />);
+
+      await act(async () => {
+        await useCommandStore.getState().executeCommandAsync({
+          type: 'project.applyPatch',
+          label: 'Rename project',
+          payload: [{ op: 'replace', path: '/project/name', value: 'Changed' }],
+          originSaveUnitId: 'project:settings',
+          persistencePolicy: 'manual-save',
+        });
+      });
+      expect(window.noveltea.saveProjectEditorMetadata).not.toHaveBeenCalled();
+      await act(async () => {
+        vi.advanceTimersByTime(250);
+        useDraftDirtyStore.getState().setDraftDirty('test-draft', {
+          tabId: 'room:test',
+          dirty: true,
+          label: 'Unsaved draft',
+          payload: 'Draft changed',
+        });
+        await Promise.resolve();
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(249);
+        await Promise.resolve();
+      });
+      expect(window.noveltea.saveProjectEditorMetadata).not.toHaveBeenCalled();
+      await act(async () => {
+        vi.advanceTimersByTime(251);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(window.noveltea.saveProjectEditorMetadata).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('shows status-bar dirty only for manual Save work, not Project Settings autosave', () => {
     const saved = createAuthoringProject({ id: 'status-autosave', name: 'Initial' });
     admitNativeRendererCommandFixture(saved, 'opened-project-session');

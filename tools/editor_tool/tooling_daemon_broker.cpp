@@ -6593,7 +6593,12 @@ ExactValidationProof prove_exact_validation_result(ProjectAuthorityManager& auth
                 (void)authority.release(root);
             return proof;
         }
+#if !defined(_WIN32)
+        // On Windows only the native owner can provide a byte-authoritative
+        // public result. The broker still performs observation and revokes
+        // changed checkpoints but does not return metadata-only cached bytes.
         proof.result = retained;
+#endif
         return proof;
     } catch (...) {
         return proof;

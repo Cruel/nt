@@ -301,6 +301,29 @@ with tempfile.TemporaryDirectory(
             assert work(repeated, "residentWarm"), (
                 project, "Owner failed to remain resident", repeated["validationWork"])
             assert public(repeated) == public(result), (project, repeated)
+            # A Windows cold clean-ledger admission can restore its semantic
+            # Project before a delayed native watcher/idle stage proof is ready.
+            # The first *semantically warm* request may then reconstruct the
+            # external complete-Project projection once. Do not confuse that
+            # bounded post-admission hydration with continuously rebuilding
+            # the Project on unchanged requests: require a second fully warm,
+            # stage-free request, without further authoring-source changes.
+            stages = repeated["validationWork"]["endToEnd"]
+            if sys.platform == "win32" and stages["completeProjectPreparations"] > 0:
+                assert stages["completeProjectPreparations"] == 1, repeated["validationWork"]
+                print(f"INFO: {project.name}: one-time Windows external stage hydration "
+                      f"after cold admission", flush=True)
+                assert work(repeated, "recheckedRecords") == 0, repeated["validationWork"]
+                assert work(repeated, "recheckedContributions") == 0, repeated["validationWork"]
+                assert work(repeated, "globalStageExecutions") == 0, repeated["validationWork"]
+                assert work(repeated, "localizationRebuilds") == 0, repeated["validationWork"]
+                assert work(repeated, "completeProjectProjected") > 0, repeated["validationWork"]
+                assert not work(repeated, "semanticFallbackReasons"), repeated["validationWork"]
+                repeated = validate(project)
+                assert work(repeated, "residentWarm"), (
+                    project, "Owner lost residency after external stage hydration",
+                    repeated["validationWork"])
+                assert public(repeated) == public(result), (project, repeated)
             no_stages(repeated)
             warm_stage_proofs(repeated)
         else:
@@ -539,10 +562,11 @@ with tempfile.TemporaryDirectory(
                 unchanged_text = validate(project)
                 certify_unchanged_resident(project, unchanged_text)
 
-            if size == 1 and sys.platform.startswith("linux"):
+            if size == 1 and sys.platform in ("linux", "win32"):
                 # Cached exact diagnostics cannot survive a same-inode edit whose size and
-                # mtime are restored. This exercises the broker shortcut, not only the
-                # profiled native owner path.
+                # mtime are restored. Exercise the broker/owner public path, not only
+                # profiled validation. On Windows, the public path must bypass the
+                # unsafe metadata-only shortcut and reprove the native source bytes.
                 assert validate_without_profile(project)["success"]
                 original = room.read_text()
                 label = re.search(r"^label: (.*)$", original, re.M)

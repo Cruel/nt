@@ -64,10 +64,9 @@ async function roomBytes(root: string, id: string) {
 }
 
 async function removeDisposableProject(root: string) {
-  // Cache publication can outlive worker disposal. A physical Save or cache
-  // rename may briefly recreate a directory while recursive removal walks it.
-  // Wait for that bounded retirement instead of failing an otherwise passing
-  // native integration assertion on ENOTEMPTY from disposable test cleanup.
+  // Callers must await controller.disposeAndWait() before removing Project files.
+  // Filesystem retries are a fallback for transient OS cleanup contention,
+  // never a substitute for draining publications and terminating workers.
   await rm(root, { recursive: true, force: true, maxRetries: 100, retryDelay: 100 });
 }
 
@@ -149,7 +148,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
       );
       expect(repaired.accepted, repaired.error).toBe(true);
       expect(await readFile(roomFile, 'utf8')).toBe(original);
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.closeActiveProject();
       controller = nativeHarness(sessions);
       const reopenedHash = controller.sourceRevisionFor();
@@ -170,7 +169,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
           .files,
       ).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: invalidPath })]));
     } finally {
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.dispose();
       await removeDisposableProject(root);
     }
@@ -208,7 +207,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
         'Recovered room B',
       );
 
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.closeActiveProject();
       controller = nativeHarness(sessions);
       const reopened = await admit(root, sessions, controller);
@@ -227,7 +226,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
       expect(await roomBytes(root, roomB)).toContain('Recovered room B');
       expect(await roomBytes(root, roomA)).toContain('Saved only room A');
     } finally {
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.dispose();
       await removeDisposableProject(root);
     }
@@ -253,7 +252,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
         proposed,
         `${authored.replace('label: Active Text', 'label: Agent repaired label')}\n# Agent repair context\n`,
       );
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.closeActiveProject();
       controller = nativeHarness(sessions);
 
@@ -265,7 +264,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
       expect(await readFile(source, 'utf8')).toBe(disk);
       // Close again before the scheduled publisher can advance its manifest:
       // the second admission must recognize the same already-imported fields.
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.closeActiveProject();
       controller = nativeHarness(sessions);
       const second = await admit(root, sessions, controller);
@@ -286,7 +285,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
       expect(await readFile(source, 'utf8')).toContain('Agent repaired label');
       expect(await readFile(source, 'utf8')).toContain('Native unsaved name');
     } finally {
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.dispose();
       await removeDisposableProject(root);
     }
@@ -352,7 +351,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
       expect(await readFile(source, 'utf8')).toContain('Agent live repair');
       expect(await readFile(source, 'utf8')).toContain('Unsaved editor');
     } finally {
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.dispose();
       await removeDisposableProject(root);
     }
@@ -424,7 +423,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
       expect(savedIndependent.accepted, savedIndependent.error).toBe(true);
       expect(await readFile(source, 'utf8')).toBe(original);
     } finally {
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.dispose();
       await removeDisposableProject(root);
     }
@@ -468,7 +467,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
       await controller.flushWorkingSources(initial.id);
       expect(await readFile(proposed, 'utf8')).toBe(agentText);
     } finally {
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.dispose();
       await removeDisposableProject(root);
     }
@@ -517,7 +516,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
       );
       expect(await readFile(saved, 'utf8')).toBe(disk);
     } finally {
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.dispose();
       await removeDisposableProject(root);
     }
@@ -575,7 +574,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
       expect(stillInvalid.accepted).toBe(false);
       expect(await roomBytes(root, roomA)).toBe(initialA);
     } finally {
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.dispose();
       await removeDisposableProject(root);
     }
@@ -628,8 +627,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
       expect(await roomBytes(root, roomA)).toBe(savedA);
       expect(await roomBytes(root, roomB)).toBe(savedB);
     } finally {
-      controller.dispose();
-      await controller.waitForPublicationDrain();
+      await controller.disposeAndWait();
       sessions.dispose();
       await removeDisposableProject(root);
     }
@@ -652,7 +650,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
       ]);
       expect(changed.accepted, changed.error).toBe(true);
       await controller.flushWorkingSources(first.id);
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.closeActiveProject();
       controller = nativeHarness(sessions);
       const opened = await admit(root, sessions, controller);
@@ -665,7 +663,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
       expect(controller.recoveredConflicts()[`rooms/${roomA}`]).toBeUndefined();
       expect(await readFile(saved, 'utf8')).toBe(original);
     } finally {
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.dispose();
       await removeDisposableProject(root);
     }
@@ -689,7 +687,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
       ]);
       expect(changed.accepted, changed.error).toBe(true);
       await controller.flushWorkingSources(first.id);
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.closeActiveProject();
       const agentText = (await readFile(proposed, 'utf8')).replace(
         'label: Active Text',
@@ -711,7 +709,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
       expect(await readFile(proposed, 'utf8')).toBe(agentText);
       expect(await readFile(saved, 'utf8')).toBe(original);
     } finally {
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.dispose();
       await removeDisposableProject(root);
     }
@@ -742,7 +740,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
         'displayName: Agent competing name',
       );
       await writeFile(proposed, edited);
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.closeActiveProject();
       controller = nativeHarness(sessions);
       const reopened = await admit(root, sessions, controller);
@@ -761,7 +759,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
       );
       expect(rejected.accepted).toBe(false);
     } finally {
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.dispose();
       await removeDisposableProject(root);
     }
@@ -785,7 +783,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
         (await readFile(proposed, 'utf8')).replace('label: Active Text', 'label: Agent only label'),
       );
       const diskBefore = await readFile(source, 'utf8');
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.closeActiveProject();
       await writeFile(source, diskBefore.replace('label: Active Text', 'label: Disk only label'));
       // The agent and disk both touched label: this must be an unresolved
@@ -809,7 +807,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
         ).accepted,
       ).toBe(false);
     } finally {
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.dispose();
       await removeDisposableProject(root);
     }
@@ -828,7 +826,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
       ]);
       expect(staged.accepted, staged.error).toBe(true);
       await controller.flushWorkingSources(first.id);
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.closeActiveProject();
       await writeFile(proposed, invalid);
       for (let attempt = 0; attempt < 2; attempt++) {
@@ -843,11 +841,11 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
           ]),
         );
         expect(await readFile(proposed, 'utf8')).toBe(invalid);
-        controller.dispose();
+        await controller.disposeAndWait();
         sessions.closeActiveProject();
       }
     } finally {
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.dispose();
       await removeDisposableProject(root);
     }
@@ -871,7 +869,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
         (await readFile(proposed, 'utf8')).replace('label: Active Text', 'label: From agent'),
       );
       const original = await readFile(source, 'utf8');
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.closeActiveProject();
       await writeFile(
         source,
@@ -903,7 +901,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
       expect(await readFile(source, 'utf8')).toContain('Independent disk edit');
       expect(await readFile(source, 'utf8')).toContain('Unsaved native');
     } finally {
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.dispose();
       await removeDisposableProject(root);
     }
@@ -931,7 +929,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
       await controller.flushWorkingSources(first.id);
       const agentText = `${disk}\n-- Agent fixed this\n`;
       await writeFile(proposed, agentText);
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.closeActiveProject();
       controller = nativeHarness(sessions);
       const reopened = await admit(root, sessions, controller);
@@ -949,7 +947,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
       expect(save.accepted, save.error).toBe(true);
       expect(await readFile(savedPath, 'utf8')).toBe(agentText);
     } finally {
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.dispose();
       await removeDisposableProject(root);
     }
@@ -991,7 +989,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
       expect(await readFile(sceneFile, 'utf8')).not.toBe(originalScene);
       expect(await readFile(sceneFile, 'utf8')).toContain('Committed Scene');
       expect(await readFile(dialogueFile, 'utf8')).toBe(originalDialogue);
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.closeActiveProject();
       controller = nativeHarness(sessions);
       const reopened = await admit(root, sessions, controller);
@@ -1008,7 +1006,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
       expect(await readFile(dialogueFile, 'utf8')).toContain('Pending Dialogue');
       expect(await readFile(sceneFile, 'utf8')).toContain('Committed Scene');
     } finally {
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.dispose();
       await removeDisposableProject(root);
     }
@@ -1061,7 +1059,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
       expect(await roomBytes(root, roomA)).toContain('My overlapping edit');
       expect(await roomBytes(root, roomB)).toContain('Second owner edit');
 
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.closeActiveProject();
       controller = nativeHarness(sessions);
       const reopened = await admit(root, sessions, controller);
@@ -1073,7 +1071,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
         (await controller.currentWorkingProject(reopened.id)).rooms[roomB]?.data.displayName,
       ).toBe('Second owner edit');
     } finally {
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.dispose();
       await removeDisposableProject(root);
     }
@@ -1141,7 +1139,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
       expect(await roomBytes(root, roomA)).toContain('displayName: Disk wins');
       expect(await roomBytes(root, roomB)).toContain('Preserve this other edit');
     } finally {
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.dispose();
       await removeDisposableProject(root);
     }
@@ -1187,7 +1185,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
       const working = await controller.currentWorkingProject(id);
       expect(working.rooms[roomA]?.data.displayName).toBe('External winner');
       expect(working.rooms[roomA]?.label).toBe('Unrelated local label');
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.closeActiveProject();
       controller = nativeHarness(sessions);
       const reopened = await admit(root, sessions, controller);
@@ -1204,7 +1202,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
       expect(await roomBytes(root, roomA)).toContain('displayName: External winner');
       expect(await roomBytes(root, roomA)).toContain('label: "Unrelated local label"');
     } finally {
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.dispose();
       await removeDisposableProject(root);
     }
@@ -1245,7 +1243,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
       expect(final).toContain('label: External label');
       expect(final).toContain('Local display name');
     } finally {
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.dispose();
       await removeDisposableProject(root);
     }
@@ -1319,7 +1317,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
       );
       expect(committed.accepted, committed.error).toBe(true);
       expect(await roomBytes(root, roomA)).toContain('My latest local value');
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.closeActiveProject();
       controller = nativeHarness(sessions);
       const reopened = await admit(root, sessions, controller);
@@ -1327,7 +1325,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
         (await controller.currentWorkingProject(reopened.id)).rooms[roomA]?.data.displayName,
       ).toBe('My latest local value');
     } finally {
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.dispose();
       await removeDisposableProject(root);
     }
@@ -1365,7 +1363,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
       );
       expect(await roomBytes(root, roomA)).toContain('Saved export only');
     } finally {
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.dispose();
       await removeDisposableProject(root);
     }
@@ -1399,7 +1397,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
       );
       expect(saved.accepted, saved.error).toBe(true);
       expect(await readFile(path.join(root, 'project.yaml'), 'utf8')).not.toBe(original);
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.closeActiveProject();
       controller = nativeHarness(sessions);
       const reopened = await admit(root, sessions, controller);
@@ -1409,7 +1407,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
         ]?.editorLabel,
       ).toBe('Inspected Instance');
     } finally {
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.dispose();
       await removeDisposableProject(root);
     }
@@ -1453,7 +1451,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
         (await controller.currentWorkingProject(id)).interactableInstances['alpha-board']
           ?.editorLabel,
       ).toBe('Pending Alpha Instance');
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.closeActiveProject();
       controller = nativeHarness(sessions);
       const reopened = await admit(root, sessions, controller);
@@ -1473,7 +1471,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
         'Pending Alpha Instance',
       );
     } finally {
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.dispose();
       await removeDisposableProject(root);
     }
@@ -1517,7 +1515,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
         'Unrelated pending Room',
       );
     } finally {
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.dispose();
       await removeDisposableProject(root);
     }
@@ -1571,7 +1569,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
       expect(saved.accepted, saved.error).toBe(true);
       expect(await roomBytes(root, roomA)).toContain('Corrected native field');
       expect(await roomBytes(root, roomB)).toBe(diskB);
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.closeActiveProject();
       controller = nativeHarness(sessions);
       const reopened = await admit(root, sessions, controller);
@@ -1579,7 +1577,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
         (await controller.currentWorkingProject(reopened.id)).rooms[roomB]?.data.displayName,
       ).toBe('Independent working title');
     } finally {
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.dispose();
       await removeDisposableProject(root);
     }
@@ -1673,7 +1671,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
       await expect(readFile(createdFile, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
       expect(await readFile(movedFile, 'utf8')).toContain(movedId);
       expect(await roomBytes(root, roomB)).toBe(originalB);
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.closeActiveProject();
       controller = nativeHarness(sessions);
       const reopened = await admit(root, sessions, controller);
@@ -1686,7 +1684,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
       ).toBe('Still pending across structural undo');
       expect(await roomBytes(root, roomB)).toBe(originalB);
     } finally {
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.dispose();
       await removeDisposableProject(root);
     }
@@ -1721,7 +1719,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
       expect(
         reconciled.snapshot.recordSnapshots?.[`rooms/${roomA}`]?.conflictingPaths?.length,
       ).toBeGreaterThan(0);
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.closeActiveProject();
       controller = nativeHarness(sessions);
       const reopened = await admit(root, sessions, controller);
@@ -1748,7 +1746,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
         (await controller.currentWorkingProject(reopened.id)).rooms[roomA]?.data.displayName,
       ).toBe('External retained');
     } finally {
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.dispose();
       await removeDisposableProject(root);
     }
@@ -1821,13 +1819,11 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
     } finally {
       release();
       intercepted.mockRestore();
-      controller.dispose();
-      newController?.dispose();
+      await controller.disposeAndWait();
+      await newController?.disposeAndWait();
       sessions.dispose();
-      // The retired worker can finish writing a cache entry concurrently
-      // with fixture cleanup; retry ENOTEMPTY without weakening assertions.
-      await rm(oldRoot, { recursive: true, force: true, maxRetries: 8, retryDelay: 200 });
-      await rm(newRoot, { recursive: true, force: true, maxRetries: 8, retryDelay: 200 });
+      await rm(oldRoot, { recursive: true, force: true });
+      await rm(newRoot, { recursive: true, force: true });
     }
   }, 120_000);
 
@@ -1905,7 +1901,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
         corrected,
       );
       expect(staged.accepted, staged.error).toBe(true);
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.closeActiveProject();
       controller = nativeHarness(sessions);
       const reopened = await admit(root, sessions, controller);
@@ -1924,7 +1920,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
       expect(await readFile(file, 'utf8')).toBe(corrected);
       expect(await roomBytes(root, roomA)).toContain('Dirty during preview');
     } finally {
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.dispose();
       await removeDisposableProject(root);
     }
@@ -1997,7 +1993,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
       );
       expect(conflictSave.accepted, conflictSave.error).toBe(true);
       expect(await roomBytes(root, roomA)).toContain('Pending conflict room');
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.closeActiveProject();
       controller = nativeHarness(sessions);
       const reopened = await admit(root, sessions, controller);
@@ -2006,7 +2002,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
       expect(complete.rooms[roomB]?.data.displayName).toBe('Independent room');
       expect(complete.scenes[scene]?.data.displayName).toBe('Independent scene');
     } finally {
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.dispose();
       await rm(root, { recursive: true, force: true });
     }
@@ -2061,7 +2057,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
       expect(await readFile(path.join(root, 'project.yaml'), 'utf8')).toContain(item);
       expect(await roomBytes(root, roomB)).toBe(originalRoom);
     } finally {
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.dispose();
       await rm(root, { recursive: true, force: true });
     }
@@ -2106,7 +2102,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
       expect(await readFile(path.join(root, 'project.yaml'), 'utf8')).not.toContain(
         'Definition earlier',
       );
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.closeActiveProject();
       controller = nativeHarness(sessions);
       const reopened = await admit(root, sessions, controller);
@@ -2116,7 +2112,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
         ]?.editorLabel,
       ).toBe('Room latest');
     } finally {
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.dispose();
       await rm(root, { recursive: true, force: true });
     }
@@ -2151,7 +2147,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
       expect(await readFile(path.join(root, 'project.yaml'), 'utf8')).toContain(
         'Saved from containing Room',
       );
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.closeActiveProject();
       controller = nativeHarness(sessions);
       const reopened = await admit(root, sessions, controller);
@@ -2160,7 +2156,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
           ?.editorLabel,
       ).toBe('Saved from containing Room');
     } finally {
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.dispose();
       await rm(root, { recursive: true, force: true });
     }
@@ -2202,7 +2198,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
       expect(worker).not.toBeNull();
       await worker!.terminate();
       await vi.waitFor(() => expect(controller.isAdmitted(id)).toBe(false));
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.closeActiveProject();
       controller = nativeHarness(sessions);
       const reopened = await admit(root, sessions, controller);
@@ -2219,7 +2215,7 @@ describe.skipIf(!addonPath)('#608 real native Save and recovery integration', ()
       expect(saved.accepted, saved.error).toBe(true);
       expect(await roomBytes(root, roomA)).toContain('Recovered after killed worker');
     } finally {
-      controller.dispose();
+      await controller.disposeAndWait();
       sessions.dispose();
       await rm(root, { recursive: true, force: true });
     }

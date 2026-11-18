@@ -81,7 +81,7 @@ export class NativeEditorSessionController {
       Partial<
         Pick<
           NativeAuthoringSessionBridge,
-          'sourceRevision' | 'validationWorkerOptions' | 'exchangeWorkingSource'
+          'sourceRevision' | 'validationWorkerOptions' | 'exchangeWorkingSource' | 'closeAndWait'
         >
       >,
     private readonly working: Pick<
@@ -1631,5 +1631,15 @@ export class NativeEditorSessionController {
   dispose(): void {
     this.close();
     this.unsubscribeFailure();
+  }
+
+  /** Fully retire the Project before the caller deletes or reuses its source tree.
+   * Synchronous dispose() revokes authority immediately but cannot wait for
+   * an in-flight working-source publication or native worker termination. */
+  async disposeAndWait(): Promise<void> {
+    this.dispose();
+    await this.waitForPublicationDrain();
+    await this.bridge.closeAndWait?.();
+    await this.runtimeCache.clear();
   }
 }
