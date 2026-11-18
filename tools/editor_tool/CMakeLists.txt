@@ -326,7 +326,8 @@ add_library(noveltea_narrative STATIC ${noveltea_narrative_sources})
 target_compile_features(noveltea_narrative PUBLIC cxx_std_20)
 target_include_directories(noveltea_narrative PRIVATE "${CMAKE_SOURCE_DIR}/engine/include")
 target_link_libraries(noveltea_narrative PRIVATE
-    fyaml_static noveltea_project_authoring_contracts noveltea_xxhash nlohmann_json::nlohmann_json)
+    fyaml_static noveltea_project_authoring_contracts noveltea_xxhash nlohmann_json::nlohmann_json
+    FastFloat::fast_float)
 noveltea_apply_policy_warnings(noveltea_narrative)
 
 add_executable(noveltea-native-cli EXCLUDE_FROM_ALL

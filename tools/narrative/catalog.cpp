@@ -5,6 +5,7 @@
 #include <noveltea/core/fingerprint.hpp>
 
 #include <libfyaml.h>
+#include <fast_float/fast_float.h>
 #include <algorithm>
 #include <charconv>
 #include <cmath>
@@ -154,8 +155,10 @@ Json yaml_value(fy_node* node, Record& record, const std::string& pointer, unsig
             return static_cast<std::int64_t>(integer);
         }
         double decimal = 0;
-        const auto [end, error] = std::from_chars(digits.data(), digits.data() + digits.size(),
-                                                  decimal, std::chars_format::general);
+        // libc++ floating-point from_chars is only available starting in macOS 26.
+        // Keep parsing locale-independent and compatible with the macOS 14 release floor.
+        const auto [end, error] =
+            fast_float::from_chars(digits.data(), digits.data() + digits.size(), decimal);
         if (error != std::errc{} || end != digits.data() + digits.size() || !std::isfinite(decimal))
             throw YamlError("Numeric scalar must be finite and representable.", at);
         return negative ? -decimal : decimal;
