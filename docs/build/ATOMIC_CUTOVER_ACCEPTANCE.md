@@ -86,6 +86,14 @@ or branch source.
 
 ## Hosted acceptance — do not mark complete without evidence
 
+The premerge Extended workflow uses a narrowly scoped integration-branch
+`push` trigger only when this acceptance document changes. A branch-only
+workflow cannot otherwise be manually dispatched before its definition exists
+on GitHub's default branch. The Extended source job waits for a successful
+**exact same-SHA branch Build** and seals a distinctly named preview receipt;
+this cannot satisfy the trusted-master production Release gate. This document
+change is the deliberate trigger for the single coordinated campaign.
+
 1. Verify repository settings and required statuses. On 2026-11-20 the GitHub
    API reported **no classic branch protection for master**, and the
    `rulesets` endpoint returned an empty list. There are no required status

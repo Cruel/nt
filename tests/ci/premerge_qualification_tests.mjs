@@ -81,6 +81,13 @@ test('branch preview evidence never becomes authoritative master Release input',
   assert.equal(receipt.ref, previewRef);
   assert.equal(verifyPreviewBuild(buildRun, sha), 902);
   assert.equal(verifyPreviewExtended(receipt, extendedRun, sha, 902), 903);
+  const pushed = makeReceipt({
+    sourceSha: sha, workflowSha: sha, repository: 'Cruel/nt',
+    workflow: 'Extended Qualification', ref: previewRef, event: 'push',
+    runId: 903, attempt: 1, buildRunId: 902,
+  }, Object.fromEntries(jobNames.filter((name) => name !== 'source')
+    .map((name) => [name, { result: 'success' }])));
+  assert.equal(verifyPreviewExtended(pushed, { ...extendedRun, event: 'push' }, sha, 902), 903);
   assert.throws(() => verifyTrustedQualificationRun(receipt, extendedRun, sha));
 });
 

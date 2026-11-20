@@ -34,7 +34,7 @@ export function verifyPreviewExtended(receipt, run, sourceSha, buildRunId) {
   // extra mode/ref. Validate shared contract independently by validating the
   // identical payload in a nonpublishing master-shaped projection.
   const { mode, ...ordinary } = receipt;
-  verifyReceipt({ ...ordinary, ref: 'refs/heads/master' }, sourceSha, run?.id);
+  verifyReceipt({ ...ordinary, ref: 'refs/heads/master', event: 'workflow_dispatch' }, sourceSha, run?.id);
   assert.equal(receipt.trustedBuildRunId, buildRunId);
   assert.equal(run?.id, receipt.runId);
   assert.equal(run.run_attempt, receipt.attempt);
@@ -44,8 +44,8 @@ export function verifyPreviewExtended(receipt, run, sourceSha, buildRunId) {
   assert.equal(run.head_repository?.full_name, 'Cruel/nt');
   assert.equal(run.head_branch, previewBranch);
   assert.equal(run.head_sha, receipt.workflowSha);
-  assert.equal(run.event, 'workflow_dispatch');
-  assert.equal(receipt.event, 'workflow_dispatch');
+  assert.ok(['workflow_dispatch', 'push'].includes(run.event));
+  assert.equal(receipt.event, run.event);
   assert.equal(run.status, 'completed');
   assert.equal(run.conclusion, 'success');
   return run.id;

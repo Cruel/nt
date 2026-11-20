@@ -91,12 +91,14 @@ test('instrumented coverage and Extended restore dependency caches without creat
   assert.ok(editor.steps.some((step) => step.run?.includes('private-media-tools.mjs')));
 });
 
-test('the Extended job inventory matches its receipt and is nightly/on-demand only', () => {
+test('the Extended job inventory remains complete with a narrowly scoped premerge push trigger', () => {
   assert.equal(extended.name, 'Extended Qualification');
   assert.equal(extended.on.schedule.length, 1);
   assert.ok(extended.on.schedule[0].cron);
   assert.ok(extended.on.workflow_dispatch.inputs.sha);
-  assert.ok(!extended.on.push && !extended.on.pull_request);
+  assert.ok(!extended.on.pull_request);
+  assert.deepEqual(extended.on.push.branches, ['ci/build-release-refactor-641']);
+  assert.deepEqual(extended.on.push.paths, ['docs/build/ATOMIC_CUTOVER_ACCEPTANCE.md']);
   assert.deepEqual(new Set(Object.keys(extended.jobs)), new Set([...contract.jobs, 'qualification']));
   const seal = extended.jobs.qualification;
   assert.equal(seal.if, 'always()');

@@ -27,9 +27,9 @@ export function makeReceipt(context, needs, expected = contract.jobs) {
   assert.equal(context.workflow, 'Extended Qualification', 'Unexpected Extended workflow identity');
   const previewRef = 'refs/heads/ci/build-release-refactor-641';
   const preview = context.ref === previewRef;
-  assert.ok(context.ref === 'refs/heads/master' || (preview && context.event === 'workflow_dispatch'),
+  assert.ok(context.ref === 'refs/heads/master' || (preview && ['workflow_dispatch', 'push'].includes(context.event)),
     'Extended source must be master, except explicit nonpublishing integration-branch preview');
-  assert.ok(['schedule', 'workflow_dispatch'].includes(context.event), 'Unexpected Extended trigger');
+  assert.ok(['schedule', 'workflow_dispatch', ...(preview ? ['push'] : [])].includes(context.event), 'Unexpected Extended trigger');
   for (const key of ['sourceSha', 'workflowSha']) {
     assert.ok(shaPattern.test(context[key]), `Invalid ${key}`);
   }

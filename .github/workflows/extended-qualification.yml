@@ -3,6 +3,12 @@ name: Extended Qualification
 on:
   schedule:
     - cron: "43 5 * * *"
+  # GitHub registers workflow_dispatch only for workflows already on the default
+  # branch. This exact path-scoped push enables one premerge campaign without
+  # deploying an unqualified workflow definition to master.
+  push:
+    branches: [ci/build-release-refactor-641]
+    paths: [docs/build/ATOMIC_CUTOVER_ACCEPTANCE.md]
   workflow_dispatch:
     inputs:
       sha:
@@ -40,9 +46,9 @@ env:
 jobs:
   source:
     name: Authorize source and eligible Build (trusted master or nonpublishing cutover preview)
-    if: github.repository == 'Cruel/nt' && (github.ref == 'refs/heads/master' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/ci/build-release-refactor-641'))
+    if: github.repository == 'Cruel/nt' && (github.ref == 'refs/heads/master' || ((github.event_name == 'workflow_dispatch' || github.event_name == 'push') && github.ref == 'refs/heads/ci/build-release-refactor-641'))
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 150
     outputs:
       source_sha: ${{ steps.select.outputs.source_sha }}
       build_run_id: ${{ steps.select.outputs.build_run_id }}
@@ -75,12 +81,30 @@ jobs:
             permitted_events='push'
             echo 'preview=false' >> "$GITHUB_OUTPUT"
           else
-            [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "$GITHUB_REF" == refs/heads/ci/build-release-refactor-641 ]] || exit 1
+            [[ "$GITHUB_EVENT_NAME" == workflow_dispatch || "$GITHUB_EVENT_NAME" == push ]] || exit 1
+            [[ "$GITHUB_REF" == refs/heads/ci/build-release-refactor-641 ]] || exit 1
             [[ "$REQUESTED_SHA" == "$GITHUB_SHA" ]] || { echo 'Preview must qualify the exact workflow branch HEAD.' >&2; exit 1; }
-            [[ "$PREVIEW_BUILD_RUN_ID" =~ ^[0-9]+$ ]] || { echo 'Explicit Build run ID is required for preview.' >&2; exit 1; }
-            run_id="$PREVIEW_BUILD_RUN_ID"
             source_branch=ci/build-release-refactor-641
             permitted_events='push|workflow_dispatch'
+            if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+              [[ "$PREVIEW_BUILD_RUN_ID" =~ ^[0-9]+$ ]] || { echo 'Explicit Build run ID is required for manual preview.' >&2; exit 1; }
+              run_id="$PREVIEW_BUILD_RUN_ID"
+            else
+              [[ -z "$PREVIEW_BUILD_RUN_ID" ]] || exit 1
+              run_id=''
+              for poll in $(seq 1 125); do
+                run_id="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow build.yml \
+                  --commit "$REQUESTED_SHA" --branch "$source_branch" --event push \
+                  --status success --limit 20 --json databaseId --jq '.[0].databaseId // empty')"
+                if [[ "$run_id" =~ ^[0-9]+$ ]]; then break; fi
+                failed="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow build.yml \
+                  --commit "$REQUESTED_SHA" --branch "$source_branch" --event push \
+                  --status failure --limit 20 --json databaseId --jq '.[0].databaseId // empty')"
+                [[ -z "$failed" ]] || { echo "Premerge Build $failed failed; no Extended authorization." >&2; exit 1; }
+                echo "Waiting for exact premerge Build at $REQUESTED_SHA (poll $poll)."
+                sleep 60
+              done
+            fi
             echo 'preview=true' >> "$GITHUB_OUTPUT"
           fi
           [[ "$run_id" =~ ^[0-9]+$ ]] || { echo "No completed Build run for $REQUESTED_SHA." >&2; exit 1; }
