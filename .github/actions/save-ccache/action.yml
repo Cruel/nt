@@ -1,19 +1,44 @@
 name: Save ccache
-description: Persist compiler outputs immediately after a successful NovelTea compilation phase.
+description: Save bounded weekly compiler caches only from trusted source pushes.
 inputs:
   primary-key:
-    description: Primary cache key produced by setup-ccache.
+    description: Primary key produced by setup-ccache.
     required: true
   cache-hit:
-    description: Whether setup-ccache restored the exact primary key.
+    description: Whether the current weekly generation already exists.
     required: false
     default: "false"
 runs:
   using: composite
   steps:
+    - name: Bound saved compiler cache and show compile hits
+      shell: bash
+      run: |
+        ccache --max-size="${CCACHE_MAXSIZE:-256M}"
+        ccache --cleanup
+        ccache --show-stats
+    - name: Begin compiler cache publication timing
+      id: save-start
+      shell: bash
+      run: |
+        echo "epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
+        echo "publisher=$(node scripts/ci/cache-budget.mjs publisher)" >> "$GITHUB_OUTPUT"
     - name: Save compiler outputs
-      if: inputs.cache-hit != 'true'
+      id: save
+      if: >-
+        inputs.cache-hit != 'true' &&
+        steps.save-start.outputs.publisher == 'true'
       uses: actions/cache/save@v5
       with:
         path: ${{ env.CCACHE_DIR }}
         key: ${{ inputs.primary-key }}
+    - name: Report compiler cache publication and timing
+      shell: bash
+      run: |
+        elapsed="$(($(date +%s) - ${{ steps.save-start.outputs.epoch }}))"
+        {
+          echo "Compiler cache: weekly rolling key, source/variant/runner scoped, ${CCACHE_MAXSIZE:-256M} cap."
+          echo "Exact-key hit: \`${{ inputs.cache-hit }}\`"
+          echo "Save result: \`${{ steps.save.outcome }}\`; save phase: ${elapsed}s."
+          echo "Shared cache publication is restricted to trusted pushes; PR builds restore read-only."
+        } >> "$GITHUB_STEP_SUMMARY"

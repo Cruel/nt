@@ -10,6 +10,7 @@ Use this entrypoint before changing CMake presets, dependencies, shader compilat
 - `docs/build/GRAPHICS_BENCHMARK.md` documents the standalone Linux/Android SDL3/bgfx graphics benchmark, measurement semantics, platform launch/ADB report retrieval, and hardware smoke.
 - `docs/build/COVERAGE.md` describes separate informational native/editor coverage, exclusions, CI artifacts, and local measurement.
 - `docs/build/DEVELOPMENT_SNAPSHOTS.md` describes exact-commit master toolchain publication, consumer verification, and retention.
+- `docs/build/RELEASE_CANDIDATES.md` documents the #642 integration-branch candidate manifest, trusted producer/consumer seam, bounded compiler/dependency caching and cache-budget maintenance; it is not yet a completed Build/Release cutover.
 - `docs/build/DEVELOPMENT_EXAMPLES.md` describes the exact public-examples pin, qualification artifact, pin-update PR workflow, and local site preparation contract.
 - `docs/build/CMAKE_OPTIONS.md` lists supported CMake cache variables, dependency acquisition choices, shader tool paths, runtime asset paths, and removed options.
 - `docs/build/PLATFORM_EXPORT_SUPPORT.md` records the versioned initial player-template/export target matrix and provisional compatibility floors.

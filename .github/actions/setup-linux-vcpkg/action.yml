@@ -29,12 +29,18 @@ runs:
         restore-keys: |
           ${{ inputs['cache-prefix'] }}-vcpkg-sdk-
 
-    # Separate writers can retain newly built packages without racing for one immutable key.
+    - name: Resolve bounded vcpkg cache window
+      id: window
+      shell: bash
+      run: echo "week=$(node scripts/ci/cache-budget.mjs window)" >> "$GITHUB_OUTPUT"
+
+    # Keep one immutable generation per week and source-pinned ABI configuration,
+    # rather than uploading the complete binary-package cache on every new SHA.
     - name: Cache vcpkg binaries
       uses: actions/cache@v5
       with:
         path: .cache/vcpkg-binary
-        key: ${{ inputs['cache-prefix'] }}-vcpkg-binary-${{ inputs['binary-scope'] }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/NovelTeaLua.cmake', 'cmake/NovelTeaSanitizers.cmake', 'cmake/vcpkg-triplets/**') }}-${{ github.sha }}
+        key: ${{ inputs['cache-prefix'] }}-vcpkg-binary-${{ inputs['binary-scope'] }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/NovelTeaLua.cmake', 'cmake/NovelTeaSanitizers.cmake', 'cmake/vcpkg-triplets/**') }}-${{ steps.window.outputs.week }}
         restore-keys: |
           ${{ inputs['cache-prefix'] }}-vcpkg-binary-${{ inputs['binary-scope'] }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/NovelTeaLua.cmake', 'cmake/NovelTeaSanitizers.cmake', 'cmake/vcpkg-triplets/**') }}-
           ${{ inputs['cache-prefix'] }}-vcpkg-binary-${{ inputs['binary-scope'] }}-
@@ -52,7 +58,5 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        if [[ ! -d "$VCPKG_ROOT/.git" ]]; then
-          git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT"
-        fi
+        node scripts/ci/pin-vcpkg.mjs
         "$VCPKG_ROOT/bootstrap-vcpkg.sh"

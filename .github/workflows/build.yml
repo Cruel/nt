@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [master, main, fix-ci]
+    branches: [master, main, fix-ci, ci/build-release-refactor-641]
   pull_request:
     branches: [master, main]
   workflow_dispatch:
@@ -17,7 +17,7 @@ env:
   VCPKG_BINARY_SOURCES: clear;files,${{ github.workspace }}/.cache/vcpkg-binary,readwrite
   EMSDK_VERSION: 6.0.0
   CCACHE_DIR: ${{ github.workspace }}/.cache/ccache
-  CCACHE_MAXSIZE: 1G
+  CCACHE_MAXSIZE: 256M
   CCACHE_BASEDIR: ${{ github.workspace }}
   ANDROID_API_LEVEL: "35"
   ANDROID_BUILD_TOOLS_VERSION: "35.0.0"
@@ -579,7 +579,7 @@ jobs:
           echo "NOVELTEA_PREBUILT_SHADERC_ROOT=${{ github.workspace }}/build/prebuilt-shaderc-toolchain" >> "$GITHUB_ENV"
 
       - name: Build NovelTea host CLI
-        run: pnpm -C editor run noveltea:build
+        run: node scripts/ci/time-command.mjs linux-cli-build-and-link pnpm -C editor run noveltea:build
 
       - name: Certify optimized incremental, dependency mutation and external stage parity
         run: |
@@ -645,6 +645,17 @@ jobs:
         with:
           primary-key: ${{ steps.ccache.outputs.primary-key }}
           cache-hit: ${{ steps.ccache.outputs.cache-hit }}
+
+      - name: Audit Linux host CLI ABI floor
+        run: |
+          cmake \
+            -DNOVELTEA_BINARY="$PWD/build/cli/linux/noveltea" \
+            -DNOVELTEA_MAX_GLIBC_VERSION=2.39 \
+            -DNOVELTEA_MAX_GLIBCXX_VERSION=3.4.32 \
+            -P cmake/AuditNovelTeaLinuxCompatibility.cmake
+
+      - name: Produce source-owned Linux CLI candidate manifest
+        run: node scripts/ci/release-candidate.mjs produce --candidate linux-host-cli-x64
 
       - name: Verify CLI shader output matches canonical shader assets
         run: |
@@ -727,8 +738,11 @@ jobs:
           name: noveltea-host-cli-linux-x64
           path: build/cli/linux
 
-      - name: Make NovelTea host CLI executables executable
+      - name: Restore executable bits for artifact verification
         run: chmod +x build/cli/linux/noveltea build/cli/linux/noveltea-ui-test-runner build/cli/linux/tools/ffmpeg/bin/ffmpeg
+
+      - name: Verify exact Build-produced Linux CLI candidate
+        run: node scripts/ci/release-candidate.mjs verify --candidate linux-host-cli-x64 --stage qualify
 
       - name: Build native editor production bundles
         run: pnpm -C editor exec vp pack
@@ -1011,19 +1025,14 @@ jobs:
 
       - name: Restore Windows compiler outputs
         id: windows-ccache
-        uses: actions/cache/restore@v5
+        uses: ./.github/actions/setup-ccache
         with:
-          path: ${{ env.CCACHE_DIR }}
-          key: windows-x64-ccache-msvc-${{ github.sha }}
-          restore-keys: |
-            windows-x64-ccache-msvc-
+          scope: windows-msvc-release
 
       - name: Bootstrap vcpkg
         shell: pwsh
         run: |
-          if (!(Test-Path "$env:VCPKG_ROOT/.git")) {
-            git clone https://github.com/microsoft/vcpkg "$env:VCPKG_ROOT"
-          }
+          node scripts/ci/pin-vcpkg.mjs
           & "$env:VCPKG_ROOT/bootstrap-vcpkg.bat"
 
       - name: Download shader assets
@@ -1145,11 +1154,10 @@ jobs:
           if-no-files-found: warn
 
       - name: Save Windows compiler outputs
-        if: steps.windows-ccache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v5
+        uses: ./.github/actions/save-ccache
         with:
-          path: ${{ env.CCACHE_DIR }}
-          key: ${{ steps.windows-ccache.outputs.cache-primary-key }}
+          primary-key: ${{ steps.windows-ccache.outputs.primary-key }}
+          cache-hit: ${{ steps.windows-ccache.outputs.cache-hit }}
 
       - name: Report Windows compiler cache
         if: always()

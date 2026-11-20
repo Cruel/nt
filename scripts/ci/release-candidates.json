@@ -1,0 +1,33 @@
+{
+  "format": "noveltea-candidate-catalog",
+  "version": 1,
+  "candidates": {
+    "linux-host-cli-x64": {
+      "id": "linux-host-cli-x64",
+      "target": "linux-x64-host-cli",
+      "variant": "optimized",
+      "artifactName": "noveltea-host-cli-linux-x64",
+      "root": "build/cli/linux",
+      "executable": "noveltea",
+      "preset": "linux-authoring-release",
+      "compilerId": "GNU",
+      "compilerVersion": "13.3.0",
+      "compilerFlags": "-O3 -DNDEBUG",
+      "toolchain": "/usr/bin/c++",
+      "abiFloor": "glibc-2.39",
+      "pinFiles": [
+        "vcpkg.json",
+        "vcpkg-configuration.json",
+        "CMakePresets.json",
+        "pnpm-lock.yaml",
+        "cmake/vcpkg-triplets/x64-linux-authoring-noveltea.cmake",
+        "cmake/NovelTeaLua.cmake"
+      ],
+      "schemaSources": [
+        "editor/src/shared/project-schema/authoring-graph-field-metadata.generated.ts",
+        "editor/src/shared/project-schema/authoring-graph-field-metadata.ts",
+        "editor/src/shared/project-schema/authoring-common.ts"
+      ]
+    }
+  }
+}

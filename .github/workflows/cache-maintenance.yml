@@ -1,0 +1,32 @@
+name: Cache Budget Maintenance
+
+on:
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: cache-budget-maintenance
+  cancel-in-progress: false
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  prune:
+    name: Audit and prune superseded cache generations
+    if: github.repository == 'Cruel/nt' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+      - name: Verify safe-prune policy
+        run: node --test tests/ci/cache_budget_tests.mjs
+      - name: Audit and prune only superseded immutable compiler/dependency caches
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/ci/cache-budget.mjs apply

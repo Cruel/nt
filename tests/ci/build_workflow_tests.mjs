@@ -381,14 +381,17 @@ test('installed native CLI certification builds the required native production b
   assert.doesNotMatch(consumer, /matrix\.sections/);
 });
 
-test('vcpkg binary caches have independent configuration writers and refresh on new commits', () => {
+test('vcpkg binary caches have independent bounded weekly configuration writers', () => {
   const sdk = step(vcpkg, 'Cache vcpkg SDK');
   const binaries = step(vcpkg, 'Cache vcpkg binaries');
   const installed = step(vcpkg, 'Cache vcpkg installed tree');
   assert.equal(field(sdk, 'path'), '.cache/vcpkg');
   assert.equal(field(binaries, 'path'), '.cache/vcpkg-binary');
   assert.ok(field(binaries, 'key').includes("${{ inputs['binary-scope'] }}"));
-  assert.ok(field(binaries, 'key').endsWith('${{ github.sha }}'));
+  assert.ok(field(binaries, 'key').endsWith('${{ steps.window.outputs.week }}'));
+  assert.doesNotMatch(binaries, /github\.sha/);
+  assert.match(vcpkg, /node scripts\/ci\/pin-vcpkg\.mjs/);
+  assert.match(vcpkg, /cache-budget\.mjs window/);
   assert.ok(field(binaries, 'key').includes("${{ inputs['cache-prefix'] }}"));
   assert.ok(
     binaries.includes(

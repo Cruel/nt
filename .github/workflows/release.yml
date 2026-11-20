@@ -18,7 +18,7 @@ env:
   RELEASE_REF: ${{ github.sha }}
   EMSDK_VERSION: 6.0.0
   CCACHE_DIR: ${{ github.workspace }}/.cache/ccache
-  CCACHE_MAXSIZE: 500M
+  CCACHE_MAXSIZE: 256M
   CCACHE_BASEDIR: ${{ github.workspace }}
   ANDROID_API_LEVEL: "35"
   ANDROID_BUILD_TOOLS_VERSION: "35.0.0"
@@ -44,6 +44,8 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
+      - name: Verify the shared Build/Release candidate and cache contracts
+        run: node --test tests/ci/release_candidate_tests.mjs tests/ci/cache_budget_tests.mjs tests/ci/vcpkg_pin_tests.mjs
       - name: Resolve and validate release identity
         id: release-identity
         shell: bash
@@ -145,7 +147,7 @@ jobs:
           echo 'bzip2 prefetch failed; leaving package resolution to vcpkg' >&2
 
       - name: Build NovelTea host CLI
-        run: pnpm -C editor run noveltea:build
+        run: node scripts/ci/time-command.mjs linux-release-cli-build-and-link pnpm -C editor run noveltea:build
 
       - name: Build renderer required by native production certification
         run: pnpm -C editor exec vp build
@@ -244,7 +246,7 @@ jobs:
       - name: Bootstrap vcpkg
         shell: pwsh
         run: |
-          if (!(Test-Path "$env:VCPKG_ROOT/.git")) { git clone https://github.com/microsoft/vcpkg "$env:VCPKG_ROOT" }
+          node scripts/ci/pin-vcpkg.mjs
           & "$env:VCPKG_ROOT/bootstrap-vcpkg.bat"
       - name: Verify Windows GNU CLI tools
         shell: pwsh
@@ -397,16 +399,13 @@ jobs:
       - name: Bootstrap vcpkg
         shell: bash
         run: |
-          if [[ ! -d "$VCPKG_ROOT/.git" ]]; then git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT"; fi
+          node scripts/ci/pin-vcpkg.mjs
           "$VCPKG_ROOT/bootstrap-vcpkg.sh"
       - name: Cache macOS authoring compiler objects
-        uses: actions/cache@v5
+        uses: ./.github/actions/setup-ccache
         with:
-          path: ${{ env.CCACHE_DIR }}
-          key: macOS-arm64-ccache-macos-authoring-release-${{ github.sha }}
-          restore-keys: |
-            macOS-arm64-ccache-macos-authoring-release-
-            macOS-arm64-ccache-
+          scope: macos-authoring-release
+          auto-save: "true"
       - name: Build NovelTea macOS host CLI
         run: pnpm -C editor run noveltea:build
       - name: Certify native macOS incremental validation and external stage parity
@@ -549,7 +548,7 @@ jobs:
             .cache/vcpkg-player-glibc228
             .cache/vcpkg-binary-player-glibc228
             build/${{ matrix.preset }}/vcpkg_installed
-          key: manylinux-2.28-x64-player-${{ matrix.variant }}-${{ hashFiles('.github/containers/linux-player-glibc228.Dockerfile', 'vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/x64-linux-noveltea.cmake', 'cmake/NovelTeaLua.cmake') }}-${{ github.sha }}
+          key: manylinux-2.28-x64-player-${{ matrix.variant }}-${{ hashFiles('.github/containers/linux-player-glibc228.Dockerfile', 'vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/x64-linux-noveltea.cmake', 'cmake/NovelTeaLua.cmake') }}
           restore-keys: |
             manylinux-2.28-x64-player-${{ matrix.variant }}-${{ hashFiles('.github/containers/linux-player-glibc228.Dockerfile', 'vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/x64-linux-noveltea.cmake', 'cmake/NovelTeaLua.cmake') }}-
             manylinux-2.28-x64-player-${{ matrix.variant }}-
@@ -578,9 +577,7 @@ jobs:
         if: runner.os != 'Linux'
         shell: pwsh
         run: |
-          if (!(Test-Path "$env:VCPKG_ROOT/.git")) {
-            git clone https://github.com/microsoft/vcpkg "$env:VCPKG_ROOT"
-          }
+          node scripts/ci/pin-vcpkg.mjs
           if ("${{ runner.os }}" -eq "Windows") {
             & "$env:VCPKG_ROOT/bootstrap-vcpkg.bat"
           } else {
@@ -633,12 +630,10 @@ jobs:
 
       - name: Cache ccache
         if: runner.os != 'Windows'
-        uses: actions/cache@v5
+        uses: ./.github/actions/setup-ccache
         with:
-          path: ${{ env.CCACHE_DIR }}
-          key: ${{ runner.os }}-${{ matrix.arch }}-ccache-${{ matrix.preset }}-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-${{ matrix.arch }}-ccache-${{ matrix.preset }}-
+          scope: desktop-${{ matrix.arch }}-${{ matrix.preset }}
+          auto-save: "true"
 
       - name: Build pinned glibc 2.28 Linux player environment
         if: matrix.platform == 'linux'
@@ -657,7 +652,8 @@ jobs:
             --env VCPKG_ROOT=/workspace/.cache/vcpkg-player-glibc228 \
             --env 'VCPKG_BINARY_SOURCES=clear;files,/workspace/.cache/vcpkg-binary-player-glibc228,readwrite' \
             --env CCACHE_DIR=/workspace/.cache/ccache \
-            --env CCACHE_MAXSIZE=500M \
+            --env CCACHE_MAXSIZE=256M \
+            --env NOVELTEA_VCPKG_PIN="$(node scripts/ci/pin-vcpkg.mjs print)" \
             --env CCACHE_BASEDIR=/workspace \
             --volume "$GITHUB_WORKSPACE:/workspace" \
             --workdir /workspace \
@@ -667,6 +663,8 @@ jobs:
               if [[ ! -d "$VCPKG_ROOT/.git" ]]; then
                 git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT"
               fi
+              git -C "$VCPKG_ROOT" checkout --detach "$NOVELTEA_VCPKG_PIN"
+              test "$(git -C "$VCPKG_ROOT" rev-parse HEAD)" = "$NOVELTEA_VCPKG_PIN"
               "$VCPKG_ROOT/bootstrap-vcpkg.sh"
               cmake --preset ${{ matrix.preset }} -G Ninja \
                 -DNOVELTEA_BUILD_HOST_TOOLS=OFF \
@@ -1062,12 +1060,10 @@ jobs:
           ./emsdk activate $EMSDK_VERSION
 
       - name: Cache ccache
-        uses: actions/cache@v5
+        uses: ./.github/actions/setup-ccache
         with:
-          path: ${{ env.CCACHE_DIR }}
-          key: ${{ runner.os }}-ccache-emscripten-${{ env.EMSDK_VERSION }}-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-ccache-emscripten-${{ env.EMSDK_VERSION }}-
+          scope: emscripten-release-${{ env.EMSDK_VERSION }}
+          auto-save: "true"
 
       - name: Download shader assets
         uses: actions/download-artifact@v7
@@ -1482,12 +1478,10 @@ jobs:
           unzip -p .cache/sdl3-android/SDL3-devel-3.4.10-android.zip SDL3-3.4.10.aar > android/app/libs/SDL3-3.4.10.aar
 
       - name: Cache ccache
-        uses: actions/cache@v5
+        uses: ./.github/actions/setup-ccache
         with:
-          path: ${{ env.CCACHE_DIR }}
-          key: ${{ runner.os }}-ccache-android-ndk${{ env.ANDROID_NDK_VERSION }}-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-ccache-android-ndk${{ env.ANDROID_NDK_VERSION }}-
+          scope: android-release-and-debug-ndk${{ env.ANDROID_NDK_VERSION }}
+          auto-save: "true"
 
       - name: Download shader assets
         uses: actions/download-artifact@v7
