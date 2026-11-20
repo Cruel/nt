@@ -207,9 +207,15 @@ async function main() {
   const sourceSha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim();
   // Production promotion requires the independently authenticated successful
   // master Build run; diagnostic Android Debug is only qualified, never promoted.
+  const preview = process.env.NOVELTEA_RELEASE_PREVIEW === 'true';
+  if (preview) {
+    assert.equal(process.env.GITHUB_EVENT_NAME, 'workflow_dispatch');
+    assert.equal(process.env.GITHUB_REF, 'refs/heads/ci/build-release-refactor-641');
+  }
   execFileSync(process.execPath, [
     path.join(repo, 'scripts/ci/release-candidate.mjs'), 'verify',
-    '--candidate', id, '--stage', candidate.tier === 'diagnostic' ? 'diagnose' : 'promote',
+    '--candidate', id, '--stage', preview ? 'qualify' :
+      candidate.tier === 'diagnostic' ? 'diagnose' : 'promote',
   ], { cwd: repo, stdio: 'inherit' });
   const stage = path.join(repo, candidate.root);
   const result = await assembleTemplate({

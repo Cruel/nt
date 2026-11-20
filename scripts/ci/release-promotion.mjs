@@ -260,8 +260,21 @@ async function main() {
   const catalog = JSON.parse(await readFile(path.join(repo, 'scripts/ci/release-candidates.json'), 'utf8'));
   const client = new ActionsClient(process.env.GH_TOKEN ?? process.env.GITHUB_TOKEN);
   const output = path.join(repo, 'build/release-authority.json');
+  const preview = process.env.NOVELTEA_RELEASE_PREVIEW === 'true';
+  // Import the separate acceptance boundary only in branch preview mode. In
+  // particular, tag pushes can never turn a preview receipt into release authority.
+  const premerge = preview ? await import('./premerge-qualification.mjs') : null;
+  if (preview) premerge.requirePreviewInvocation(
+    process.env.GITHUB_EVENT_NAME, process.env.GITHUB_REF,
+    process.env.PREVIEW_BUILD_RUN_ID, process.env.PREVIEW_EXTENDED_RUN_ID);
+  else assert.ok(!process.env.PREVIEW_BUILD_RUN_ID && !process.env.PREVIEW_EXTENDED_RUN_ID,
+    'Premerge run IDs are forbidden on production Release');
   if (command === 'authorize') {
-    const authority = await authorizeRelease(client, { sourceSha, catalog });
+    const authority = preview ? await premerge.authorizePremerge(client, {
+      sourceSha, catalog,
+      buildRunId: Number(process.env.PREVIEW_BUILD_RUN_ID),
+      extendedRunId: Number(process.env.PREVIEW_EXTENDED_RUN_ID),
+    }) : await authorizeRelease(client, { sourceSha, catalog });
     await mkdir(path.dirname(output), { recursive: true });
     await writeFile(output, JSON.stringify(authority, null, 2) + '\n');
     if (process.env.GITHUB_OUTPUT) {
@@ -272,7 +285,8 @@ async function main() {
     }
   } else {
     const previous = JSON.parse(await readFile(output, 'utf8'));
-    await verifyPinnedAuthority(client, previous, sourceSha, catalog);
+    if (preview) await premerge.verifyPreviewAuthority(client, previous, sourceSha, catalog);
+    else await verifyPinnedAuthority(client, previous, sourceSha, catalog);
   }
   process.stdout.write(`Release authorization verified for ${sourceSha}\n`);
 }

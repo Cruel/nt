@@ -25,7 +25,10 @@ export function makeReceipt(context, needs, expected = contract.jobs) {
   qualifyResults(needs, expected);
   assert.equal(context.repository, 'Cruel/nt', 'Extended producer repository must be Cruel/nt');
   assert.equal(context.workflow, 'Extended Qualification', 'Unexpected Extended workflow identity');
-  assert.equal(context.ref, 'refs/heads/master', 'Extended must run from master workflow definitions');
+  const previewRef = 'refs/heads/ci/build-release-refactor-641';
+  const preview = context.ref === previewRef;
+  assert.ok(context.ref === 'refs/heads/master' || (preview && context.event === 'workflow_dispatch'),
+    'Extended source must be master, except explicit nonpublishing integration-branch preview');
   assert.ok(['schedule', 'workflow_dispatch'].includes(context.event), 'Unexpected Extended trigger');
   for (const key of ['sourceSha', 'workflowSha']) {
     assert.ok(shaPattern.test(context[key]), `Invalid ${key}`);
@@ -43,6 +46,7 @@ export function makeReceipt(context, needs, expected = contract.jobs) {
     trustedBuildRunId: context.buildRunId,
     contractSha256: createHash('sha256').update(readFileSync(path.join(root, 'scripts/ci/extended-qualification-contract.json'))).digest('hex'),
     jobs: qualified,
+    ...(preview ? { mode: 'preview' } : {}),
   };
 }
 

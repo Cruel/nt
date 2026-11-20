@@ -13,6 +13,16 @@ on:
         required: false
         default: false
         type: boolean
+      source_sha:
+        description: Exact Build-qualified source checkout to serve (defaults to caller SHA)
+        required: false
+        default: ''
+        type: string
+      pr_number:
+        description: PR number for independently triggered Site preview deployment
+        required: false
+        default: ''
+        type: string
 
 permissions:
   actions: read
@@ -28,6 +38,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
 
       - uses: pnpm/action-setup@v6
         with:
@@ -198,12 +210,14 @@ jobs:
   deploy:
     name: Deploy site
     needs: verify
-    if: ${{ inputs.deploy && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    if: ${{ inputs.deploy && (inputs.production || inputs.pr_number != '') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ubuntu-24.04
     environment:
       name: ${{ inputs.production && 'site-production' || 'site-preview' }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
 
       - uses: pnpm/action-setup@v6
         with:
@@ -240,4 +254,4 @@ jobs:
 
       - name: Deploy pull-request preview
         if: ${{ !inputs.production }}
-        run: pnpm -C site exec wrangler pages deploy dist --project-name noveltea --branch "pr-${{ github.event.pull_request.number }}"
+        run: pnpm -C site exec wrangler pages deploy dist --project-name noveltea --branch "pr-${{ inputs.pr_number || github.event.pull_request.number }}"

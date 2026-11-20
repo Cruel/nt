@@ -105,9 +105,12 @@ test('the Extended job inventory matches its receipt and is nightly/on-demand on
     step.run?.includes('extended-qualification.mjs receipt'));
   assert.ok(receipt);
   assert.ok(receipt.env.NEEDS_JSON.includes('toJSON(needs)'));
-  const upload = seal.steps.find((step) => step.name?.includes('Upload exact-SHA qualification'));
+  const upload = seal.steps.find((step) => step.name?.includes('Upload exact-SHA trusted master qualification'));
   assert.equal(upload.with.name, contract.evidenceArtifact);
   assert.equal(upload.with['if-no-files-found'], 'error');
+  const preview = seal.steps.find((step) => step.name?.includes('Upload explicitly nonpublishing'));
+  assert.equal(preview.with.name, 'noveltea-extended-qualification-preview');
+  assert.equal(preview.if, "needs.source.outputs.preview == 'true'");
   for (const [name, job] of Object.entries(extended.jobs)) {
     if (name === 'source') continue;
     assert.ok(job.steps.some((step) => step.uses === 'actions/checkout@v6' &&
@@ -124,7 +127,8 @@ test('the Extended job inventory matches its receipt and is nightly/on-demand on
   assert.match(resolve.run, /"success"/);
   const candidate = extended.jobs['native-cli-performance'].steps.find((step) =>
     step.name?.includes('Download exact trusted Build CLI'));
-  assert.match(candidate.run, /--stage promote/);
+  assert.match(candidate.run, /stage=promote/);
+  assert.match(candidate.run, /stage=qualify/);
   assert.equal(candidate.env.GITHUB_SHA, '${{ needs.source.outputs.source_sha }}');
   assert.ok(extended.jobs['android-emulator'].steps.some((step) =>
     step.run?.includes('needs.source.outputs.build_run_id')));

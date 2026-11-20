@@ -6,7 +6,11 @@ on:
   workflow_dispatch:
     inputs:
       sha:
-        description: Exact master commit to qualify (40-character SHA; blank uses master HEAD)
+        description: Exact selected commit (master in production; integration-branch HEAD in nonpublishing preview)
+        required: false
+        type: string
+      preview_build_run_id:
+        description: Exact completed Build run ID, only for branch-only nonpublishing cutover acceptance
         required: false
         type: string
 
@@ -35,13 +39,14 @@ env:
 
 jobs:
   source:
-    name: Authorize exact master revision and successful Build
-    if: github.repository == 'Cruel/nt' && github.ref == 'refs/heads/master'
+    name: Authorize source and eligible Build (trusted master or nonpublishing cutover preview)
+    if: github.repository == 'Cruel/nt' && (github.ref == 'refs/heads/master' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/ci/build-release-refactor-641'))
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     outputs:
       source_sha: ${{ steps.select.outputs.source_sha }}
       build_run_id: ${{ steps.select.outputs.build_run_id }}
+      preview: ${{ steps.select.outputs.preview }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -51,34 +56,46 @@ jobs:
         shell: bash
         env:
           REQUESTED_SHA: ${{ inputs.sha || github.sha }}
+          PREVIEW_BUILD_RUN_ID: ${{ inputs.preview_build_run_id }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           [[ "$REQUESTED_SHA" =~ ^[a-f0-9]{40}$ ]] || { echo "An exact 40-character commit SHA is required." >&2; exit 1; }
-          git fetch --no-tags origin master
-          git cat-file -e "$REQUESTED_SHA^{commit}"
-          git merge-base --is-ancestor "$REQUESTED_SHA" origin/master || {
-            echo "Selected SHA is not a trusted master ancestor." >&2
-            exit 1
-          }
-          run_id="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow build.yml \
-            --commit "$REQUESTED_SHA" --branch master --event push \
-            --status success --limit 20 --json databaseId --jq '.[0].databaseId // empty')"
-          [[ "$run_id" =~ ^[0-9]+$ ]] || {
-            echo "No successful master-push Build exists for selected commit $REQUESTED_SHA." >&2
-            exit 1
-          }
+          if [[ "$GITHUB_REF" == refs/heads/master ]]; then
+            [[ -z "$PREVIEW_BUILD_RUN_ID" ]] || { echo 'Preview run not permitted on master.' >&2; exit 1; }
+            git fetch --no-tags origin master
+            git cat-file -e "$REQUESTED_SHA^{commit}"
+            git merge-base --is-ancestor "$REQUESTED_SHA" origin/master || {
+              echo 'Selected SHA is not a trusted master ancestor.' >&2; exit 1;
+            }
+            run_id="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow build.yml \
+              --commit "$REQUESTED_SHA" --branch master --event push \
+              --status success --limit 20 --json databaseId --jq '.[0].databaseId // empty')"
+            source_branch=master
+            permitted_events='push'
+            echo 'preview=false' >> "$GITHUB_OUTPUT"
+          else
+            [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "$GITHUB_REF" == refs/heads/ci/build-release-refactor-641 ]] || exit 1
+            [[ "$REQUESTED_SHA" == "$GITHUB_SHA" ]] || { echo 'Preview must qualify the exact workflow branch HEAD.' >&2; exit 1; }
+            [[ "$PREVIEW_BUILD_RUN_ID" =~ ^[0-9]+$ ]] || { echo 'Explicit Build run ID is required for preview.' >&2; exit 1; }
+            run_id="$PREVIEW_BUILD_RUN_ID"
+            source_branch=ci/build-release-refactor-641
+            permitted_events='push|workflow_dispatch'
+            echo 'preview=true' >> "$GITHUB_OUTPUT"
+          fi
+          [[ "$run_id" =~ ^[0-9]+$ ]] || { echo "No completed Build run for $REQUESTED_SHA." >&2; exit 1; }
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" \
             --jq '[.event, .head_branch, .head_sha, .path, .status, .conclusion, .head_repository.full_name] | @tsv' |
-          awk -F '\t' -v sha="$REQUESTED_SHA" -v repo="$GITHUB_REPOSITORY" '
-            $1 == "push" && $2 == "master" && $3 == sha &&
+          awk -F '\t' -v sha="$REQUESTED_SHA" -v repo="$GITHUB_REPOSITORY" \
+            -v branch="$source_branch" -v events="$permitted_events" '
+            $1 ~ "^("events")$" && $2 == branch && $3 == sha &&
             $4 == ".github/workflows/build.yml" && $5 == "completed" &&
             $6 == "success" && $7 == repo { ok=1 }
             END { if (!ok) exit 1 }
-          ' || { echo "Build run provenance mismatch." >&2; exit 1; }
+          ' || { echo 'Build run provenance mismatch.' >&2; exit 1; }
           echo "source_sha=$REQUESTED_SHA" >> "$GITHUB_OUTPUT"
           echo "build_run_id=$run_id" >> "$GITHUB_OUTPUT"
-          echo "Trusted Build run $run_id qualifies master commit $REQUESTED_SHA."
+          echo "Selected $source_branch Build $run_id qualifies $REQUESTED_SHA."
 
   shader-assets:
     name: Shader assets
@@ -838,10 +855,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           # The dispatch workflow SHA may differ for an older master commit.
           GITHUB_SHA: ${{ needs.source.outputs.source_sha }}
+          NOVELTEA_BUILD_RUN_ID: ${{ needs.source.outputs.build_run_id }}
+          PREVIEW_QUALIFICATION: ${{ needs.source.outputs.preview }}
         run: |
           gh run download "${{ needs.source.outputs.build_run_id }}" --repo "$GITHUB_REPOSITORY" --name noveltea-host-cli-linux-x64 --dir build/cli/linux
           chmod +x build/cli/linux/noveltea build/cli/linux/noveltea-ui-test-runner build/cli/linux/tools/ffmpeg/bin/ffmpeg
-          node scripts/ci/release-candidate.mjs verify --candidate linux-host-cli-x64 --stage promote
+          stage=promote
+          if [[ "$PREVIEW_QUALIFICATION" == 'true' ]]; then stage=qualify; fi
+          node scripts/ci/release-candidate.mjs verify --candidate linux-host-cli-x64 --stage "$stage"
       - name: Benchmark native CLI Project admission and warm source revisions
         run: node editor/scripts/certify-native-cli-performance.mjs "$PWD/build/cli/linux/noveltea"
 
@@ -864,10 +885,18 @@ jobs:
           QUALIFIED_SHA: ${{ needs.source.outputs.source_sha }}
           BUILD_RUN_ID: ${{ needs.source.outputs.build_run_id }}
         run: node scripts/ci/extended-qualification.mjs receipt
-      - name: Upload exact-SHA qualification evidence
+      - name: Upload exact-SHA trusted master qualification evidence
+        if: needs.source.outputs.preview != 'true'
         uses: actions/upload-artifact@v7
         with:
           name: noveltea-extended-qualification
+          path: build/reports/extended-qualification/receipt.json
+          if-no-files-found: error
+      - name: Upload explicitly nonpublishing integration-branch qualification evidence
+        if: needs.source.outputs.preview == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-extended-qualification-preview
           path: build/reports/extended-qualification/receipt.json
           if-no-files-found: error
       - name: Summarize exact qualified revision

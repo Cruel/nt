@@ -5,6 +5,15 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      preview_build_run_id:
+        description: Completed exact-branch Build run ID (nonpublishing integration verification only)
+        required: false
+        type: string
+      preview_extended_run_id:
+        description: Completed exact-branch Extended run ID (nonpublishing integration verification only)
+        required: false
+        type: string
 
 concurrency:
   # VERSION is resolved after checkout, so serialize release qualification/publication globally.
@@ -25,6 +34,10 @@ env:
   ANDROID_CMAKE_VERSION: "3.31.6"
   ANDROID_NDK_VERSION: "28.2.13676358"
   NOVELTEA_BUILD_IDENTITY: git:${{ github.sha }}
+  # This branch-only acceptance mode is never authoritative for publishing.
+  NOVELTEA_RELEASE_PREVIEW: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/ci/build-release-refactor-641' && 'true' || 'false' }}
+  PREVIEW_BUILD_RUN_ID: ${{ inputs.preview_build_run_id || '' }}
+  PREVIEW_EXTENDED_RUN_ID: ${{ inputs.preview_extended_run_id || '' }}
 
 jobs:
   release-metadata:

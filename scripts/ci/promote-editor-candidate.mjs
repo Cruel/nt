@@ -77,9 +77,14 @@ async function main() {
     'Usage: promote-editor-candidate.mjs <candidate-id> <release-tag>');
   const catalog = JSON.parse(await readFile(new URL('release-candidates.json', import.meta.url)));
   const candidate = resolveCatalogCandidate(catalog, id);
+  const preview = process.env.NOVELTEA_RELEASE_PREVIEW === 'true';
+  if (preview) {
+    assert.equal(process.env.GITHUB_EVENT_NAME, 'workflow_dispatch');
+    assert.equal(process.env.GITHUB_REF, 'refs/heads/ci/build-release-refactor-641');
+  }
   execFileSync(process.execPath, [
     path.join(repo, 'scripts/ci/release-candidate.mjs'),
-    'verify', '--candidate', id, '--stage', 'promote',
+    'verify', '--candidate', id, '--stage', preview ? 'qualify' : 'promote',
   ], { cwd: repo, stdio: 'inherit' });
   const pointer = await prepareEditorRelease({
     root: path.join(repo, candidate.root), candidate, releaseTag: tag,
