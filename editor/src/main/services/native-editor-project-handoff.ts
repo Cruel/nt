@@ -82,8 +82,6 @@ export class NativeEditorProjectHandoff<T extends NativeController> {
     this.candidates.clear();
     const remaining = [old, ...controllers].filter((item): item is T => item !== null);
     for (const controller of remaining) controller.dispose();
-    await Promise.all(
-      remaining.map((controller) => awaitControllerShutdown(controller)),
-    );
+    await Promise.all(remaining.map((controller) => awaitControllerShutdown(controller)));
   }
 }

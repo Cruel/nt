@@ -27,9 +27,19 @@ for ((attempt=1; attempt<=attempts; attempt++)); do
     result=$?
   fi
 
-  # Exact response signatures from Maven repositories: never retry a C++
-  # compilation failure, an unrelated Gradle error, or an arbitrary 5xx.
-  if ! grep -Eiq '(Received status code 429|HTTP (status |response code: )?429|429 Too Many Requests|status[ =:]429)' "$log"; then
+  # Exact Maven 429 signatures, or an entire resolved plugin classpath
+  # disappearing from all repositories. A single missing coordinate (such as
+  # a typo or intentionally withdrawn dependency) is never retryable.
+  missing_count="$(grep -Ec '^[[:space:]]*> Could not find [[:alnum:]._-]+:[[:alnum:]._-]+:[[:alnum:]._-]+\.' "$log" || true)"
+  network_missing=false
+  if grep -Fq "Could not resolve all artifacts for configuration ':classpath'" "$log" &&
+     (( missing_count >= 5 )) &&
+     grep -Fq 'https://repo.maven.apache.org/maven2/' "$log" &&
+     grep -Fq 'https://dl.google.com/dl/android/maven2/' "$log"; then
+    network_missing=true
+  fi
+  if ! grep -Eiq '(Received status code 429|HTTP (status |response code: )?429|429 Too Many Requests|status[ =:]429)' "$log" &&
+     [[ "$network_missing" != true ]]; then
     echo "Gradle failed with a non-throttling error (exit $result); no retry." >&2
     exit "$result"
   fi
@@ -38,6 +48,8 @@ for ((attempt=1; attempt<=attempts; attempt++)); do
     exit "$result"
   fi
   delay=$(( backoff * attempt ))
-  echo "Maven HTTP 429 (attempt $attempt/$attempts); retrying after ${delay}s." >&2
+  echo "Transient Maven dependency resolution (attempt $attempt/$attempts); retrying after ${delay}s." >&2
   sleep "$delay"
+  # Do not borrow a negative Maven metadata cache from the failed attempt.
+  if (( attempt == 1 )); then set -- "$@" --refresh-dependencies; fi
 done

@@ -223,9 +223,58 @@ real hosted suites. The next campaign must rerun complete Build, Coverage and
 Extended on a **new identical source SHA**, then full manual nonpublishing
 Release. Failed or cancelled cohorts do not count as successful qualification.
 
+## Third hosted campaign: remaining fixes pending qualification
+
+The exact-SHA campaign at `b14012b7e27e84f4b5d60d499be45681f8bd5fc2`
+completed with [Coverage #44793667326](https://github.com/Cruel/nt/actions/runs/44793667326)
+**passing all three jobs**. [Build #44793667692](https://github.com/Cruel/nt/actions/runs/44793667692)
+failed **8 jobs**; [Extended #44793667385](https://github.com/Cruel/nt/actions/runs/44793667385)
+correctly denied source authority after Build failed, and did not attempt to
+seal an empty-SHA receipt. Debian production CLI, macOS/Linux desktop players,
+Web candidates, Android ARM64 devtools, and Linux/Windows/macOS native
+authoring passed in this campaign.
+
+New fixes for the remaining 8 Build failures, still requiring hosted acceptance:
+
+- **Windows production CLI:** the CMakeCache parser's anchored regex ignored
+  **CRLF-terminated cache lines**. Normalize CRLF before parsing and require
+  the real CMAKE_BUILD_TYPE, compiler path and optimization flags; drop the
+  previous missing-build-type Ninja fallback. Debug and missing build types
+  remain rejected. Tests use CRLF cache fixtures.
+- **macOS production CLI:** the malformed-marker case passed, but the next
+  public negative for a symlinked AGENTS.md aborted from an uncaught native
+  runtime_error. The native Agent Kit preparation boundary now catches its
+  filesystem/rollback errors and returns an explicit result; CLI repair emits
+  exit 5 with REPAIR_PREPARATION_FAILED while preserving all negative
+  assertions, without relying on matching exception-message text.
+- **Windows native policy + both Windows production players:** the pinned
+  bgfx.cmake/dav1d header evaluates Clang's `__has_include_next` under MSVC
+  14.52, causing C7780/C1017 before the actual player tests. A strict,
+  idempotent FetchContent patch nests that builtin behind a Clang-only
+  preprocessor conditional, preserving the actual native MSVC atomic path.
+  A fixture test verifies idempotence and rejects upstream source drift.
+- **Editor unit and Electron checks:** the prior handoff changes failed
+  formatting on three TypeScript files. Run the repository's actual `vp fmt`
+  and full `vp run check:all`; no tests or lint rules were disabled.
+- **Android ARM64 Release:** while Devtools succeeded, its separate job
+  reported an entire Gradle plugin classpath containing numerous previously
+  available Maven modules missing across Google and Maven Central (not an
+  explicit 429). Add a bounded retry only when five or more distinct Maven
+  coordinates disappear from the entire plugin classpath across both repos;
+  a single genuinely missing coordinate, compile failure and arbitrary 5xx
+  still fail immediately. Subsequent retries use `--refresh-dependencies`.
+  No long-lived dependency cache is introduced.
+
+Local checks: `node --test tests/ci/*.mjs` **187/187**, the full Editor
+`pnpm -C editor run check` including formatting, lint and TypeScript,
+targeted Editor tests, native Linux CLI rebuilt and complete repair-project
+certification. This is local evidence only; do not close #646 until the new
+exact-SHA Build, Coverage and Extended host jobs and the downstream Release
+qualification are actually successful.
+
 ## Current evidence and limitations
 
-- Local complete CI contracts: **184/184 pass**, including the native coverage
+- Local complete CI contracts: **187/187 pass**, including the native coverage
   fixture via the installed `/home/thomas/.local/bin/uv`. GitHub CI provisions
   `uv` via pinned `astral-sh/setup-uv`.
 - Authenticated GitHub inspection of branch protection/rulesets performed;

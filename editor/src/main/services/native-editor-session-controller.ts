@@ -459,16 +459,18 @@ export class NativeEditorSessionController {
     this.projectIdentity = null;
     this.recoveredProject = null;
     this.recoveryFailure = null;
-    this.publicationDrain = Promise.all([this.publicationDrain, drainPublication]).then(async () => {
-      this.bridge.close();
-      // Teardown cannot leave an untracked cache deletion racing a caller
-      // removing the Project after close()/waitForShutdown() resolves.
-      try {
-        await this.runtimeCache.clear();
-      } catch (error) {
-        console.error('Failed to release native Project runtime cache:', error);
-      }
-    });
+    this.publicationDrain = Promise.all([this.publicationDrain, drainPublication]).then(
+      async () => {
+        this.bridge.close();
+        // Teardown cannot leave an untracked cache deletion racing a caller
+        // removing the Project after close()/waitForShutdown() resolves.
+        try {
+          await this.runtimeCache.clear();
+        } catch (error) {
+          console.error('Failed to release native Project runtime cache:', error);
+        }
+      },
+    );
   }
 
   waitForPublicationDrain(): Promise<void> {

@@ -348,7 +348,10 @@ export function compilerFromCmake(buildDirectory, candidate) {
     readdir(path.join(buildDirectory, 'CMakeFiles')),
   ]).then(async ([cache, dirs]) => {
     const values = Object.fromEntries(
-      cache.split('\n').map((line) => /^([^#/:]+):[^=]+=(.*)$/.exec(line)).filter(Boolean)
+      // CMakeCache.txt uses CRLF on hosted Windows. Normalize line endings
+      // before applying the anchored cache-entry matcher; do not silently
+      // discard real build-type, toolchain or optimization metadata.
+      cache.split(/\r?\n/).map((line) => /^([^#/:]+):[^=]+=(.*)$/.exec(line)).filter(Boolean)
         .map((match) => [match[1], match[2]]),
     );
     const versionDir = dirs.find((name) => /^\d+\.\d+/.test(name));
@@ -373,28 +376,6 @@ export function compilerFromCmake(buildDirectory, candidate) {
       actualAndroidFlags = command.match(/(?:^|\s)(?:-O[0-3sz]|-DNDEBUG|--target=[^\s]+)/g)
         ?.map((flag) => flag.trim()).join(' ') ?? '';
     }
-    // A runner may configure a single-configuration Ninja build without
-    // persisting CMAKE_BUILD_TYPE in its cache. Never infer Release from the
-    // candidate name or preset alone: require the actual Ninja compile rules
-    // to contain both the expected optimization and NDEBUG before admitting
-    // this narrow missing-cache fallback.
-    let configuredType = values.CMAKE_BUILD_TYPE;
-    let actualFlags;
-    if (!configuredType && candidate.kind !== 'android-template') {
-      const expectedType = candidate.buildType ?? 'Release';
-      demand(values.CMAKE_GENERATOR === 'Ninja' && expectedType === 'Release',
-        'Missing CMake build type; only an observed optimized Ninja Release build can be qualified.');
-      const ninja = await readFile(path.join(buildDirectory, 'build.ninja'), 'utf8');
-      const requestedOpt = candidate.optimization ??
-        (candidate.compilerId === 'MSVC' ? '/O2' : '-O3');
-      const compiledFlags = ninja.match(/^\s*FLAGS\s*=\s*([^\r\n]+)$/gm)
-        ?.map((line) => line.slice(line.indexOf('=') + 1).trim()) ?? [];
-      actualFlags = compiledFlags.find((line) =>
-        line.includes(requestedOpt) &&
-        (line.includes('-DNDEBUG') || line.includes('/DNDEBUG')));
-      demand(actualFlags, 'Cannot prove optimized C++ Release compilation from Ninja rules.');
-      configuredType = 'Release';
-    }
     const compiler = {
       id,
       version,
@@ -403,8 +384,8 @@ export function compilerFromCmake(buildDirectory, candidate) {
       // file records the tool used by the actual configured build.
       toolchain: values.CMAKE_CXX_COMPILER ||
         /set\(CMAKE_CXX_COMPILER "([^"]+)"\)/.exec(identification)?.[1],
-      buildType: configuredType,
-      flags: actualAndroidFlags ?? actualFlags ?? values[`CMAKE_CXX_FLAGS_${configuredType?.toUpperCase()}`],
+      buildType: values.CMAKE_BUILD_TYPE,
+      flags: actualAndroidFlags ?? values[`CMAKE_CXX_FLAGS_${values.CMAKE_BUILD_TYPE?.toUpperCase()}`],
       preset: candidate.preset,
     };
     validateCompiler(compiler, candidate);

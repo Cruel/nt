@@ -81,7 +81,9 @@ describe('native-only Project handoff keeps independent workers', () => {
     const sessions = new ActiveProjectSessionService();
     const first = controller('terminating');
     let releaseWorker: () => void = () => {};
-    const terminated = new Promise<void>((resolve) => { releaseWorker = resolve; });
+    const terminated = new Promise<void>((resolve) => {
+      releaseWorker = resolve;
+    });
     const worker = Object.assign(first, {
       waitForPublicationDrain: vi.fn(async () => undefined),
       waitForShutdown: vi.fn(() => terminated),
@@ -90,7 +92,9 @@ describe('native-only Project handoff keeps independent workers', () => {
     try {
       expect((await handoff.open(root)).success).toBe(true);
       let closed = false;
-      const closing = handoff.close().then(() => { closed = true; });
+      const closing = handoff.close().then(() => {
+        closed = true;
+      });
       await Promise.resolve();
       expect(first.dispose).toHaveBeenCalledOnce();
       expect(closed).toBe(false);

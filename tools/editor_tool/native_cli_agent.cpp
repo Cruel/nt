@@ -496,7 +496,7 @@ RepairCandidateEvidence inspect_repair_candidate(const fs::path& root)
     return evidence;
 }
 
-AgentSyncResult sync_native_agent_kit(const fs::path& root, bool fix)
+AgentSyncResult sync_native_agent_kit_impl(const fs::path& root, bool fix)
 {
     AgentSyncResult result;
     const auto agents_path = root / "AGENTS.md";
@@ -547,5 +547,18 @@ AgentSyncResult sync_native_agent_kit(const fs::path& root, bool fix)
                 : "missing-rule";
     }
     return result;
+}
+
+AgentSyncResult sync_native_agent_kit(const fs::path& root, bool fix)
+{
+    // All Agent Kit filesystem and rollback failures are reported through the
+    // result, not by unwinding across the standalone native CLI boundary.
+    try {
+        return sync_native_agent_kit_impl(root, fix);
+    } catch (const std::exception& error) {
+        AgentSyncResult rejected;
+        rejected.failure = error.what();
+        return rejected;
+    }
 }
 } // namespace noveltea::cli

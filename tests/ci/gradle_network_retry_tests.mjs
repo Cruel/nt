@@ -58,6 +58,37 @@ test('transient Maven 429 is allowed to recover without suppressing the original
   assert.match(result.stderr, /retrying after 0s/);
 });
 
+test('mass repository classpath disappearance retries with fresh dependency metadata', async () => {
+  const missing = Array.from({ length: 6 }, (_, i) =>
+    `echo '> Could not find org.example:dependency${i}:1.2.3.' >&2`).join('\n');
+  const { result, attempts } = await run(`
+if [[ "$count" -ge 2 && "\${2:-}" != '--refresh-dependencies' ]]; then
+  echo 'Retry did not refresh Gradle dependency metadata' >&2
+  exit 21
+fi
+if [[ "$count" -lt 2 ]]; then
+  echo "Could not resolve all artifacts for configuration ':classpath'" >&2
+  ${missing}
+  echo 'https://repo.maven.apache.org/maven2/org/example/dependency0/1.2.3/pom' >&2
+  echo 'https://dl.google.com/dl/android/maven2/org/example/dependency0/1.2.3/pom' >&2
+  exit 1
+fi`, '0');
+  assert.equal(result.status, 0);
+  assert.equal(attempts, 2);
+  assert.match(result.stderr, /Transient Maven dependency resolution/);
+});
+
+test('one genuinely missing Maven coordinate does not trigger a retry', async () => {
+  const { result, attempts } = await run(`
+  echo "Could not resolve all artifacts for configuration ':classpath'" >&2
+  echo '> Could not find com.invalid:removed:0.0.1.' >&2
+  echo 'https://repo.maven.apache.org/maven2/com/invalid/removed/0.0.1/pom' >&2
+  echo 'https://dl.google.com/dl/android/maven2/com/invalid/removed/0.0.1/pom' >&2
+`, '17');
+  assert.equal(result.status, 17);
+  assert.equal(attempts, 1);
+});
+
 test('retry parameters are strictly bounded', async () => {
   const { result } = await run('echo ok', '0', { attempts: '20' });
   assert.equal(result.status, 2);

@@ -2818,6 +2818,16 @@ int run(const std::vector<std::string>& argv)
             const bool fix = args.command.size() == 3;
             try {
                 const auto synced = sync_native_agent_kit(root, fix);
+                if (!synced.failure.empty())
+                    return emit(
+                        {{"success", false},
+                         {"exitCode", 5},
+                         {"diagnostics", Json::array({diagnostic("AGENT_SYNC_MUTATION_FAILED", "/",
+                                                                 synced.failure)})},
+                         {"projectRoot", root_text},
+                         {"agentKitChanged", false},
+                         {"agentBootstrapChanged", false}},
+                        args.json, synced.failure);
                 if (fix && synced.bootstrap_status == "malformed") {
                     auto warning =
                         diagnostic("AGENT_BOOTSTRAP_MANUAL_REPAIR_REQUIRED", "/AGENTS.md",
@@ -2964,6 +2974,17 @@ int run(const std::vector<std::string>& argv)
                             "Explicit authorization is required for this weak candidate.");
             try {
                 const auto synced = sync_native_agent_kit(root, true);
+                if (!synced.failure.empty())
+                    return emit(
+                        {{"success", false},
+                         {"exitCode", 5},
+                         {"diagnostics", Json::array({diagnostic("REPAIR_PREPARATION_FAILED", "/",
+                                                                 synced.failure)})},
+                         {"projectRoot", root_text},
+                         {"candidateRecognition", evidence.recognition},
+                         {"candidateEvidence", evidence.sources},
+                         {"agentBootstrapChanged", false}},
+                        args.json, synced.failure);
                 if (synced.bootstrap_status == "malformed")
                     return emit(
                         {{"success", false},

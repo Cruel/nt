@@ -233,31 +233,34 @@ test('CMake compiler records read flags from the actual configured optimization 
   assert.equal(info.flags, '-Os -DNDEBUG');
 });
 
-test('missing Windows CMake build type requires optimized Ninja compiler rules, never candidate-name guessing', async () => {
+test('Windows CRLF CMakeCache metadata retains authentic Release/toolchain/flags and rejects unconfigured builds', async () => {
   const base = await mkdtemp(path.join(os.tmpdir(), 'nt-windows-candidate-ninja-'));
   temp.push(base);
   await mkdir(path.join(base, 'CMakeFiles', '3.31.6'), { recursive: true });
   const candidate = { id: 'windows-player-x64-release', kind: 'native-player',
     compilerId: 'MSVC', preset: 'windows-release' };
   await writeFile(path.join(base, 'CMakeCache.txt'),
-    'CMAKE_GENERATOR:INTERNAL=Ninja\n' +
-    'CMAKE_CXX_COMPILER:FILEPATH=C:/msvc/cl.exe\n' +
-    'CMAKE_CXX_FLAGS_RELEASE:STRING=/O2 /Ob2 /DNDEBUG\n');
+    'CMAKE_GENERATOR:INTERNAL=Ninja\r\n' +
+    'CMAKE_BUILD_TYPE:STRING=Release\r\n' +
+    'CMAKE_CXX_COMPILER:FILEPATH=C:/msvc/cl.exe\r\n' +
+    'CMAKE_CXX_FLAGS_RELEASE:STRING=/O2 /Ob2 /DNDEBUG\r\n');
   await writeFile(path.join(base, 'CMakeFiles', '3.31.6', 'CMakeCXXCompiler.cmake'),
     'set(CMAKE_CXX_COMPILER_ID "MSVC")\nset(CMAKE_CXX_COMPILER_VERSION "19.51.36231")\n');
-  const ninja = path.join(base, 'build.ninja');
-  await writeFile(ninja, 'build engine/core.obj: CXX_COMPILER engine/core.cpp\n  FLAGS = /O2 /Ob2 /DNDEBUG /std:c++20\n');
   const result = await compilerFromCmake(base, candidate);
   assert.equal(result.buildType, 'Release');
-  assert.match(result.flags, /\/O2.*\/DNDEBUG/);
-  await writeFile(ninja, 'build engine/core.obj: CXX_COMPILER engine/core.cpp\n  FLAGS = /Od /Zi\n');
-  await assert.rejects(compilerFromCmake(base, candidate), /Cannot prove optimized/);
-  await writeFile(ninja, 'build engine/core.obj: CXX_COMPILER engine/core.cpp\n  FLAGS = /O2 /DNDEBUG\n');
+  assert.equal(result.toolchain, 'C:/msvc/cl.exe');
+  assert.equal(result.flags, '/O2 /Ob2 /DNDEBUG');
   await writeFile(path.join(base, 'CMakeCache.txt'),
-    'CMAKE_GENERATOR:INTERNAL=Ninja Multi-Config\n' +
-    'CMAKE_CXX_COMPILER:FILEPATH=C:/msvc/cl.exe\n' +
-    'CMAKE_CXX_FLAGS_RELEASE:STRING=/O2 /DNDEBUG\n');
-  await assert.rejects(compilerFromCmake(base, candidate), /Missing CMake build type/);
+    'CMAKE_GENERATOR:INTERNAL=Ninja\r\n' +
+    'CMAKE_CXX_COMPILER:FILEPATH=C:/msvc/cl.exe\r\n' +
+    'CMAKE_CXX_FLAGS_RELEASE:STRING=/O2 /Ob2 /DNDEBUG\r\n');
+  await assert.rejects(compilerFromCmake(base, candidate), /compiler build type mismatch/);
+  await writeFile(path.join(base, 'CMakeCache.txt'),
+    'CMAKE_GENERATOR:INTERNAL=Ninja\r\n' +
+    'CMAKE_BUILD_TYPE:STRING=Debug\r\n' +
+    'CMAKE_CXX_COMPILER:FILEPATH=C:/msvc/cl.exe\r\n' +
+    'CMAKE_CXX_FLAGS_DEBUG:STRING=/Od\r\n');
+  await assert.rejects(compilerFromCmake(base, candidate), /compiler build type mismatch/);
 });
 
 test('Emscripten compiler identity is recovered from CMake configured compiler metadata when cache omits it', async () => {
