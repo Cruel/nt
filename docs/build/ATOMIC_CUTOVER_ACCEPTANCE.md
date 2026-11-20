@@ -272,6 +272,36 @@ certification. This is local evidence only; do not close #646 until the new
 exact-SHA Build, Coverage and Extended host jobs and the downstream Release
 qualification are actually successful.
 
+## Fourth hosted campaign: final direct CLI safety negatives
+
+On exact SHA `b8bdd945c3dfee297f1266fdd4ad6504d4301cb7`,
+[Build #44808380464](https://github.com/Cruel/nt/actions/runs/44808380464)
+completed with only two failing jobs: **C++ formatting** (one comment in
+`native_cli_agent.hpp`) and **Production host CLI (macos)** (the public
+`repair_project.py` negative for a symlinked `AGENTS.md` still aborted
+with `libc++abi` and return code -6 instead of structured exit 5).
+Several dependent Build jobs were **skipped**, not individually certified.
+[Extended #44808380268](https://github.com/Cruel/nt/actions/runs/44808380268)
+correctly denied authority because Build failed. At triage time
+[Coverage #44808380542](https://github.com/Cruel/nt/actions/runs/44808380542)
+was still running; do not count it as success before completion.
+
+New fix: restore the exact pinned clang-format check for **all 733 C++
+sources**, and replace the four predictable Agent Kit owner-path exceptions
+(`AGENTS.md`, `.gitignore`, `.noveltea`, `.noveltea/agent`) with
+**non-throwing, error-code-based preflight** that rejects symlinks, files in
+directory positions, and directories in file positions before any mutation.
+The deliberately injected swap-failure certification now performs its own
+rollback and returns a failure result without throwing across the macOS native
+CLI boundary. Unexpected failures remain reported rather than silently
+accepted. This is not an exception-message-matching workaround.
+
+Local verification: exact `clang-format==18.1.8` repository check passed
+733/733 C++ sources; 187/187 CI contracts, native Release CLI rebuild,
+`repair_project.py` full unsafe-path/rollback suite, and `agent_tools.py`
+public Agent Kit/daemon suite passed. **No macOS acceptance is claimed**
+until the next exact-SHA hosted run completes its negative suite.
+
 ## Current evidence and limitations
 
 - Local complete CI contracts: **187/187 pass**, including the native coverage

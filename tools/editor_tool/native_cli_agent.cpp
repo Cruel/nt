@@ -114,11 +114,36 @@ fs::file_status safe_status(const fs::path& path)
 
 bool is_file(const fs::path& path) { return fs::is_regular_file(safe_status(path)); }
 
-void require_regular_or_missing(const fs::path& path)
+// Unsafe owner paths are ordinary rejection cases. Keep their preflight
+// non-throwing so the standalone macOS CLI cannot abort before emitting the
+// public structured diagnostic (and cannot mutate another Project's links).
+std::optional<std::string> unsafe_agent_kit_target(const fs::path& root)
 {
-    const auto type = safe_status(path).type();
-    if (type != fs::file_type::not_found && type != fs::file_type::regular)
-        throw std::runtime_error(path.filename().string() + " must be a regular file.");
+    const auto inspect = [&](const fs::path& relative, fs::file_type expected,
+                             std::string_view invalid) -> std::optional<std::string> {
+        std::error_code error;
+        const auto status = fs::symlink_status(root / relative, error);
+        if (error == std::errc::no_such_file_or_directory ||
+            (!error && status.type() == fs::file_type::not_found))
+            return std::nullopt;
+        if (error)
+            return "Cannot inspect Agent Kit path: " + relative.generic_string() + ": " +
+                   error.message();
+        if (status.type() != expected)
+            return std::string(invalid);
+        return std::nullopt;
+    };
+    if (auto failure =
+            inspect("AGENTS.md", fs::file_type::regular, "AGENTS.md must be a regular file."))
+        return failure;
+    if (auto failure =
+            inspect(".gitignore", fs::file_type::regular, ".gitignore must be a regular file."))
+        return failure;
+    if (auto failure =
+            inspect(".noveltea", fs::file_type::directory, ".noveltea must be a real directory."))
+        return failure;
+    return inspect(".noveltea/agent", fs::file_type::directory,
+                   ".noveltea/agent must be a real directory.");
 }
 
 bool matches_source_record(const fs::path& file)
@@ -374,7 +399,7 @@ bool kit_matches(const fs::path& root, const Json& payload)
     return true;
 }
 
-void replace_kit(const fs::path& local, const Json& payload)
+std::optional<std::string> replace_kit(const fs::path& local, const Json& payload)
 {
     const auto live = local / "agent";
     std::random_device random;
@@ -405,8 +430,14 @@ void replace_kit(const fs::path& local, const Json& payload)
         if (const char* certify = std::getenv("NOVELTEA_CLI_CERTIFICATION");
             certify && std::string_view(certify) == "1") {
             if (const char* fail = std::getenv("NOVELTEA_AGENT_CERTIFY_SWAP_FAILURE");
-                fail && std::string_view(fail) == "1")
-                throw std::runtime_error("Injected Agent Kit swap failure.");
+                fail && std::string_view(fail) == "1") {
+                // This deliberately injected negative must exercise the real
+                // rollback without throwing across the macOS CLI boundary.
+                if (backed_up)
+                    fs::rename(backup, live);
+                fs::remove_all(stage);
+                return "Injected Agent Kit swap failure.";
+            }
         }
         fs::rename(stage, live);
         activated = true;
@@ -422,6 +453,7 @@ void replace_kit(const fs::path& local, const Json& payload)
         fs::remove_all(stage);
         throw;
     }
+    return std::nullopt;
 }
 } // namespace
 
@@ -503,16 +535,12 @@ AgentSyncResult sync_native_agent_kit_impl(const fs::path& root, bool fix)
     const auto local = root / ".noveltea";
     const auto live = local / "agent";
     const auto ignore = root / ".gitignore";
-    // Inspect every owned target before the first write. Other Project source
-    // symlinks are irrelevant to Agent Kit preparation and are not traversed.
-    require_regular_or_missing(agents_path);
-    require_regular_or_missing(ignore);
-    if (fs::is_symlink(safe_status(local)) ||
-        (fs::exists(safe_status(local)) && !fs::is_directory(safe_status(local))))
-        throw std::runtime_error(".noveltea must be a real directory.");
-    const auto live_type = safe_status(live).type();
-    if (live_type != fs::file_type::not_found && live_type != fs::file_type::directory)
-        throw std::runtime_error(".noveltea/agent must be a real directory.");
+    // Inspect every owned target before any write. Other Project source
+    // symlinks are irrelevant and must not block or be traversed by repair.
+    if (const auto failure = unsafe_agent_kit_target(root)) {
+        result.failure = *failure;
+        return result;
+    }
     const auto agents =
         is_file(agents_path) ? std::optional(read_file(agents_path)) : std::optional<std::string>{};
     result.bootstrap_status = inspect_bootstrap(agents ? &*agents : nullptr);
@@ -528,8 +556,12 @@ AgentSyncResult sync_native_agent_kit_impl(const fs::path& root, bool fix)
     const auto payload = embedded_payload();
     fs::create_directories(local);
     result.changed = !kit_matches(live, payload);
-    if (result.changed)
-        replace_kit(local, payload);
+    if (result.changed) {
+        if (const auto failure = replace_kit(local, payload)) {
+            result.failure = *failure;
+            return result;
+        }
+    }
     if (fix && (!agents || *agents != revised)) {
         write_file_atomic(agents_path, revised);
         result.bootstrap_changed = true;
