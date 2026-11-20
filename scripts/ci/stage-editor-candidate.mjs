@@ -76,9 +76,15 @@ export async function stageEditorCandidate({
   return root;
 }
 
+export function candidateIdFromArgv(argv) {
+  const id = argv[2];
+  demand(typeof id === 'string' && id.length > 0 && argv.length === 3,
+    'Usage: stage-editor-candidate.mjs <catalog-id>');
+  return id;
+}
+
 async function main() {
-  const [, id] = process.argv;
-  demand(id && process.argv.length === 3, 'Usage: stage-editor-candidate.mjs <catalog-id>');
+  const id = candidateIdFromArgv(process.argv);
   const releaseTag = readNovelTeaVersion(repo).releaseTag;
   const catalog = JSON.parse(await readFile(new URL('release-candidates.json', import.meta.url)));
   const candidate = resolveCatalogCandidate(catalog, id);

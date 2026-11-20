@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, test } from 'node:test';
-import { stageEditorCandidate } from '../../scripts/ci/stage-editor-candidate.mjs';
+import { candidateIdFromArgv, stageEditorCandidate } from '../../scripts/ci/stage-editor-candidate.mjs';
 
 const roots = [];
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))));
@@ -29,6 +29,14 @@ async function setup() {
   };
   return { repoRoot: repo, candidate, pointer, releaseTag: pointer.releaseTag };
 }
+
+test('Editor candidate CLI consumes argv[2], not the script path', () => {
+  assert.equal(candidateIdFromArgv(['node', '/checkout/scripts/ci/stage-editor-candidate.mjs',
+    'linux-editor-x64']), 'linux-editor-x64');
+  assert.throws(() => candidateIdFromArgv(['node', 'stage-editor-candidate.mjs']), /Usage/);
+  assert.throws(() => candidateIdFromArgv(['node', 'stage-editor-candidate.mjs',
+    'linux-editor-x64', 'unexpected']), /Usage/);
+});
 
 test('Editor candidate stages the exact verified multi-installer distribution set', async () => {
   const args = await setup();

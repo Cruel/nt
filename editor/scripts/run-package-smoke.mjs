@@ -1,10 +1,11 @@
 import { spawn } from 'node:child_process';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 
 import { distributionRoot, pathExists } from './editor-distribution-lib.mjs';
+import { removePackageSmokeRoot } from './package-smoke-cleanup.mjs';
 
 async function killProcessTree(child) {
   if (child.exitCode !== null || child.signalCode !== null) return;
@@ -97,10 +98,12 @@ const timeout = setTimeout(() => {
 
 const { code, signal } = await new Promise((resolve, reject) => {
   child.once('error', reject);
-  child.once('exit', (exitCode, exitSignal) => resolve({ code: exitCode, signal: exitSignal }));
+  // 'exit' can precede stdout/stderr closure and Electron helper teardown.
+  // Wait for the final stream handles before removing the working directory.
+  child.once('close', (exitCode, exitSignal) => resolve({ code: exitCode, signal: exitSignal }));
 });
 clearTimeout(timeout);
-await rm(temporaryRoot, { recursive: true, force: true });
+await removePackageSmokeRoot(temporaryRoot);
 
 const marker = 'NOVELTEA_PACKAGE_SMOKE_RESULT=';
 const line = output.split(/\r?\n/).find((entry) => entry.startsWith(marker));

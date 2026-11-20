@@ -302,6 +302,49 @@ Local verification: exact `clang-format==18.1.8` repository check passed
 public Agent Kit/daemon suite passed. **No macOS acceptance is claimed**
 until the next exact-SHA hosted run completes its negative suite.
 
+## Fifth hosted campaign: Editor installers and installed-smoke failures
+
+At exact SHA `136e0069c2ed9e150f9ab7205537e36f408289bc`,
+[Build #44819491114](https://github.com/Cruel/nt/actions/runs/44819491114)
+completed with **all source builds, policies, production host CLIs,
+desktop player configurations/launches, Web/Android candidates, and ordinary
+Editor tests passing**. Only the three production Editor host jobs failed:
+Linux, Windows, and macOS. No downstream jobs were skipped.
+[Coverage #44819491117](https://github.com/Cruel/nt/actions/runs/44819491117)
+**passed** and [Extended #44819491256](https://github.com/Cruel/nt/actions/runs/44819491256)
+correctly rejected the failed exact-SHA Build authority.
+
+The remaining failures are in distinct packaging smoke gates:
+
+- **Linux Editor:** the production package smoke passed, but the
+  `stage-editor-candidate.mjs` CLI destructured `process.argv[1]` (the
+  script path) as the catalog ID instead of `process.argv[2]`, rejecting the
+  installer as an unknown candidate. Use the actual explicit ID and add a
+  CLI-argument regression test, keeping the source-owned candidate checks.
+- **Windows Editor:** **every** installed package smoke assertion passed and
+  emitted a success result, but the harness attempted `rm` of its temporary
+  directory on child `exit`, before the Electron helper handles closed;
+  Node rejected the recursive removal with `EBUSY`. Await the child's
+  `close` event and use bounded, Windows-only `rm` retries for transient
+  locks; persistent lock failures still fail the gate. New tests cover both
+  Windows retry options and failure propagation.
+- **macOS Editor:** all smoke checks passed **except candidate repair**. Its
+  diagnostic proof showed the repaired original bytes had been saved and
+  the incumbent remained usable, but the test invoked
+  `observeRepairCandidate` directly after Save, before asynchronous
+  native revalidation/watch settlement had published `ready: true`. The
+  smoke now subscribes to the **real renderer IPC readiness event** before
+  observing and waits, with a bounded timeout, for a verified ready revision
+  before explicitly opening the candidate. The negative/admission and
+  preservation assertions remain mandatory; future failure logs include
+  the actual native readiness diagnostics and Open error.
+
+Local verification: **191/191 CI contract tests**, the full Editor
+format/lint/typecheck task, targeted candidate-repair and native handoff
+tests, and Electron main/preload/worker bundle pack. These are not substitutes
+for hosted Windows/macOS package runs; do not count the fixes as qualified
+until their exact-SHA Build completes successfully. Issue #646 stays open.
+
 ## Current evidence and limitations
 
 - Local complete CI contracts: **187/187 pass**, including the native coverage
