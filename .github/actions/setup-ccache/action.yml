@@ -48,7 +48,7 @@ runs:
           compiler_identity="$("$compiler" --version 2>&1 | head -n 1 || true)"
         fi
         test -n "$compiler_identity" || { echo "Cannot identify compiler: $compiler" >&2; exit 1; }
-        compiler_hash="$(printf '%s' "$compiler_identity" | sha256sum | cut -c1-16)"
+        compiler_hash="$(COMPILER_IDENTITY="$compiler_identity" node -p "require('node:crypto').createHash('sha256').update(process.env.COMPILER_IDENTITY).digest('hex').slice(0, 16)")"
         prefix="${{ runner.os }}-${{ runner.arch }}-ccache-v2-${{ inputs.scope }}-$compiler_hash-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/**', 'cmake/NovelTeaLua.cmake', 'cmake/NovelTeaSanitizers.cmake') }}-"
         echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
         echo "key=$prefix$week" >> "$GITHUB_OUTPUT"
