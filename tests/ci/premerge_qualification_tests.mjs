@@ -65,6 +65,20 @@ const client = (options = {}) => ({
   receipt: async () => options.receipt ?? receipt,
 });
 
+test('branch preview never uses Build-only qualify or master-only promote as its consumer stage', async () => {
+  const read = async (file) => readFile(new URL(`../../${file}`, import.meta.url), 'utf8');
+  const action = await read('.github/actions/restore-release-candidate/action.yml');
+  const template = await read('scripts/ci/promote-release-template.mjs');
+  const editor = await read('scripts/ci/promote-editor-candidate.mjs');
+  const candidate = await read('scripts/ci/release-candidate.mjs');
+  const extended = await read('.github/workflows/extended-qualification.yml');
+  assert.match(action, /CANDIDATE_STAGE=preview/);
+  assert.match(template, /preview \? 'preview' :/);
+  assert.match(editor, /preview \? 'preview' : 'promote'/);
+  assert.match(candidate, /verifyPreviewCandidateRun\(manifest, trustedRun\)/);
+  assert.match(extended, /stage=preview/);
+});
+
 test('preview requires an explicitly authorized integration branch manual dispatch', () => {
   assert.deepEqual(requirePreviewInvocation('workflow_dispatch', previewRef, '902', '903'),
     { buildRunId: 902, extendedRunId: 903 });

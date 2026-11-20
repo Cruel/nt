@@ -190,6 +190,12 @@ jobs:
       - name: Build excluded native CLI certification target
         run: cmake --build --preset linux-debug --target noveltea-cli-native-certify
 
+      - name: Export exact instrumented native CLI for Editor integration coverage
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-coverage-native-cli
+          path: build/linux-debug/tools/editor_tool/native-cli
+          if-no-files-found: error
       - name: Verify native devtools composition
         run: |
           bash scripts/check-native-devtools-symbols.sh build/linux-debug/apps/sandbox/noveltea-sandbox on
@@ -337,6 +343,10 @@ jobs:
   editor:
     name: Editor Vitest V8 coverage
     runs-on: ubuntu-24.04
+    # The Editor suite includes real CLI integration. Consume the same
+    # instrumented CLI that native Coverage already builds, not an unbuilt
+    # build/cli/linux path nor a second full compiler lane.
+    needs: native
     timeout-minutes: 90
     permissions:
       contents: read
@@ -357,6 +367,16 @@ jobs:
           node-version-file: .node-version
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+      - name: Download instrumented native CLI produced by this Coverage run
+        uses: actions/download-artifact@v7
+        with:
+          name: noveltea-coverage-native-cli
+          path: build/cli/linux
+      - name: Restore executable mode and verify real native CLI
+        run: |
+          chmod +x build/cli/linux/noveltea
+          test -x build/cli/linux/noveltea
+          build/cli/linux/noveltea --no-daemon --json daemon status
       - name: Build native authoring addon
         run: node editor/scripts/build-native-authoring-addon.mjs --addon-only
       - name: Stage checksum-verified native media tools

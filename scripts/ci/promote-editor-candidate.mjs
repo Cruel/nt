@@ -84,7 +84,7 @@ async function main() {
   }
   execFileSync(process.execPath, [
     path.join(repo, 'scripts/ci/release-candidate.mjs'),
-    'verify', '--candidate', id, '--stage', preview ? 'qualify' : 'promote',
+    'verify', '--candidate', id, '--stage', preview ? 'preview' : 'promote',
   ], { cwd: repo, stdio: 'inherit' });
   const pointer = await prepareEditorRelease({
     root: path.join(repo, candidate.root), candidate, releaseTag: tag,

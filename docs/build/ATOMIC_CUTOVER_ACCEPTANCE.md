@@ -121,11 +121,51 @@ change is the deliberate trigger for the single coordinated campaign.
    qualification. Collect **five warm-cache Build measurements** across
    representative distinct commits plus cold/invalidation; include queue
    separately, p50/p90/max, critical path, restore/save phases, hit/miss,
-   and actual repository occupancy <=10 GiB. Do not present a single
-   warm run or cached estimate as evidence of the p90 <20 min target.
+   and actual repository occupancy <=10 GiB. Use the read-only report
+   `node scripts/ci/cutover-metrics.mjs --branch master --warm id,id,id,id,id
+   --cold id --invalidate id` with actual GitHub run IDs, and inspect the
+   ccache logs for hit/miss (the cache-action hit flag is not a compiler
+   hit-rate measurement). Do not present a single warm run or cached
+   estimate as evidence of the p90 <20 min target.
 8. Keep old and new full matrices from running concurrently. Revert the
    single master merge to the captured previous master SHA if trust,
    publication or parity checks regress.
+
+## Hosted qualification attempts and failure attribution
+
+The first source-locked cohort at SHA
+`7e1a31dc7090c2bddc6c22f3c1c77aa3ea81fc65` launched concurrently:
+[Build #44702945648](https://github.com/Cruel/nt/actions/runs/44702945648),
+[Coverage #44702945493](https://github.com/Cruel/nt/actions/runs/44702945493),
+and [Extended #44702945581](https://github.com/Cruel/nt/actions/runs/44702945581).
+The Build was **not green** and therefore could not authorize its Extended
+premerge receipt; Extended was cancelled, not counted as qualified.
+Observed failures and source-owned fixes in the next branch revision:
+
+- Windows production CLI: `spawn pnpm ENOENT` in the portable timing helper;
+  allow Windows package-manager command shims only, preserving direct native
+  spawning and rejecting shell control characters.
+- Web threaded/nonthreaded release and devtools **and Android ARM64**:
+  `Toolchain identity is missing` in the candidate manifest producer.
+  Recover the actual configured compiler path from
+  `CMakeCXXCompiler.cmake` when the toolchain deliberately does not cache it.
+  Do not synthesize/ignore a missing compiler identity.
+- Windows native authoring: one `Use Disk` reconciliation test exceeded its
+  5-second generic timeout on the hosted runner; apply an explicit 30-second
+  budget to that test only while retaining all behavioral assertions.
+- Editor V8 coverage: native CLI integration tests were executing with an
+  absent `build/cli/linux/noveltea` (ENOENT). Depend on the **same Coverage
+  workflow's** already instrumented native build and download its native CLI
+  artifact instead of dropping integration coverage or compiling an unrelated
+  CLI a second time.
+- Branch-only Release must use `verify --stage preview` to authenticate and
+  checksum the **original completed branch Build** via GitHub API; Build-only
+  `qualify` cannot be reused as a consumer stage. Production `promote`
+  remains master-only and rejects all preview authorities.
+
+No failure above is represented as a qualification success. The next cohort
+must rerun the complete Build, Coverage and Extended workflows on a **new,
+identical exact source SHA**, followed by the full manual nonpublishing Release.
 
 ## Current evidence and limitations
 

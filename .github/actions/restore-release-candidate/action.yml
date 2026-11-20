@@ -63,6 +63,6 @@ runs:
         set -euo pipefail
         if [[ "${NOVELTEA_RELEASE_PREVIEW:-false}" == true ]]; then
           [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "$GITHUB_REF" == refs/heads/ci/build-release-refactor-641 ]] || exit 1
-          CANDIDATE_STAGE=qualify
+          CANDIDATE_STAGE=preview
         fi
         node scripts/ci/release-candidate.mjs verify --candidate "$CANDIDATE_ID" --stage "$CANDIDATE_STAGE"

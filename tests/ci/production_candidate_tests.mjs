@@ -11,6 +11,7 @@ import {
   resolveCatalogCandidate,
   verifyCandidate,
   verifyTrustedProducerRun,
+  verifyPreviewCandidateRun,
 } from '../../scripts/ci/release-candidate.mjs';
 
 const catalog = JSON.parse(readFileSync(new URL('../../scripts/ci/release-candidates.json', import.meta.url)));
@@ -60,6 +61,31 @@ test('source-owned inventory separates all shippable platform/variant/ABI config
   assert.equal(catalog.candidates['macos-player-arm64-release'].abiFloor, 'macos-11.0');
   assert.equal(catalog.candidates['android-player-x64-debug'].tier, 'diagnostic');
   assert.equal(catalog.candidates['macos-editor-arm64'].abiFloor, 'macos-14.0');
+});
+
+test('Release preview consumers authenticate the original branch Build independently of their own workflow', () => {
+  const sha = 'a'.repeat(40);
+  const producer = {
+    repository: 'Cruel/nt', workflow: 'Build', workflowPath: '.github/workflows/build.yml',
+    runId: 404, runAttempt: 2, event: 'push', ref: 'refs/heads/ci/build-release-refactor-641',
+  };
+  const manifest = { producer, sourceSha: sha, tier: 'production' };
+  const run = {
+    id: 404, run_attempt: 2, name: 'Build', path: '.github/workflows/build.yml',
+    repository: { full_name: 'Cruel/nt' }, head_repository: { full_name: 'Cruel/nt' },
+    head_sha: sha, head_branch: 'ci/build-release-refactor-641', event: 'push',
+    status: 'completed', conclusion: 'success',
+  };
+  assert.equal(verifyPreviewCandidateRun(manifest, run), true);
+  assert.throws(() => verifyTrustedProducerRun(manifest, run), /master/);
+  for (const update of [
+    { head_sha: 'b'.repeat(40) }, { run_attempt: 3 }, { head_branch: 'master' },
+    { conclusion: 'failure' }, { event: 'pull_request' },
+    { head_repository: { full_name: 'fork/nt' } },
+  ]) assert.throws(() => verifyPreviewCandidateRun(manifest, { ...run, ...update }));
+  assert.throws(() => verifyPreviewCandidateRun({ ...manifest, producer: {
+    ...producer, ref: 'refs/heads/master',
+  } }, run));
 });
 
 test('runtime launch archives are reconstructed from verified production player trees', () => {
@@ -205,4 +231,24 @@ test('CMake compiler records read flags from the actual configured optimization 
   });
   assert.equal(info.buildType, 'MinSizeRel');
   assert.equal(info.flags, '-Os -DNDEBUG');
+});
+
+test('Emscripten compiler identity is recovered from CMake configured compiler metadata when cache omits it', async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'nt-emscripten-compiler-'));
+  temp.push(base);
+  await mkdir(path.join(base, 'CMakeFiles', '3.31.6'), { recursive: true });
+  await writeFile(path.join(base, 'CMakeCache.txt'),
+    'CMAKE_BUILD_TYPE:STRING=MinSizeRel\n' +
+    'CMAKE_CXX_FLAGS_MINSIZEREL:STRING=-Os -DNDEBUG\n');
+  await writeFile(path.join(base, 'CMakeFiles', '3.31.6', 'CMakeCXXCompiler.cmake'),
+    'set(CMAKE_CXX_COMPILER_ID "Clang")\n' +
+    'set(CMAKE_CXX_COMPILER_VERSION "21.0.0")\n' +
+    'set(CMAKE_CXX_COMPILER "/emsdk/upstream/emscripten/em++")\n');
+  const candidate = { id: 'web', compilerId: 'Clang', preset: 'web-release',
+    buildType: 'MinSizeRel', optimization: '-Os' };
+  const result = await compilerFromCmake(base, candidate);
+  assert.equal(result.toolchain, '/emsdk/upstream/emscripten/em++');
+  await writeFile(path.join(base, 'CMakeFiles', '3.31.6', 'CMakeCXXCompiler.cmake'),
+    'set(CMAKE_CXX_COMPILER_ID "Clang")\nset(CMAKE_CXX_COMPILER_VERSION "21.0.0")\n');
+  await assert.rejects(compilerFromCmake(base, candidate), /Toolchain identity is missing/);
 });

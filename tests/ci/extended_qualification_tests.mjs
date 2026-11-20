@@ -89,6 +89,14 @@ test('instrumented coverage and Extended restore dependency caches without creat
   assert.ok(editor.env.NOVELTEA_AUTHORING_NODE_ADDON.includes('noveltea-authoring-node.node'));
   assert.ok(editor.env.NOVELTEA_FFMPEG.includes('ffmpeg'));
   assert.ok(editor.steps.some((step) => step.run?.includes('private-media-tools.mjs')));
+  assert.equal(editor.needs, 'native', 'Editor coverage must consume the real compiled CLI from native Coverage');
+  const nativeCli = coverage.jobs.native.steps.find((step) => step.name?.startsWith('Export exact instrumented native CLI'));
+  assert.equal(nativeCli.with.name, 'noveltea-coverage-native-cli');
+  assert.equal(nativeCli.with.path, 'build/linux-debug/tools/editor_tool/native-cli');
+  const restoredCli = editor.steps.find((step) => step.name?.startsWith('Download instrumented native CLI'));
+  assert.equal(restoredCli.with.name, nativeCli.with.name);
+  assert.equal(restoredCli.with.path, 'build/cli/linux');
+  assert.ok(editor.steps.find((step) => step.name?.startsWith('Restore executable mode'))?.run.includes('build/cli/linux/noveltea'));
 });
 
 test('the Extended job inventory remains complete with a narrowly scoped premerge push trigger', () => {
@@ -130,7 +138,7 @@ test('the Extended job inventory remains complete with a narrowly scoped premerg
   const candidate = extended.jobs['native-cli-performance'].steps.find((step) =>
     step.name?.includes('Download exact trusted Build CLI'));
   assert.match(candidate.run, /stage=promote/);
-  assert.match(candidate.run, /stage=qualify/);
+  assert.match(candidate.run, /stage=preview/);
   assert.equal(candidate.env.GITHUB_SHA, '${{ needs.source.outputs.source_sha }}');
   assert.ok(extended.jobs['android-emulator'].steps.some((step) =>
     step.run?.includes('needs.source.outputs.build_run_id')));

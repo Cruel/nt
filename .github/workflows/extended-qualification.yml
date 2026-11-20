@@ -885,7 +885,7 @@ jobs:
           gh run download "${{ needs.source.outputs.build_run_id }}" --repo "$GITHUB_REPOSITORY" --name noveltea-host-cli-linux-x64 --dir build/cli/linux
           chmod +x build/cli/linux/noveltea build/cli/linux/noveltea-ui-test-runner build/cli/linux/tools/ffmpeg/bin/ffmpeg
           stage=promote
-          if [[ "$PREVIEW_QUALIFICATION" == 'true' ]]; then stage=qualify; fi
+          if [[ "$PREVIEW_QUALIFICATION" == 'true' ]]; then stage=preview; fi
           node scripts/ci/release-candidate.mjs verify --candidate linux-host-cli-x64 --stage "$stage"
       - name: Benchmark native CLI Project admission and warm source revisions
         run: node editor/scripts/certify-native-cli-performance.mjs "$PWD/build/cli/linux/noveltea"

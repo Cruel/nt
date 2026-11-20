@@ -214,7 +214,7 @@ async function main() {
   }
   execFileSync(process.execPath, [
     path.join(repo, 'scripts/ci/release-candidate.mjs'), 'verify',
-    '--candidate', id, '--stage', preview ? 'qualify' :
+    '--candidate', id, '--stage', preview ? 'preview' :
       candidate.tier === 'diagnostic' ? 'diagnose' : 'promote',
   ], { cwd: repo, stdio: 'inherit' });
   const stage = path.join(repo, candidate.root);

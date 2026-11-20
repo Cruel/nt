@@ -274,6 +274,30 @@ export function verifyTrustedDiagnosticRun(manifest, run) {
   return verifyTrustedCandidateRun(manifest, run, true);
 }
 
+// Consumer-side premerge qualification is deliberately separate from the
+// master-only publication authority. A branch Build run must still be
+// independently authenticated and its manifest/run attempt bound exactly.
+export function verifyPreviewCandidateRun(manifest, run) {
+  const producer = manifest.producer;
+  validateProducer(producer);
+  demand(producer.ref === 'refs/heads/ci/build-release-refactor-641' &&
+    ['push', 'workflow_dispatch'].includes(producer.event),
+    'Only the source-owned premerge Build branch can provide preview candidates.');
+  demand(run?.id === producer.runId && run.run_attempt === producer.runAttempt,
+    'Premerge producer run/attempt mismatch.');
+  demand(run.name === 'Build' && run.path === TRUSTED_WORKFLOW,
+    'Premerge producer workflow mismatch.');
+  demand(run.repository?.full_name === TRUSTED_REPOSITORY &&
+    run.head_repository?.full_name === TRUSTED_REPOSITORY,
+    'Premerge producer repository mismatch.');
+  demand(run.head_sha === manifest.sourceSha &&
+    run.head_branch === 'ci/build-release-refactor-641' &&
+    run.event === producer.event, 'Premerge producer source/event mismatch.');
+  demand(run.status === 'completed' && run.conclusion === 'success',
+    'Premerge Build has not successfully completed.');
+  return true;
+}
+
 async function fetchTrustedRun(manifest) {
   const token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
   demand(token, 'Promoting candidates requires GH_TOKEN to query the trusted Build run.');
@@ -352,7 +376,11 @@ export function compilerFromCmake(buildDirectory, candidate) {
     const compiler = {
       id,
       version,
-      toolchain: values.CMAKE_CXX_COMPILER,
+      // Emscripten toolchain files may set CMAKE_CXX_COMPILER as a normal
+      // CMake variable (absent from CMakeCache.txt). The compiler identity
+      // file records the tool used by the actual configured build.
+      toolchain: values.CMAKE_CXX_COMPILER ||
+        /set\(CMAKE_CXX_COMPILER "([^"]+)"\)/.exec(identification)?.[1],
       buildType: values.CMAKE_BUILD_TYPE,
       flags: actualAndroidFlags ?? values[`CMAKE_CXX_FLAGS_${values.CMAKE_BUILD_TYPE?.toUpperCase()}`],
       preset: candidate.preset,
@@ -380,7 +408,7 @@ export function resolveCatalogCandidate(catalog, id) {
 function parseArgs(argv) {
   const [verb, ...rest] = argv;
   demand(['describe', 'produce', 'verify'].includes(verb),
-    'Usage: release-candidate.mjs describe|produce|verify --candidate <id> [--field artifactName|root|preset] [--stage qualify|promote|diagnose]');
+    'Usage: release-candidate.mjs describe|produce|verify --candidate <id> [--field artifactName|root|preset] [--stage qualify|promote|diagnose|preview]');
   const options = { verb };
   for (let i = 0; i < rest.length; i += 2) {
     demand(rest[i]?.startsWith('--') && rest[i + 1] && !rest[i + 1].startsWith('--'),
@@ -434,18 +462,19 @@ async function main() {
     if (!candidate.kind || candidate.kind === 'cli') probeBuiltCliIdentity(root, candidate, sourceSha);
     const manifest = JSON.parse(await readFile(manifestFile, 'utf8'));
     const stage = args.stage ?? 'qualify';
-    demand(['qualify', 'promote', 'diagnose'].includes(stage), 'Invalid verification stage.');
+    demand(['qualify', 'promote', 'diagnose', 'preview'].includes(stage), 'Invalid verification stage.');
     await verifyCandidate(manifest, {
       root, repoRoot: scriptRoot, candidate, sourceSha,
       ...(stage === 'qualify' ? { producer } : {}),
     });
-    if (stage === 'promote' || stage === 'diagnose') {
+    if (stage === 'promote' || stage === 'diagnose' || stage === 'preview') {
       if (process.env.NOVELTEA_BUILD_RUN_ID) {
         compare('selected Build run', manifest.producer.runId, Number(process.env.NOVELTEA_BUILD_RUN_ID));
       }
       const trustedRun = await fetchTrustedRun(manifest);
       if (stage === 'promote') verifyTrustedProducerRun(manifest, trustedRun);
-      else verifyTrustedDiagnosticRun(manifest, trustedRun);
+      else if (stage === 'diagnose') verifyTrustedDiagnosticRun(manifest, trustedRun);
+      else verifyPreviewCandidateRun(manifest, trustedRun);
     }
   }
   process.stdout.write(`Candidate ${candidate.id}: ${args.verb} succeeded for ${sourceSha}.\n`);
