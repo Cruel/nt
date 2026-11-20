@@ -1,11 +1,30 @@
 {
   "format": "noveltea-candidate-catalog",
   "version": 1,
+  "defaults": {
+    "tier": "production",
+    "buildType": "Release",
+    "generatedSchema": "editor/src/shared/project-schema/authoring-graph-field-metadata.generated.ts",
+    "pinFiles": [
+      "vcpkg.json",
+      "vcpkg-configuration.json",
+      "CMakePresets.json",
+      "pnpm-lock.yaml",
+      "CMakeLists.txt",
+      "cmake/NovelTeaLua.cmake"
+    ],
+    "schemaSources": [
+      "editor/src/shared/project-schema/authoring-graph-field-metadata.generated.ts",
+      "editor/src/shared/project-schema/authoring-graph-field-metadata.ts",
+      "editor/src/shared/project-schema/authoring-common.ts"
+    ]
+  },
   "candidates": {
     "linux-host-cli-x64": {
       "id": "linux-host-cli-x64",
+      "kind": "cli",
       "target": "linux-x64-host-cli",
-      "variant": "optimized",
+      "variant": "optimized-ubuntu24",
       "artifactName": "noveltea-host-cli-linux-x64",
       "root": "build/cli/linux",
       "executable": "noveltea",
@@ -15,19 +34,148 @@
       "compilerFlags": "-O3 -DNDEBUG",
       "toolchain": "/usr/bin/c++",
       "abiFloor": "glibc-2.39",
-      "pinFiles": [
-        "vcpkg.json",
-        "vcpkg-configuration.json",
-        "CMakePresets.json",
-        "pnpm-lock.yaml",
-        "cmake/vcpkg-triplets/x64-linux-authoring-noveltea.cmake",
-        "cmake/NovelTeaLua.cmake"
-      ],
-      "schemaSources": [
-        "editor/src/shared/project-schema/authoring-graph-field-metadata.generated.ts",
-        "editor/src/shared/project-schema/authoring-graph-field-metadata.ts",
-        "editor/src/shared/project-schema/authoring-common.ts"
-      ]
+      "generatedSchema": "build/linux-authoring-release/tools/project_authoring/generated/contracts.json",
+      "pinFiles": ["cmake/vcpkg-triplets/x64-linux-authoring-noveltea.cmake"]
+    },
+    "linux-release-cli-x64": {
+      "id": "linux-release-cli-x64", "kind": "cli", "target": "linux-x64-host-cli",
+      "variant": "optimized-debian12", "artifactName": "noveltea-candidate-linux-release-cli-x64",
+      "root": "build/cli/linux", "executable": "noveltea", "preset": "linux-authoring-release",
+      "compilerId": "GNU", "abiFloor": "glibc-2.36",
+      "generatedSchema": "build/linux-authoring-release/tools/project_authoring/generated/contracts.json",
+      "pinFiles": ["cmake/vcpkg-triplets/x64-linux-authoring-noveltea.cmake", ".github/workflows/release.yml"]
+    },
+    "windows-release-cli-x64": {
+      "id": "windows-release-cli-x64", "kind": "cli", "target": "windows-x64-gnu-cli",
+      "variant": "optimized", "artifactName": "noveltea-candidate-windows-gnu-cli-x64",
+      "root": "build/cli/windows", "executable": "noveltea.exe", "preset": "windows-cli-gnu",
+      "compilerId": "GNU", "abiFloor": "windows-10",
+      "generatedSchema": "build/windows-cli-gnu/tools/project_authoring/generated/contracts.json",
+      "pinFiles": ["cmake/vcpkg-triplets/x64-mingw-static-noveltea.cmake"]
+    },
+    "macos-release-cli-arm64": {
+      "id": "macos-release-cli-arm64", "kind": "cli", "target": "macos-arm64-host-cli",
+      "variant": "optimized", "artifactName": "noveltea-candidate-macos-cli-arm64",
+      "root": "build/cli/macos", "executable": "noveltea", "preset": "macos-authoring-release",
+      "compilerId": "AppleClang", "abiFloor": "macos-14.0",
+      "generatedSchema": "build/macos-authoring-release/tools/project_authoring/generated/contracts.json",
+      "pinFiles": ["cmake/vcpkg-triplets/arm64-osx-authoring-noveltea.cmake"]
+    },
+    "linux-player-x64-release": {
+      "id": "linux-player-x64-release", "kind": "native-player", "target": "linux-x64-player",
+      "variant": "standard", "artifactName": "noveltea-candidate-linux-player-x64-release",
+      "root": "build/package/noveltea-player-linux-x64-release", "executable": "bin/noveltea-player",
+      "preset": "linux-release", "compilerId": "GNU", "abiFloor": "glibc-2.28",
+      "pinFiles": [".github/containers/linux-player-glibc228.Dockerfile", "cmake/vcpkg-triplets/x64-linux-noveltea.cmake"]
+    },
+    "linux-player-x64-devtools": {
+      "id": "linux-player-x64-devtools", "kind": "native-player", "target": "linux-x64-player",
+      "variant": "devtools", "artifactName": "noveltea-candidate-linux-player-x64-devtools",
+      "root": "build/package/noveltea-player-linux-x64-devtools", "executable": "bin/noveltea-player",
+      "preset": "linux-release-devtools", "compilerId": "GNU", "abiFloor": "glibc-2.28",
+      "pinFiles": [".github/containers/linux-player-glibc228.Dockerfile", "cmake/vcpkg-triplets/x64-linux-noveltea.cmake"]
+    },
+    "windows-player-x64-release": {
+      "id": "windows-player-x64-release", "kind": "native-player", "target": "windows-x64-player",
+      "variant": "standard", "artifactName": "noveltea-candidate-windows-player-x64-release",
+      "root": "build/package/noveltea-player-windows-x64-release", "executable": "bin/noveltea-player.exe",
+      "preset": "windows-release", "compilerId": "MSVC", "abiFloor": "windows-10-1809",
+      "pinFiles": ["cmake/vcpkg-triplets/x64-windows-static-noveltea.cmake"]
+    },
+    "windows-player-x64-devtools": {
+      "id": "windows-player-x64-devtools", "kind": "native-player", "target": "windows-x64-player",
+      "variant": "devtools", "artifactName": "noveltea-candidate-windows-player-x64-devtools",
+      "root": "build/package/noveltea-player-windows-x64-devtools", "executable": "bin/noveltea-player.exe",
+      "preset": "windows-release-devtools", "compilerId": "MSVC", "abiFloor": "windows-10-1809",
+      "pinFiles": ["cmake/vcpkg-triplets/x64-windows-static-noveltea.cmake"]
+    },
+    "macos-player-arm64-release": {
+      "id": "macos-player-arm64-release", "kind": "native-player", "target": "macos-arm64-player",
+      "variant": "standard", "artifactName": "noveltea-candidate-macos-player-arm64-release",
+      "root": "build/package/noveltea-player-macos-arm64-release", "executable": "bin/noveltea-player",
+      "preset": "macos-release", "compilerId": "AppleClang", "abiFloor": "macos-11.0",
+      "pinFiles": ["cmake/vcpkg-triplets/arm64-osx-noveltea.cmake"]
+    },
+    "macos-player-arm64-devtools": {
+      "id": "macos-player-arm64-devtools", "kind": "native-player", "target": "macos-arm64-player",
+      "variant": "devtools", "artifactName": "noveltea-candidate-macos-player-arm64-devtools",
+      "root": "build/package/noveltea-player-macos-arm64-devtools", "executable": "bin/noveltea-player",
+      "preset": "macos-release-devtools", "compilerId": "AppleClang", "abiFloor": "macos-11.0",
+      "pinFiles": ["cmake/vcpkg-triplets/arm64-osx-noveltea.cmake"]
+    },
+    "web-player-threads-release": {
+      "id": "web-player-threads-release", "kind": "web-player", "target": "web-wasm32-threads",
+      "variant": "standard", "artifactName": "noveltea-candidate-web-threads-release",
+      "root": "build/package/noveltea-player-web-wasm32-threads-release", "executable": "player.wasm",
+      "preset": "web-release", "compilerId": "Clang", "buildType": "MinSizeRel",
+      "abiFloor": "emsdk-6.0.0", "optimization": "-Os"
+    },
+    "web-player-no-threads-release": {
+      "id": "web-player-no-threads-release", "kind": "web-player", "target": "web-wasm32-no-threads",
+      "variant": "standard", "artifactName": "noveltea-candidate-web-no-threads-release",
+      "root": "build/package/noveltea-player-web-wasm32-release", "executable": "player.wasm",
+      "preset": "web-release-no-threads", "compilerId": "Clang", "buildType": "MinSizeRel",
+      "abiFloor": "emsdk-6.0.0", "optimization": "-Os"
+    },
+    "web-player-threads-devtools": {
+      "id": "web-player-threads-devtools", "kind": "web-player", "target": "web-wasm32-threads",
+      "variant": "devtools", "artifactName": "noveltea-candidate-web-threads-devtools",
+      "root": "build/package/noveltea-player-web-wasm32-threads-devtools", "executable": "player.wasm",
+      "preset": "web-release-devtools", "compilerId": "Clang", "buildType": "MinSizeRel",
+      "abiFloor": "emsdk-6.0.0", "optimization": "-Os"
+    },
+    "web-player-no-threads-devtools": {
+      "id": "web-player-no-threads-devtools", "kind": "web-player", "target": "web-wasm32-no-threads",
+      "variant": "devtools", "artifactName": "noveltea-candidate-web-no-threads-devtools",
+      "root": "build/package/noveltea-player-web-wasm32-devtools", "executable": "player.wasm",
+      "preset": "web-release-no-threads-devtools", "compilerId": "Clang", "buildType": "MinSizeRel",
+      "abiFloor": "emsdk-6.0.0", "optimization": "-Os"
+    },
+    "linux-editor-x64": {
+      "id": "linux-editor-x64", "kind": "editor-package", "target": "linux-x64-editor",
+      "variant": "optimized", "artifactName": "noveltea-candidate-linux-editor-x64",
+      "root": "build/ci-candidates/linux-editor-x64", "executable": "editor-package",
+      "generatedSchema": "build/native-authoring-host/generated/contracts.json",
+      "preset": "native-authoring-host", "compilerId": "GNU", "abiFloor": "glibc-2.36",
+      "pinFiles": ["editor/electron-builder.config.mjs", "editor/package.json", ".github/containers/linux-player-glibc228.Dockerfile"]
+    },
+    "windows-editor-x64": {
+      "id": "windows-editor-x64", "kind": "editor-package", "target": "windows-x64-editor",
+      "variant": "optimized", "artifactName": "noveltea-candidate-windows-editor-x64",
+      "root": "build/ci-candidates/windows-editor-x64", "executable": "editor-package",
+      "generatedSchema": "build/native-authoring-host/generated/contracts.json",
+      "preset": "native-authoring-host", "compilerId": "MSVC", "abiFloor": "windows-10",
+      "pinFiles": ["editor/electron-builder.config.mjs", "editor/package.json"]
+    },
+    "macos-editor-arm64": {
+      "id": "macos-editor-arm64", "kind": "editor-package", "target": "macos-arm64-editor",
+      "variant": "optimized", "artifactName": "noveltea-candidate-macos-editor-arm64",
+      "root": "build/ci-candidates/macos-editor-arm64", "executable": "editor-package",
+      "generatedSchema": "build/native-authoring-host/generated/contracts.json",
+      "preset": "native-authoring-host", "compilerId": "AppleClang", "abiFloor": "macos-14.0",
+      "pinFiles": ["editor/electron-builder.config.mjs", "editor/package.json"]
+    },
+    "android-player-arm64-release": {
+      "id": "android-player-arm64-release", "kind": "android-template", "target": "android-arm64-v8a",
+      "variant": "standard", "artifactName": "noveltea-candidate-android-arm64-release",
+      "root": "build/package/android-arm64-v8a-release", "executable": "source/android/prebuilt-native/arm64-v8a/libnoveltea-player.so",
+      "preset": "android-arm64-release", "compilerId": "Clang", "abiFloor": "android-api-24",
+      "pinFiles": ["android/app/build.gradle", "android/gradle/wrapper/gradle-wrapper.properties"]
+    },
+    "android-player-arm64-devtools": {
+      "id": "android-player-arm64-devtools", "kind": "android-template", "target": "android-arm64-v8a",
+      "variant": "devtools", "artifactName": "noveltea-candidate-android-arm64-devtools",
+      "root": "build/package/android-arm64-v8a-devtools", "executable": "source/android/prebuilt-native/arm64-v8a/libnoveltea-player.so",
+      "preset": "android-arm64-devtools", "compilerId": "Clang", "abiFloor": "android-api-24",
+      "pinFiles": ["android/app/build.gradle", "android/gradle/wrapper/gradle-wrapper.properties"]
+    },
+    "android-player-x64-debug": {
+      "id": "android-player-x64-debug", "kind": "android-template", "target": "android-x86_64",
+      "variant": "debug", "tier": "diagnostic", "artifactName": "noveltea-candidate-android-x64-debug",
+      "root": "build/package/android-x86_64-debug", "executable": "source/android/prebuilt-native/x86_64/libnoveltea-player.so",
+      "preset": "android-x64-debug", "compilerId": "Clang", "buildType": "Debug",
+      "abiFloor": "android-api-24",
+      "pinFiles": ["android/app/build.gradle", "android/gradle/wrapper/gradle-wrapper.properties"]
     }
   }
 }

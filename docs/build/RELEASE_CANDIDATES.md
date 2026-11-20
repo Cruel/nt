@@ -1,18 +1,22 @@
 # Source-owned CI release candidates and cache budget
 
-This document records the **integration-branch implementation** introduced by #642.
-It is not yet the active production Build → Release cutover. Issue #641 owns the
-complete platform inventory, independent Coverage/Extended workflows, and the
-one-time coordinated merge. Do not promote the current Ubuntu-built host CLI as
-the Debian-built Linux release CLI or assume an integration-branch run is trusted
-release evidence.
+This document records the **integration-branch implementation** introduced
+by #642 and expanded in #643. It is not yet the active production Build → Release
+cutover. The shared inventory, provenance and ABI/variant assertions are now
+source-owned; #644 still must make Release consume these exact candidates, #645
+must separate Coverage and Extended, and #646 owns cross-platform Actions
+certification, performance measurements, coordinated merge and post-cutover
+acceptance. Do not promote the Ubuntu development host CLI as the Debian Linux
+release CLI or treat integration-branch candidates as trusted publication evidence.
 
 ## Candidate interface
 
 `scripts/ci/release-candidates.json` is the source-owned candidate catalog.
-Its initial `linux-host-cli-x64` row identifies the **Build** Ubuntu 24.04
-optimized host CLI (`linux-authoring-release`, glibc <= 2.39), not the
-separate Release Debian glibc <= 2.36 CLI or Linux glibc <= 2.28 player.
+The `linux-host-cli-x64` row remains the **Build** Ubuntu 24.04 development
+CLI (`linux-authoring-release`, glibc <= 2.39), not the Release Debian glibc
+<= 2.36 CLI or Linux glibc <= 2.28 player. The catalog now includes exact
+production/diagnostic target, ABI, compiler and variant rows for the full
+Build candidate producer matrix described below.
 
 `node scripts/ci/release-candidate.mjs produce --candidate linux-host-cli-x64`
 runs after the existing CLI's native correctness certification and ABI audit
@@ -33,7 +37,7 @@ identity is exactly `git:<source SHA>` (no dirty suffix or stale revision).
 The CLI contract is exercised with
 `node --test tests/ci/release_candidate_tests.mjs`.
 
-This first candidate is not publishable solely because it passes qualification:
+A qualified candidate is not publishable solely because it passes qualification:
 promotion uses `verify --candidate ... --stage promote` and requires
 `GH_TOKEN` to independently retrieve the successful **master-push Build**
 workflow run from GitHub. The exact repository, workflow path, source SHA,
@@ -43,6 +47,76 @@ A tag-triggered Release must select the Build candidate for its exact source
 SHA and satisfy the separately planned Extended Qualification contract before
 publication. The integration branch deliberately does **not** yet change
 Release to consume candidate bytes or activate a publication path.
+
+## #643: Release-critical Build candidate inventory
+
+The Build workflow contains new, distinct producers for the production
+configurations already found in Release. The authoritative inventory is
+`scripts/ci/release-candidates.json`; all rows are test-enforced by
+`tests/ci/production_candidate_tests.mjs`. Each Build producer runs native
+compilation with its actual release preset and qualified dependency closure;
+stages its complete player template/Editor distribution, not a substitute
+debug executable; and invokes the same repository-owned
+`.github/actions/produce-candidate` action. That action checks the
+target/variant/ABI/compiler/schema/dependency identities and SHA-256 bytes
+before uploading the corresponding candidate artifact.
+
+| Build candidate IDs | Compiler / compatibility contract | Required qualification |
+| --- | --- | --- |
+| `linux-host-cli-x64` | Ubuntu 24.04 GCC; glibc <= 2.39; development snapshot tool only | Existing public native CLI and installed CLI cert |
+| `linux-release-cli-x64` | Debian 12 GCC; glibc <= 2.36; GLIBCXX <= 3.4.30 | Standalone authoring CLI native certification and ELF audit |
+| `windows-release-cli-x64` | MinGW GNU (not MSVC); Windows 10 | Standalone native CLI certification, PE static-runtime dependency audit |
+| `macos-release-cli-arm64` | AppleClang; macOS >= 14 | Native CLI certification and Mach-O deployment check |
+| `linux-player-x64-{release,devtools}` | Both in pinned glibc 2.28 container | Optimized player, SDL/native policies, ELF audit and devtools-symbol check |
+| `windows-player-x64-{release,devtools}` | MSVC, Windows 10 1809 / RS5 floor | Optimized player, dependency audit, actual staged template |
+| `macos-player-arm64-{release,devtools}` | AppleClang, deployment target 11 | Optimized player, dependency audit, Mach-O minOS and staged template |
+| `web-player-{threads,no-threads}-{release,devtools}` | Emsdk 6.0.0, optimized MinSizeRel | WebAssembly module, forbidden debug/runtime APIs, CMake web template |
+| `android-player-arm64-{release,devtools}` | NDK 28.2.13676358, Android API 24 floor | Actual Gradle Release native closure, 16 KiB ELF alignment, staged APK/AAB-capable source template |
+| `android-player-x64-debug` | Android x86_64 Debug, **diagnostic only** | Existing Gradle debug/export/API 24/35 emulator job; promotion explicitly forbidden |
+| `{linux,windows}-editor-x64`, `macos-editor-arm64` | Electron host packages, native addon at host ABI floor | Build-qualified CLI/Web preview, native addon/CLI authority, actual installers and independent distribution SHA checks |
+
+For Editor, `scripts/ci/stage-editor-candidate.mjs` consumes
+`editor/out/electron-builder/latest-artifact.json`, verifies its canonical
+VERSION release tag and exact per-host installer set and digests, and stages
+the complete installer inventory. This deliberately uses the distribution
+library's existing version/tag policy: no synthetic tag or replacement
+signed binary is introduced. Candidate metadata binds the installers to the
+precise Build source SHA; Release-specific installer/signing checks remain
+Release responsibilities.
+
+`scripts/ci/release-candidate.mjs` supports both `describe` (source-owned
+artifact paths/names for workflow configuration) and `produce`/`verify`
+(the same manifest verifier for every kind). It independently checks PE,
+ELF, Mach-O, WebAssembly and Android ELF ABI identity, configured compiler
+and optimization mode (including Web MinSizeRel and MSVC), and a complete
+artifact byte inventory; diagnostic Android Debug cannot be promoted.
+Each producer also records bounded compilation timings and variant-isolated
+compiler-cache scopes. The dependent `production-desktop-launch-smoke` matrix
+independently downloads both the exact manifest-qualified player template and
+the platform's separately qualified native CLI, verifies both, reconstructs
+a template archive **without** candidate-only provenance metadata, and runs
+the existing real Linux (Xvfb), Windows (software OpenGL) or macOS C++
+platform export/launch smoke. The runtime check is mandatory for each of the
+six standard/devtools desktop rows; no alternate binary is rebuilt in the
+launch job.
+
+The original exact-run artifacts `noveltea-host-cli-linux-x64`,
+`noveltea-web-player-threads-release` and
+`noveltea-development-examples` are preserved; examples still require
+their exact Build CLI and threaded Web source, while Site retains its existing
+separate dependency. The independent `editor-preflight` TypeScript/unit
+job has no native CLI or Web artifact dependency, so fast Editor feedback
+starts before production compilation. The existing Editor packaging and
+functional tests are retained rather than reclassified as a cheaper
+replacement.
+
+**Qualification boundary:** These jobs are local-contract-tested and
+source-reviewed on the integration branch. They are not yet green
+cross-platform hosted GitHub runs. #646 must prove that every compiled
+version/runner/toolchain and platform package passes its recorded floor,
+meets exact-run consumer contracts and stays inside the 10 GiB cache budget
+before the one coordinated merge. No release/publication is authorized by
+this implementation checkpoint.
 
 ## Cache identity, publication and maintenance
 

@@ -3,9 +3,10 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { createReadStream } from 'node:fs';
-import { copyFile, lstat, readFile, readdir, stat, writeFile } from 'node:fs/promises';
+import { copyFile, lstat, open, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { resolveAndroidPlayerBuild } from '../../cmake/android-player-build.mjs';
 
 const FORMAT = 'noveltea-release-candidate';
 const VERSION = 1;
@@ -37,14 +38,14 @@ async function pinIdentity(root, files) {
   return identity;
 }
 
-async function listFiles(root, subdir = '') {
+async function listFiles(root, subdir = '', allowHidden = false) {
   const files = [];
   for (const entry of await readdir(path.join(root, subdir), { withFileTypes: true })) {
     const relative = path.posix.join(subdir, entry.name);
     demand(!entry.isSymbolicLink(), `Artifact symbolic link is not supported: ${relative}`);
-    demand(!relative.split('/').some((part) => part.startsWith('.')),
+    if (!allowHidden) demand(!relative.split('/').some((part) => part.startsWith('.')),
       `Hidden artifact paths cannot be uploaded by the current workflow: ${relative}`);
-    if (entry.isDirectory()) files.push(...await listFiles(root, relative));
+    if (entry.isDirectory()) files.push(...await listFiles(root, relative, allowHidden));
     else {
       demand(entry.isFile(), `Unsupported artifact entry: ${relative}`);
       if (relative !== MANIFEST) {
@@ -54,6 +55,34 @@ async function listFiles(root, subdir = '') {
     }
   }
   return files.sort((a, b) => a.path.localeCompare(b.path, 'en'));
+}
+
+async function verifyBinaryKind(root, candidate) {
+  const file = path.join(root, candidate.executable);
+  const handle = await open(file, 'r');
+  let bytes;
+  try {
+    bytes = Buffer.alloc(20);
+    demand((await handle.read(bytes, 0, 20, 0)).bytesRead === 20, 'Candidate binary is truncated.');
+  } finally {
+    await handle.close();
+  }
+  const kind = candidate.kind;
+  const magic = bytes.subarray(0, 4).toString('hex');
+  if (kind === 'web-player') demand(magic === '0061736d', 'Candidate is not a WebAssembly module.');
+  if (kind === 'native-player') {
+    const platform = candidate.target.split('-')[0];
+    const expected = platform === 'windows' ? magic.startsWith('4d5a') :
+      platform === 'linux' ? magic === '7f454c46' :
+        ['cffaedfe', 'feedfacf', 'cafebabe', 'bebafeca'].includes(magic);
+    demand(expected, `Candidate does not contain a ${platform} native binary.`);
+  }
+  if (kind === 'android-template') {
+    demand(magic === '7f454c46' && bytes[5] === 1, 'Android candidate is not a little-endian ELF library.');
+    const expectedMachine = candidate.target === 'android-x86_64' ? 62 : 183;
+    demand(bytes.readUInt16LE(18) === expectedMachine,
+      `Android candidate ELF architecture mismatch: expected ${candidate.target}.`);
+  }
 }
 
 function compare(label, actual, wanted) {
@@ -83,9 +112,22 @@ function validateCompiler(compiler, candidate) {
   demand(/^\d+(?:\.\d+)+$/.test(compiler.version), 'Compiler version is missing or unpinned.');
   compare('compiler preset', compiler.preset, candidate.preset);
   demand(typeof compiler.toolchain === 'string' && compiler.toolchain.length > 0, 'Toolchain identity is missing.');
-  demand(compiler.buildType === 'Release', 'Release candidate must use Release build type.');
-  demand(typeof compiler.flags === 'string' && compiler.flags.includes('-O3') &&
-    compiler.flags.includes('-DNDEBUG'), 'Optimized compiler flags are required.');
+  const buildType = candidate.buildType ?? 'Release';
+  compare('compiler build type', compiler.buildType, buildType);
+  if (candidate.tier === 'diagnostic') {
+    demand(buildType === 'Debug', 'Diagnostic candidates must be Debug builds.');
+    demand(typeof compiler.flags === 'string' && !compiler.flags.includes('-DNDEBUG') &&
+      !compiler.flags.includes('/DNDEBUG'), 'Debug candidate must not be an optimized release.');
+  } else {
+    demand(['Release', 'MinSizeRel'].includes(buildType), 'Production candidates must be optimized.');
+  }
+  const expectedOptimization = candidate.optimization ??
+    (candidate.compilerId === 'MSVC' ? '/O2' : buildType === 'MinSizeRel' ? '-Os' : '-O3');
+  if (candidate.tier !== 'diagnostic') {
+    demand(typeof compiler.flags === 'string' && compiler.flags.includes(expectedOptimization) &&
+      (compiler.flags.includes('-DNDEBUG') || compiler.flags.includes('/DNDEBUG')),
+      `Optimized compiler flags are required: ${expectedOptimization} and NDEBUG.`);
+  }
   if (candidate.compilerVersion) compare('compiler version', compiler.version, candidate.compilerVersion);
   if (candidate.compilerFlags) compare('compiler flags', compiler.flags, candidate.compilerFlags);
   if (candidate.toolchain) compare('compiler toolchain', compiler.toolchain, candidate.toolchain);
@@ -100,7 +142,10 @@ export async function produceCandidate({
   validateCompiler(compiler, candidate);
   demand(candidate.pinFiles?.length > 0 && candidate.schemaSources?.length > 0,
     'Candidate must identify dependency pins and schema sources.');
-  demand((await stat(path.join(root, candidate.executable))).isFile(), 'CLI executable is missing.');
+  demand(!path.isAbsolute(candidate.executable) && !candidate.executable.split(/[\\/]/).includes('..'),
+    'Candidate binary path must be inside the artifact root.');
+  demand((await stat(path.join(root, candidate.executable))).isFile(), 'Candidate binary is missing.');
+  if (candidate.kind && candidate.kind !== 'cli') await verifyBinaryKind(root, candidate);
   for (const destination of [GENERATED_SCHEMA, MANIFEST]) {
     const existing = await lstat(path.join(root, destination)).catch((error) => {
       if (error.code === 'ENOENT') return null;
@@ -117,6 +162,7 @@ export async function produceCandidate({
     sourceSha,
     target: candidate.target,
     variant: candidate.variant,
+    tier: candidate.tier ?? 'production',
     artifactName: candidate.artifactName,
     producer: { ...producer },
     compiler: { ...compiler },
@@ -127,7 +173,7 @@ export async function produceCandidate({
       generatedFile: GENERATED_SCHEMA,
       generatedSha256: await digest(path.join(root, GENERATED_SCHEMA)),
     },
-    files: await listFiles(root),
+    files: await listFiles(root, '', candidate.kind === 'android-template'),
   };
   await writeFile(path.join(root, MANIFEST), `${JSON.stringify(manifest, null, 2)}\n`);
   return manifest;
@@ -144,6 +190,7 @@ export async function verifyCandidate(manifest, {
   compare('candidate ID', manifest.candidateId, candidate.id);
   compare('target', manifest.target, candidate.target);
   compare('variant', manifest.variant, candidate.variant);
+  compare('qualification tier', manifest.tier, candidate.tier ?? 'production');
   compare('artifact name', manifest.artifactName, candidate.artifactName);
   compare('ABI floor', manifest.abi?.floor, candidate.abiFloor);
   validateProducer(manifest.producer);
@@ -171,7 +218,8 @@ export async function verifyCandidate(manifest, {
       Number.isSafeInteger(entry.size) && entry.size >= 0 && HEX_DIGEST.test(entry.sha256),
       'Invalid artifact file entry.');
   }
-  const files = await listFiles(root);
+  if (candidate.kind && candidate.kind !== 'cli') await verifyBinaryKind(root, candidate);
+  const files = await listFiles(root, '', candidate.kind === 'android-template');
   compare('artifact file count (missing or unexpected file)', files.length, manifest.files.length);
   for (let index = 0; index < files.length; index += 1) {
     compare('artifact path (missing or unexpected file)', files[index].path, manifest.files[index].path);
@@ -184,6 +232,7 @@ export async function verifyCandidate(manifest, {
 // This is only the semantic trust check. The promotion CLI retrieves this record from
 // GitHub's authenticated API, not from candidate-supplied bytes or a JSON file argument.
 export function verifyTrustedProducerRun(manifest, run) {
+  demand(manifest.tier !== 'diagnostic', 'Diagnostic candidates cannot be promoted.');
   const producer = manifest.producer;
   validateProducer(producer);
   demand(producer.event === 'push' && producer.ref === 'refs/heads/master',
@@ -244,7 +293,7 @@ function requireCleanTrackedSource(repoRoot) {
   }
 }
 
-function compilerFromCmake(buildDirectory, candidate) {
+export function compilerFromCmake(buildDirectory, candidate) {
   const fs = execFileSync('cmake', ['--version'], { encoding: 'utf8' }); // Verify the host has CMake.
   demand(fs.includes('cmake version'), 'CMake not installed.');
   return Promise.all([
@@ -265,7 +314,7 @@ function compilerFromCmake(buildDirectory, candidate) {
       version,
       toolchain: values.CMAKE_CXX_COMPILER,
       buildType: values.CMAKE_BUILD_TYPE,
-      flags: values.CMAKE_CXX_FLAGS_RELEASE,
+      flags: values[`CMAKE_CXX_FLAGS_${values.CMAKE_BUILD_TYPE?.toUpperCase()}`],
       preset: candidate.preset,
     };
     validateCompiler(compiler, candidate);
@@ -273,9 +322,25 @@ function compilerFromCmake(buildDirectory, candidate) {
   });
 }
 
+export function resolveCatalogCandidate(catalog, id) {
+  demand(catalog?.format === 'noveltea-candidate-catalog' && catalog.version === 1,
+    'Invalid source-owned candidate catalog.');
+  const row = catalog.candidates?.[id];
+  demand(row && row.id === id, `Unknown or mismatched candidate: ${id}`);
+  const candidate = {
+    ...catalog.defaults,
+    ...row,
+    pinFiles: [...new Set([...(catalog.defaults?.pinFiles ?? []), ...(row.pinFiles ?? [])])],
+    schemaSources: [...new Set([...(catalog.defaults?.schemaSources ?? []), ...(row.schemaSources ?? [])])],
+  };
+  validateCandidateShape(candidate);
+  return candidate;
+}
+
 function parseArgs(argv) {
   const [verb, ...rest] = argv;
-  demand(['produce', 'verify'].includes(verb), 'Usage: release-candidate.mjs produce|verify --candidate <id> [--stage qualify|promote]');
+  demand(['describe', 'produce', 'verify'].includes(verb),
+    'Usage: release-candidate.mjs describe|produce|verify --candidate <id> [--field name|root|preset] [--stage qualify|promote]');
   const options = { verb };
   for (let i = 0; i < rest.length; i += 2) {
     demand(rest[i]?.startsWith('--') && rest[i + 1] && !rest[i + 1].startsWith('--'),
@@ -288,11 +353,15 @@ function parseArgs(argv) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const catalog = JSON.parse(await readFile(new URL('./release-candidates.json', import.meta.url), 'utf8'));
-  demand(catalog.format === 'noveltea-candidate-catalog' && catalog.version === 1,
-    'Invalid source-owned candidate catalog.');
-  const candidate = catalog.candidates[args.candidate];
-  validateCandidateShape(candidate);
+  const candidate = resolveCatalogCandidate(catalog, args.candidate);
+  if (args.verb === 'describe') {
+    demand(['root', 'artifactName', 'preset', 'kind', 'target', 'executable'].includes(args.field),
+      'Invalid candidate catalog field.');
+    process.stdout.write(`${candidate[args.field]}\n`);
+    return;
+  }
   const root = path.resolve(scriptRoot, candidate.root);
+  demand(root.startsWith(`${scriptRoot}${path.sep}`), 'Candidate artifact root must stay inside source checkout.');
   const sourceSha = gitSha(scriptRoot);
   if (process.env.GITHUB_SHA) compare('checked-out source SHA', sourceSha, process.env.GITHUB_SHA);
   const producer = {
@@ -309,15 +378,20 @@ async function main() {
     requireCleanTrackedSource(scriptRoot);
     demand(process.env.GITHUB_WORKFLOW_REF?.includes(`/${TRUSTED_WORKFLOW}@`),
       'Only the source-owned Build workflow can produce this candidate.');
-    probeBuiltCliIdentity(root, candidate, sourceSha);
+    if (!candidate.kind || candidate.kind === 'cli') probeBuiltCliIdentity(root, candidate, sourceSha);
+    const androidBuild = candidate.kind === 'android-template'
+      ? await resolveAndroidPlayerBuild(scriptRoot,
+        candidate.target === 'android-x86_64' ? 'x86_64' : 'arm64-v8a',
+        candidate.tier === 'diagnostic' ? 'debug' : 'release') : null;
     await produceCandidate({
       root, repoRoot: scriptRoot, candidate, sourceSha, producer,
-      compiler: await compilerFromCmake(path.join(scriptRoot, 'build', candidate.preset), candidate),
-      generatedSchema: path.join(scriptRoot, 'build', candidate.preset,
-        'tools/project_authoring/generated/contracts.json'),
+      compiler: await compilerFromCmake(androidBuild?.buildRoot ??
+        path.join(scriptRoot, 'build', candidate.preset), candidate),
+      generatedSchema: path.join(scriptRoot, candidate.generatedSchema ??
+        `build/${candidate.preset}/tools/project_authoring/generated/contracts.json`),
     });
   } else {
-    probeBuiltCliIdentity(root, candidate, sourceSha);
+    if (!candidate.kind || candidate.kind === 'cli') probeBuiltCliIdentity(root, candidate, sourceSha);
     const manifest = JSON.parse(await readFile(manifestFile, 'utf8'));
     const stage = args.stage ?? 'qualify';
     demand(['qualify', 'promote'].includes(stage), 'Invalid verification stage.');

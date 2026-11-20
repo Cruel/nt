@@ -65,6 +65,13 @@ const candidateContracts = readFileSync(
   'utf8',
 );
 
+const productionCandidateCatalog = JSON.parse(
+  readFileSync(new URL('../../scripts/ci/release-candidates.json', import.meta.url), 'utf8'),
+);
+const candidateProducerAction = readFileSync(
+  new URL('../../.github/actions/produce-candidate/action.yml', import.meta.url), 'utf8',
+);
+
 function releaseJob(name) {
   const match = releaseWorkflow.match(
     new RegExp(`^  ${name}:\\n[\\s\\S]*?(?=^  [\\w-]+:|$(?![\\s\\S]))`, 'm'),
@@ -91,6 +98,69 @@ function field(source, name) {
   assert.ok(match, `Missing field ${name}`);
   return match[1];
 }
+
+test('Build produces one explicitly qualified candidate for every source-owned shipping row', () => {
+  const ids = Object.keys(productionCandidateCatalog.candidates);
+  assert.equal(ids.length, 20);
+  for (const id of ids) {
+    assert.ok(workflow.includes(`candidate: ${id}`) ||
+      workflow.includes(`- ${id}\n`) || workflow.includes(`--candidate ${id}`),
+    `Missing Build candidate producer row ${id}`);
+  }
+  const required = [
+    'production-web-variants', 'production-linux-release-cli',
+    'production-other-host-clis', 'production-android-arm64',
+    'production-desktop-players', 'production-editor-hosts',
+  ];
+  for (const name of required) {
+    assert.match(job(name), /actions\/produce-candidate/);
+    assert.match(job(name), /matrix:|candidate:/);
+    assert.doesNotMatch(job(name), /needs: release-inventory|needs: publish/);
+  }
+  assert.match(candidateProducerAction, /release-candidate\.mjs produce/);
+  assert.match(candidateProducerAction, /release-candidate\.mjs verify/);
+  assert.match(candidateProducerAction, /actions\/upload-artifact@v7/);
+  assert.match(candidateProducerAction, /if-no-files-found: error/);
+  assert.match(job('production-desktop-players'), /glibc 2\.28/);
+  assert.match(job('production-linux-release-cli'), /glibc 2\.36/);
+  assert.match(job('production-other-host-clis'), /MinGW GNU/);
+  assert.match(job('production-editor-hosts'), /stage-editor-candidate\.mjs/);
+  const launch = job('production-desktop-launch-smoke');
+  assert.match(launch, /needs: \[production-desktop-players, production-linux-release-cli, production-other-host-clis\]/);
+  assert.match(launch, /materialize-candidate-template\.mjs/);
+  for (const platform of ['linux', 'windows', 'macos'])
+    assert.match(launch, new RegExp(`${platform}_release_smoke\\.py`));
+  assert.match(launch, /release-candidate\.mjs verify/);
+});
+
+test('independent Editor checks run before artifact producers without weakening complete Editor certification', () => {
+  const preflight = job('editor-preflight');
+  assert.doesNotMatch(preflight, /^    needs:/m);
+  assert.match(preflight, /pnpm -C editor run check/);
+  assert.match(preflight, /vp test run/);
+  assert.match(job('editor'), /needs: \[linux-cli, web-preview\]/);
+  assert.match(job('editor'), /pnpm -C editor run test:coverage/);
+  assert.match(job('editor'), /pnpm -C editor run package:smoke/);
+  assert.match(job('examples'), /needs: \[linux-cli, web\]/);
+  assert.match(job('examples'), /noveltea-host-cli-linux-x64/);
+  assert.match(job('examples'), /noveltea-web-player-threads-release/);
+});
+
+test('source-owned production producers require the same pinned ABI floors as Release', () => {
+  const desktop = job('production-desktop-players');
+  const web = job('production-web-variants');
+  const android = job('production-android-arm64');
+  assert.match(desktop, /linux-player-glibc228\.Dockerfile/);
+  assert.match(desktop, /NOVELTEA_MAX_GLIBC_VERSION=2\.28/);
+  assert.match(desktop, /macos-26/);
+  assert.match(web, /EMSDK_VERSION/);
+  assert.match(web, /-DBUILD_TESTING=OFF/);
+  assert.match(android, /ANDROID_NDK_VERSION/);
+  assert.match(android, /verify-android-load-alignment/);
+  assert.match(android, /assembleRelease/);
+  assert.match(job('android'), /android-player-x64-debug/);
+  assert.match(job('production-editor-hosts'), /NOVELTEA_MAX_GLIBC_VERSION=2\.36/);
+});
 
 test('sanitizer CI keeps optimized instrumentation and a bounded first-party test selection', () => {
   const sanitizerPreset = cmakePresets.configurePresets.find(
