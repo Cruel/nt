@@ -60,35 +60,31 @@ test("release examples use exact release CLI, player, and tagged examples pin", 
   assert.match(value, /noveltea-examples-\$\{RELEASE_TAG\}\.zip/);
 });
 
-test("release Linux jobs reuse the shared native dependency setup", () => {
-  for (const name of ["shader-assets", "web", "release-examples", "android"]) {
-    assert.match(job(name), /uses: \.\/\.github\/actions\/setup-linux-native/);
-  }
-
+test("Release uses native system dependencies only for genuine export/package checks", () => {
+  assert.doesNotMatch(job("shader-assets"), /setup-linux-vcpkg|cmake --build/);
+  assert.match(job("shader-assets"), /candidate: linux-release-cli-x64/);
+  assert.doesNotMatch(job("web"), /setup-linux-vcpkg|cmake --build|emcmake/);
+  assert.match(job("web"), /restore-release-candidate/);
   const desktopHosts = job("desktop-hosts");
   assert.match(desktopHosts, /uses: \.\/\.github\/actions\/setup-linux-native/);
   assert.match(desktopHosts, /graphics: "true"/);
   assert.match(desktopHosts, /xvfb: "true"/);
   assert.match(desktopHosts, /extra-packages: weston libgl1-mesa-dri/);
-
-  const desktopEditor = job("desktop-editor");
-  assert.match(desktopEditor, /uses: \.\/\.github\/actions\/setup-linux-native/);
-  assert.match(desktopEditor, /xvfb: "true"/);
+  const android = job("android");
+  assert.match(android, /setup-linux-native/);
+  assert.match(android, /sdkmanager/);
+  assert.match(job("desktop-editor"), /setup-linux-native/);
+  assert.match(job("desktop-editor"), /rpm fakeroot/);
   assert.doesNotMatch(releaseWorkflow, /apt-get (?:update|install)/);
 });
 
-test("cold release CLI builds retry verified bzip2 downloads before vcpkg install", () => {
+test("Release never recompiles a cold native CLI; source-owned Build is its only producer", () => {
   const shaderAssets = job("shader-assets");
-  const seed = shaderAssets.indexOf("name: Seed checksum-pinned bzip2 source with retries");
-  const build = shaderAssets.indexOf("name: Build NovelTea host CLI");
-  assert.ok(seed >= 0 && seed < build);
-  const sourceStep = shaderAssets.slice(seed, build);
-  assert.match(sourceStep, /bzip2-1\.0\.8\.tar\.gz/);
-  assert.match(sourceStep, /sourceware\.org/);
-  assert.match(sourceStep, /mirrorservice\.org/);
-  assert.match(sourceStep, /--retry-all-errors/);
-  assert.match(sourceStep, /sha512sum --check --status/);
-  assert.match(sourceStep, /mv "\$staged" "\$archive"/);
+  assert.match(shaderAssets, /Restore the Debian ABI-floor native CLI/);
+  assert.match(shaderAssets, /candidate: linux-release-cli-x64/);
+  assert.match(shaderAssets, /build-run-id:/);
+  assert.match(shaderAssets, /NOVELTEA_MAX_GLIBC_VERSION=2\.36/);
+  assert.doesNotMatch(shaderAssets, /vcpkg install|bzip2|cmake --build|noveltea:build/);
 });
 
 test("Android ARM64 devtools certification checks APK and AAB release artifacts", () => {
@@ -105,19 +101,12 @@ test("Android ARM64 devtools certification checks APK and AAB release artifacts"
   assert.match(exportStep, /--flavor release --variant devtools --artifact both/);
 });
 
-test("Windows desktop release variants use their matching Licenses viewer runner", () => {
-  const desktopHosts = job("desktop-hosts");
-  const start = desktopHosts.indexOf("- name: Finalize and launch Windows portable export");
-  const end = desktopHosts.indexOf(
-    "- name: Finalize and launch Linux portable export on X11",
-    start,
-  );
-  assert.ok(start >= 0 && end > start);
-  const exportStep = desktopHosts.slice(start, end);
-  assert.match(
-    exportStep,
-    /NOVELTEA_LICENSE_VIEWER_RUNNER: \$\{\{ github\.workspace \}\}\\build\\\$\{\{ matrix\.preset \}\}\\tools\\editor_tool\\noveltea-ui-test-runner\.exe/,
-  );
+test("Windows desktop release restores and uses the exact Build Windows CLI Licenses viewer runner", () => {
+  const desktop = job("desktop-hosts");
+  assert.match(desktop, /candidate: windows-release-cli-x64/);
+  assert.match(desktop, /NOVELTEA_LICENSE_VIEWER_RUNNER:.*build\\cli\\windows\\noveltea-ui-test-runner\.exe/);
+  assert.match(desktop, /tests\/native_cli\/windows_release_smoke\.py/);
+  assert.match(desktop, /build\/cli\/windows\/noveltea\.exe/);
 });
 
 test("release builds leave compile concurrency automatic like regular CI", () => {
@@ -125,28 +114,18 @@ test("release builds leave compile concurrency automatic like regular CI", () =>
   assert.doesNotMatch(releaseWorkflow, /VCPKG_MAX_CONCURRENCY:/);
 });
 
-test("release Linux compatibility environments are isolated and reject SDL without X11", () => {
-  const shaderAssets = job("shader-assets");
-  assert.match(shaderAssets, /node:24\.18\.0-bookworm@sha256:/);
-  assert.match(shaderAssets, /name: Set up vcpkg/);
-  assert.match(shaderAssets, /uses: \.\/\.github\/actions\/setup-linux-vcpkg/);
-  assert.match(shaderAssets, /scope: linux-authoring-release/);
-  assert.match(shaderAssets, /binary-scope: linux-authoring-release/);
-  assert.match(shaderAssets, /cache-prefix: debian-12-glibc-2\.36-x64/);
-  assert.match(shaderAssets, /NOVELTEA_MAX_GLIBC_VERSION=2\.36/);
-  assert.doesNotMatch(shaderAssets, /\$\{\{ github\.workspace \}\}/);
-  assert.doesNotMatch(shaderAssets, /vcpkg-common/);
-
-  const desktopHosts = job("desktop-hosts");
-  assert.match(desktopHosts, /linux-player-glibc228\.Dockerfile/);
-  assert.match(desktopHosts, /manylinux-2\.28-x64-player-/);
-  assert.match(desktopHosts, /NOVELTEA_MAX_GLIBC_VERSION=2\.28/);
-  assert.match(desktopHosts, /NOVELTEA_REQUIRE_STATIC_GNU_CXX_RUNTIME=ON/);
-  assert.match(desktopHosts, /name: Verify SDL3 X11 backend is present/);
-  assert.match(desktopHosts, /SDL_x11video\\\.c\\\.o/);
-  for (const tool of ["curl", "tar", "unzip", "zip"]) {
-    assert.match(linuxPlayerDockerfile, new RegExp(`\\b${tool}\\b`));
-  }
+test("Build retains isolated Debian and glibc 2.28 producers while Release independently enforces the ABI floors", () => {
+  const build = readFileSync(new URL("../../.github/workflows/build.yml", import.meta.url), "utf8");
+  assert.match(build, /linux-player-glibc228\.Dockerfile/);
+  assert.match(build, /VCPKG_TARGET_TRIPLET=x64-linux-noveltea/);
+  assert.match(build, /NOVELTEA_MAX_GLIBC_VERSION=2\.28/);
+  assert.match(job("shader-assets"), /NOVELTEA_MAX_GLIBC_VERSION=2\.36/);
+  assert.match(job("desktop-hosts"), /NOVELTEA_MAX_GLIBC_VERSION=2\.28/);
+  assert.match(job("desktop-hosts"), /NOVELTEA_REQUIRE_STATIC_GNU_CXX_RUNTIME=ON/);
+  assert.match(job("desktop-hosts"), /candidate: linux-player-x64-release/);
+  assert.doesNotMatch(job("desktop-hosts"), /cmake --build|linux-player-glibc228\.Dockerfile/);
+  for (const tool of ["curl", "tar", "unzip", "zip"])
+    assert.match(linuxPlayerDockerfile, new RegExp("\\b"+tool+"\\b"));
 });
 
 test("Linux player keeps DBus systemd-free and patches bx to the glibc 2.28 floor", () => {

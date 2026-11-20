@@ -1,14 +1,15 @@
 # Source-owned CI release candidates and cache budget
 
 This document records the **integration-branch implementation** introduced
-by #642 and expanded in #643 and #644. It is not yet the active production Build → Release
-cutover. The shared inventory, provenance and ABI/variant assertions are now
-source-owned; #644 separates informational Coverage and exact-SHA Extended
-Qualification, #645 must make Release consume these exact candidates and
-verify Extended evidence, and #646 owns cross-platform Actions
-certification, performance measurements, coordinated merge and post-cutover
-acceptance. Do not promote the Ubuntu development host CLI as the Debian Linux
-release CLI or treat integration-branch candidates as trusted publication evidence.
+by #642 and expanded in #643–#645. It is not yet the active production
+Build → Release cutover. The shared inventory, provenance and ABI/variant
+assertions are source-owned; #644 separates informational Coverage and exact-SHA
+Extended Qualification, and #645 makes Release consume only the independently
+trusted candidates and qualification receipts. **#646 still owns cross-platform
+hosted GitHub Actions certification, performance measurements, coordinated
+merge and post-cutover acceptance.** Do not promote the Ubuntu development
+host CLI as the Debian Linux release CLI or treat integration-branch candidates
+as trusted publication evidence.
 
 ## Candidate interface
 
@@ -44,10 +45,72 @@ promotion uses `verify --candidate ... --stage promote` and requires
 workflow run from GitHub. The exact repository, workflow path, source SHA,
 run ID/attempt, branch, event and successful conclusion must match. Pull-request,
 fork, manual/branch-only and unsuccessful runs cannot confer publication trust.
-A tag-triggered Release must select the Build candidate for its exact source
-SHA and satisfy the separately planned Extended Qualification contract before
-publication. The integration branch deliberately does **not** yet change
-Release to consume candidate bytes or activate a publication path.
+A tag-triggered Release selects the successful canonical Build candidate for
+its **exact source SHA** and requires a successful Extended Qualification
+receipt bound to that SHA and Build run. The integration branch now changes
+the Release *definition* to restore those bytes, but actual publication remains
+gated by the hosted qualification and coordinated merge tracked in #646.
+
+## #645: Trusted Release promotion and complete platform certification
+
+The Release metadata job runs `node scripts/ci/release-promotion.mjs authorize
+<40-character-source-sha>`. The source-owned candidate catalog determines
+the complete required Build artifact inventory, including the separately
+qualified Web Editor preview, common shaders and Windows tooling bridges.
+GitHub's authenticated Actions API must provide a successful **master push**
+Build run with exactly the requested source SHA and all expected, unexpired
+artifacts. No pull-request, fork, arbitrary manual, tag-only or unsuccessful
+Build run is a publication authority. If no trusted producer exists, Release
+fails rather than compiling an alternative binary.
+
+Release also locates a completed, successful Extended Qualification receipt
+with the same exact source SHA **and the selected Build run ID**. If one is
+absent, the metadata job dispatches the master Extended workflow with the
+requested SHA, waits for its receipt, and fails on an unsuccessful or timed-out
+qualification. It writes `build/release-authority.json` recording pinned Build
+and Extended run IDs and attempts. `release-inventory` and `publish` independently
+re-fetch and revalidate **those same run IDs/attempts and receipts**, rather
+than silently switching to newly available or unqualified evidence. Manual
+workflow dispatch may qualify a Release but cannot publish. Only a push to a
+matching `v*` version tag can publish; every checkout is pinned to the trigger
+SHA, with the original tag and VERSION rules preserved.
+
+The reusable `.github/actions/restore-release-candidate` action downloads
+individual source-catalog artifacts only from the selected Build run, restores
+executable permissions where necessary, and reruns the strict manifest, schema,
+compiler, ABI and GitHub producer checks. Independent Release platform
+certification remains mandatory: Linux/Windows/macOS native CLI ABI checks;
+six desktop player variants with real export/launch, dependency checks and
+platform reports; four Web variants with separate DWARF; Android optimized
+ARM64 Release/devtools and separately authenticated x86_64 Debug-only ABI
+coverage, plus native APK/AAB exports; and all three actual Editor installer
+sets with Linux install/uninstall smoke. Release does not compile duplicate
+CLI, player or Editor binaries; source-controlled CMake asset staging, export
+fixtures, reports, checksums, attestations, and public release manifest still
+run. `scripts/ci/promote-release-template.mjs` changes **only** release-tagged
+descriptor/SBOM metadata and detached symbol BUILD_IDs while checking that all
+compiled payloads and other original Build bytes retain their exact SHA-256
+identities. Android Debug's diagnostic `ci-<SHA>` prefix is handled explicitly,
+and diagnosis is not production promotion. `scripts/ci/promote-editor-candidate.mjs`
+verifies and renames the exact original signed Build installers instead of
+running Electron packaging twice.
+
+Local source and synthetic-byte contracts:
+
+```sh
+node --test tests/ci/release_promotion_tests.mjs \\
+  tests/ci/editor_promotion_tests.mjs \\
+  tests/ci/android_release_promotion_tests.mjs
+node --test tests/ci/*.mjs
+```
+
+These demonstrate fail-closed source/Build/Extended binding, missing and
+substituted artifact rejection, unchanged player/Editor bytes, manual publish
+exclusion, and the unchanged downstream platform gates. They **do not replace**
+#646's genuine cross-platform hosted Actions and complete release/publication
+certification before merging the one-time cutover. The rollback remains the
+pre-migration master workflow. Feature Lab/runtime Project behavior is out
+of scope for this CI-only change.
 
 ## #643: Release-critical Build candidate inventory
 

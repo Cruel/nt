@@ -342,72 +342,41 @@ test('native reconciliation fixture cleanup awaits native worker exit before del
   assert.match(reconciliationTests, /pollIntervalMs: deterministicPollIntervalMs/g);
 });
 
-test('release Linux and Windows CLI certification build the required renderer first', () => {
-  const producer = releaseJob('shader-assets');
-  const consumer = releaseJob('windows-cli');
-  for (const [release, cliBuild] of [
-    [producer, 'Build NovelTea host CLI'],
-    [consumer, 'Build native production bundles'],
-  ]) {
-    const renderer = step(release, 'Build renderer required by native production certification');
-    const certification = step(
-      release,
-      release === producer ? 'Certify NovelTea host CLI' : 'Certify Windows CLI',
-    );
-    assert.match(renderer, /pnpm -C editor exec vp build/);
-    assert.ok(release.indexOf(step(release, cliBuild)) < release.indexOf(renderer));
-    assert.ok(release.indexOf(renderer) < release.indexOf(certification));
+test('Release Linux and Windows standalone CLIs are never independently compiled', () => {
+  const linux = releaseJob('shader-assets');
+  const windows = releaseJob('windows-cli');
+  assert.match(linux, /candidate: linux-release-cli-x64/);
+  assert.match(windows, /candidate: windows-release-cli-x64/);
+  for (const job of [linux, windows]) {
+    assert.match(job, /uses: \.\/\.github\/actions\/restore-release-candidate/);
+    assert.match(job, /build-run-id:/);
+    assert.doesNotMatch(job, /cmake --build|noveltea:build|Build renderer required by native production certification/);
   }
+  assert.match(windows, /objdump -p/);
+  assert.match(windows, /libgcc_s_/);
+  assert.match(windows, /libstdc/);
 });
 
-test('release Windows CLI build and certification are separate same-run artifact stages', () => {
-  const producer = releaseJob('windows-cli-build');
-  const consumer = releaseJob('windows-cli');
-  const cliUpload = step(producer, 'Upload Windows CLI build');
-  const runtimeImports = step(producer, 'Verify Windows CLI ships without GNU runtime DLL imports');
-  const headersUpload = step(producer, 'Upload Windows CLI certification shader headers');
-  const cliDownload = step(consumer, 'Download Windows CLI build');
-  const headersDownload = step(consumer, 'Download Windows CLI certification shader headers');
-  const bundleBuild = step(consumer, 'Build native production bundles');
-  const certification = step(consumer, 'Certify Windows CLI');
-
-  assert.match(producer, /pnpm -C editor run noveltea:build/);
-  assert.ok(producer.indexOf(runtimeImports) < producer.indexOf(cliUpload));
-  assert.match(runtimeImports, /objdump -p/);
-  assert.match(runtimeImports, /libgcc_s_/);
-  assert.match(runtimeImports, /libstdc/);
-  assert.match(
-    editorToolCmake,
-    /target_link_options\(noveltea-native-cli PRIVATE -static -static-libgcc -static-libstdc\+\+\)/,
-  );
-  assert.doesNotMatch(consumer, /pnpm -C editor run noveltea:build/);
-  assert.match(consumer, /needs: \[release-metadata, windows-cli-build\]/);
-  assert.equal(field(cliUpload, 'path'), 'build/cli/windows');
-  assert.equal(field(cliDownload, 'path'), 'build/cli/windows');
-  assert.equal(
-    field(headersUpload, 'path'),
-    'build/windows-cli-gnu/_deps/bgfx.cmake-src/bgfx/src',
-  );
-  assert.equal(
-    field(headersDownload, 'path'),
-    'build/windows-cli-gnu/_deps/bgfx.cmake-src/bgfx/src',
-  );
-  assert.equal(field(cliUpload, 'retention-days'), '1');
-  assert.equal(field(headersUpload, 'retention-days'), '1');
-  assert.match(bundleBuild, /pnpm -C editor exec vp pack/);
-  assert.ok(consumer.indexOf(cliDownload) < consumer.indexOf(certification));
-  assert.ok(consumer.indexOf(headersDownload) < consumer.indexOf(certification));
-  assert.ok(consumer.indexOf(bundleBuild) < consumer.indexOf(certification));
-  assert.doesNotMatch(consumer, /Cache vcpkg SDK and binaries|Set up Zig for ScriptC Windows target/);
+test('Windows CLI promotion requires one trusted cross-run producer, not a second compiler lane', () => {
+  assert.doesNotMatch(releaseWorkflow, /^  windows-cli-build:\s*$/m);
+  const windows = releaseJob('windows-cli');
+  assert.match(windows, /needs: release-metadata/);
+  assert.match(windows, /candidate: windows-release-cli-x64/);
+  assert.match(windows, /noveltea-cli-windows-release-dist/);
+  assert.match(windows, /attest-build-provenance/);
+  assert.match(editorToolCmake, /target_link_options\(noveltea-native-cli PRIVATE -static -static-libgcc -static-libstdc\+\+\)/);
 });
 
-test('release Linux CLI artifact consumers restore both required executable bits', () => {
+test('the shared candidate-restoration action restores executable modes and authenticates its Build run', () => {
+  const restoration = readFileSync(
+    new URL('../../.github/actions/restore-release-candidate/action.yml', import.meta.url), 'utf8');
+  assert.match(restoration, /chmod \+x "\$CANDIDATE_ROOT\/\$CANDIDATE_EXECUTABLE"/);
+  assert.match(restoration, /noveltea-ui-test-runner/);
+  assert.match(restoration, /tools\/ffmpeg\/bin\/ffmpeg/);
+  assert.match(restoration, /NOVELTEA_BUILD_RUN_ID:/);
+  assert.match(restoration, /--stage "\$CANDIDATE_STAGE"/);
   for (const name of ['desktop-hosts', 'web', 'android']) {
-    const consumer = releaseJob(name);
-    const chmod = step(consumer, 'Make NovelTea host CLI executable');
-    assert.match(chmod, /chmod \+x build\/cli\/linux\/noveltea build\/cli\/linux\/noveltea-ui-test-runner/);
-    assert.ok(consumer.indexOf(chmod) < consumer.indexOf('Validate canonical export fixture') ||
-      !consumer.includes('Validate canonical export fixture'));
+    assert.match(releaseJob(name), /noveltea-release-native-cli-linux-x64|restore-release-candidate/);
   }
 });
 
@@ -648,31 +617,21 @@ test('Web editor preview verifies the actual devtools-off and devtools-on Emscri
   );
 });
 
-test('native build and release jobs verify the linked devtools capability matrix', () => {
+test('Build qualifies native devtools and Release restores the exact two Linux production variants', () => {
   const linux = job('linux');
-  const verifyEnabled = step(linux, 'Verify native devtools composition');
-  assert.match(
-    verifyEnabled,
-    /check-native-devtools-symbols\.sh build\/linux-debug\/apps\/sandbox\/noveltea-sandbox on/,
-  );
-  assert.match(
-    verifyEnabled,
-    /check-native-devtools-symbols\.sh build\/linux-debug\/apps\/player\/noveltea-player on/,
-  );
-
-  const desktopHosts = releaseJob('desktop-hosts');
-  const linuxVariants = [...desktopHosts.matchAll(
-    /- platform: linux\s+arch: x64\s+runner: ubuntu-latest\s+preset: (\S+)\s+variant: (\S+)/g,
-  )].map(([, preset, variant]) => [preset, variant]);
-  assert.deepEqual(linuxVariants, [
-    ['linux-release', 'release'],
-    ['linux-release-devtools', 'devtools'],
-  ]);
-  const verifyRelease = step(desktopHosts, 'Verify Linux player devtools composition');
-  assert.equal(field(verifyRelease, 'if'), "matrix.platform == 'linux'");
-  assert.ok(verifyRelease.includes(
-    "check-native-devtools-symbols.sh build/${{ matrix.preset }}/apps/player/noveltea-player ${{ matrix.variant == 'release' && 'off' || 'on' }}",
-  ));
+  assert.match(step(linux, 'Verify native devtools composition'),
+    /check-native-devtools-symbols\.sh build\/linux-debug\/apps\/player\/noveltea-player on/);
+  const producer = job('production-desktop-players');
+  assert.match(producer, /check-native-devtools-symbols\.sh build\/\$\{\{ matrix\.preset \}\}\/apps\/player\/noveltea-player/);
+  const desktop = releaseJob('desktop-hosts');
+  for (const [preset, id] of [
+    ['linux-release', 'linux-player-x64-release'],
+    ['linux-release-devtools', 'linux-player-x64-devtools'],
+  ]) {
+    assert.match(desktop, new RegExp('preset: '+preset+'\\s+variant: '+(id.endsWith('devtools')?'devtools':'release')+'\\s+candidate: '+id));
+  }
+  assert.match(desktop, /name: Restore and authenticate exact platform player candidate/);
+  assert.doesNotMatch(desktop, /cmake --build/);
 });
 
 test('native coverage stages verified FFmpeg for Feature Lab video preparation', () => {
@@ -687,12 +646,14 @@ test('native coverage stages verified FFmpeg for Feature Lab video preparation',
   assert.ok(linux.indexOf(stage) < linux.indexOf(tests));
 });
 
-test('release editor consumers restore bundled FFmpeg executable permissions', () => {
-  const marker = '- name: Make NovelTea host tools executable';
-  const start = releaseWorkflow.indexOf(marker);
-  assert.notEqual(start, -1);
-  const block = releaseWorkflow.slice(start, releaseWorkflow.indexOf('- name: ', start + marker.length));
-  assert.match(block, /tools\/ffmpeg\/bin\/ffmpeg/);
+test('both native CLI consumers and Editor packaging inherit verified FFmpeg from qualified Build', () => {
+  const restoration = readFileSync(new URL(
+    '../../.github/actions/restore-release-candidate/action.yml', import.meta.url), 'utf8');
+  assert.match(restoration, /tools\/ffmpeg\/bin\/ffmpeg/);
+  const editor = releaseJob('desktop-editor');
+  assert.match(editor, /restore-release-candidate/);
+  assert.match(editor, /promote-editor-candidate\.mjs/);
+  assert.doesNotMatch(editor, /noveltea:build|build-native-authoring-addon/);
 });
 
 test('artifact consumers do not wait for unrelated test and cooperative build jobs', () => {
@@ -833,18 +794,21 @@ test('fetched LIEF is host-only Windows PE tooling, never a player dependency', 
   );
 });
 
-test('release desktop hosts install editor dependencies before the Windows CMake Agent Kit build', () => {
+test('desktop Release installs Editor dependencies before running real export acceptance on verified bytes', () => {
   const desktop = releaseJob('desktop-hosts');
-  const pnpm = step(desktop, 'Set up pnpm for desktop export and native tooling');
-  const node = step(desktop, 'Set up Node.js for desktop export and native tooling');
-  const dependencies = step(desktop, 'Install root workspace dependencies for desktop export and native tooling');
-  const build = step(desktop, 'Build non-Linux desktop player');
+  const pnpm = step(desktop, 'Install root JS dependencies for native export acceptance');
+  const node = step(desktop, 'Set up Node.js for platform certification');
+  const deps = step(desktop, 'Install pinned workspace packages');
+  const restore = step(desktop, 'Restore and authenticate exact platform player candidate');
+  const run = step(desktop, 'Finalize and launch Windows portable export');
   assert.match(pnpm, /pnpm\/action-setup@v6/);
   assert.match(node, /node-version-file: \.node-version/);
-  assert.match(dependencies, /pnpm install --frozen-lockfile/);
+  assert.match(deps, /pnpm install --frozen-lockfile/);
   assert.ok(desktop.indexOf(pnpm) < desktop.indexOf(node));
-  assert.ok(desktop.indexOf(node) < desktop.indexOf(dependencies));
-  assert.ok(desktop.indexOf(dependencies) < desktop.indexOf(build));
+  assert.ok(desktop.indexOf(node) < desktop.indexOf(deps));
+  assert.ok(desktop.indexOf(deps) < desktop.indexOf(restore));
+  assert.ok(desktop.indexOf(restore) < desktop.indexOf(run));
+  assert.doesNotMatch(desktop, /cmake --build/);
 });
 
 test('native gcov preserves atomic counters and debuggability without forcing -O0', () => {
@@ -872,36 +836,27 @@ test('release certification obtains evidence from real native exports, never ret
   assert.match(android, /canonical-android-x86_64-fixture-evidence\.json/);
 });
 
-test('macOS player and CLI compile concurrently with independent triplets and artifact handoff', () => {
+test('macOS Release restores independent exact Build CLI and player artifacts, then certifies both', () => {
   const desktop = releaseJob('desktop-hosts');
   const cli = releaseJob('macos-cli');
   const certify = releaseJob('macos-certify');
   const inventory = releaseJob('release-inventory');
   const editor = releaseJob('desktop-editor');
-  assert.match(desktop, /preset: macos-release/);
-  assert.match(desktop, /noveltea-release-macos-player-build/);
-  assert.doesNotMatch(desktop, /run: pnpm -C editor run noveltea:build/);
+  assert.match(desktop, /candidate: macos-player-arm64-release/);
+  assert.match(desktop, /candidate: macos-player-arm64-devtools/);
+  assert.match(desktop, /build-run-id:/);
   assert.match(cli, /runs-on: macos-26/);
-  assert.match(cli, /run: pnpm -C editor run noveltea:build/);
+  assert.match(cli, /candidate: macos-release-cli-arm64/);
+  assert.doesNotMatch(cli, /noveltea:build|cmake --build/);
   assert.match(cli, /noveltea-release-host-cli-macos-arm64/);
-  assert.match(cli, /macos-authoring-release\/vcpkg_installed/);
-  assert.match(cliBuildScript, /macos-authoring-release/);
-  assert.match(cliBuildScript, /noveltea-native-cli/);
   assert.match(cli, /noveltea-release-native-cli-macos-arm64/);
   assert.match(certify, /needs: \[release-metadata, desktop-hosts, macos-cli\]/);
   assert.match(certify, /noveltea-release-macos-player-build/);
   assert.match(certify, /noveltea-release-host-cli-macos-arm64/);
   assert.match(certify, /noveltea-release-native-cli-macos-arm64/);
-  assert.match(certify, /test -f build\/cli\/macos-native\/noveltea/);
-  assert.match(certify, /test -f build\/cli\/macos-native\/assets\/system\/fonts\/LiberationSans\.ttf/);
-  assert.match(certify, /tests\/native_cli\/macos_release_smoke\.py \\\s*"\$PWD\/build\/cli\/macos-native\/noveltea"/);
-  assert.doesNotMatch(certify, /tests\/native_cli\/macos_release_smoke\.py \\\s*"\$PWD\/build\/cli\/macos\/noveltea"/);
-  assert.match(certify, /NOVELTEA_CLI: \$\{\{ github\.workspace \}\}\/build\/cli\/macos\/noveltea/);
-  assert.ok(certify.indexOf('Download macOS host CLI') < certify.indexOf('Finalize and launch macOS app bundle export'));
-  assert.match(certify, /- variant: release\s+preset: macos-release/);
-  assert.match(certify, /- variant: devtools\s+preset: macos-release-devtools/);
-  assert.match(certify, /noveltea-platform-certification-macos-arm64-\$\{\{ matrix\.variant \}\}\.json/);
-  assert.match(certify, /noveltea-desktop-host-macos-arm64-\$\{\{ matrix\.variant \}\}-dist/);
+  assert.match(certify, /tests\/native_cli\/macos_release_smoke\.py/);
+  assert.match(certify, /noveltea-platform-certification-macos-arm64-/);
+  assert.match(certify, /noveltea-desktop-host-macos-arm64-/);
   assert.match(editor, /macos-cli/);
   assert.match(inventory, /macos-certify/);
 });
@@ -1036,25 +991,20 @@ test('Linux native coverage reserves runner disk before its instrumented build',
   );
 });
 
-test('Android Release reclaims unrelated runner toolchains before multi-ABI builds', () => {
+test('Android Release recovers all three Build native ABIs after reclaim, then runs real APK/AAB export certification', () => {
   const android = releaseJob('android');
-  const reclaim = step(android, 'Reclaim disk for Android release builds');
+  const reclaim = step(android, 'Reclaim disk for Android package/export smoke');
+  const restore = step(android, 'Restore authenticated optimized ARM64 standard native package');
+  const diagnostic = step(android, 'Restore independently verified x86_64 Debug ABI-only diagnostic template');
   assert.match(reclaim, /sudo rm -rf \/usr\/share\/dotnet \/opt\/ghc/);
   assert.match(reclaim, /\/opt\/hostedtoolcache\/CodeQL/);
-  assert.doesNotMatch(reclaim, /rm -rf[^\n]*\/usr\/local\/lib\/android/);
-  assert.ok(
-    android.indexOf('Set up Node.js for Android certification') <
-      android.indexOf('Build unsigned Android player template source'),
-    'pin Node before the Android native builds fill the runner',
-  );
-  assert.ok(
-    android.indexOf('Reclaim disk for Android release builds') <
-      android.indexOf('Cache Android SDK packages'),
-    'free disk before the pinned SDK/NDK is restored',
-  );
-  const templateBuild = step(android, 'Build unsigned Android player template source');
-  assert.match(templateBuild, /:app:assembleRelease -PnovelteaAbi=arm64-v8a/);
-  assert.match(templateBuild, /:app:assembleDebug -PnovelteaAbi=x86_64/);
+  assert.ok(android.indexOf(reclaim) < android.indexOf(restore));
+  assert.match(diagnostic, /stage: diagnose/);
+  for (const candidate of ['android-player-arm64-release', 'android-player-arm64-devtools', 'android-player-x64-debug'])
+    assert.ok(android.includes('candidate: '+candidate));
+  assert.match(android, /verify-android-load-alignment\.mjs/);
+  assert.match(android, /:app:assembleRelease|--flavor release --variant devtools --artifact both/);
+  assert.doesNotMatch(android, /cmake --build|Build unsigned Android player template source/);
 });
 
 test('Linux packaged editor smoke uses an isolated X11 desktop and session bus', () => {

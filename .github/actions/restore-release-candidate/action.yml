@@ -1,0 +1,64 @@
+name: Restore qualified release candidate
+description: Download one exact Build-run candidate, verify its complete manifest and trusted master producer.
+inputs:
+  candidate:
+    description: Source-owned release candidate catalog ID
+    required: true
+  build-run-id:
+    description: Independently selected successful master Build workflow run
+    required: true
+  token:
+    description: GitHub token with Actions read permission
+    required: true
+  stage:
+    description: promote for shipping binaries; qualify for diagnostic-only ABI coverage
+    required: false
+    default: promote
+runs:
+  using: composite
+  steps:
+    - name: Resolve canonical artifact and stage path
+      id: identity
+      shell: bash
+      env:
+        CANDIDATE_ID: ${{ inputs.candidate }}
+      run: |
+        set -euo pipefail
+        echo "artifact=$(node scripts/ci/release-candidate.mjs describe --candidate "$CANDIDATE_ID" --field artifactName)" >> "$GITHUB_OUTPUT"
+        echo "root=$(node scripts/ci/release-candidate.mjs describe --candidate "$CANDIDATE_ID" --field root)" >> "$GITHUB_OUTPUT"
+        echo "kind=$(node scripts/ci/release-candidate.mjs describe --candidate "$CANDIDATE_ID" --field kind)" >> "$GITHUB_OUTPUT"
+        echo "executable=$(node scripts/ci/release-candidate.mjs describe --candidate "$CANDIDATE_ID" --field executable)" >> "$GITHUB_OUTPUT"
+    - name: Restore exact trusted Build run artifact
+      uses: actions/download-artifact@v7
+      with:
+        name: ${{ steps.identity.outputs.artifact }}
+        run-id: ${{ inputs.build-run-id }}
+        github-token: ${{ inputs.token }}
+        path: ${{ steps.identity.outputs.root }}
+    - name: Restore Unix executable mode for native candidate
+      if: runner.os != 'Windows'
+      shell: bash
+      env:
+        CANDIDATE_ID: ${{ inputs.candidate }}
+        CANDIDATE_ROOT: ${{ steps.identity.outputs.root }}
+        CANDIDATE_EXECUTABLE: ${{ steps.identity.outputs.executable }}
+        CANDIDATE_KIND: ${{ steps.identity.outputs.kind }}
+      run: |
+        set -euo pipefail
+        if [[ "$CANDIDATE_KIND" == cli || "$CANDIDATE_KIND" == native-player ]]; then
+          chmod +x "$CANDIDATE_ROOT/$CANDIDATE_EXECUTABLE"
+          if [[ "$CANDIDATE_KIND" == cli ]]; then
+            chmod +x "$CANDIDATE_ROOT/noveltea-ui-test-runner"
+            chmod +x "$CANDIDATE_ROOT/tools/ffmpeg/bin/ffmpeg"
+          fi
+        fi
+    - name: Verify source/flags/ABI/manifest bytes and authenticated Build run
+      shell: bash
+      env:
+        CANDIDATE_ID: ${{ inputs.candidate }}
+        CANDIDATE_STAGE: ${{ inputs.stage }}
+        NOVELTEA_BUILD_RUN_ID: ${{ inputs.build-run-id }}
+        GH_TOKEN: ${{ inputs.token }}
+      run: |
+        set -euo pipefail
+        node scripts/ci/release-candidate.mjs verify --candidate "$CANDIDATE_ID" --stage "$CANDIDATE_STAGE"

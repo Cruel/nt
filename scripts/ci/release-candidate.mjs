@@ -245,8 +245,8 @@ export async function verifyCandidate(manifest, {
 
 // This is only the semantic trust check. The promotion CLI retrieves this record from
 // GitHub's authenticated API, not from candidate-supplied bytes or a JSON file argument.
-export function verifyTrustedProducerRun(manifest, run) {
-  demand(manifest.tier !== 'diagnostic', 'Diagnostic candidates cannot be promoted.');
+function verifyTrustedCandidateRun(manifest, run, allowDiagnostic) {
+  demand(allowDiagnostic || manifest.tier !== 'diagnostic', 'Diagnostic candidates cannot be promoted.');
   const producer = manifest.producer;
   validateProducer(producer);
   demand(producer.event === 'push' && producer.ref === 'refs/heads/master',
@@ -263,6 +263,15 @@ export function verifyTrustedProducerRun(manifest, run) {
   demand(run.status === 'completed' && run.conclusion === 'success',
     'Trusted producer Build is not successfully completed.');
   return true;
+}
+
+export function verifyTrustedProducerRun(manifest, run) {
+  return verifyTrustedCandidateRun(manifest, run, false);
+}
+
+export function verifyTrustedDiagnosticRun(manifest, run) {
+  demand(manifest.tier === 'diagnostic', 'Diagnostic verification is limited to diagnostic candidates.');
+  return verifyTrustedCandidateRun(manifest, run, true);
 }
 
 async function fetchTrustedRun(manifest) {
@@ -371,7 +380,7 @@ export function resolveCatalogCandidate(catalog, id) {
 function parseArgs(argv) {
   const [verb, ...rest] = argv;
   demand(['describe', 'produce', 'verify'].includes(verb),
-    'Usage: release-candidate.mjs describe|produce|verify --candidate <id> [--field name|root|preset] [--stage qualify|promote]');
+    'Usage: release-candidate.mjs describe|produce|verify --candidate <id> [--field artifactName|root|preset] [--stage qualify|promote|diagnose]');
   const options = { verb };
   for (let i = 0; i < rest.length; i += 2) {
     demand(rest[i]?.startsWith('--') && rest[i + 1] && !rest[i + 1].startsWith('--'),
@@ -425,12 +434,19 @@ async function main() {
     if (!candidate.kind || candidate.kind === 'cli') probeBuiltCliIdentity(root, candidate, sourceSha);
     const manifest = JSON.parse(await readFile(manifestFile, 'utf8'));
     const stage = args.stage ?? 'qualify';
-    demand(['qualify', 'promote'].includes(stage), 'Invalid verification stage.');
+    demand(['qualify', 'promote', 'diagnose'].includes(stage), 'Invalid verification stage.');
     await verifyCandidate(manifest, {
       root, repoRoot: scriptRoot, candidate, sourceSha,
       ...(stage === 'qualify' ? { producer } : {}),
     });
-    if (stage === 'promote') verifyTrustedProducerRun(manifest, await fetchTrustedRun(manifest));
+    if (stage === 'promote' || stage === 'diagnose') {
+      if (process.env.NOVELTEA_BUILD_RUN_ID) {
+        compare('selected Build run', manifest.producer.runId, Number(process.env.NOVELTEA_BUILD_RUN_ID));
+      }
+      const trustedRun = await fetchTrustedRun(manifest);
+      if (stage === 'promote') verifyTrustedProducerRun(manifest, trustedRun);
+      else verifyTrustedDiagnosticRun(manifest, trustedRun);
+    }
   }
   process.stdout.write(`Candidate ${candidate.id}: ${args.verb} succeeded for ${sourceSha}.\n`);
 }

@@ -13,6 +13,7 @@ const build = readFileSync(
   'utf8',
 );
 const release = readFileSync(new URL('../../.github/workflows/release.yml', import.meta.url), 'utf8');
+const buildWorkflow = readFileSync(new URL('../../.github/workflows/build.yml', import.meta.url), 'utf8');
 
 test('daemon state wait resolves only after the requested postcondition', async () => {
   const states = [
@@ -55,20 +56,16 @@ test('release builder only links and installs native CLI, without a ScriptC comp
   assert.doesNotMatch(build, /scriptcEntrypoint|SCRIPTC_CC|SCRIPTC_TARGET|JS_RunGC/);
 });
 
-test('release host certification requires native editor/CLI integration and only builders opt into CLI-only', () => {
-  const cliOnly = /pnpm -C editor run noveltea:certify -- --cli-only/g;
-  assert.equal(
-    [...release.matchAll(cliOnly)].length,
-    2,
-    'Only the standalone Linux/Windows CLI builders may select the reduced certification subset.',
-  );
-  const hostGate = release.match(
-    /- name: Certify full native production lifecycle and editor\/CLI authority\n([\s\S]*?)(?=\n\s+- name:)/,
-  );
-  assert.ok(hostGate, 'The three-host editor matrix must execute full production qualification.');
-  assert.match(hostGate[1], /NOVELTEA_AUTHORING_NODE_ADDON:/);
-  assert.match(hostGate[1], /pnpm -C editor run noveltea:certify -- /);
-  assert.doesNotMatch(hostGate[1], /--cli-only|--candidate|NOVELTEA_CLI_CERTIFICATION/);
+test('Build performs complete native Editor/CLI qualification; Release verifies those exact packages instead of recertifying a rebuilt substitute', () => {
+  assert.match(buildWorkflow, /Qualify native CLI and Electron authoring authority together/);
+  assert.match(buildWorkflow, /pnpm -C editor run noveltea:certify --/);
+  assert.match(buildWorkflow, /NOVELTEA_AUTHORING_NODE_ADDON:/);
+  assert.match(buildWorkflow, /Package complete production Editor installers from qualified inputs/);
+  assert.match(buildWorkflow, /Manifest and upload actual Editor package candidate/);
+  assert.match(release, /Restore verified original Editor installers from master Build/);
+  assert.match(release, /promote-editor-candidate\.mjs/);
+  assert.match(release, /Install, invoke and remove exact Linux DEB and RPM/);
+  assert.doesNotMatch(release, /pnpm -C editor run noveltea:certify --|--cli-only/);
 });
 
 test('daemon state timeout reports observed transitions', async () => {

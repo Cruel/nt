@@ -1000,6 +1000,11 @@ jobs:
             dist/web-wasm32-threads-release.template.json
           if-no-files-found: error
 
+      - name: Include build-matched Web DWARF symbols in the canonical candidate
+        run: |
+          mkdir -p build/package/noveltea-player-web-wasm32-threads-release/symbols
+          cp build/web-release/apps/player/player.wasm.debug.wasm \
+            build/package/noveltea-player-web-wasm32-threads-release/symbols/player.wasm.debug.wasm
       - name: Manifest and qualify canonical threaded Web production template
         uses: ./.github/actions/produce-candidate
         with:
@@ -1072,6 +1077,15 @@ jobs:
         with:
           primary-key: ${{ steps.ccache.outputs.primary-key }}
           cache-hit: ${{ steps.ccache.outputs.cache-hit }}
+      - name: Include exact build-matched Web DWARF symbols for release packaging
+        env:
+          CANDIDATE_ID: ${{ matrix.candidate }}
+        run: |
+          set -euo pipefail
+          preset="$(node scripts/ci/release-candidate.mjs describe --candidate "$CANDIDATE_ID" --field preset)"
+          root="$(node scripts/ci/release-candidate.mjs describe --candidate "$CANDIDATE_ID" --field root)"
+          mkdir -p "$root/symbols"
+          cp "build/$preset/apps/player/player.wasm.debug.wasm" "$root/symbols/player.wasm.debug.wasm"
       - name: Manifest and upload qualified Web candidate
         uses: ./.github/actions/produce-candidate
         with:
@@ -1816,8 +1830,10 @@ jobs:
             -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} -DVCPKG_HOST_TRIPLET=${{ matrix.host_triplet }} `
             @launchers
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $targets = @('noveltea-player', 'cxx-policy')
+          if ('${{ matrix.platform }}' -eq 'windows') { $targets += 'noveltea-tooling-bridge' }
           node scripts/ci/time-command.mjs "${{ matrix.preset }}-build-and-link" `
-            cmake --build --preset ${{ matrix.preset }} --target noveltea-player cxx-policy
+            cmake --build --preset ${{ matrix.preset }} --target @targets
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Certify Linux runtime floor and devtools composition
         if: matrix.platform == 'linux'
@@ -1850,6 +1866,13 @@ jobs:
             -DNOVELTEA_RELEASE_TAG="dev-$env:GITHUB_SHA" `
             -P cmake/PackageNovelTeaPlayerTemplate.cmake
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Retain exact Build-native Windows tooling bridge for Release export acceptance
+        if: matrix.platform == 'windows'
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-build-windows-tooling-bridge-${{ matrix.variant }}
+          path: build/${{ matrix.preset }}/tools/editor_tool/noveltea-tooling-bridge.exe
+          if-no-files-found: error
       - name: Manifest and upload exact qualified desktop player
         uses: ./.github/actions/produce-candidate
         with:
