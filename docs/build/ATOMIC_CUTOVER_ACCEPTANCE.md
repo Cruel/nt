@@ -163,9 +163,25 @@ Observed failures and source-owned fixes in the next branch revision:
   `qualify` cannot be reused as a consumer stage. Production `promote`
   remains master-only and rejects all preview authorities.
 
-No failure above is represented as a qualification success. The next cohort
-must rerun the complete Build, Coverage and Extended workflows on a **new,
-identical exact source SHA**, followed by the full manual nonpublishing Release.
+No failure above is represented as a qualification success.
+
+The second exact-SHA campaign at `3d618fa273e9b0a24ab054d383b28572af05885c`
+started [Build #44706213718](https://github.com/Cruel/nt/actions/runs/44706213718),
+[Coverage #44706213788](https://github.com/Cruel/nt/actions/runs/44706213788),
+and [Extended #44706213748](https://github.com/Cruel/nt/actions/runs/44706213748).
+The Web release/devtools matrix and Windows/Linux/macOS native authoring
+passed their previously failing source and toolchain gates. Android ARM64
+Release also passed. Android ARM64 devtools encountered an **independent
+external Maven Central HTTP 429** fetching dependency POMs. A bounded,
+source-owned Gradle wrapper retries **only** verified repository 429 errors
+(up to three attempts), never compilation/test failures, without adding long-
+lived Gradle dependency caches. Synthetic Release packaging now also tests
+Linux/Windows/macOS executable and detached-symbol SHA-256 identity and
+archive shape. This cohort cannot qualify if Build remains unsuccessful.
+
+The next cohort must rerun the complete Build, Coverage and Extended workflows
+on a **new, identical exact source SHA**, followed by the full manual
+nonpublishing Release. Running or cancelled cohorts do not count as success.
 
 ## Current evidence and limitations
 
@@ -174,10 +190,15 @@ identical exact source SHA**, followed by the full manual nonpublishing Release.
   pinned `astral-sh/setup-uv`.
 - Authenticated GitHub inspection of branch protection/rulesets performed;
   current protected status inventory: none.
-- 2026-11-20 Actions cache occupancy sample:
-  **10,066,130,683 bytes** (~9.37 GiB), under the 10 GiB agreed budget,
-  with 34 active cache entries. Occupancy after hosted campaign remains to
-  be measured. Workflow artifacts are not compiler caches.
+- 2026-11-20 initial Actions cache sample:
+  **10,066,130,683 bytes** (~9.37 GiB) with 34 cache entries. During the
+  second hosted Build, transient occupancy reached **10.03 GiB**, above the
+  10 GiB target. Source-owned `node scripts/ci/cache-budget.mjs apply`
+  removed **three safely superseded cache generations**, preserving the last
+  compatible cache per family and restoring observed inventory to **9.05 GiB**.
+  Do not misreport the transient overshoot as continuously within budget.
+  Measure the final occupancy again after the next hosted campaign; workflow
+  artifacts remain separate from the compiler-cache budget.
 - No hosted premerge or postmerge success is implied by local tests. Add
   direct run links, full job results and measured wall times here as they
   become available; #646 remains open until all acceptance conditions pass.

@@ -1247,7 +1247,7 @@ jobs:
         working-directory: android
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/${{ env.ANDROID_NDK_VERSION }}
-        run: ./gradlew --no-daemon :app:assembleDebug -PnovelteaAbi=x86_64 -PnovelteaCompileShaders=OFF -PnovelteaPrebuiltShaderAssetRoot="${{ github.workspace }}/build/prebuilt-shader-assets" -PnovelteaUseCcache=true
+        run: bash ../scripts/ci/retry-gradle-network.sh ./gradlew --no-daemon :app:assembleDebug -PnovelteaAbi=x86_64 -PnovelteaCompileShaders=OFF -PnovelteaPrebuiltShaderAssetRoot="${{ github.workspace }}/build/prebuilt-shader-assets" -PnovelteaUseCcache=true
 
       - name: Save compiler cache
         uses: ./.github/actions/save-ccache
@@ -1591,7 +1591,8 @@ jobs:
           set -euo pipefail
           devtools=()
           if [[ "$VARIANT" == devtools ]]; then devtools+=(-PnovelteaEnableDevtools=true); fi
-          node ../scripts/ci/time-command.mjs "android-arm64-$VARIANT-build-and-link" \
+          bash ../scripts/ci/retry-gradle-network.sh \
+            node ../scripts/ci/time-command.mjs "android-arm64-$VARIANT-build-and-link" \
             ./gradlew --no-daemon :app:assembleRelease -PnovelteaAbi=arm64-v8a \
             "${devtools[@]}" -PnovelteaCompileShaders=OFF \
             -PnovelteaPrebuiltShaderAssetRoot="$GITHUB_WORKSPACE/build/prebuilt-shader-assets" \

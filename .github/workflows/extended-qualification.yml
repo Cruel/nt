@@ -803,7 +803,7 @@ jobs:
         working-directory: android
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/${{ env.ANDROID_NDK_VERSION }}
-        run: ./gradlew --no-daemon :app:externalNativeBuildDebug -PnovelteaAbi=x86_64 -PnovelteaEnableThreads=false -PnovelteaCompileShaders=OFF -PnovelteaPrebuiltShaderAssetRoot="${{ github.workspace }}/build/prebuilt-shader-assets" -PnovelteaUseCcache=true
+        run: bash ../scripts/ci/retry-gradle-network.sh ./gradlew --no-daemon :app:externalNativeBuildDebug -PnovelteaAbi=x86_64 -PnovelteaEnableThreads=false -PnovelteaCompileShaders=OFF -PnovelteaPrebuiltShaderAssetRoot="${{ github.workspace }}/build/prebuilt-shader-assets" -PnovelteaUseCcache=true
 
       - name: Show ccache statistics
         if: always()
