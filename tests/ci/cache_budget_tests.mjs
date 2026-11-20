@@ -4,6 +4,7 @@ import {
   planCachePrune,
   rollingCacheWindow,
   canPublishCompilerCache,
+  planCiCacheAllocation,
 } from '../../scripts/ci/cache-budget.mjs';
 
 const GiB = 1024 ** 3;
@@ -27,6 +28,21 @@ test('only trusted pushes publish shared compiler caches', () => {
   assert.equal(canPublishCompilerCache('pull_request', 'refs/heads/master', 'Cruel/nt'), false);
   assert.equal(canPublishCompilerCache('push', 'refs/heads/master', 'someone/nt'), false);
   assert.equal(canPublishCompilerCache('workflow_dispatch', 'refs/heads/master', 'Cruel/nt'), false);
+});
+
+test('coverage and Extended allocation leaves production headroom below the 10 GiB limit', () => {
+  // Captured 2026-11-20 inventory; not a promise of post-cutover cache residency.
+  const observed = 10_066_130_683;
+  const plan = planCiCacheAllocation(observed);
+  assert.equal(plan.coverageBytes, 128 * 1024 ** 2);
+  assert.equal(plan.extendedBytes, 0);
+  assert.equal(plan.safetyBytes, 128 * 1024 ** 2);
+  assert.equal(plan.withinLimit, true);
+  assert.ok(plan.remainingProductionBytes > 256 * 1024 ** 2);
+  assert.ok(plan.remainingProductionBytes < 512 * 1024 ** 2);
+  assert.equal(planCiCacheAllocation(10 * GiB).withinLimit, false);
+  assert.throws(() => planCiCacheAllocation(1, { coverageBytes: -1 }));
+  assert.throws(() => planCiCacheAllocation(Number.POSITIVE_INFINITY));
 });
 
 test('prune only superseded immutable generations; preserve last compatible key per family', () => {

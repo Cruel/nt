@@ -177,11 +177,6 @@ jobs:
         run: >-
           ctest --test-dir build/native-authoring-host --output-on-failure
           -R '^native_authoring_(project_session|typed_reference_invalidation|source_watcher_races|clean_cache_path_alias|clean_cache_recovery|clean_cache_correctness|clean_cache_offline|cache_writer_processes)$'
-      - name: Repeat Windows offline source-cache invalidation certification
-        if: runner.os == 'Windows'
-        run: >-
-          ctest --test-dir build/native-authoring-host --output-on-failure
-          --repeat until-fail:3 -R '^native_authoring_clean_cache_offline$'
       - name: Bundle dedicated Project worker
         run: pnpm -C editor exec vp pack
       - name: Certify native worker session / external watcher / revision / recovery
@@ -260,23 +255,16 @@ jobs:
           if-no-files-found: error
 
   linux:
-    name: Linux desktop and native coverage
+    name: Linux desktop native correctness
     runs-on: ubuntu-24.04
     needs: shader-assets
-    timeout-minutes: 120
-    permissions:
-      contents: read
-      id-token: write
+    timeout-minutes: 90
 
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
-      # Coverage duplicates every instrumented native object and retains
-      # .gcno/.gcda alongside full Debug binaries. Hosted ubuntu runners
-      # have filled their workspace volume before even finishing compilation.
-      # These unrelated toolchains are not used by the Linux desktop job.
-      - name: Reclaim disk for native coverage build
+      - name: Reclaim unused toolchains before Linux native build
         run: |
           df -h "$GITHUB_WORKSPACE"
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
@@ -294,7 +282,7 @@ jobs:
       - name: Install workspace dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build Node coverage driver
+      - name: Build Node native testing driver
         run: pnpm -C editor exec vp pack
 
       - name: Set up Linux native dependencies
@@ -318,12 +306,7 @@ jobs:
         id: ccache
         uses: ./.github/actions/setup-ccache
         with:
-          scope: linux-debug-coverage
-
-      - name: Set up coverage reporter
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
-        with:
-          enable-cache: false
+          scope: linux-debug
 
       - name: Download shader assets
         uses: actions/download-artifact@v7
@@ -353,7 +336,7 @@ jobs:
         run: |
           cmake --preset linux-debug -G Ninja \
             -DVCPKG_MANIFEST_FEATURES=tests \
-            -DNOVELTEA_ENABLE_COVERAGE=ON \
+            -DNOVELTEA_ENABLE_COVERAGE=OFF \
             -DNOVELTEA_BUILD_HOST_TOOLS=ON \
             -DNOVELTEA_PREBUILT_SHADERC_ROOT="$NOVELTEA_PREBUILT_SHADERC_ROOT" \
             -DNOVELTEA_COMPILE_SHADERS=OFF \
@@ -388,130 +371,33 @@ jobs:
       - name: Enforce C++ runtime and dependency policy
         run: cmake --build --preset linux-debug --target cxx-policy
 
-      - name: Reset CTest coverage counters
-        run: node scripts/native-coverage.mjs reset build/linux-debug
-
-      - name: CTest
+      - name: CTest native correctness
         run: |
-          mkdir -p build/reports/coverage/cpp/ctest
-          # Independent CTests share an atomic gcov runtime. Keep GPU tests
-          # marked RUN_SERIAL and capture/verify dependencies in CMake.
           xvfb-run -a ctest --test-dir build/linux-debug --output-on-failure \
-            -E '^(native_cli_|native_authoring_cli_commands$)' \
-            --parallel 2 \
-            --output-junit "$GITHUB_WORKSPACE/build/reports/coverage/cpp/ctest/test-results.xml"
+            -E '^(native_cli_|native_authoring_cli_commands$)' --parallel 2
 
-      - name: Report CTest coverage
-        if: ${{ !cancelled() }}
+      - name: Representative native CLI CTests
         run: |
-          node scripts/native-coverage.mjs report build/linux-debug build/reports/coverage/cpp/ctest
-          node scripts/coverage-summary.mjs cpp build/reports/coverage/cpp/ctest/summary.json CTest >> "$GITHUB_STEP_SUMMARY"
-
-      # CLI and daemon processes share instrumented static libraries with
-      # desktop tests; isolate their counters to avoid gcov merge mismatches.
-      - name: Reset native CLI CTest coverage counters
-        if: ${{ !cancelled() }}
-        run: node scripts/native-coverage.mjs reset build/linux-debug
-
-      - name: Native CLI CTest
-        if: ${{ !cancelled() }}
-        run: |
-          mkdir -p build/reports/coverage/cpp/ctest-cli
-          # Each CLI CTest has an isolated GCOV_PREFIX (registered by CMake).
-          # A detached daemon from an earlier test can finish after CTest
-          # moves on, so even serial CTests cannot safely share one .gcda tree.
-          # Merge completed per-test counters offline, preserving CLI coverage
-          # and every strict stdout/stderr contract.
-          # Keep instrumented CLI tests serial to avoid competing live daemons
-          # while the ordinary CTest suite runs independently at --parallel 2.
-          # Full multi-fixture parity and external-stage certifications run
-          # against the optimized native CLI in the Linux host CLI job. Here,
-          # representative CTests collect instrumented CLI/dependency paths
-          # without doing dozens of independent cold Feature Lab validations.
-          result=0
+          # Optimized CLI behavior is qualified separately in linux-cli.
           xvfb-run -a ctest --test-dir build/linux-debug --output-on-failure \
             -R '^(native_cli_|native_authoring_cli_commands$)' \
             -E '^(native_cli_(incremental_validation_certification|dependency_mutation_certification|shader_validation_cache|portable_validation_cache)|native_authoring_cli_commands)$' \
-            --parallel 1 \
-            --output-junit "$GITHUB_WORKSPACE/build/reports/coverage/cpp/ctest-cli/test-results.xml" || result=$?
-          # This merges snapshots via gcov-tool, then restores the .gcda next
-          # to the matching .gcno before gcovr. Live per-test roots remain
-          # untouched until runner teardown.
-          node scripts/native-coverage.mjs restore-isolated build/linux-debug
-          exit "$result"
-
-      - name: Report native CLI CTest coverage
-        if: ${{ !cancelled() }}
-        run: |
-          node scripts/native-coverage.mjs report build/linux-debug build/reports/coverage/cpp/ctest-cli
-          node scripts/coverage-summary.mjs cpp build/reports/coverage/cpp/ctest-cli/summary.json 'Native CLI CTest' >> "$GITHUB_STEP_SUMMARY"
+            --parallel 1
 
       - name: Stage pinned FFmpeg for Feature Lab
-        if: ${{ !cancelled() }}
         run: |
           node editor/scripts/private-media-tools.mjs build/coverage-media
           chmod +x build/coverage-media/tools/ffmpeg/bin/ffmpeg
 
-      - name: Reset Feature Lab coverage counters
-        if: ${{ !cancelled() }}
-        run: node scripts/native-coverage.mjs reset build/linux-debug
-
       - name: Feature Lab authored Tests
-        if: ${{ !cancelled() }}
         env:
           NOVELTEA_FFMPEG: ${{ github.workspace }}/build/coverage-media/tools/ffmpeg/bin/ffmpeg
           NOVELTEA_NATIVE_TOOL_BRIDGE: ${{ github.workspace }}/build/linux-debug/tools/editor_tool/noveltea-tooling-bridge
           NOVELTEA_UI_TEST_RUNNER: ${{ github.workspace }}/build/linux-debug/tools/editor_tool/noveltea-ui-test-runner
         run: |
-          mkdir -p build/reports/coverage/cpp/feature-lab
-          # Run the authored test without a detached validation daemon. An
-          # instrumented broker still alive after this command can rewrite
-          # .gcda while gcovr reads it, yielding a corrupt platform-stage
-          # counter and a failed *coverage reporter* after valid gameplay.
-          # Isolate this suite's coverage from late writes of prior CTest
-          # daemons, then snapshot only the completed foreground process.
-          # Keep the foreground suite's private tree until runner teardown;
-          # late native workers must never race a destructive cleanup.
-          gcov_root="$(mktemp -d "$RUNNER_TEMP/noveltea-feature-lab-gcov.XXXXXXXX")"
-          export GCOV_PREFIX="$gcov_root"
-          export GCOV_PREFIX_STRIP=0
           xvfb-run -a build/linux-debug/tools/editor_tool/native-cli/noveltea \
             --no-daemon --project tests/projects/feature-lab --json test run \
-            > build/reports/coverage/cpp/feature-lab/test-results.json
-          gcov_build="$gcov_root/$GITHUB_WORKSPACE/build/linux-debug"
-          node scripts/native-coverage.mjs reset build/linux-debug
-          test -d "$gcov_build"
-          cp -a "$gcov_build/." "$GITHUB_WORKSPACE/build/linux-debug/"
-
-      - name: Report Feature Lab coverage
-        if: ${{ !cancelled() }}
-        run: |
-          node scripts/native-coverage.mjs report build/linux-debug build/reports/coverage/cpp/feature-lab
-          node scripts/coverage-summary.mjs cpp build/reports/coverage/cpp/feature-lab/summary.json 'Feature Lab' >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Report combined native coverage
-        if: ${{ !cancelled() }}
-        run: |
-          node scripts/native-coverage.mjs merge build/reports/coverage/cpp
-          node scripts/coverage-summary.mjs cpp build/reports/coverage/cpp/combined/summary.json 'Combined (union)' >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Publish combined native coverage to Codecov
-        if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
-        uses: codecov/codecov-action@v7
-        with:
-          use_oidc: true
-          files: build/reports/coverage/cpp/combined/cobertura.xml
-          disable_search: true
-          flags: native
-          fail_ci_if_error: false
-
-      - name: Upload C++ coverage
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: noveltea-coverage-cpp
-          path: build/reports/coverage/cpp
-          if-no-files-found: error
+            > "$RUNNER_TEMP/noveltea-feature-lab-results.json"
 
       - name: Show ccache statistics
         if: always()
@@ -635,9 +521,6 @@ jobs:
 
       - name: Certify native CLI transport and error parity
         run: node editor/scripts/certify-native-cli-transport.mjs "$PWD/build/cli/linux/noveltea"
-
-      - name: Benchmark native CLI Project admission and warm source revisions
-        run: node editor/scripts/certify-native-cli-performance.mjs "$PWD/build/cli/linux/noveltea"
 
       - name: Certify concurrent source membership and mount containment
         run: |
@@ -776,227 +659,6 @@ jobs:
       - name: Certify installed native CLI production
         run: pnpm -C editor run noveltea:certify -- "$PWD/build/cli/linux/noveltea" --cli-only
 
-  linux-cooperative:
-    name: Linux cooperative build coverage
-    runs-on: ubuntu-24.04
-    needs: shader-assets
-    timeout-minutes: 120
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Set up Linux native dependencies
-        uses: ./.github/actions/setup-linux-native
-        with:
-          ccache: "true"
-          pkg-config: "true"
-          autotools: "true"
-          graphics: "true"
-
-      - name: Set up vcpkg
-        uses: ./.github/actions/setup-linux-vcpkg
-        with:
-          installed-dir: build/linux-debug/vcpkg_installed
-          scope: linux-debug
-          binary-scope: linux-no-threads
-          binary-fallback-scope: linux-debug
-
-      - name: Set up compiler cache
-        id: ccache
-        uses: ./.github/actions/setup-ccache
-        with:
-          scope: linux-no-threads
-          fallback-scope: linux-debug
-
-      - name: Download shader assets
-        uses: actions/download-artifact@v7
-        with:
-          name: noveltea-shader-assets
-          path: build/prebuilt-shader-assets
-
-      - name: Configure cooperative build
-        run: |
-          cmake --preset linux-debug-no-threads -G Ninja \
-            -DVCPKG_INSTALLED_DIR="${{ github.workspace }}/build/linux-debug/vcpkg_installed" \
-            -DVCPKG_MANIFEST_FEATURES=tests \
-            -DNOVELTEA_BUILD_HOST_TOOLS=OFF \
-            -DNOVELTEA_COMPILE_SHADERS=OFF \
-            -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" \
-            -DBUILD_TESTING=ON \
-            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-
-      - name: Build cooperative asset coverage
-        run: cmake --build --preset linux-debug-no-threads --target noveltea_asset_tests
-
-      - name: Save compiler cache
-        uses: ./.github/actions/save-ccache
-        with:
-          primary-key: ${{ steps.ccache.outputs.primary-key }}
-          cache-hit: ${{ steps.ccache.outputs.cache-hit }}
-
-      - name: Show ccache statistics
-        if: always()
-        run: ccache --show-stats
-
-  linux-sanitize:
-    name: Linux ASan / UBSan robustness
-    runs-on: ubuntu-24.04
-    needs: shader-assets
-    timeout-minutes: 150
-    env:
-      # Keep high-value sanitizer compile hits (the failed job used only 1.7 GB
-      # of this 4 GB limit). Bound disk use by building only selected targets.
-      CCACHE_MAXSIZE: 4G
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v6
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version-file: .node-version
-
-      - name: Install workspace dependencies for native Agent Kit
-        run: pnpm install --frozen-lockfile
-
-      - name: Set up Linux native dependencies
-        uses: ./.github/actions/setup-linux-native
-        with:
-          ccache: "true"
-          pkg-config: "true"
-          autotools: "true"
-          graphics: "true"
-          xvfb: "true"
-
-      - name: Resolve rmlui-bgfx master revision
-        id: rmlui-bgfx-revision
-        run: |
-          revision="$(git ls-remote https://github.com/Cruel/rmlui-bgfx.git refs/heads/master | awk 'NR == 1 { print $1 }')"
-          test -n "$revision"
-          echo "commit=$revision" >> "$GITHUB_OUTPUT"
-
-      - name: Set up vcpkg
-        uses: ./.github/actions/setup-linux-vcpkg
-        with:
-          installed-dir: build/linux-sanitize/vcpkg_installed
-          scope: linux-sanitize
-          binary-scope: linux-sanitize
-
-      - name: Cache sanitizer embedded bgfx tool build
-        uses: actions/cache@v5
-        with:
-          path: |
-            build/linux-sanitize/_deps/bgfx.cmake-src
-            build/linux-sanitize/_deps/bgfx.cmake-build
-            build/linux-sanitize/tools/editor_tool/CMakeFiles/noveltea_bgfx_shaderc_embedded.dir
-            build/linux-sanitize/tools/editor_tool/libnoveltea_bgfx_shaderc_embedded.a
-            build/linux-sanitize/tools/editor_tool/CMakeFiles/noveltea_bimg_texturec_embedded.dir
-            build/linux-sanitize/tools/editor_tool/libnoveltea_bimg_texturec_embedded.a
-          key: ${{ runner.os }}-x64-embedded-bgfx-tools-sanitize-${{ hashFiles('cmake/NovelTeaEmbeddedShaderc.cmake', 'cmake/NovelTeaSanitizers.cmake', 'cmake/patch-bimg-texturec-entry.cmake', 'cmake/ApplyGitPatchOnce.cmake', 'cmake/patches/bgfx-shaderc-fcpp-value-stack.patch', 'engine/src/render/embedded_bgfx_resources.hpp.in', 'vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/**') }}
-
-      - name: Cache sanitizer RmlUi dependencies
-        id: sanitizer-rmlui-cache
-        uses: actions/cache/restore@v5
-        with:
-          path: |
-            build/linux-sanitize/_deps/rmlui-src
-            build/linux-sanitize/_deps/rmlui-build
-            build/linux-sanitize/_deps/rmlui-subbuild
-            build/linux-sanitize/_deps/rmlui_bgfx-src
-            build/linux-sanitize/_deps/rmlui_bgfx-build
-            build/linux-sanitize/_deps/rmlui_bgfx-subbuild
-          key: ${{ runner.os }}-x64-rmlui-sanitize-${{ steps.rmlui-bgfx-revision.outputs.commit }}-${{ hashFiles('CMakeLists.txt', 'CMakePresets.json', 'vcpkg.json', 'vcpkg-configuration.json', 'cmake/NovelTeaCompilerPolicy.cmake', 'cmake/NovelTeaRmlUi.cmake', 'cmake/NovelTeaSanitizers.cmake', 'cmake/ApplyRepositoryPatch.cmake', 'cmake/patches/rmlui-feature-calc-noveltea-presentation.patch', 'cmake/patches/rmlui-feature-calc-noveltea-font-raster.patch', 'cmake/patches/rmlui-feature-calc-noveltea-lua-listener-lifetime.patch', 'cmake/vcpkg-triplets/**') }}
-
-      - name: Set up compiler cache
-        id: ccache
-        uses: ./.github/actions/setup-ccache
-        with:
-          scope: linux-sanitize
-
-      - name: Download shader assets
-        uses: actions/download-artifact@v7
-        with:
-          name: noveltea-shader-assets
-          path: build/prebuilt-shader-assets
-
-      - name: Configure sanitizer build
-        run: cmake --preset linux-sanitize -G Ninja -DNOVELTEA_BUILD_HOST_TOOLS=ON -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DNOVELTEA_RMLUI_BGFX_GIT_TAG="${{ steps.rmlui-bgfx-revision.outputs.commit }}" -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-
-      - name: Build sanitizer targets
-        run: |
-          # Build only the targets exercised by the sanitizer CTest selections.
-          # Building the default 'all' graph filled the hosted runner's disk
-          # before any ASan/UBSan tests could run.
-          df -h . /tmp
-          cmake --build --preset linux-sanitize --target \
-            noveltea-schema-certify noveltea-flow-certify noveltea-yaml-certify \
-            noveltea-room-session-certify noveltea-room-map-certify \
-            noveltea-semantic-graph-certify noveltea-project-session-certify \
-            noveltea-asset-animation-certify noveltea-material-certify \
-            noveltea-interactable-inventory-certify noveltea-test-certify \
-            noveltea-localization-certify noveltea-layout-certify \
-            noveltea-yaml-transaction-certify \
-            noveltea_fuzz_rich_text noveltea_fuzz_runtime_user_settings \
-            noveltea_fuzz_compiled_project_decoder \
-            noveltea-sandbox noveltea_native_video_texture_smoke \
-            noveltea_rmlui_readback_verifier noveltea_rmlui_resize_readback_verifier \
-            noveltea_rmlui_feature_fixtures_verifier noveltea_presentation_readback_verifier \
-            noveltea_world_presentation_readback_verifier noveltea_layout_scale_readback_verifier \
-            noveltea_world_transition_readback_verifier noveltea_postprocess_scope_readback_verifier \
-            noveltea_texture_sampling_readback_verifier
-          df -h . /tmp
-
-      - name: Save compiler cache
-        uses: ./.github/actions/save-ccache
-        with:
-          primary-key: ${{ steps.ccache.outputs.primary-key }}
-          cache-hit: ${{ steps.ccache.outputs.cache-hit }}
-
-      - name: Save sanitizer RmlUi dependencies
-        if: success() && steps.sanitizer-rmlui-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v5
-        with:
-          path: |
-            build/linux-sanitize/_deps/rmlui-src
-            build/linux-sanitize/_deps/rmlui-build
-            build/linux-sanitize/_deps/rmlui-subbuild
-            build/linux-sanitize/_deps/rmlui_bgfx-src
-            build/linux-sanitize/_deps/rmlui_bgfx-build
-            build/linux-sanitize/_deps/rmlui_bgfx-subbuild
-          key: ${{ runner.os }}-x64-rmlui-sanitize-${{ steps.rmlui-bgfx-revision.outputs.commit }}-${{ hashFiles('CMakeLists.txt', 'CMakePresets.json', 'vcpkg.json', 'vcpkg-configuration.json', 'cmake/NovelTeaCompilerPolicy.cmake', 'cmake/NovelTeaRmlUi.cmake', 'cmake/NovelTeaSanitizers.cmake', 'cmake/ApplyRepositoryPatch.cmake', 'cmake/patches/rmlui-feature-calc-noveltea-presentation.patch', 'cmake/patches/rmlui-feature-calc-noveltea-font-raster.patch', 'cmake/patches/rmlui-feature-calc-noveltea-lua-listener-lifetime.patch', 'cmake/vcpkg-triplets/**') }}
-
-      - name: Report sanitizer compiler cache
-        if: always()
-        run: ccache --show-stats
-
-      - name: Run strict ASan, LeakSanitizer, UBSan, and parser fuzz smoke tests
-        env:
-          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
-          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
-        run: |
-          # Catch2 discovery creates >1,400 CTests. Running all of them in
-          # unoptimized, instrumented Debug serially exceeded the CI budget
-          # before reaching test 30. Full functional/differential coverage is
-          # provided by the regular Linux/native authoring test jobs.
-          # The 300-second default bounds ordinary smoke/fuzz hangs. The
-          # heavyweight native Project test has its own per-test CTest TIMEOUT.
-          xvfb-run -a ctest --test-dir build/linux-sanitize --output-on-failure \
-            -L '^(asan-smoke|fuzz-smoke)$' --parallel 2 --timeout 300
-
-      - name: Run GPU smoke tests under ASan and UBSan
-        env:
-          ASAN_OPTIONS: detect_leaks=0:halt_on_error=1
-          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
-        run: |
-          xvfb-run -a ctest --test-dir build/linux-sanitize --output-on-failure \
-            -R 'noveltea_(rmlui_(readback|feature_fixtures|resize_readback)_(capture|verify)|presentation_readback_(capture|verify)|world_(presentation|transition)_readback_(capture|verify)|(layout_scale|postprocess_scope|texture_sampling)_readback_(capture|verify)|sandbox_runtime_.*_smoke|native_video_texture_smoke)'
-
   windows:
     name: Windows C++ policy
     runs-on: windows-2025
@@ -1076,11 +738,8 @@ jobs:
         shell: pwsh
         run: ctest --test-dir build/windows-release --output-on-failure -L early-windows
 
-      - name: Stress Windows broker proof and source mutation invalidation
-        shell: pwsh
-        run: |
-          ctest --test-dir build/windows-release --output-on-failure --repeat until-fail:10 -R '^noveltea_daemon::exact validation proof detects disk changes without watcher delivery$'
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+
       - name: Diagnose Windows lightweight native crash
         if: failure()
         shell: pwsh
@@ -1129,11 +788,7 @@ jobs:
           ctest --test-dir build/windows-release --output-on-failure -R '^native_cli_(incremental_validation_certification|shader_validation_cache|portable_validation_cache)$'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Repeat Windows incremental and portable source-cache certification
-        shell: pwsh
-        run: |
-          ctest --test-dir build/windows-release --output-on-failure --repeat until-fail:3 -R '^native_cli_(incremental_validation_certification|portable_validation_cache)$'
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
 
       - name: Build Windows editor validation addon for real cache-writer interop
         run: node editor/scripts/build-native-authoring-addon.mjs --addon-only
@@ -1425,96 +1080,6 @@ jobs:
         if: always()
         run: ccache --show-stats
 
-  web-benchmark:
-    name: Web benchmark browser qualification
-    runs-on: ubuntu-24.04
-    needs: shader-assets
-    timeout-minutes: 90
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Set up Node
-        uses: actions/setup-node@v6
-        with:
-          node-version-file: .node-version
-
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v6
-
-      - name: Install browser test dependencies
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm exec playwright install --with-deps chromium firefox
-
-      - name: Set up Linux native dependencies
-        uses: ./.github/actions/setup-linux-native
-        with:
-          ccache: "true"
-          autotools: "true"
-          xvfb: "true"
-
-      - name: Install Emscripten
-        run: |
-          git clone https://github.com/emscripten-core/emsdk.git "${{ github.workspace }}/.cache/emsdk"
-          cd "${{ github.workspace }}/.cache/emsdk"
-          ./emsdk install $EMSDK_VERSION
-          ./emsdk activate $EMSDK_VERSION
-
-      - name: Set up compiler cache
-        id: ccache
-        uses: ./.github/actions/setup-ccache
-        with:
-          scope: emscripten-benchmark-${{ env.EMSDK_VERSION }}
-          fallback-scope: emscripten-${{ env.EMSDK_VERSION }}
-
-      - name: Download shader assets
-        uses: actions/download-artifact@v7
-        with:
-          name: noveltea-shader-assets
-          path: build/prebuilt-shader-assets
-
-      - name: Build optimized WebGL2 benchmark
-        env:
-          EMSDK: ${{ github.workspace }}/.cache/emsdk
-        run: |
-          source "$EMSDK/emsdk_env.sh"
-          emcmake cmake --preset web-benchmark-release -G Ninja \
-            -DNOVELTEA_COMPILE_SHADERS=OFF \
-            -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" \
-            -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-          cmake --build --preset web-benchmark-release --target noveltea-benchmark-app
-
-      - name: Verify production benchmarks in Chromium
-        run: |
-          node scripts/benchmark-web-smoke.mjs build/web-benchmark-release/apps/benchmark
-          node scripts/benchmark-native-web-smoke.mjs build/web-benchmark-release/apps/benchmark
-          node scripts/benchmark-asset-web-smoke.mjs build/web-benchmark-release/apps/benchmark
-          node scripts/benchmark-video-web-smoke.mjs build/web-benchmark-release/apps/benchmark
-        env:
-          NOVELTEA_BENCHMARK_BROWSER: Chromium
-
-      - name: Verify production benchmarks in Firefox
-        run: |
-          xvfb-run -a node scripts/benchmark-web-smoke.mjs build/web-benchmark-release/apps/benchmark
-          xvfb-run -a node scripts/benchmark-native-web-smoke.mjs build/web-benchmark-release/apps/benchmark
-          xvfb-run -a node scripts/benchmark-asset-web-smoke.mjs build/web-benchmark-release/apps/benchmark
-          xvfb-run -a node scripts/benchmark-video-web-smoke.mjs build/web-benchmark-release/apps/benchmark
-        env:
-          NOVELTEA_BENCHMARK_BROWSER: Firefox
-          NOVELTEA_BENCHMARK_FIREFOX_HEADFUL: "1"
-
-      - name: Save compiler cache
-        uses: ./.github/actions/save-ccache
-        with:
-          primary-key: ${{ steps.ccache.outputs.primary-key }}
-          cache-hit: ${{ steps.ccache.outputs.cache-hit }}
-
-      - name: Show ccache statistics
-        if: always()
-        run: ccache --show-stats
-
   examples:
     name: Development examples qualification
     runs-on: ubuntu-24.04
@@ -1781,131 +1346,6 @@ jobs:
           name: noveltea-android-fixture-v2
           path: dist/android-fixture-v2
           if-no-files-found: error
-
-  android-cooperative:
-    name: Android cooperative build coverage
-    runs-on: ubuntu-24.04
-    needs: shader-assets
-    timeout-minutes: 90
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Set up Java
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: 17
-
-      - name: Set up Linux native dependencies
-        uses: ./.github/actions/setup-linux-native
-        with:
-          ccache: "true"
-          autotools: "true"
-
-      - name: Accept Android SDK licenses
-        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses
-
-      - name: Cache Android SDK packages
-        uses: actions/cache@v5
-        with:
-          path: |
-            ${{ env.ANDROID_HOME }}/ndk/${{ env.ANDROID_NDK_VERSION }}
-            ${{ env.ANDROID_HOME }}/cmake/${{ env.ANDROID_CMAKE_VERSION }}
-          key: ${{ runner.os }}-android-sdk-android${{ env.ANDROID_API_LEVEL }}-buildtools${{ env.ANDROID_BUILD_TOOLS_VERSION }}-cmake${{ env.ANDROID_CMAKE_VERSION }}-ndk${{ env.ANDROID_NDK_VERSION }}
-
-      - name: Install Android SDK packages
-        run: scripts/ci/install-android-sdk-packages.sh
-
-      - name: Download SDL3 Android AAR
-        run: |
-          mkdir -p android/app/libs .cache/sdl3-android
-          curl -L \
-            -o .cache/sdl3-android/SDL3-devel-3.4.10-android.zip \
-            https://github.com/libsdl-org/SDL/releases/download/release-3.4.10/SDL3-devel-3.4.10-android.zip
-          unzip -p \
-            .cache/sdl3-android/SDL3-devel-3.4.10-android.zip \
-            SDL3-3.4.10.aar \
-            > android/app/libs/SDL3-3.4.10.aar
-
-      - name: Set up compiler cache
-        id: ccache
-        uses: ./.github/actions/setup-ccache
-        with:
-          scope: android-no-threads-ndk${{ env.ANDROID_NDK_VERSION }}
-          fallback-scope: android-ndk${{ env.ANDROID_NDK_VERSION }}
-
-      - name: Download shader assets
-        uses: actions/download-artifact@v7
-        with:
-          name: noveltea-shader-assets
-          path: build/prebuilt-shader-assets
-
-      - name: Build Android cooperative native target
-        working-directory: android
-        env:
-          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/${{ env.ANDROID_NDK_VERSION }}
-        run: ./gradlew --no-daemon :app:externalNativeBuildDebug -PnovelteaAbi=x86_64 -PnovelteaEnableThreads=false -PnovelteaCompileShaders=OFF -PnovelteaPrebuiltShaderAssetRoot="${{ github.workspace }}/build/prebuilt-shader-assets" -PnovelteaUseCcache=true
-
-      - name: Save compiler cache
-        uses: ./.github/actions/save-ccache
-        with:
-          primary-key: ${{ steps.ccache.outputs.primary-key }}
-          cache-hit: ${{ steps.ccache.outputs.cache-hit }}
-
-      - name: Show ccache statistics
-        if: always()
-        run: ccache --show-stats
-
-  android-emulator:
-    name: Android emulator API ${{ matrix.api }}
-    runs-on: ubuntu-24.04
-    needs: android
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        api: [24, 35]
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-      - name: Set up Java
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: 17
-      - name: Download first exported APK revision
-        uses: actions/download-artifact@v7
-        with:
-          name: noveltea-android-fixture-v1
-          path: android-fixture-v1
-      - name: Download updated exported APK revision
-        uses: actions/download-artifact@v7
-        with:
-          name: noveltea-android-fixture-v2
-          path: android-fixture-v2
-      - name: Enable KVM group permissions
-        run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-      - name: Run lifecycle/update smoke test on emulator
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: ${{ matrix.api }}
-          target: google_apis
-          arch: x86_64
-          avd-name: noveltea-ci
-          force-avd-creation: true
-          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot -wipe-data
-          emulator-boot-timeout: 600
-          # android-emulator-runner executes each newline as a separate shell command,
-          # so variable assignments cannot be shared across lines here.
-          script: >-
-            .github/android-emulator-smoke.sh
-            "$(find android-fixture-v1 -name '*.apk' -print -quit)"
-            "$(find android-fixture-v2 -name '*.apk' -print -quit)"
 
   production-linux-release-cli:
     name: Linux Debian 12 production authoring CLI
@@ -2746,9 +2186,6 @@ jobs:
     runs-on: ubuntu-24.04
     needs: [linux-cli, web-preview]
     timeout-minutes: 90
-    permissions:
-      contents: read
-      id-token: write
     env:
       NOVELTEA_CLI_PATH: ${{ github.workspace }}/build/cli/linux/noveltea
       NOVELTEA_AUTHORING_NODE_ADDON: ${{ github.workspace }}/build/native-authoring-host/noveltea-authoring-node.node
@@ -2817,29 +2254,7 @@ jobs:
 
       - name: Test
         id: editor-tests
-        run: pnpm -C editor run test:coverage
-
-      - name: Summarize editor coverage
-        if: ${{ !cancelled() && steps.editor-tests.outcome == 'success' }}
-        run: node scripts/coverage-summary.mjs editor editor/coverage/coverage-summary.json >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Publish editor coverage to Codecov
-        if: ${{ !cancelled() && steps.editor-tests.outcome == 'success' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
-        uses: codecov/codecov-action@v7
-        with:
-          use_oidc: true
-          files: editor/coverage/lcov.info
-          disable_search: true
-          flags: editor
-          fail_ci_if_error: false
-
-      - name: Upload editor coverage
-        if: ${{ !cancelled() && steps.editor-tests.outcome == 'success' }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: noveltea-coverage-editor
-          path: editor/coverage
-          if-no-files-found: error
+        run: pnpm -C editor run test
 
       - name: Verify native cold Project compilation and Runtime Package export
         run: |

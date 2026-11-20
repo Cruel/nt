@@ -9,6 +9,7 @@ Use this entrypoint before changing CMake presets, dependencies, shader compilat
 - `docs/build/BUILD_AND_VERIFY.md` lists the common local verification commands for Linux, Web, Android, editor, and smoke checks.
 - `docs/build/GRAPHICS_BENCHMARK.md` documents the standalone Linux/Android SDL3/bgfx graphics benchmark, measurement semantics, platform launch/ADB report retrieval, and hardware smoke.
 - `docs/build/COVERAGE.md` describes separate informational native/editor coverage, exclusions, CI artifacts, and local measurement.
+- `docs/build/EXTENDED_QUALIFICATION.md` documents the nightly/on-demand exact-SHA diagnostic workflow, qualification evidence, and cache allocation boundary.
 - `docs/build/DEVELOPMENT_SNAPSHOTS.md` describes exact-commit master toolchain publication, consumer verification, and retention.
 - `docs/build/RELEASE_CANDIDATES.md` documents the #642 integration-branch candidate manifest, trusted producer/consumer seam, bounded compiler/dependency caching and cache-budget maintenance; it is not yet a completed Build/Release cutover.
 - `docs/build/DEVELOPMENT_EXAMPLES.md` describes the exact public-examples pin, qualification artifact, pin-update PR workflow, and local site preparation contract.

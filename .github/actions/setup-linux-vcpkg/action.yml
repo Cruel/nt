@@ -14,6 +14,10 @@ inputs:
     description: Optional compatible binary-package cache scope to seed this writer.
     required: false
     default: ""
+  read-only:
+    description: Restore matching pinned caches without publishing new generations.
+    required: false
+    default: "false"
   cache-prefix:
     description: ABI-environment cache prefix. Keep distinct compatibility environments isolated.
     required: false
@@ -22,7 +26,17 @@ runs:
   using: composite
   steps:
     - name: Cache vcpkg SDK
+      if: inputs['read-only'] != 'true'
       uses: actions/cache@v5
+      with:
+        path: .cache/vcpkg
+        key: ${{ inputs['cache-prefix'] }}-vcpkg-sdk-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
+        restore-keys: |
+          ${{ inputs['cache-prefix'] }}-vcpkg-sdk-
+
+    - name: Restore cache vcpkg sdk (read only)
+      if: inputs['read-only'] == 'true'
+      uses: actions/cache/restore@v5
       with:
         path: .cache/vcpkg
         key: ${{ inputs['cache-prefix'] }}-vcpkg-sdk-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
@@ -37,6 +51,7 @@ runs:
     # Keep one immutable generation per week and source-pinned ABI configuration,
     # rather than uploading the complete binary-package cache on every new SHA.
     - name: Cache vcpkg binaries
+      if: inputs['read-only'] != 'true'
       uses: actions/cache@v5
       with:
         path: .cache/vcpkg-binary
@@ -46,8 +61,29 @@ runs:
           ${{ inputs['cache-prefix'] }}-vcpkg-binary-${{ inputs['binary-scope'] }}-
           ${{ inputs['binary-fallback-scope'] != '' && format('{0}-vcpkg-binary-{1}-', inputs['cache-prefix'], inputs['binary-fallback-scope']) || '' }}
 
+    - name: Restore cache vcpkg binaries (read only)
+      if: inputs['read-only'] == 'true'
+      uses: actions/cache/restore@v5
+      with:
+        path: .cache/vcpkg-binary
+        key: ${{ inputs['cache-prefix'] }}-vcpkg-binary-${{ inputs['binary-scope'] }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/NovelTeaLua.cmake', 'cmake/NovelTeaSanitizers.cmake', 'cmake/vcpkg-triplets/**') }}-${{ steps.window.outputs.week }}
+        restore-keys: |
+          ${{ inputs['cache-prefix'] }}-vcpkg-binary-${{ inputs['binary-scope'] }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/NovelTeaLua.cmake', 'cmake/NovelTeaSanitizers.cmake', 'cmake/vcpkg-triplets/**') }}-
+          ${{ inputs['cache-prefix'] }}-vcpkg-binary-${{ inputs['binary-scope'] }}-
+          ${{ inputs['binary-fallback-scope'] != '' && format('{0}-vcpkg-binary-{1}-', inputs['cache-prefix'], inputs['binary-fallback-scope']) || '' }}
+
     - name: Cache vcpkg installed tree
+      if: inputs['read-only'] != 'true'
       uses: actions/cache@v5
+      with:
+        path: ${{ inputs['installed-dir'] }}
+        key: ${{ inputs['cache-prefix'] }}-vcpkg-installed-${{ inputs.scope }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/NovelTeaLua.cmake', 'cmake/NovelTeaSanitizers.cmake', 'cmake/vcpkg-triplets/**') }}
+        restore-keys: |
+          ${{ inputs['cache-prefix'] }}-vcpkg-installed-${{ inputs.scope }}-
+
+    - name: Restore cache vcpkg installed tree (read only)
+      if: inputs['read-only'] == 'true'
+      uses: actions/cache/restore@v5
       with:
         path: ${{ inputs['installed-dir'] }}
         key: ${{ inputs['cache-prefix'] }}-vcpkg-installed-${{ inputs.scope }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/NovelTeaLua.cmake', 'cmake/NovelTeaSanitizers.cmake', 'cmake/vcpkg-triplets/**') }}

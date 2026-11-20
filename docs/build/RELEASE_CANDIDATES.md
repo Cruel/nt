@@ -1,10 +1,11 @@
 # Source-owned CI release candidates and cache budget
 
 This document records the **integration-branch implementation** introduced
-by #642 and expanded in #643. It is not yet the active production Build → Release
+by #642 and expanded in #643 and #644. It is not yet the active production Build → Release
 cutover. The shared inventory, provenance and ABI/variant assertions are now
-source-owned; #644 still must make Release consume these exact candidates, #645
-must separate Coverage and Extended, and #646 owns cross-platform Actions
+source-owned; #644 separates informational Coverage and exact-SHA Extended
+Qualification, #645 must make Release consume these exact candidates and
+verify Extended evidence, and #646 owns cross-platform Actions
 certification, performance measurements, coordinated merge and post-cutover
 acceptance. Do not promote the Ubuntu development host CLI as the Debian Linux
 release CLI or treat integration-branch candidates as trusted publication evidence.
@@ -157,6 +158,15 @@ it will not start until the complete integration branch is merged. For a
 genuine cold-cache benchmark, deliberately invalidate a pinned scope on a
 separate development run and measure restore/compile time; do not delete
 unrelated production caches in an uncontrolled experiment.
+
+The independent Coverage job restores shared pinned vcpkg caches read-only and
+has one 128 MiB instrumented compiler-cache allowance. Extended Qualification
+restores dependency, SDK, and compiler caches without publishing new entries.
+`node scripts/ci/cache-budget.mjs allocation` models occupancy, new Coverage
+allocation, a 128 MiB safety reserve and remaining production headroom below
+10 GiB; see [Extended Qualification](EXTENDED_QUALIFICATION.md). The
+canonical Build remains the only routine source of production compiler-cache
+writes. Actual production cache residency is still a #646 acceptance gate.
 
 Observed on 2026-11-19, the repository held 11,920,810,128 bytes of Actions
 cache (~11.10 GiB). The safe prune deleted six older compatible generations,

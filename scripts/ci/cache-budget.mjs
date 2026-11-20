@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const GiB = 1024 ** 3;
+const MiB = 1024 ** 2;
+export const ACTIONS_CACHE_LIMIT_BYTES = 10 * GiB;
 export const DEFAULT_BUDGET_BYTES = Math.floor(9.5 * GiB);
 
 export function rollingCacheWindow(date = new Date()) {
@@ -74,12 +76,32 @@ export function planCachePrune(entries, budgetBytes = DEFAULT_BUDGET_BYTES) {
   };
 }
 
+// Informational capacity plan: Extended restores caches read-only; Coverage has
+// one bounded 128 MiB compiler writer. Do not count workflow artifacts here.
+// Any newly generated production scopes must fit in remaining headroom; #646
+// certifies that their actual hosted residency does, rather than assuming it.
+export function planCiCacheAllocation(observedBytes, {
+  coverageBytes = 128 * MiB,
+  extendedBytes = 0,
+  safetyBytes = 128 * MiB,
+} = {}) {
+  for (const value of [observedBytes, coverageBytes, extendedBytes, safetyBytes]) {
+    if (!Number.isSafeInteger(value) || value < 0) throw new Error('Invalid CI cache allocation.');
+  }
+  const baselineBytes = observedBytes + coverageBytes + extendedBytes + safetyBytes;
+  return {
+    observedBytes, coverageBytes, extendedBytes, safetyBytes,
+    remainingProductionBytes: ACTIONS_CACHE_LIMIT_BYTES - baselineBytes,
+    withinLimit: baselineBytes <= ACTIONS_CACHE_LIMIT_BYTES,
+  };
+}
+
 function gh(args) {
   return execFileSync('gh', args, { encoding: 'utf8', maxBuffer: 20 * 1024 * 1024 });
 }
 
 function usage() {
-  process.stderr.write('Usage: node scripts/ci/cache-budget.mjs report|apply [--repo Cruel/nt]\n');
+  process.stderr.write('Usage: node scripts/ci/cache-budget.mjs report|apply|allocation [--repo Cruel/nt]\n');
   process.exitCode = 2;
 }
 
@@ -93,7 +115,7 @@ async function main(argv) {
     process.stdout.write(`${canPublishCompilerCache(process.env.GITHUB_EVENT_NAME, process.env.GITHUB_REF, process.env.GITHUB_REPOSITORY)}\n`);
     return;
   }
-  if (!['report', 'apply'].includes(command) || (flag && flag !== '--repo') ||
+  if (!['report', 'apply', 'allocation'].includes(command) || (flag && flag !== '--repo') ||
       (flag && !value) || (!flag && value)) return usage();
   const repo = value ?? 'Cruel/nt';
   if (repo !== 'Cruel/nt') throw new Error('Cache maintenance is scoped to Cruel/nt only.');
@@ -103,6 +125,13 @@ async function main(argv) {
   const entries = JSON.parse(gh(['cache', 'list', '--repo', repo, '--limit', '1000',
     '--json', 'id,key,sizeInBytes,lastAccessedAt']));
   const plan = planCachePrune(entries);
+  if (command === 'allocation') {
+    const allocation = planCiCacheAllocation(plan.originalBytes);
+    const remainingMiB = Math.floor(allocation.remainingProductionBytes / MiB);
+    process.stdout.write(`Observed: ${(plan.originalBytes / GiB).toFixed(2)} GiB; Coverage incremental allowance: 128 MiB; Extended: restore-only; safety: 128 MiB; production budget before 10 GiB: ${remainingMiB} MiB.\n`);
+    if (!allocation.withinLimit) process.exitCode = 1;
+    return;
+  }
   const fmt = (bytes) => `${(bytes / GiB).toFixed(2)} GiB`;
   process.stdout.write(`GitHub Actions cache: ${fmt(plan.originalBytes)} observed; ${fmt(plan.projectedBytes)} after ${plan.deleteIds.length} safe superseded-generation prunes; budget ${fmt(plan.budgetBytes)}.\n`);
   if (command === 'apply') {

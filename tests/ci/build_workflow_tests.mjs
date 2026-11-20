@@ -7,6 +7,8 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 const workflow = readFileSync(new URL('../../.github/workflows/build.yml', import.meta.url), 'utf8');
+const coverageWorkflow = readFileSync(new URL('../../.github/workflows/coverage.yml', import.meta.url), 'utf8');
+const extendedWorkflow = readFileSync(new URL('../../.github/workflows/extended-qualification.yml', import.meta.url), 'utf8');
 const releaseWorkflow = readFileSync(
   new URL('../../.github/workflows/release.yml', import.meta.url),
   'utf8',
@@ -80,11 +82,14 @@ function releaseJob(name) {
   return match[0];
 }
 
-function job(name) {
-  const match = workflow.match(new RegExp(`^  ${name}:\\n[\\s\\S]*?(?=^  [\\w-]+:|$(?![\\s\\S]))`, 'm'));
+function jobIn(source, name) {
+  const match = source.match(new RegExp(`^  ${name}:\\n[\\s\\S]*?(?=^  [\\w-]+:|$(?![\\s\\S]))`, 'm'));
   assert.ok(match, `Missing job ${name}`);
   return match[0];
 }
+function job(name) { return jobIn(workflow, name); }
+function coverageJob(name) { return jobIn(coverageWorkflow, name); }
+function extendedJob(name) { return jobIn(extendedWorkflow, name); }
 
 function step(source, name) {
   const start = source.indexOf(`- name: ${name}\n`);
@@ -139,7 +144,8 @@ test('independent Editor checks run before artifact producers without weakening 
   assert.match(preflight, /pnpm -C editor run check/);
   assert.match(preflight, /vp test run/);
   assert.match(job('editor'), /needs: \[linux-cli, web-preview\]/);
-  assert.match(job('editor'), /pnpm -C editor run test:coverage/);
+  assert.match(job('editor'), /pnpm -C editor run test/);
+  assert.match(coverageJob('editor'), /pnpm -C editor run test:coverage/);
   assert.match(job('editor'), /pnpm -C editor run package:smoke/);
   assert.match(job('examples'), /needs: \[linux-cli, web\]/);
   assert.match(job('examples'), /noveltea-host-cli-linux-x64/);
@@ -174,7 +180,7 @@ test('sanitizer CI keeps optimized instrumentation and a bounded first-party tes
     assert.doesNotMatch(sanitizerPreset.cacheVariables[flags], /-DNDEBUG\b/);
   }
   const lane = step(
-    job('linux-sanitize'),
+    extendedJob('linux-sanitize'),
     'Run strict ASan, LeakSanitizer, UBSan, and parser fuzz smoke tests',
   );
   assert.match(lane, /ASAN_OPTIONS: detect_leaks=1:halt_on_error=1/);
@@ -479,22 +485,24 @@ test('vcpkg binary caches have independent bounded weekly configuration writers'
   ]);
   const writers = new Set();
   for (const [jobName, scope] of expectedWriters) {
-    const setup = step(job(jobName), 'Set up vcpkg');
+    const setup = step(['linux-cooperative', 'linux-sanitize'].includes(jobName) ? extendedJob(jobName) : job(jobName), 'Set up vcpkg');
     assert.equal(field(setup, 'binary-scope'), scope);
     assert.ok(!writers.has(scope), `vcpkg binary writer '${scope}' is shared by parallel jobs`);
     writers.add(scope);
   }
-  assert.equal(field(step(job('linux-cooperative'), 'Set up vcpkg'), 'scope'), 'linux-debug');
+  assert.equal(field(step(extendedJob('linux-cooperative'), 'Set up vcpkg'), 'scope'), 'linux-debug');
   assert.equal(
-    field(step(job('linux-cooperative'), 'Set up vcpkg'), 'binary-fallback-scope'),
+    field(step(extendedJob('linux-cooperative'), 'Set up vcpkg'), 'binary-fallback-scope'),
     'linux-debug',
   );
 });
 
 test('CI publishes distinct informational coverage summaries and detailed artifacts', () => {
-  const native = job('linux');
-  const editor = job('editor');
+  const native = coverageJob('native');
+  const editor = coverageJob('editor');
   assert.match(step(native, 'Configure'), /NOVELTEA_ENABLE_COVERAGE=ON/);
+  assert.match(step(job('linux'), 'Configure'), /NOVELTEA_ENABLE_COVERAGE=OFF/);
+  assert.doesNotMatch(job('editor'), /test:coverage/);
   const ctest = step(native, 'CTest');
   const ctestReport = step(native, 'Report CTest coverage');
   const cliReset = step(native, 'Reset native CLI CTest coverage counters');
@@ -541,14 +549,11 @@ test('CI publishes distinct informational coverage summaries and detailed artifa
     assert.match(report, /coverage-summary\.mjs cpp .*GITHUB_STEP_SUMMARY/);
     assert.equal(field(report, 'if'), '${{ !cancelled() }}');
   }
-  assert.match(step(editor, 'Test'), /test:coverage/);
-  assert.equal(field(step(editor, 'Test'), 'id'), 'editor-tests');
-  for (const label of [
-    'Summarize editor coverage',
-    'Publish editor coverage to Codecov',
-    'Upload editor coverage',
-  ])
+  assert.match(step(editor, 'Test and instrument editor'), /test:coverage/);
+  assert.equal(field(step(editor, 'Test and instrument editor'), 'id'), 'editor-tests');
+  for (const label of ['Summarize editor coverage', 'Publish editor coverage to Codecov'])
     assert.match(field(step(editor, label), 'if'), /steps\.editor-tests\.outcome == 'success'/);
+  assert.equal(field(step(editor, 'Upload editor coverage'), 'if'), '${{ !cancelled() }}');
   assert.match(step(editor, 'Summarize editor coverage'), /coverage-summary\.mjs editor .*GITHUB_STEP_SUMMARY/);
   assert.match(step(native, 'Upload C++ coverage'), /name: noveltea-coverage-cpp/);
   assert.match(step(editor, 'Upload editor coverage'), /name: noveltea-coverage-editor/);
@@ -671,7 +676,7 @@ test('native build and release jobs verify the linked devtools capability matrix
 });
 
 test('native coverage stages verified FFmpeg for Feature Lab video preparation', () => {
-  const linux = job('linux');
+  const linux = coverageJob('native');
   const stage = step(linux, 'Stage pinned FFmpeg for Feature Lab');
   const tests = step(linux, 'Feature Lab authored Tests');
   // A failed C++ policy or CTest step must not suppress the media prerequisite
@@ -693,21 +698,21 @@ test('release editor consumers restore bundled FFmpeg executable permissions', (
 test('artifact consumers do not wait for unrelated test and cooperative build jobs', () => {
   assert.equal(field(job('editor'), 'needs'), '[linux-cli, web-preview]');
   assert.equal(field(job('android'), 'needs'), '[shader-assets, linux-cli]');
-  assert.equal(field(job('linux-cooperative'), 'needs'), 'shader-assets');
-  assert.equal(field(job('android-cooperative'), 'needs'), 'shader-assets');
+  assert.equal(field(extendedJob('linux-cooperative'), 'needs'), '[source, shader-assets]');
+  assert.equal(field(extendedJob('android-cooperative'), 'needs'), '[source, shader-assets]');
 });
 
 test('CI keeps shared-display CTest runs serial until their isolation is established', () => {
   assert.doesNotMatch(workflow, /CTEST_PARALLEL_LEVEL:/);
   for (const name of ['linux', 'linux-sanitize']) {
-    const commands = job(name).split('\n').filter((line) => line.includes('ctest --test-dir'));
+    const commands = (name === 'linux' ? job(name) : extendedJob(name)).split('\n').filter((line) => line.includes('ctest --test-dir'));
     assert.equal(commands.length, 2);
     for (const command of commands) assert.doesNotMatch(command, /--parallel|\s-j/);
   }
 });
 
 test('sanitizer native Agent Kit generation has installed Node workspace dependencies', () => {
-  const sanitizer = job('linux-sanitize');
+  const sanitizer = extendedJob('linux-sanitize');
   const node = step(sanitizer, 'Set up Node.js');
   const dependencies = step(sanitizer, 'Install workspace dependencies for native Agent Kit');
   const build = step(sanitizer, 'Build sanitizer targets');
@@ -978,7 +983,7 @@ test('Android libpng source is checksum-pinned for player-template provenance', 
 });
 
 test('sanitizer passes partition GPU smoke tests without disabling engine leak checks', () => {
-  const sanitizer = job('linux-sanitize');
+  const sanitizer = extendedJob('linux-sanitize');
   const strict = step(sanitizer, 'Run strict ASan, LeakSanitizer, UBSan, and parser fuzz smoke tests');
   const gpu = step(sanitizer, 'Run GPU smoke tests under ASan and UBSan');
   assert.equal(field(strict, 'ASAN_OPTIONS'), 'detect_leaks=1:halt_on_error=1');
@@ -1020,7 +1025,7 @@ test('CI leaves compile concurrency automatic while serializing heavyweight Linu
 
 
 test('Linux native coverage reserves runner disk before its instrumented build', () => {
-  const build = job('linux');
+  const build = coverageJob('native');
   const reclaim = step(build, 'Reclaim disk for native coverage build');
   assert.match(reclaim, /sudo rm -rf \/usr\/share\/dotnet \/usr\/local\/lib\/android/);
   assert.match(reclaim, /\/opt\/hostedtoolcache\/CodeQL/);
@@ -1061,12 +1066,12 @@ test('Linux packaged editor smoke uses an isolated X11 desktop and session bus',
 
 test('Android SDK installation retries a broken NDK archive without preserving incomplete packages', () => {
   const script = fileURLToPath(new URL('../../scripts/ci/install-android-sdk-packages.sh', import.meta.url));
-  const install = step(job('android-cooperative'), 'Install Android SDK packages');
+  const install = step(extendedJob('android-cooperative'), 'Install Android SDK packages');
   assert.match(install, /scripts\/ci\/install-android-sdk-packages\.sh/);
   assert.equal(
-    workflow.match(/run: scripts\/ci\/install-android-sdk-packages\.sh/g)?.length,
+    (workflow + extendedWorkflow).match(/run: scripts\/ci\/install-android-sdk-packages\.sh/g)?.length,
     2,
-    'Android and coverage jobs share the same archive integrity policy',
+    'Android and Extended jobs share the same archive integrity policy',
   );
   const root = mkdtempSync(path.join(tmpdir(), 'noveltea-android-sdk-retry-'));
   try {
