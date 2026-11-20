@@ -179,15 +179,55 @@ lived Gradle dependency caches. Synthetic Release packaging now also tests
 Linux/Windows/macOS executable and detached-symbol SHA-256 identity and
 archive shape. This cohort cannot qualify if Build remains unsuccessful.
 
-The next cohort must rerun the complete Build, Coverage and Extended workflows
-on a **new, identical exact source SHA**, followed by the full manual
-nonpublishing Release. Running or cancelled cohorts do not count as success.
+Observed second-cohort per-compiler timing, **not** a certified warm Build
+sample: [Linux standard player job #136186930301](https://github.com/Cruel/nt/actions/runs/44706213718/job/136186930301)
+compiled for 1,582.906 s (26.38 min) with **87/1,892 cache hits (4.60%)**;
+[Linux devtools player job #136186930112](https://github.com/Cruel/nt/actions/runs/44706213718/job/136186930112)
+compiled for 332.146 s (5.54 min) with **1,982/3,800 hits (52.16%)**.
+These rates come from actual `ccache --show-stats` output, not cache-action
+hit/miss values. They illustrate cold vs partially warm behavior but do not
+satisfy the post-cutover p50/p90/5-sample target.
+
+The second campaign completed red with **7 failed Build jobs** and
+**Editor V8 coverage failing 1 of 2,774 tests**. Extended correctly refused
+qualification because Build failed. The failures and repairs are recorded in
+[#646's hosted investigation](https://github.com/Cruel/nt/issues/646#issuecomment-7046703540).
+
+The next revision contains targeted source fixes, **not yet hosted-certified**:
+
+- macOS CLI malformed managed marker negative: a structured `malformed` status
+  stops mutation before an exception crosses the native CLI execution boundary;
+  both `repair project` and `agent sync --fix` return the documented exit 5.
+- Debian 12 container: authorize **only** `$GITHUB_WORKSPACE` as a Git safe
+  directory, then verify its canonical root and checked-out commit against
+  `GITHUB_SHA` before the Build candidate producer runs.
+- Windows native CLI and player candidates: bind Release mode during Ninja
+  configuration and, if cache build type is absent, independently require
+  effective optimized `build.ninja` C++ compile flags and NDEBUG. Never infer
+  Release solely from the candidate name; Debug or unverifiable builds fail.
+- Windows notice cache: retain warm external-stage reuse only when an
+  independently observed NTFS notice-file change-time fence also matches;
+  restored-mtime writes must invalidate the stage and run the original notice
+  validation rather than satisfying the stale source-revision hint.
+- Editor Vitest: native Project handoff waits for worker exit and serialized
+  runtime-cache cleanup before callers remove Project files; its 1/2,774
+  `ENOTEMPTY` cleanup race is not hidden by a test skip or blanket retry.
+- Extended: failed source/Build admission skips receipt sealing instead of
+  generating a secondary empty-SHA error. Failure still blocks release.
+
+Local verification: **184/184 CI contract tests**, Editor TypeScript
+`tsc --noEmit`, targeted Editor handoff/controller tests, the locally rebuilt
+native CLI repair-project negative suite, and native portable-validation cache
+certification passed. Windows/macOS-specific behavior must still pass their
+real hosted suites. The next campaign must rerun complete Build, Coverage and
+Extended on a **new identical source SHA**, then full manual nonpublishing
+Release. Failed or cancelled cohorts do not count as successful qualification.
 
 ## Current evidence and limitations
 
-- Local complete CI contracts: all tests except native coverage's external
-  `uv` dependency pass in this checkout; GitHub CI installs `uv` through
-  pinned `astral-sh/setup-uv`.
+- Local complete CI contracts: **184/184 pass**, including the native coverage
+  fixture via the installed `/home/thomas/.local/bin/uv`. GitHub CI provisions
+  `uv` via pinned `astral-sh/setup-uv`.
 - Authenticated GitHub inspection of branch protection/rulesets performed;
   current protected status inventory: none.
 - 2026-11-20 initial Actions cache sample:

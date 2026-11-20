@@ -105,6 +105,9 @@ run(cmake, [
   preset,
   '-G',
   'Ninja',
+  // Bind the configured candidate mode, rather than relying on a default
+  // that can differ across Windows runner CMake configurations.
+  '-DCMAKE_BUILD_TYPE=Release',
   '-DBUILD_TESTING=OFF',
   '-DNOVELTEA_BUILD_HOST_TOOLS=ON',
   '-DNOVELTEA_COMPILE_SHADERS=OFF',

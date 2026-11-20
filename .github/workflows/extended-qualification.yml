@@ -892,7 +892,8 @@ jobs:
 
   qualification:
     name: Seal exact-SHA Extended Qualification receipt
-    if: always()
+    # Failed source authorization has no SHA or trusted Build identity to seal.
+    if: ${{ always() && needs.source.result == 'success' }}
     needs: [source, shader-assets, linux-cooperative, linux-sanitize, windows-stress, windows-worker-stress, web-benchmark, android-cooperative, android-emulator, native-cli-performance]
     runs-on: ubuntu-24.04
     timeout-minutes: 10

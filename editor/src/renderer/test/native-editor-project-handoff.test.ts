@@ -76,6 +76,36 @@ describe('native-only Project handoff keeps independent workers', () => {
     }
   });
 
+  it('waits for native worker termination, not just publication drain, before removing Project files', async () => {
+    const root = await projectRoot();
+    const sessions = new ActiveProjectSessionService();
+    const first = controller('terminating');
+    let releaseWorker: () => void = () => {};
+    const terminated = new Promise<void>((resolve) => { releaseWorker = resolve; });
+    const worker = Object.assign(first, {
+      waitForPublicationDrain: vi.fn(async () => undefined),
+      waitForShutdown: vi.fn(() => terminated),
+    });
+    const handoff = new NativeEditorProjectHandoff(sessions, () => worker);
+    try {
+      expect((await handoff.open(root)).success).toBe(true);
+      let closed = false;
+      const closing = handoff.close().then(() => { closed = true; });
+      await Promise.resolve();
+      expect(first.dispose).toHaveBeenCalledOnce();
+      expect(closed).toBe(false);
+      expect(worker.waitForShutdown).toHaveBeenCalledOnce();
+      releaseWorker();
+      await closing;
+      expect(closed).toBe(true);
+    } finally {
+      releaseWorker();
+      await handoff.close();
+      sessions.dispose();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('preserves the incumbent worker and Project when the candidate is invalid', async () => {
     const roots = [await projectRoot(), await projectRoot()];
     const sessions = new ActiveProjectSessionService();

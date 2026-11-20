@@ -2818,6 +2818,22 @@ int run(const std::vector<std::string>& argv)
             const bool fix = args.command.size() == 3;
             try {
                 const auto synced = sync_native_agent_kit(root, fix);
+                if (fix && synced.bootstrap_status == "malformed") {
+                    auto warning =
+                        diagnostic("AGENT_BOOTSTRAP_MANUAL_REPAIR_REQUIRED", "/AGENTS.md",
+                                   "NovelTea managed AGENTS.md markers are malformed and require "
+                                   "manual repair.");
+                    warning["severity"] = "warning";
+                    return emit({{"success", false},
+                                 {"exitCode", 5},
+                                 {"diagnostics", Json::array({warning})},
+                                 {"projectRoot", root_text},
+                                 {"agentBootstrapStatus", "malformed"},
+                                 {"agentBootstrapChanged", false}},
+                                args.json,
+                                "NovelTea managed AGENTS.md markers require manual repair. "
+                                "Remove or repair the markers, then retry.");
+                }
                 Json diagnostics = Json::array();
                 if (!fix && synced.bootstrap_status != "current") {
                     const std::string code = synced.bootstrap_status == "missing"
@@ -2861,23 +2877,6 @@ int run(const std::vector<std::string>& argv)
                                 ? "NovelTea agent sync succeeded and repaired AGENTS.md."
                                 : "NovelTea agent sync succeeded.");
             } catch (const std::exception& error) {
-                if (fix && std::string_view(error.what())
-                               .starts_with("NovelTea managed AGENTS.md markers are malformed")) {
-                    auto warning =
-                        diagnostic("AGENT_BOOTSTRAP_MANUAL_REPAIR_REQUIRED", "/AGENTS.md",
-                                   "NovelTea managed AGENTS.md markers are malformed and require "
-                                   "manual repair.");
-                    warning["severity"] = "warning";
-                    return emit({{"success", false},
-                                 {"exitCode", 5},
-                                 {"diagnostics", Json::array({warning})},
-                                 {"projectRoot", root_text},
-                                 {"agentBootstrapStatus", "malformed"},
-                                 {"agentBootstrapChanged", false}},
-                                args.json,
-                                warning.at("message").get<std::string>() +
-                                    " Remove or repair the markers, then retry.");
-                }
                 return emit({{"success", false},
                              {"exitCode", 5},
                              {"diagnostics", Json::array({diagnostic("AGENT_SYNC_MUTATION_FAILED",
@@ -2965,6 +2964,21 @@ int run(const std::vector<std::string>& argv)
                             "Explicit authorization is required for this weak candidate.");
             try {
                 const auto synced = sync_native_agent_kit(root, true);
+                if (synced.bootstrap_status == "malformed")
+                    return emit(
+                        {{"success", false},
+                         {"exitCode", 5},
+                         {"diagnostics", Json::array({diagnostic(
+                                             "AGENT_BOOTSTRAP_MANUAL_REPAIR_REQUIRED", "/AGENTS.md",
+                                             "NovelTea managed AGENTS.md markers are malformed and "
+                                             "require manual repair.")})},
+                         {"projectRoot", root_text},
+                         {"candidateRecognition", evidence.recognition},
+                         {"candidateEvidence", evidence.sources},
+                         {"agentBootstrapChanged", false}},
+                        args.json,
+                        "NovelTea managed AGENTS.md markers are malformed and require manual "
+                        "repair.");
                 Json diagnostics = Json::array();
                 if (evidence.newer_workspace_version) {
                     auto warning = diagnostic(
@@ -2998,21 +3012,15 @@ int run(const std::vector<std::string>& argv)
                              {"agentManifestPath", path_text(synced.manifest)}},
                             args.json, "NovelTea Project Candidate prepared for manual/AI repair.");
             } catch (const std::exception& error) {
-                const bool markers =
-                    std::string_view(error.what())
-                        .starts_with("NovelTea managed AGENTS.md markers are malformed");
-                return emit(
-                    {{"success", false},
-                     {"exitCode", 5},
-                     {"diagnostics",
-                      Json::array({diagnostic(markers ? "AGENT_BOOTSTRAP_MANUAL_REPAIR_REQUIRED"
-                                                      : "REPAIR_PREPARATION_FAILED",
-                                              markers ? "/AGENTS.md" : "/", error.what())})},
-                     {"projectRoot", root_text},
-                     {"candidateRecognition", evidence.recognition},
-                     {"candidateEvidence", evidence.sources},
-                     {"agentBootstrapChanged", false}},
-                    args.json, error.what());
+                return emit({{"success", false},
+                             {"exitCode", 5},
+                             {"diagnostics", Json::array({diagnostic("REPAIR_PREPARATION_FAILED",
+                                                                     "/", error.what())})},
+                             {"projectRoot", root_text},
+                             {"candidateRecognition", evidence.recognition},
+                             {"candidateEvidence", evidence.sources},
+                             {"agentBootstrapChanged", false}},
+                            args.json, error.what());
             }
         }
         if (family == "daemon") {

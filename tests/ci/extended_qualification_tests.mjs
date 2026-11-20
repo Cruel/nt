@@ -109,7 +109,7 @@ test('the Extended job inventory remains complete with a narrowly scoped premerg
   assert.deepEqual(extended.on.push.paths, ['docs/build/ATOMIC_CUTOVER_ACCEPTANCE.md']);
   assert.deepEqual(new Set(Object.keys(extended.jobs)), new Set([...contract.jobs, 'qualification']));
   const seal = extended.jobs.qualification;
-  assert.equal(seal.if, 'always()');
+  assert.equal(seal.if, "${{ always() && needs.source.result == 'success' }}");
   assert.deepEqual(new Set(seal.needs), new Set(contract.jobs));
   const receipt = seal.steps.find((step) =>
     step.run?.includes('extended-qualification.mjs receipt'));

@@ -459,11 +459,15 @@ export class NativeEditorSessionController {
     this.projectIdentity = null;
     this.recoveredProject = null;
     this.recoveryFailure = null;
-    this.publicationDrain = Promise.all([this.publicationDrain, drainPublication]).then(() => {
+    this.publicationDrain = Promise.all([this.publicationDrain, drainPublication]).then(async () => {
       this.bridge.close();
-      void this.runtimeCache.clear().catch((error) => {
+      // Teardown cannot leave an untracked cache deletion racing a caller
+      // removing the Project after close()/waitForShutdown() resolves.
+      try {
+        await this.runtimeCache.clear();
+      } catch (error) {
         console.error('Failed to release native Project runtime cache:', error);
-      });
+      }
     });
   }
 
@@ -1636,10 +1640,17 @@ export class NativeEditorSessionController {
   /** Fully retire the Project before the caller deletes or reuses its source tree.
    * Synchronous dispose() revokes authority immediately but cannot wait for
    * an in-flight working-source publication or native worker termination. */
-  async disposeAndWait(): Promise<void> {
-    this.dispose();
+  async waitForShutdown(): Promise<void> {
     await this.waitForPublicationDrain();
+    // A resolved publication drain only means that the worker was asked to
+    // close. The worker can still write .noveltea/cache while terminating;
+    // callers deleting/reusing the Project must wait for its actual exit.
     await this.bridge.closeAndWait?.();
     await this.runtimeCache.clear();
+  }
+
+  async disposeAndWait(): Promise<void> {
+    this.dispose();
+    await this.waitForShutdown();
   }
 }

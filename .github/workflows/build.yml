@@ -1363,6 +1363,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+      - name: Authorize exact checked-out source for Git inside the Debian container
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          test "$(git rev-parse --show-toplevel)" = "$GITHUB_WORKSPACE"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
       - name: Set up Debian 12 native host dependencies
         uses: ./.github/actions/setup-linux-native
         with:
@@ -1813,6 +1818,7 @@ jobs:
           }
           $hostTools = if ("${{ matrix.platform }}" -eq "windows") { "ON" } else { "OFF" }
           cmake --preset ${{ matrix.preset }} -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
             -DNOVELTEA_BUILD_HOST_TOOLS=$hostTools `
             -DNOVELTEA_COMPILE_SHADERS=OFF `
             -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" `

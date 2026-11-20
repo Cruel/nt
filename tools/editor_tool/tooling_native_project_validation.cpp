@@ -33,9 +33,18 @@
 #include <string_view>
 #include <vector>
 
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <Windows.h>
+#endif
+
 namespace {
 using Json = nlohmann::json;
 using noveltea::authoring::ProjectSession;
+
+bool notice_fences_current(const Json& projection, const std::filesystem::path& root);
 
 void trace_native_validation(const char* stage)
 {
@@ -374,7 +383,8 @@ bool restore_stages(OwnerValidation& state, std::string_view serialized, Json& r
             !state.material_records || !state.material_assets ||
             state.material_sources != material_source_revisions(current) ||
             !state.portable_check->matches_portable(current) ||
-            !state.notice_check->matches(current))
+            !state.notice_check->matches(current) ||
+            !notice_fences_current(state.notice_check->inputs, state.root))
             return false;
         result["fontCoverageInputs"] = *state.font_inputs;
         result["materialCompilerPrograms"] = state.material_programs;
@@ -690,7 +700,63 @@ Json portable_inputs(const Json& project)
     return result;
 }
 
-Json notice_inputs(const Json& project)
+// Windows USN notifications can lag behind an immediately restored-mtime
+// rewrite. A cheap independent NTFS change-time fence prevents stale notice
+// stage hits, without rereading up to 512 x 1 MiB notices on each warm call.
+// The validated notice stage still reads and checks exact bytes on every miss.
+#if defined(_WIN32)
+std::string windows_notice_change_time(const std::filesystem::path& path)
+{
+    const HANDLE handle = CreateFileW(path.c_str(), FILE_READ_ATTRIBUTES,
+                                      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                                      nullptr, OPEN_EXISTING, 0, nullptr);
+    if (handle == INVALID_HANDLE_VALUE)
+        return "unreadable";
+    FILE_BASIC_INFO info{};
+    const bool ok = GetFileInformationByHandleEx(handle, FileBasicInfo, &info, sizeof(info)) != 0;
+    CloseHandle(handle);
+    return ok ? std::to_string(info.ChangeTime.QuadPart) : "unreadable";
+}
+
+Json windows_notice_fences(const Json& projection, const std::filesystem::path& root)
+{
+    Json fences = Json::object();
+    const auto add = [&](const Json& notice) {
+        if (!notice.is_object() || !notice.contains("path") || !notice.at("path").is_string())
+            return;
+        const auto relative = notice.at("path").get<std::string>();
+        const auto path = std::filesystem::path(relative);
+        if (!relative.empty() && !path.is_absolute() && path == path.lexically_normal() &&
+            relative.find_first_of(":\\") == std::string::npos)
+            fences[relative] = windows_notice_change_time(root / path);
+    };
+    for (const auto& notice : projection.at("settings"))
+        add(notice);
+    for (const auto& [_, entries] : projection.at("assets").items())
+        for (const auto& notice : entries)
+            add(notice);
+    return fences;
+}
+#endif
+
+bool notice_fences_current(const Json& projection, const std::filesystem::path& root)
+{
+#if defined(_WIN32)
+    if (!projection.contains("windowsChangeStamps") ||
+        projection.at("windowsChangeStamps") != windows_notice_fences(projection, root))
+        return false;
+    for (const auto& [_, stamp] : projection.at("windowsChangeStamps").items())
+        if (stamp == "unreadable")
+            return false;
+    return true;
+#else
+    (void)projection;
+    (void)root;
+    return true;
+#endif
+}
+
+Json notice_inputs(const Json& project, const std::filesystem::path& root)
 {
     Json result = Json::object();
     const Json empty = Json::object();
@@ -706,6 +772,11 @@ Json notice_inputs(const Json& project)
                 attachment.value("purpose", std::string{}) == "distribution-notice")
                 result["assets"][id].push_back(attachment);
     }
+#if defined(_WIN32)
+    result["windowsChangeStamps"] = windows_notice_fences(result, root);
+#else
+    (void)root;
+#endif
     return result;
 }
 
@@ -1579,11 +1650,12 @@ Json validate(std::string_view request_text)
                 noveltea::authoring::ScopedValidationStageTime<
                     noveltea::authoring::WorkCounter::NoticeInputPreparationMicros>
                     timed;
-                return notice_inputs(admitted);
+                return notice_inputs(admitted, root);
             }();
             const bool notice_reuse =
                 state.notice_check &&
                 state.notice_check->matches(state.session->verified_source_revisions_view()) &&
+                notice_fences_current(state.notice_check->inputs, root) &&
                 state.notice_check->inputs == notice_key;
             result["work"]["noticeValidationReuses"] = notice_reuse ? 1 : 0;
             if (!notice_reuse) {

@@ -516,9 +516,12 @@ AgentSyncResult sync_native_agent_kit(const fs::path& root, bool fix)
     const auto agents =
         is_file(agents_path) ? std::optional(read_file(agents_path)) : std::optional<std::string>{};
     result.bootstrap_status = inspect_bootstrap(agents ? &*agents : nullptr);
+    // An invalid managed block is an expected user-file rejection, not a
+    // native exception. Return before creating directories or replacing any
+    // Agent Kit files; the public CLI reports the structured manual-repair
+    // diagnostic from this inspected status on every supported host.
     if (fix && result.bootstrap_status == "malformed")
-        throw std::runtime_error(
-            "NovelTea managed AGENTS.md markers are malformed and require manual repair.");
+        return result;
     const auto revised =
         fix ? repair_bootstrap(agents ? &*agents : nullptr, result.bootstrap_status)
             : std::string{};
