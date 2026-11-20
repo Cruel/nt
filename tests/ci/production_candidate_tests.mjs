@@ -160,6 +160,36 @@ test('diagnostic Android native binaries cannot be promoted as release candidate
   await assert.rejects(verifyCandidate(manifest, config), /target|architecture/i);
 });
 
+test('Android Gradle release candidate records actual optimized NDK compile commands, not empty cache flags', async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'nt-android-gradle-compiler-'));
+  temp.push(base);
+  await mkdir(path.join(base, 'CMakeFiles', '3.31.6'), { recursive: true });
+  await writeFile(path.join(base, 'CMakeCache.txt'),
+    'CMAKE_CXX_COMPILER:FILEPATH=/opt/android/clang++\n' +
+    'CMAKE_BUILD_TYPE:STRING=RelWithDebInfo\n' +
+    'CMAKE_CXX_FLAGS_RELWITHDEBINFO:STRING=\n');
+  await writeFile(path.join(base, 'CMakeFiles', '3.31.6', 'CMakeCXXCompiler.cmake'),
+    'set(CMAKE_CXX_COMPILER_ID "Clang")\nset(CMAKE_CXX_COMPILER_VERSION "19.1.0")\n');
+  const candidate = {
+    kind: 'android-template', id: 'android-player-arm64-release',
+    target: 'android-arm64-v8a', compilerId: 'Clang',
+    preset: 'android-arm64-release',
+  };
+  const commands = [{ file: '/source/engine/src/core/compiled_project.cpp',
+    command: '/opt/android/clang++ --target=aarch64-none-linux-android24 -O2 -g -DNDEBUG -c compiled_project.cpp' }];
+  const setCommands = (items) => writeFile(path.join(base, 'compile_commands.json'), JSON.stringify(items));
+  await setCommands(commands);
+  const compiler = await compilerFromCmake(base, candidate);
+  assert.equal(compiler.buildType, 'RelWithDebInfo');
+  assert.match(compiler.flags, /-O2 -DNDEBUG/);
+  await setCommands([{ ...commands[0], command: commands[0].command.replace('-O2', '-O0') }]);
+  await assert.rejects(compilerFromCmake(base, candidate), /actually compile optimized/i);
+  await setCommands([{ ...commands[0], command: commands[0].command.replace('aarch64', 'x86_64') }]);
+  await assert.rejects(compilerFromCmake(base, candidate), /compiled ABI or minimum API/i);
+  await setCommands([{ ...commands[0], command: commands[0].command.replace('android24', 'android23') }]);
+  await assert.rejects(compilerFromCmake(base, candidate), /compiled ABI or minimum API/i);
+});
+
 test('CMake compiler records read flags from the actual configured optimization mode', async () => {
   const base = await mkdtemp(path.join(os.tmpdir(), 'nt-cmake-compiler-'));
   temp.push(base);

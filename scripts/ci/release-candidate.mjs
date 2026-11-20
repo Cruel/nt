@@ -112,21 +112,35 @@ function validateCompiler(compiler, candidate) {
   demand(/^\d+(?:\.\d+)+$/.test(compiler.version), 'Compiler version is missing or unpinned.');
   compare('compiler preset', compiler.preset, candidate.preset);
   demand(typeof compiler.toolchain === 'string' && compiler.toolchain.length > 0, 'Toolchain identity is missing.');
+  const android = candidate.kind === 'android-template';
   const buildType = candidate.buildType ?? 'Release';
-  compare('compiler build type', compiler.buildType, buildType);
+  if (android && candidate.tier !== 'diagnostic') {
+    demand(['Release', 'RelWithDebInfo', 'MinSizeRel'].includes(compiler.buildType),
+      'Android production candidate must use an optimized native CMake configuration.');
+  } else {
+    compare('compiler build type', compiler.buildType, buildType);
+  }
   if (candidate.tier === 'diagnostic') {
     demand(buildType === 'Debug', 'Diagnostic candidates must be Debug builds.');
     demand(typeof compiler.flags === 'string' && !compiler.flags.includes('-DNDEBUG') &&
       !compiler.flags.includes('/DNDEBUG'), 'Debug candidate must not be an optimized release.');
   } else {
-    demand(['Release', 'MinSizeRel'].includes(buildType), 'Production candidates must be optimized.');
+    demand(android || ['Release', 'MinSizeRel'].includes(buildType),
+      'Production candidates must be optimized.');
   }
   const expectedOptimization = candidate.optimization ??
     (candidate.compilerId === 'MSVC' ? '/O2' : buildType === 'MinSizeRel' ? '-Os' : '-O3');
   if (candidate.tier !== 'diagnostic') {
-    demand(typeof compiler.flags === 'string' && compiler.flags.includes(expectedOptimization) &&
-      (compiler.flags.includes('-DNDEBUG') || compiler.flags.includes('/DNDEBUG')),
-      `Optimized compiler flags are required: ${expectedOptimization} and NDEBUG.`);
+    if (android) {
+      const optimization = compiler.flags?.match(/(?:^|\s)-O(?:[0-3sz])(?=\s|$)/g)?.at(-1)?.trim();
+      demand(['-O2', '-O3', '-Os', '-Oz'].includes(optimization) &&
+        compiler.flags.includes('-DNDEBUG'),
+        'Android native player must actually compile optimized with NDEBUG.');
+    } else {
+      demand(typeof compiler.flags === 'string' && compiler.flags.includes(expectedOptimization) &&
+        (compiler.flags.includes('-DNDEBUG') || compiler.flags.includes('/DNDEBUG')),
+        `Optimized compiler flags are required: ${expectedOptimization} and NDEBUG.`);
+    }
   }
   if (candidate.compilerVersion) compare('compiler version', compiler.version, candidate.compilerVersion);
   if (candidate.compilerFlags) compare('compiler flags', compiler.flags, candidate.compilerFlags);
@@ -309,12 +323,29 @@ export function compilerFromCmake(buildDirectory, candidate) {
     const identification = await readFile(path.join(buildDirectory, 'CMakeFiles', versionDir, 'CMakeCXXCompiler.cmake'), 'utf8');
     const id = /set\(CMAKE_CXX_COMPILER_ID "([^"]+)"\)/.exec(identification)?.[1];
     const version = /set\(CMAKE_CXX_COMPILER_VERSION "([^"]+)"\)/.exec(identification)?.[1];
+    // Android Gradle may configure Release or RelWithDebInfo with an empty
+    // CMAKE_CXX_FLAGS_RELEASE. The actual C++ invocation is authoritative for
+    // its ABI/API and optimization; checking only the preset flags is unsafe.
+    let actualAndroidFlags;
+    if (candidate.kind === 'android-template') {
+      const compileCommands = JSON.parse(await readFile(
+        path.join(buildDirectory, 'compile_commands.json'), 'utf8'));
+      const command = compileCommands.find((entry) =>
+        /[/\\]engine[/\\]src[/\\]core[/\\]/.test(entry.file) &&
+        typeof entry.command === 'string')?.command;
+      demand(command, 'Android native build lacks real engine compilation commands.');
+      const target = candidate.target === 'android-x86_64' ? 'x86_64' : 'aarch64';
+      demand(command.includes(`--target=${target}-none-linux-android24`),
+        'Android compiled ABI or minimum API does not match the candidate.');
+      actualAndroidFlags = command.match(/(?:^|\s)(?:-O[0-3sz]|-DNDEBUG|--target=[^\s]+)/g)
+        ?.map((flag) => flag.trim()).join(' ') ?? '';
+    }
     const compiler = {
       id,
       version,
       toolchain: values.CMAKE_CXX_COMPILER,
       buildType: values.CMAKE_BUILD_TYPE,
-      flags: values[`CMAKE_CXX_FLAGS_${values.CMAKE_BUILD_TYPE?.toUpperCase()}`],
+      flags: actualAndroidFlags ?? values[`CMAKE_CXX_FLAGS_${values.CMAKE_BUILD_TYPE?.toUpperCase()}`],
       preset: candidate.preset,
     };
     validateCompiler(compiler, candidate);

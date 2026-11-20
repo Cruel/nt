@@ -63,7 +63,10 @@ export async function stageEditorCandidate({
     await copyFile(entry.source, path.join(root, 'packages', entry.fileName));
   }
   const primary = checked[0];
-  await copyFile(primary.source, path.join(root, candidate.executable));
+  // The primary installer is already present under packages/. Keep only a
+  // small identity pointer, not a second copy of potentially large installers.
+  await writeFile(path.join(root, candidate.executable),
+    `${primary.fileName}\n${primary.sha256}\n`);
   await writeFile(path.join(root, 'editor-distribution.json'), JSON.stringify({
     format: 'noveltea-editor-candidate-distribution',
     version: 1, platform, arch, releaseTag,

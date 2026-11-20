@@ -90,6 +90,11 @@ artifact paths/names for workflow configuration) and `produce`/`verify`
 ELF, Mach-O, WebAssembly and Android ELF ABI identity, configured compiler
 and optimization mode (including Web MinSizeRel and MSVC), and a complete
 artifact byte inventory; diagnostic Android Debug cannot be promoted.
+For Android, Gradle may choose `Release`, `RelWithDebInfo` or `MinSizeRel`
+for its optimized native build. The candidate validator inspects real engine
+compiler commands for NDEBUG, effective -O2/-O3/-Os/-Oz optimization and the
+ABI/API 24 target; it does not assume CMake's desktop `-O3` Release flags.
+Debug or unoptimized Android native compilation cannot be promoted.
 Each producer also records bounded compilation timings and variant-isolated
 compiler-cache scopes. The dependent `production-desktop-launch-smoke` matrix
 independently downloads both the exact manifest-qualified player template and

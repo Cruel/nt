@@ -37,7 +37,9 @@ test('Editor candidate stages the exact verified multi-installer distribution se
   assert.deepEqual(manifest.artifacts.map((entry) => entry.fileName).sort(),
     ['NovelTea.AppImage', 'NovelTea.deb', 'NovelTea.rpm'].sort());
   assert.equal(manifest.releaseTag, args.releaseTag);
-  assert.equal((await readFile(path.join(dest, 'editor-package'))).length, 54);
+  const identity = (await readFile(path.join(dest, 'editor-package'), 'utf8')).trim().split('\n');
+  assert.deepEqual(identity, [manifest.primary, manifest.artifacts.find((entry) =>
+    entry.fileName === manifest.primary).sha256]);
   assert.equal((await readFile(path.join(dest, 'packages', 'NovelTea.deb'))).length, 54);
 });
 
