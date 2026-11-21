@@ -8,6 +8,9 @@
 #include <nlohmann/json.hpp>
 #if defined(_WIN32)
 #include <jsoncons/json.hpp>
+#if defined(NOVELTEA_DAEMON_TEST_SUPPORT)
+#include <future>
+#endif
 #endif
 
 #include <algorithm>
@@ -64,6 +67,9 @@ namespace {
 using Json = nlohmann::json;
 using Clock = std::chrono::steady_clock;
 using IoDeadline = std::optional<Clock::time_point>;
+#if defined(_WIN32) && defined(NOVELTEA_DAEMON_TEST_SUPPORT)
+std::atomic<bool> test_named_pipe_write_pending{false};
+#endif
 constexpr std::string_view completion_frame_limit_error =
     "daemon completion exceeds the transport frame limit";
 
@@ -559,6 +565,10 @@ bool overlapped_transfer(ConnectionHandle connection, bool reading, std::uint8_t
         CloseHandle(operation.hEvent);
         return false;
     }
+#if defined(NOVELTEA_DAEMON_TEST_SUPPORT)
+    if (!reading)
+        test_named_pipe_write_pending.store(true, std::memory_order_release);
+#endif
     const auto wait = WaitForSingleObject(
         operation.hEvent, deadline ? remaining_windows_timeout(*deadline) : INFINITE);
     if (wait != WAIT_OBJECT_0) {
@@ -684,27 +694,47 @@ struct ClientConnection {
     bool send(std::string_view payload)
     {
         std::scoped_lock lock(write_mutex);
-        return handle != invalid_connection && send_payload(handle, payload);
+#if defined(_WIN32)
+        if (closing.load(std::memory_order_acquire))
+            return false;
+#endif
+        const auto connection = handle.load(std::memory_order_relaxed);
+        return connection != invalid_connection && send_payload(connection, payload);
     }
 
     void close(bool drain_response = false)
     {
+#if defined(_WIN32)
+        // A non-reading owner/control client can leave send_payload blocked in
+        // overlapped WriteFile while holding write_mutex. Cancel that I/O BEFORE
+        // acquiring the mutex, or graceful stop can wait forever for the write
+        // that only close() can interrupt. Publish closing first so no writer
+        // can start new I/O after cancellation. Only the first close owns the
+        // handle until it is invalidated under write_mutex.
+        if (!closing.exchange(true, std::memory_order_acq_rel) && !drain_response) {
+            const auto connection = handle.load(std::memory_order_acquire);
+            if (connection != invalid_connection)
+                (void)CancelIoEx(connection, nullptr);
+        }
+#endif
         std::scoped_lock lock(write_mutex);
-        if (handle == invalid_connection)
+        const auto previous = handle.exchange(invalid_connection, std::memory_order_acq_rel);
+        if (previous == invalid_connection)
             return;
-        const auto previous = handle;
-        handle = invalid_connection;
         close_connection(previous, drain_response);
     }
 
     ConnectionHandle current() const
     {
         std::scoped_lock lock(write_mutex);
-        return handle;
+        return handle.load(std::memory_order_relaxed);
     }
 
     mutable std::mutex write_mutex;
-    ConnectionHandle handle = invalid_connection;
+    std::atomic<ConnectionHandle> handle{invalid_connection};
+#if defined(_WIN32)
+    std::atomic<bool> closing{false};
+#endif
 };
 
 struct QueuedRequest {
@@ -6052,6 +6082,71 @@ std::uint64_t write_response(const Json& result, std::uint8_t* response,
 
 } // namespace
 
+#if defined(_WIN32) && defined(NOVELTEA_DAEMON_TEST_SUPPORT)
+// The production named-pipe writer uses the same ClientConnection. Force a
+// pending overlapped WriteFile by leaving the client unread with a tiny pipe
+// quota. Close must cancel the write before waiting for its mutex, without a
+// retry, timeout increase, or a process-kill fallback.
+bool test_close_cancels_blocked_named_pipe_write()
+{
+    const auto name = std::wstring(L"\\\\.\\pipe\\NovelTea-close-test-") +
+                      std::to_wstring(GetCurrentProcessId()) + L"-" +
+                      std::to_wstring(GetTickCount64());
+    const auto pipe = CreateNamedPipeW(
+        name.c_str(), PIPE_ACCESS_OUTBOUND | FILE_FLAG_OVERLAPPED,
+        PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS, 1,
+        4096, 4096, 0, nullptr);
+    if (pipe == INVALID_HANDLE_VALUE)
+        return false;
+    const auto reader = CreateFileW(name.c_str(), GENERIC_READ, 0, nullptr, OPEN_EXISTING,
+                                    FILE_FLAG_OVERLAPPED, nullptr);
+    if (reader == INVALID_HANDLE_VALUE) {
+        CloseHandle(pipe);
+        return false;
+    }
+    OVERLAPPED connect{};
+    connect.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (connect.hEvent == nullptr) {
+        CloseHandle(reader);
+        CloseHandle(pipe);
+        return false;
+    }
+    const auto connected = ConnectNamedPipe(pipe, &connect);
+    const auto connect_error = connected ? ERROR_SUCCESS : GetLastError();
+    CloseHandle(connect.hEvent);
+    if (!connected && connect_error != ERROR_PIPE_CONNECTED) {
+        CloseHandle(reader);
+        CloseHandle(pipe);
+        return false;
+    }
+
+    ClientConnection writer(pipe);
+    const std::string payload(2 * 1024 * 1024, 'x');
+    test_named_pipe_write_pending.store(false, std::memory_order_release);
+    auto send = std::async(std::launch::async, [&] { return writer.send(payload); });
+    const auto deadline = Clock::now() + std::chrono::seconds(3);
+    while (!test_named_pipe_write_pending.load(std::memory_order_acquire) &&
+           send.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready &&
+           Clock::now() < deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    // Observe the actual WriteFile(ERROR_IO_PENDING) transition; a scheduler
+    // delay before the writer starts is not sufficient evidence of backpressure.
+    const auto pending = test_named_pipe_write_pending.load(std::memory_order_acquire) &&
+                         send.wait_for(std::chrono::milliseconds(0)) ==
+                             std::future_status::timeout;
+    auto close = std::async(std::launch::async, [&] { writer.close(); });
+    const auto cancelled = close.wait_for(std::chrono::seconds(3)) ==
+                           std::future_status::ready;
+    if (!cancelled)
+        CloseHandle(reader); // Ensure a broken implementation can unwind, not hang the suite.
+    close.wait();
+    const auto succeeded = send.get();
+    if (cancelled)
+        CloseHandle(reader);
+    return pending && cancelled && !succeeded;
+}
+#endif
+
 struct ProjectSnapshotStore::Impl {
     struct StoredSnapshot {
         std::string canonical_root;
@@ -6929,6 +7024,7 @@ extern "C" std::uint64_t noveltea_tooling_daemon_json(const std::uint8_t* reques
         const bool was_running = before_stop.value("running", false);
 #if defined(_WIN32)
         HANDLE daemon_handle = nullptr;
+        DWORD daemon_process_id = 0;
         if (was_running) {
             if (!before_stop.contains("pid") || !before_stop["pid"].is_number_unsigned() ||
                 before_stop["pid"].get<std::uint64_t>() == 0 ||
@@ -6938,6 +7034,7 @@ extern "C" std::uint64_t noveltea_tooling_daemon_json(const std::uint8_t* reques
             // Acquire the process handle before requesting stop: a named pipe can disappear
             // before the broker exits, and a later PID lookup could refer to another process.
             const auto daemon_pid = static_cast<DWORD>(before_stop["pid"].get<std::uint64_t>());
+            daemon_process_id = daemon_pid;
             // Native broker tests run the server inside this process. Waiting for
             // our own process to exit would deadlock every in-process stop.
             if (daemon_pid != GetCurrentProcessId())
@@ -6957,9 +7054,14 @@ extern "C" std::uint64_t noveltea_tooling_daemon_json(const std::uint8_t* reques
             // Give the bounded shutdown its own budget rather than declaring
             // a healthy owner exit hung under a loaded hosted runner.
             const auto terminated = WaitForSingleObject(daemon_handle, 30'000);
+            const auto wait_error = terminated == WAIT_FAILED ? GetLastError() : ERROR_SUCCESS;
             CloseHandle(daemon_handle);
             if (terminated != WAIT_OBJECT_0)
-                result = {{"ok", false}, {"error", "daemon process did not exit after stop"}};
+                result = {{"ok", false},
+                          {"error", "daemon process did not exit after stop (pid=" +
+                                        std::to_string(daemon_process_id) + ", wait=" +
+                                        std::to_string(terminated) + ", win32=" +
+                                        std::to_string(wait_error) + ")"}};
             else {
                 const auto status = client_request(*context, "status", "stop-status");
                 if (status.value("ok", false) && !status.value("running", false))

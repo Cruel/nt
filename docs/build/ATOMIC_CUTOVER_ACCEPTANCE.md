@@ -475,9 +475,57 @@ old Release against previously qualified bytes with altered sources.
 The first preview is not accepted as a complete release; downstream Editor
 installer and inventory gates were skipped after Linux failed.
 
+## Ninth hosted campaign: Windows daemon shutdown race and warm-cache evidence
+
+Commit `61c5553680e2b0797dd0c80a753e9620a267bae8` achieved a complete
+[Build #44939457143](https://github.com/Cruel/nt/actions/runs/44939457143)
+(38/38 jobs), [Coverage #44939457199](https://github.com/Cruel/nt/actions/runs/44939457199)
+(3/3 jobs), and eventually
+[Extended #44939457096](https://github.com/Cruel/nt/actions/runs/44939457096)
+(all 12 jobs on attempt 2). **Extended attempt 1 was not deterministic**:
+the repeatedly exercised Windows CLI incremental-validation test returned
+`DAEMON_BROKER` / `daemon process did not exit after stop`, although the
+logical broker state was already `stopped`, with zero sessions/workers.
+The test is correct to require actual Windows process termination, and the
+exact-SHA Extended receipt correctly failed closed. Retrying passed but is
+not a resolution of the underlying Windows shutdown hazard.
+
+Code inspection identified a concrete deadlock possibility: a Windows
+`ClientConnection::send` holds its write mutex during overlapped named-pipe
+`WriteFile`. The old `close` acquired that **same mutex before**
+calling `CancelIoEx`. Under a nonreading or stalled owner/control client,
+the writer can hold the mutex until cancellation while cancellation cannot
+start until the writer releases it. The change publishes a closing state and
+cancels pending Windows I/O **before** acquiring the writer mutex, then
+serializes the final disconnect/handle release. It preserves draining of the
+stop response and strict process-exit verification. A Windows-only native
+test deliberately leaves a named-pipe reader idle with a tiny output quota,
+waits until an actual overlapped write is pending, and requires close to
+abort the write without deadlocking. A second repeated test exercises
+concurrent queued clients and true broker join. Any remaining process
+termination timeout now includes PID and Win32 wait status for diagnosis.
+This removes a specific shutdown deadlock; hosted Windows repetition must
+still verify whether it accounts for the observed intermittent failure.
+
+The same campaign took ~91 minutes for Build. This was **not warm**
+compilation: Windows release CLI and desktop producers had vcpkg misses
+and no effective compiler-object reuse; Linux native correctness restored
+all main archives but achieved only **12/3,740 ccache hits (0.32%)**.
+Windows CLI compiled 1,693 targets; Windows release player compiled 1,438.
+Do not classify the campaign as a successful warm-cache measurement or
+claim the under-20-minute target. A separate cache redesign is still needed
+within the 10 GiB aggregate budget.
+
+A second explicitly nonpublishing
+[Release preview #44956993507](https://github.com/Cruel/nt/actions/runs/44956993507)
+was dispatched against that exact SHA's successful Build and Extended IDs
+before the Windows shutdown change was pushed. Its outcome is independent
+of any later source revision; a new exact-SHA campaign is required for
+the final cutover acceptance.
+
 ## Current evidence and limitations
 
-- Local complete CI contracts: **187/187 pass**, including the native coverage
+- Local complete CI contracts: **197/197 pass**, including the native coverage
   fixture via the installed `/home/thomas/.local/bin/uv`. GitHub CI provisions
   `uv` via pinned `astral-sh/setup-uv`.
 - Authenticated GitHub inspection of branch protection/rulesets performed;
