@@ -99,6 +99,18 @@ test('instrumented coverage and Extended restore dependency caches without creat
   assert.ok(editor.steps.find((step) => step.name?.startsWith('Restore executable mode'))?.run.includes('build/cli/linux/noveltea'));
 });
 
+test('repeated Windows native worker stress uses PowerShell and fails on any iteration', () => {
+  const worker = extended.jobs['windows-worker-stress'];
+  assert.equal(worker['runs-on'], 'windows-2025');
+  const repeat = worker.steps.find((step) => step.name === 'Repeat native worker lifetime tests');
+  assert.ok(repeat, 'The complete native worker stress requirement must remain enabled');
+  assert.equal(repeat.shell, 'pwsh');
+  assert.match(repeat.run, /foreach\s*\(\$attempt in 1\.\.3\)/u);
+  assert.match(repeat.run, /pnpm -C editor exec vp test run src\/renderer\/test\/native-authoring-worker\.test\.ts/u);
+  assert.match(repeat.run, /if\s*\(\$LASTEXITCODE -ne 0\)\s*\{\s*exit \$LASTEXITCODE\s*\}/u);
+  assert.doesNotMatch(repeat.run, /for\s+attempt\s+in\s+.*;\s*do/u);
+});
+
 test('the Extended job inventory remains complete with a narrowly scoped premerge push trigger', () => {
   assert.equal(extended.name, 'Extended Qualification');
   assert.equal(extended.on.schedule.length, 1);

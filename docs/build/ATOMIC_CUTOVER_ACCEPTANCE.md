@@ -404,6 +404,38 @@ The next exact-SHA push must confirm hosted Windows/macOS/Linux Editor
 qualification, Linux native correctness, and Build/Extended completion;
 none of these changes alone constitutes hosted acceptance.
 
+## Seventh hosted campaign: complete Build/Coverage, Windows Extended shell mismatch
+
+Commit `85ce35c3a1b3d874b64bf9dabb5c16e67b80b695` achieved a fully
+successful [Build #44867752563](https://github.com/Cruel/nt/actions/runs/44867752563):
+**38 of 38 Build jobs passed**, including the three production Editor
+installer hosts, all native authoring and CLI certifications, player
+launches, Android, and Web. [Coverage #44867752459](https://github.com/Cruel/nt/actions/runs/44867752459)
+passed all three jobs.
+
+[Extended #44867752555](https://github.com/Cruel/nt/actions/runs/44867752555)
+authorized that exact Build and passed **10 of its 11 required qualification
+jobs**: both Android emulators, Linux and Android cooperative no-threads,
+Linux sanitizer, Web benchmark, Windows native CLI daemon/cache stress,
+source/shader qualification, and native CLI performance. The remaining
+`windows-worker-stress` job passed its native Project CTests, offline
+source-cache repetition, packaged worker tests, real reconciliation, and
+Electron worker certification. Its final **repeat native worker lifetime**
+step failed *before running a single repeat*: GitHub launched PowerShell on
+`windows-2025`, but the step contained Bash `for attempt in ...; do` syntax,
+which PowerShell rejected. No observed native worker failure occurred.
+The Extended receipt correctly failed closed because that job failed.
+
+The fix explicitly sets `shell: pwsh` and uses a three-iteration PowerShell
+`foreach` loop with immediate nonzero process-exit propagation on each
+`pnpm` invocation. A workflow regression checks that the Windows step
+continues to run three full iterations, preserves the real native-worker
+test, and cannot silently accept a failing command.
+
+This result establishes complete hosted **premerge Build and Coverage**
+acceptance at the old SHA, but **not** exact-SHA Extended or Release
+acceptance. Qualification must rerun after the workflow fix on a new SHA.
+
 ## Current evidence and limitations
 
 - Local complete CI contracts: **187/187 pass**, including the native coverage

@@ -655,12 +655,15 @@ jobs:
         run: node editor/scripts/certify-native-authoring-electron.mjs
 
       - name: Repeat native worker lifetime tests
+        shell: pwsh
         env:
           NOVELTEA_AUTHORING_NODE_ADDON: ${{ github.workspace }}/build/native-authoring-host/noveltea-authoring-node.node
         run: |
-          for attempt in 1 2 3; do
+          foreach ($attempt in 1..3) {
+            Write-Host "Native worker lifetime stress attempt $attempt/3"
             pnpm -C editor exec vp test run src/renderer/test/native-authoring-worker.test.ts
-          done
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
 
   web-benchmark:
     name: Web benchmark browser qualification
