@@ -424,14 +424,14 @@ jobs:
       - name: Export and launch real Linux portable and AppImage players with native C++ CLI
         if: matrix.platform == 'linux'
         env:
-          NOVELTEA_LICENSE_VIEWER_RUNNER: ${{ github.workspace }}/build/native-export-cli-linux/noveltea-ui-test-runner
+          NOVELTEA_LICENSE_VIEWER_RUNNER: ${{ github.workspace }}/build/cli/linux/noveltea-ui-test-runner
           NOVELTEA_LINUX_APPIMAGE_TOOL: ${{ runner.temp }}/appimagetool.AppImage
           APPIMAGE_EXTRACT_AND_RUN: '1'
           NOVELTEA_PLAYER_HEADLESS_ERRORS: '1'
           NOVELTEA_CANONICAL_EVIDENCE_OUTPUT: ${{ github.workspace }}/dist/canonical-linux-${{ matrix.variant }}-fixture-evidence.json
         run: |
           xvfb-run -a python3 tests/native_cli/linux_release_smoke.py \
-            "$PWD/build/native-export-cli-linux/noveltea" \
+            "$PWD/build/cli/linux/noveltea" \
             "$PWD/dist/noveltea-player-template-${RELEASE_TAG}-linux-x64-${{ matrix.variant }}.tar.gz" \
             "$PWD" \
             "$PWD/dist/noveltea-native-linux-release-certification.json"

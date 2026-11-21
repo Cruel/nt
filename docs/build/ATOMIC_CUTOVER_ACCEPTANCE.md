@@ -436,6 +436,45 @@ This result establishes complete hosted **premerge Build and Coverage**
 acceptance at the old SHA, but **not** exact-SHA Extended or Release
 acceptance. Qualification must rerun after the workflow fix on a new SHA.
 
+## Eighth hosted campaign: exact-SHA Extended qualified; Release Linux CLI path
+
+At exact SHA `b9bf656c594796a164cd8920b4f7cd91633eb374`,
+[Build #44881006403](https://github.com/Cruel/nt/actions/runs/44881006403)
+passed **38/38 jobs**, and
+[Coverage #44881006395](https://github.com/Cruel/nt/actions/runs/44881006395)
+passed **3/3 jobs**. [Extended #44881006372](https://github.com/Cruel/nt/actions/runs/44881006372)
+completed **successfully on attempt 2**, with all 12 jobs (including the
+qualification receipt) passing. Attempt 1's only substantive failure was
+Maven Central HTTP 429 throttling in Android cooperative Gradle dependency
+resolution; a failed-jobs-only rerun resolved it without bypassing the test.
+Windows worker lifetime repetition passed on this SHA.
+
+The explicitly nonpublishing
+[Release preview #44937874307](https://github.com/Cruel/nt/actions/runs/44937874307),
+dispatched against the exact Build and Extended run IDs, authenticated
+source authority successfully. Its Windows, macOS, Web, Android, and examples
+qualification passed. **Both Linux desktop matrix variants failed** at
+`linux_release_smoke.py` when attempting to execute nonexistent
+`build/native-export-cli-linux/noveltea`. The Linux desktop job had already
+restored and authenticated the `linux-release-cli-x64` candidate at its
+catalog-defined `build/cli/linux` root. The smoke step alone retained an
+obsolete executable location for both native CLI and license viewer, before
+any export or AppImage launch could execute.
+
+The corrected Linux Release smoke references exactly
+`build/cli/linux/noveltea` and
+`build/cli/linux/noveltea-ui-test-runner`. A CI contract checks that
+these paths match the restored catalog candidate and that the obsolete
+directory is not used in the Linux smoke step. No additional native build,
+untrusted CLI, test reduction, or publication path is introduced.
+
+Because the qualified candidate records pin `.github/workflows/release.yml`,
+**changing the Release workflow requires a fresh exact-SHA Build and Extended
+qualification** before a new nonpublishing Release preview. Never rerun the
+old Release against previously qualified bytes with altered sources.
+The first preview is not accepted as a complete release; downstream Editor
+installer and inventory gates were skipped after Linux failed.
+
 ## Current evidence and limitations
 
 - Local complete CI contracts: **187/187 pass**, including the native coverage

@@ -101,6 +101,24 @@ test("Android ARM64 devtools certification checks APK and AAB release artifacts"
   assert.match(exportStep, /--flavor release --variant devtools --artifact both/);
 });
 
+test("Linux desktop release smoke executes the exact restored Build-qualified CLI and viewer", () => {
+  const desktop = job("desktop-hosts");
+  const catalog = JSON.parse(readFileSync(
+    new URL("../../scripts/ci/release-candidates.json", import.meta.url), "utf8"));
+  const candidate = catalog.candidates["linux-release-cli-x64"];
+  assert.equal(candidate.root, "build/cli/linux");
+  assert.equal(candidate.executable, "noveltea");
+  assert.match(desktop, /cli_candidate: linux-release-cli-x64/);
+  assert.match(desktop, /candidate: \$\{\{ matrix\.cli_candidate \}\}/);
+  const start = desktop.indexOf("- name: Export and launch real Linux portable and AppImage players with native C++ CLI");
+  const end = desktop.indexOf("- name: Finalize and launch Windows portable export", start);
+  assert.ok(start >= 0 && end > start);
+  const smoke = desktop.slice(start, end);
+  assert.match(smoke, /NOVELTEA_LICENSE_VIEWER_RUNNER: .*\/build\/cli\/linux\/noveltea-ui-test-runner/);
+  assert.match(smoke, /tests\/native_cli\/linux_release_smoke\.py \\\n\s+"\$PWD\/build\/cli\/linux\/noveltea"/);
+  assert.doesNotMatch(smoke, /native-export-cli-linux/);
+});
+
 test("Windows desktop release restores and uses the exact Build Windows CLI Licenses viewer runner", () => {
   const desktop = job("desktop-hosts");
   assert.match(desktop, /candidate: windows-release-cli-x64/);
