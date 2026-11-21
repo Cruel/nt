@@ -2323,9 +2323,8 @@ TEST_CASE("daemon Windows stop drains and joins simultaneous waiting clients",
             pending_request["action"] = "request";
             pending_request["requestId"] = "pending-during-stop-" + std::to_string(client);
             pending_request["method"] = "work";
-            pending.push_back(std::async(std::launch::async, [pending_request] {
-                return invoke_daemon(pending_request);
-            }));
+            pending.push_back(std::async(
+                std::launch::async, [pending_request] { return invoke_daemon(pending_request); }));
         }
         REQUIRE(wait_until(
             [&] { return daemon_status(request).value("queuedRequests", 0) == pending.size(); },
