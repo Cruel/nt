@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -136,6 +136,75 @@ test('Build produces one explicitly qualified candidate for every source-owned s
   for (const platform of ['linux', 'windows', 'macos'])
     assert.match(launch, new RegExp(`${platform}_release_smoke\\.py`));
   assert.match(launch, /release-candidate\.mjs verify/);
+});
+
+test('cold native correctness has full timeout headroom without dropping required CTests', () => {
+  const linux = job('linux');
+  assert.match(linux, /timeout-minutes: 150/);
+  assert.match(linux, /name: CTest native correctness/);
+  assert.match(linux, /name: Representative native CLI CTests/);
+  assert.match(linux, /name: Feature Lab authored Tests/);
+});
+
+test('Extended Build authorization polls only pending states and rejects all terminal failures', () => {
+  const source = extendedJob('source');
+  const first = source.indexOf('for poll in $(seq 1 190); do');
+  assert.notEqual(first, -1);
+  const ending = '\n              done';
+  const last = source.indexOf(ending, first);
+  assert.notEqual(last, -1);
+  const poll = source.slice(first, last + ending.length);
+  const root = mkdtempSync(path.join(tmpdir(), 'noveltea-extended-build-gate-'));
+  try {
+    const gh = path.join(root, 'gh');
+    const sleep = path.join(root, 'sleep');
+    writeFileSync(gh, '#!/bin/sh\nprintf "%s\\n" "$MOCK_BUILD_STATE"\n');
+    writeFileSync(sleep, '#!/bin/sh\nprintf "STILL_PENDING\\n"\nexit 77\n');
+    chmodSync(gh, 0o755);
+    chmodSync(sleep, 0o755);
+    const run = (status, conclusion) => spawnSync('bash', ['-c', [
+      'set -euo pipefail',
+      "GITHUB_REPOSITORY='Cruel/nt'",
+      `REQUESTED_SHA='${'a'.repeat(40)}'`,
+      "source_branch='ci/build-release-refactor-641'",
+      "run_id=''",
+      poll,
+      'echo "SELECTED:${run_id}"',
+    ].join('\n')], {
+      env: {
+        ...process.env,
+        PATH: `${root}${path.delimiter}${process.env.PATH}`,
+        MOCK_BUILD_STATE: `12345\t${status}\t${conclusion}`,
+      },
+      encoding: 'utf8',
+      timeout: 4000,
+    });
+    const successful = run('completed', 'success');
+    assert.equal(successful.status, 0, successful.stderr);
+    assert.match(successful.stdout, /SELECTED:12345/);
+    for (const conclusion of ['failure', 'cancelled', 'timed_out', 'action_required', 'skipped']) {
+      const rejected = run('completed', conclusion);
+      assert.equal(rejected.status, 1, conclusion);
+      assert.match(rejected.stderr, new RegExp(`completed with ${conclusion}`));
+      assert.doesNotMatch(rejected.stdout, /STILL_PENDING/);
+    }
+    const pending = run('in_progress', '');
+    assert.equal(pending.status, 77, pending.stderr);
+    assert.match(pending.stdout, /STILL_PENDING/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('Extended stops on cancelled/timed-out exact-SHA Builds and waits for cold Build completion', () => {
+  const source = extendedJob('source');
+  assert.match(source, /timeout-minutes: 210/);
+  assert.match(source, /seq 1 190/);
+  assert.match(source, /--json databaseId,status,conclusion/);
+  assert.match(source, /latest_status.*== completed/);
+  assert.match(source, /latest_conclusion.*== success/);
+  assert.match(source, /completed with.*latest_conclusion.*no Extended authorization/);
+  assert.doesNotMatch(source, /--status failure/);
 });
 
 test('independent Editor checks run before artifact producers without weakening complete Editor certification', () => {

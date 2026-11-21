@@ -48,7 +48,9 @@ jobs:
     name: Authorize source and eligible Build (trusted master or nonpublishing cutover preview)
     if: github.repository == 'Cruel/nt' && (github.ref == 'refs/heads/master' || ((github.event_name == 'workflow_dispatch' || github.event_name == 'push') && github.ref == 'refs/heads/ci/build-release-refactor-641'))
     runs-on: ubuntu-24.04
-    timeout-minutes: 150
+    # Linux cold Build qualification may run for 150 minutes; permit queue
+    # headroom but fail immediately on any terminal unsuccessful Build.
+    timeout-minutes: 210
     outputs:
       source_sha: ${{ steps.select.outputs.source_sha }}
       build_run_id: ${{ steps.select.outputs.build_run_id }}
@@ -92,15 +94,25 @@ jobs:
             else
               [[ -z "$PREVIEW_BUILD_RUN_ID" ]] || exit 1
               run_id=''
-              for poll in $(seq 1 125); do
-                run_id="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow build.yml \
+              for poll in $(seq 1 190); do
+                # Inspect the newest exact-commit Build, not just success/failure
+                # filters: a cancelled or timed-out Build is terminal too.
+                # Re-runs of the same SHA remain pending while in progress.
+                build_state="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow build.yml \
                   --commit "$REQUESTED_SHA" --branch "$source_branch" --event push \
-                  --status success --limit 20 --json databaseId --jq '.[0].databaseId // empty')"
-                if [[ "$run_id" =~ ^[0-9]+$ ]]; then break; fi
-                failed="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow build.yml \
-                  --commit "$REQUESTED_SHA" --branch "$source_branch" --event push \
-                  --status failure --limit 20 --json databaseId --jq '.[0].databaseId // empty')"
-                [[ -z "$failed" ]] || { echo "Premerge Build $failed failed; no Extended authorization." >&2; exit 1; }
+                  --limit 20 --json databaseId,status,conclusion \
+                  --jq 'if length > 0 then .[0] | [.databaseId,.status,.conclusion] | @tsv else "" end')"
+                if [[ -n "$build_state" ]]; then
+                  IFS=$'\t' read -r latest_build latest_status latest_conclusion <<< "$build_state"
+                  if [[ "$latest_status" == completed ]]; then
+                    if [[ "$latest_conclusion" == success ]]; then
+                      run_id="$latest_build"
+                      break
+                    fi
+                    echo "Premerge Build $latest_build completed with $latest_conclusion; no Extended authorization." >&2
+                    exit 1
+                  fi
+                fi
                 echo "Waiting for exact premerge Build at $REQUESTED_SHA (poll $poll)."
                 sleep 60
               done

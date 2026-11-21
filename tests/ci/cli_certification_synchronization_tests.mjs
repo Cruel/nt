@@ -12,6 +12,7 @@ const build = readFileSync(
   new URL('../../editor/scripts/build-noveltea-cli.mjs', import.meta.url),
   'utf8',
 );
+const crossSystem = readFileSync(new URL('../../editor/scripts/certify-native-authoring-cross-system-worker.cjs', import.meta.url), 'utf8');
 const release = readFileSync(new URL('../../.github/workflows/release.yml', import.meta.url), 'utf8');
 const buildWorkflow = readFileSync(new URL('../../.github/workflows/build.yml', import.meta.url), 'utf8');
 
@@ -30,6 +31,13 @@ test('daemon state wait resolves only after the requested postcondition', async 
   );
   assert.deepEqual(result, states[2]);
   assert.equal(polls, 3);
+});
+
+test('cold cross-system cache import is witnessed before idle maintenance can consume the hit', () => {
+  assert.match(crossSystem, /editorSession\(project, 'after-save-cold-cache-witness', 0\)/);
+  assert.match(crossSystem, /assert\.equal\(\s*importedDiskCache\.cacheHit,\s*true/u);
+  assert.match(crossSystem, /const reopened = editorSession\(project, 'after-editor-save'\)/);
+  assert.match(crossSystem, /assert\.deepEqual\(\s*postReadCache\.revisions,\s*newCache\.revisions/u);
 });
 
 test('native production qualification retains every independent behavior witness', () => {

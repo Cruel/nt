@@ -258,7 +258,11 @@ jobs:
     name: Linux desktop native correctness
     runs-on: ubuntu-24.04
     needs: shader-assets
-    timeout-minutes: 90
+    # Cold debug compilation and the independent serial native CLI CTests
+    # exceeded the former 90-minute ceiling after all native CTests passed.
+    # Keep the correctness witnesses; provision enough time for cold runners.
+    # Cached-build speed remains independently measurable and is not a timeout.
+    timeout-minutes: 150
 
     steps:
       - name: Checkout

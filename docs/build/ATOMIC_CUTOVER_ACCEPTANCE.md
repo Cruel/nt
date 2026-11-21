@@ -345,6 +345,65 @@ tests, and Electron main/preload/worker bundle pack. These are not substitutes
 for hosted Windows/macOS package runs; do not count the fixes as qualified
 until their exact-SHA Build completes successfully. Issue #646 stays open.
 
+## Sixth hosted campaign: independent Windows cache proof and cold-run completion
+
+At exact SHA `c71fb6e44249aaf1423e9732927470c3507e8239`,
+[Coverage #44833506523](https://github.com/Cruel/nt/actions/runs/44833506523)
+passed all three jobs. [Build #44833506303](https://github.com/Cruel/nt/actions/runs/44833506303)
+completed as **cancelled**, with all Linux/macOS production Editor installers
+passing, every platform player launch passing, and one failed Windows
+production Editor qualification. [Extended #44833506550](https://github.com/Cruel/nt/actions/runs/44833506550)
+remained unqualified. The Build's Linux desktop correctness job reached
+its **90-minute job timeout** after all 1,474 native correctness CTests passed
+and 22 of 24 representative CLI tests completed or were explicitly skipped;
+the final two had not yet finished.
+
+The Windows Editor failure occurred in
+`certify-native-authoring-cross-system-worker.cjs`: the new session's
+`validateClean` reported `cacheHit: false` even though the persisted cache
+had been published. This was an **ambiguous test of two valid paths**:
+the production worker starts cache maintenance and an 80ms source poller
+immediately; that idle worker can import the same cache before the
+test's explicit `validateClean` call. A warmed resident session's
+`cacheHit: false` is not proof that disk-cache import failed.
+
+The revised certification uses a separate, freshly opened, independent
+worker with only **background polling disabled** to require `cacheHit: true`
+against the **real** persisted Editor/CLI cache, and verifies that its
+revision inventory is unchanged. The next Editor worker retains normal
+background polling for the concurrent CLI/editor mutation and Save checks.
+No cache correctness or simultaneous-write invariants are waived.
+
+An initial repeated real cross-system run also exposed another independent
+writer-lock publication race: a competing CLI could fail to read a newly
+created `.writer-lock/owner.json` during publication, then mistake that
+transient absence for an arbitrary invalid transaction source. The native
+transaction service now re-reads a newly visible owner once; missing owners
+remain `WORKSPACE_BUSY`, valid live owners remain busy, and persistently
+malformed records are still rejected. It never retries a Save or reclaims
+an owner without the existing dead-PID and guard proofs. The rebuilt native
+CLI and native addon passed **three consecutive** real Editor/CLI disk-cache,
+daemon and concurrent mutation certifications. Native CLI Project certification,
+**195/195 CI contracts**, full Editor checks, and pinned C++ formatting
+also pass locally.
+
+The Linux cold-debug correctness job now has a 150-minute timeout without
+removing or skipping tests. This is **headroom, not a claim of a faster
+cached Build**; the cached Build under-20-minute target remains a separate
+optimization goal.
+
+Extended preview selection now inspects the newest Build's exact SHA,
+status, and conclusion. It waits while queued/running, accepts only
+completed success, and **immediately rejects every completed non-success**
+including cancelled and timed-out Builds, rather than polling for two hours.
+Its source authorization has 210-minute headroom and a 190-poll cap for
+cold Build qualification. Executable mocked-`gh` tests prove success,
+pending, failure, cancellation and timeout behavior.
+
+The next exact-SHA push must confirm hosted Windows/macOS/Linux Editor
+qualification, Linux native correctness, and Build/Extended completion;
+none of these changes alone constitutes hosted acceptance.
+
 ## Current evidence and limitations
 
 - Local complete CI contracts: **187/187 pass**, including the native coverage
