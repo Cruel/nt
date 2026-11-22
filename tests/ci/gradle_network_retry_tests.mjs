@@ -38,7 +38,7 @@ test('compilation errors are propagated immediately, without retry', async () =>
   const { result, attempts } = await run('echo "error: use of undeclared identifier" >&2', '17');
   assert.equal(result.status, 17);
   assert.equal(attempts, 1);
-  assert.match(result.stderr, /non-throttling/);
+  assert.match(result.stderr, /non-retryable/);
 });
 
 test('HTTP 429 throttling is bounded and fails visibly at the retry ceiling', async () => {
@@ -76,6 +76,53 @@ fi`, '0');
   assert.equal(result.status, 0);
   assert.equal(attempts, 2);
   assert.match(result.stderr, /Transient Maven dependency resolution/);
+});
+
+const wrapperConnectionReset = `
+echo 'Fetching distribution.' >&2
+echo 'Downloading https://services.gradle.org/distributions/gradle-8.9-bin.zip' >&2
+echo 'Attempt 1/1 failed. Reason: Connection reset' >&2
+echo 'java.net.SocketException: Connection reset' >&2
+echo '  at org.gradle.wrapper.Download.download(SourceFile:1)' >&2
+echo '  at org.gradle.wrapper.GradleWrapperMain.main(SourceFile:2)' >&2
+`;
+
+test('transient Gradle wrapper distribution download retries and recovers', async () => {
+  const { result, attempts } = await run(`
+if [[ "$count" -lt 2 ]]; then
+  ${wrapperConnectionReset}
+  exit 1
+fi
+`, '0');
+  assert.equal(result.status, 0);
+  assert.equal(attempts, 2);
+  assert.match(result.stderr, /Transient Gradle wrapper download/);
+  assert.doesNotMatch(result.stderr, /--refresh-dependencies/);
+});
+
+test('persistent Gradle wrapper connection reset fails after bounded attempts', async () => {
+  const { result, attempts } = await run(wrapperConnectionReset, '19');
+  assert.equal(result.status, 19);
+  assert.equal(attempts, 3);
+  assert.match(result.stderr, /persisted after 3 attempts/);
+});
+
+test('a connection reset during a Gradle task does not retry compilation', async () => {
+  const { result, attempts } = await run(`
+${wrapperConnectionReset}
+echo '> Task :app:externalNativeBuildDebug FAILED' >&2
+echo 'FAILURE: Build failed with an exception.' >&2
+`, '17');
+  assert.equal(result.status, 17);
+  assert.equal(attempts, 1);
+  assert.match(result.stderr, /non-retryable/);
+});
+
+test('generic connection reset without a Gradle wrapper download does not retry', async () => {
+  const { result, attempts } = await run(
+    'echo "java.net.SocketException: Connection reset" >&2', '17');
+  assert.equal(result.status, 17);
+  assert.equal(attempts, 1);
 });
 
 test('one genuinely missing Maven coordinate does not trigger a retry', async () => {

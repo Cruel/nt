@@ -568,9 +568,48 @@ still qualifies only earlier SHA `61c555368`. The Linux race correction
 requires another exact-SHA Build/Coverage/Extended and Release preview.
 No postmerge acceptance or warm-cache improvement is claimed.
 
+## Eleventh hosted campaign: daemon race cleared, Gradle bootstrap reset
+
+At exact SHA `42624cb1d8c5ad97742387903eefe9214b9106d8`,
+[Build #44988656272](https://github.com/Cruel/nt/actions/runs/44988656272)
+passed all 38 jobs, and
+[Coverage #44988656268](https://github.com/Cruel/nt/actions/runs/44988656268)
+passed all three jobs **on their first attempts**. This includes Linux's
+parallel native daemon CTest suite with the new concurrent runtime-root
+creation regression, resolving the prior demonstrated first-start race.
+
+[Extended #44988656229](https://github.com/Cruel/nt/actions/runs/44988656229)
+failed due to exactly one independently failed qualification:
+`Android cooperative no-threads compatibility`. The failed step was
+`Build Android cooperative native target`, **before native compilation**.
+The Gradle wrapper attempted to fetch pinned
+`https://services.gradle.org/distributions/gradle-8.9-bin.zip`, got a
+`java.net.SocketException: Connection reset`, and exited. The existing
+`retry-gradle-network.sh` classified this pre-build download interruption
+as non-throttling and did not retry. Both Android emulator jobs, Windows
+daemon/source-cache and worker lifetime stress, Linux cooperative,
+Linux ASan/UBSan, Web benchmark, and source/asset jobs passed. The
+qualification receipt correctly failed closed. This is an external Gradle
+distribution transport failure, **not** a native no-threads compilation
+regression, and a workflow rerun alone would not resolve the resilience
+gap.
+
+The follow-up enables bounded native Gradle wrapper distribution retries
+(`retries=2`, `retryBackOffMs=1000`) and extends the source-owned
+bounded CI retry helper to recognize **only** a proven GradleWrapperMain
+download `SocketException: Connection reset` with no task/build execution.
+The existing Maven 429 and missing-classpath guard remains; actual task,
+compiler, linker and validation failures never become retryable.
+New positive and negative contract fixtures cover recovery, persistence,
+generic network resets, and task failures. Before hosted qualification,
+10/10 focused retry tests, 201/201 CI contracts, and shell syntax/diff
+checks passed. Since the source-owned pinned wrapper properties changed,
+the amended SHA requires fresh exact-commit Build, Coverage, Extended
+and a nonpublishing Release preview.
+
 ## Current evidence and limitations
 
-- Local complete CI contracts: **197/197 pass**, including the native coverage
+- Local complete CI contracts: **201/201 pass**, including the native coverage
   fixture via the installed `/home/thomas/.local/bin/uv`. GitHub CI provisions
   `uv` via pinned `astral-sh/setup-uv`.
 - Authenticated GitHub inspection of branch protection/rulesets performed;
