@@ -384,10 +384,9 @@ async function main() {
       `Fresh worker failed to import exact Editor/CLI cache: ${JSON.stringify({
         valid: importedDiskCache.valid,
         work: importedDiskCache.work,
-        cacheRevisionsStillExact: JSON.stringify(postReadCache.revisions) ===
-          JSON.stringify(newCache.revisions),
-        cacheSemanticStillExact: postReadCache.semanticFingerprint ===
-          newCache.semanticFingerprint,
+        cacheRevisionsStillExact:
+          JSON.stringify(postReadCache.revisions) === JSON.stringify(newCache.revisions),
+        cacheSemanticStillExact: postReadCache.semanticFingerprint === newCache.semanticFingerprint,
         cacheResultValid: postReadCache.result?.valid,
         cacheResidentPresent: Boolean(postReadCache.resident),
         cacheFile: cacheFile(project),
