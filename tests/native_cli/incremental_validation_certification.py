@@ -244,6 +244,8 @@ with tempfile.TemporaryDirectory(
             assert physical["directoryEnumerations"] == 0, physical
             assert physical["fontCoverageMicros"] == 0, physical
 
+    windows_shader_readmissions = set()
+
     def certify_unchanged_resident(project, result):
         # A retained ProjectSession does not necessarily mean its external
         # stage projections survived host watcher recovery. On Windows and
@@ -252,8 +254,30 @@ with tempfile.TemporaryDirectory(
         # parity and a truly stage-free subsequent request, rather than
         # treating residentWarm alone as a complete-stage cache-hit flag.
         physical = result["validationWork"]["endToEnd"]
+        # NTFS/USN external-stage admission can finish one shader-output
+        # recheck after the semantic Project has already become resident. It
+        # does not invalidate correctness, but is not a fully warm performance
+        # sample either. Permit at most ONE such Windows re-admission per
+        # Project and require the immediately following request to be fully
+        # stage-free. Repeated compilation of the same generation is a bug.
+        windows_shader_readmission = (
+            sys.platform == "win32" and work(result, "residentWarm") and
+            work(result, "shaderCompileRuns") > 0 and
+            physical["completeProjectPreparations"] == 0)
+        if windows_shader_readmission:
+            assert project not in windows_shader_readmissions, (
+                project, "Repeated Windows shader compilation on unchanged input",
+                result["validationWork"])
+            assert work(result, "shaderCompileRuns") == 1, result["validationWork"]
+            assert work(result, "recheckedRecords") == 0, result["validationWork"]
+            assert work(result, "recheckedContributions") == 0, result["validationWork"]
+            assert work(result, "globalStageExecutions") == 0, result["validationWork"]
+            windows_shader_readmissions.add(project)
+            print(f"INFO: {project.name}: one-time Windows shader stage re-admission",
+                  flush=True)
         stages_readmitted = (not sys.platform.startswith("linux") and
-                            physical["completeProjectPreparations"] != 0)
+                            (physical["completeProjectPreparations"] != 0 or
+                             windows_shader_readmission))
         if stages_readmitted:
             # Rebuilding *only* external stages while the semantic owner is
             # retained must never reparse or reevaluate unchanged records.

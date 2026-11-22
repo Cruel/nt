@@ -36,6 +36,48 @@ function containsCounters(directory) {
   return false;
 }
 
+// A native broker can finish its CTest parent while an orphaned owner is
+// still flushing libgcov at process exit. A recursively copied .gcda at that
+// instant is neither a complete snapshot nor a valid merge input. Per-PID
+// paths are only useful if the process that owns them is known to be done.
+function nativeProcessRunning(pid) {
+  try {
+    // On Linux a terminated child can temporarily remain as a zombie. It
+    // has already finished its gcov writes and need not await parent reaping.
+    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+    const afterName = stat.slice(stat.lastIndexOf(')') + 2);
+    return afterName[0] !== 'Z' && afterName[0] !== 'X';
+  } catch (error) {
+    if (error?.code === 'ENOENT' || error?.code === 'ESRCH') return false;
+    throw error;
+  }
+}
+
+function awaitExitedCoverageProcesses(isolated) {
+  const pending = readdirSync(isolated, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .flatMap((entry) => {
+      const match = /\.process-([1-9][0-9]*)$/.exec(entry.name);
+      return match ? [{ name: entry.name, pid: Number(match[1]) }] : [];
+    });
+  if (!pending.length) return;
+  if (process.platform !== 'linux') {
+    throw new Error('Native process coverage quiescence requires Linux /proc.');
+  }
+  const sleep = new Int32Array(new SharedArrayBuffer(4));
+  const deadline = Date.now() + 30000;
+  while (true) {
+    const live = pending.filter(({ pid }) => nativeProcessRunning(pid));
+    if (!live.length) return;
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `Instrumented native daemon processes have not exited; refusing to snapshot live .gcda: ${live.map(({ name }) => name).join(', ')}`,
+      );
+    }
+    Atomics.wait(sleep, 0, 0, 75);
+  }
+}
+
 export function restoreIsolatedCoverageCounters(buildDirectory) {
   requireCoverageBuild(buildDirectory);
   const build = path.resolve(buildDirectory);
@@ -43,6 +85,7 @@ export function restoreIsolatedCoverageCounters(buildDirectory) {
   // configured by tools/editor_tool/CMakeLists.txt and native_cli.cpp.
   // Each is a separate directory beside (not inside) the build directory.
   const isolated = build + '.gcov-cli';
+  awaitExitedCoverageProcesses(isolated);
   const work = mkdtempSync(path.join(process.env.RUNNER_TEMP || tmpdir(), 'noveltea-gcov-merge-'));
   let merged = null;
   let count = 0;

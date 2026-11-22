@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { coverageSummary } from '../../scripts/coverage-summary.mjs';
 
 test('coverage summaries retain separate tool metrics and uncovered counts without a gate', () => {
@@ -31,6 +31,7 @@ test('native suite snapshots remain independent and merge their coverage union',
   const run = (command, args) => {
     const result = spawnSync(command, args, { encoding: 'utf8', cwd: root });
     assert.equal(result.status, 0, result.stdout + result.stderr);
+    return result;
   };
   try {
     for (const directory of ['engine/src', 'deps', 'cmake']) mkdirSync(path.join(root, directory), { recursive: true });
@@ -75,14 +76,29 @@ test('native suite snapshots remain independent and merge their coverage union',
     // Long-lived daemon/owner workers write to their own PID-specific
     // siblings, never the foreground CLI's per-test .gcda files. The offline
     // merger must include these process-specific roots too.
-    isolatedRun('native_cli_test_a.process-1234', ['other-branch']);
+    isolatedRun('native_cli_test_a.process-99999999', ['other-branch']);
+    // Simulate an instrumented detached owner that is still alive when its
+    // CTest has finished. Its profile does not exist until the process exits.
+    // Snapshotting immediately silently omits this coverage; a snapshot
+    // during a real daemon's libgcov exit can corrupt the file instead.
+    const late = spawn('bash', ['-c',
+      'export GCOV_PREFIX="$GCOV_ROOT/native_cli_test_late.process-$$"; sleep 0.4; exec "$1" "$2"',
+      '_', path.join(build, 'engine/probe'), 'other-branch'], {
+      env: { ...process.env, GCOV_ROOT: isolated, GCOV_PREFIX_STRIP: '0' },
+      stdio: 'ignore',
+    });
+    assert.ok(late.pid > 0);
+    mkdirSync(path.join(isolated, `native_cli_test_late.process-${late.pid}`), {
+      recursive: true,
+    });
     assert.ok(!existsSync(counters));
     const redirected = path.join(isolated, 'native_cli_test_a', build.replace(/^\/+/, ''),
       'engine/CMakeFiles/model.dir/src/model.cpp.gcda');
     assert.ok(existsSync(redirected));
     assert.ok(existsSync(redirected.replace('native_cli_test_a', 'native_cli_test_b')));
-    assert.ok(existsSync(redirected.replace('native_cli_test_a', 'native_cli_test_a.process-1234')));
-    run(process.execPath, [reporter, 'restore-isolated', build]);
+    assert.ok(existsSync(redirected.replace('native_cli_test_a', 'native_cli_test_a.process-99999999')));
+    const restored = run(process.execPath, [reporter, 'restore-isolated', build]);
+    assert.match(restored.stdout, /Restored merged native CLI coverage from 4 isolated tests/);
     assert.ok(existsSync(counters));
     run(process.execPath, [reporter, 'report', build, path.join(reports, 'ctest-cli')]);
     const first = JSON.parse(readFileSync(path.join(reports, 'ctest/summary.json'), 'utf8'));

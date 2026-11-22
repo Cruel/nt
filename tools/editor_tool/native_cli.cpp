@@ -3687,6 +3687,10 @@ int main(int argc, char** argv)
                               args[0] == "__daemon-disposable")) {
             if (const char* root = std::getenv("NOVELTEA_NATIVE_CLI_GCOV_ROOT"); root && *root) {
                 const auto isolated = std::string(root) + ".process-" + std::to_string(::getpid());
+                // Publish the worker's PID root before running commands, not
+                // on libgcov exit. The offline collector must see living
+                // owners even when their first .gcda has not been written.
+                std::filesystem::create_directories(isolated);
                 if (::setenv("GCOV_PREFIX", isolated.c_str(), 1) != 0)
                     throw std::runtime_error("Cannot isolate gcov counters for native worker.");
             }

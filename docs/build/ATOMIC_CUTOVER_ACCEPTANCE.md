@@ -696,6 +696,58 @@ tests ran. The next automatic path-triggered Extended run must wait for the
 exact completed successful Build and fail closed otherwise. No successful
 full premerge, postmerge, or nonpublishing Release acceptance is claimed.
 
+## Fourteenth campaign: distinguish correctness from collector/readmission races
+
+The previously qualified integration SHA `61c555368` has **first-attempt**
+[Build #44939457143](https://github.com/Cruel/nt/actions/runs/44939457143),
+[Coverage #44939457199](https://github.com/Cruel/nt/actions/runs/44939457199),
+[Extended #44939457096](https://github.com/Cruel/nt/actions/runs/44939457096),
+and nonpublishing
+[Release preview #44956993507](https://github.com/Cruel/nt/actions/runs/44956993507)
+all successful. Preserve that as a rollback and behavior reference.
+
+On `83d678e29ba8196d9b8a88573d927d65e3db138d`,
+[Build #45055118154](https://github.com/Cruel/nt/actions/runs/45055118154)
+passed 37/38 jobs, including production Windows Editor/CLI interop; the
+Windows C++ policy job failed only two native validation certifications.
+`native_cli_portable_validation_cache` observed `noticeValidationReuses=1`
+rather than a public `noticeValidationRuns=1` after a **valid-to-valid**
+same-size, restored-mtime rewrite. That public counter alone cannot prove
+stale content: a resident maintenance validator may have completed the work
+before the public request. The invalid/control-bearing, restored-mtime,
+missing and escaping notice negative checks remain strict and must still
+reject stale success. For valid-to-valid writes, certify one stage proof
+(reused or run) and subsequent warm reuse; do not demand work be accounted
+to a particular observer. `native_cli_incremental_validation_certification`
+observed a one-program shader recompile on otherwise semantically resident
+Windows input. Permit at most one **explicitly logged** Windows shader stage
+readmission per Project; the next request and every subsequent truly warm
+sample must have no shader compilation or other stage rework. A diagnostic
+rerun of only the failing Windows policy job on the **same SHA** passed both
+previously failed certification tests without source changes (step success
+verified while the rest of that job was still running). This establishes
+nondeterministic test-stage timing, not a first-attempt qualifying Build.
+
+[Coverage #45055117971](https://github.com/Cruel/nt/actions/runs/45055117971)
+passed all **1,475 ordinary CTests and 24 CLI CTests**. Its failure was an
+offline GCC `gcov-tool` merge of a daemon PID-specific profile containing
+incompatible `material_semantics.cpp.gcda` function counts (831 vs 438).
+The collector copied each root immediately after CTest, without awaiting
+instrumented background owners' final libgcov writes. Coverage-only native
+broker/owner/disposable startup now creates its PID-specific root **before**
+doing work; the collector waits for all those processes to have exited
+(or returns a bounded, actionable timeout) before snapshotting. A focused
+instrumented delayed-worker regression proves the old collector silently
+merged 3 of 4 roots, while the corrected collector waits and merges all 4.
+This directly proves a collection race, but hosted execution must confirm
+it also resolves the original GCC function-count mismatch.
+
+[Extended #45055118030](https://github.com/Cruel/nt/actions/runs/45055118030)
+correctly denied qualification following the failed exact-SHA Build and did
+not run platform tests. Do not count rerun-only or manually premature
+qualifications as first-attempt success. Do not advance to master or publish
+a Release until coordinated acceptance is satisfied.
+
 ## Current evidence and limitations
 
 - Local complete CI contracts: **201/201 pass**, including the native coverage

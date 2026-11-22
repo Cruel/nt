@@ -579,6 +579,7 @@ test('CI publishes distinct informational coverage summaries and detailed artifa
   const nativeCliSource = readFileSync('tools/editor_tool/native_cli.cpp', 'utf8');
   assert.match(nativeCliSource, /NOVELTEA_NATIVE_CLI_GCOV_PROCESS_ISOLATION/);
   assert.match(nativeCliSource, /__daemon-broker[\s\S]*__daemon-owner[\s\S]*__daemon-disposable/);
+  assert.match(nativeCliSource, /std::filesystem::create_directories\(isolated\)/);
   assert.match(nativeCliSource, /setenv\("GCOV_PREFIX", isolated\.c_str\(\), 1\)/);
   assert.match(step(native, 'Build excluded native CLI certification target'), /--target noveltea-cli-native-certify/);
   assert.ok(native.indexOf(resetLab) < native.indexOf(lab));
