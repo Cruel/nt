@@ -35,6 +35,7 @@ namespace noveltea::tooling::daemon {
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/un.h>
+#include <sys/wait.h>
 #include <unistd.h>
 #endif
 
@@ -1347,12 +1348,69 @@ TEST_CASE("daemon protocol event shapes preserve request identity")
     CHECK(cancellation == Json{{"type", "cancel"}, {"requestId", "req-4"}});
 }
 
+#if defined(__linux__)
+TEST_CASE("Linux brokers concurrently initialize a fresh private runtime directory",
+          "[daemon-duplex][linux-native]")
+{
+    // Concurrent startup must tolerate a sibling process creating the same
+    // private runtime directory between lstat(ENOENT) and mkdir(EEXIST).
+    for (int round = 0; round < 6; ++round) {
+        auto runtime = temp_runtime_root("concurrent-runtime");
+        constexpr int workers = 12;
+        int gate[2]{-1, -1};
+        REQUIRE(::pipe(gate) == 0);
+        std::vector<pid_t> children;
+        for (int index = 0; index < workers; ++index) {
+            const auto pid = ::fork();
+            REQUIRE(pid >= 0);
+            if (pid == 0) {
+                ::close(gate[1]);
+                char signal = 0;
+                const auto released = ::read(gate[0], &signal, 1);
+                ::close(gate[0]);
+                if (released != 1)
+                    ::_exit(10);
+                auto request =
+                    context(unique_build("parallel-directory") + "-" + std::to_string(index));
+                request["runtimeRoot"] = runtime.path.string();
+                request["action"] = "serve-start";
+                const auto started = invoke_daemon(request);
+                if (!started.value("ok", false)) {
+                    std::cerr << "parallel daemon start " << index << ": " << started.dump()
+                              << std::endl;
+                    ::_exit(11);
+                }
+                request["action"] = "serve-abort";
+                if (!invoke_daemon(request).value("ok", false))
+                    ::_exit(12);
+                ::_exit(0);
+            }
+            children.push_back(pid);
+        }
+        ::close(gate[0]);
+        for (int index = 0; index < workers; ++index) {
+            const char signal = 'S';
+            REQUIRE(::write(gate[1], &signal, 1) == 1);
+        }
+        ::close(gate[1]);
+        for (const auto pid : children) {
+            int status = 0;
+            REQUIRE(::waitpid(pid, &status, 0) == pid);
+            CHECK(WIFEXITED(status));
+            if (WIFEXITED(status))
+                CHECK(WEXITSTATUS(status) == 0);
+        }
+    }
+}
+#endif
+
 TEST_CASE("daemon broker exposes starting, queues work until ready, and drains on stop",
           "[daemon-duplex][windows-native]")
 {
     auto request = context(unique_build("lifecycle"));
     request["action"] = "serve-start";
     const auto started = invoke_daemon(request);
+    INFO("daemon startup response: " << started.dump());
     REQUIRE(started["ok"] == true);
     REQUIRE(started["running"] == true);
     CHECK(started["state"] == "starting");

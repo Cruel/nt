@@ -380,7 +380,13 @@ void ensure_private_runtime_directory(const std::filesystem::path& directory)
 {
     struct stat info {};
     if (::lstat(directory.c_str(), &info) != 0) {
-        if (errno != ENOENT || ::mkdir(directory.c_str(), 0700) != 0)
+        if (errno != ENOENT)
+            throw std::runtime_error("failed to inspect private daemon runtime directory");
+        // Multiple broker identities can start in parallel against the same
+        // per-user runtime root. Another process creating it after ENOENT is
+        // normal, not a startup failure. Always re-inspect the final path,
+        // including after EEXIST: it still must be a private owned directory.
+        if (::mkdir(directory.c_str(), 0700) != 0 && errno != EEXIST)
             throw std::runtime_error("failed to create private daemon runtime directory");
         if (::lstat(directory.c_str(), &info) != 0)
             throw std::runtime_error("failed to inspect private daemon runtime directory");

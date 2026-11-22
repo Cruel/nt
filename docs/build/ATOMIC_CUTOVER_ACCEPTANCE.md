@@ -523,6 +523,51 @@ before the Windows shutdown change was pushed. Its outcome is independent
 of any later source revision; a new exact-SHA campaign is required for
 the final cutover acceptance.
 
+## Tenth hosted campaign: exact Windows regression passes; Linux first-start race reproduced
+
+At exact SHA `c91adc354b22f578e580ef2257e17d74760510b5`,
+[Build #44964272114](https://github.com/Cruel/nt/actions/runs/44964272114)
+passed all 38 jobs, and manually dispatched
+[Extended #44978762356](https://github.com/Cruel/nt/actions/runs/44978762356)
+passed **all 12 jobs on the first attempt**, including the sealed exact-SHA
+receipt. In hosted Windows, the new blocked named-pipe cancellation regression
+and concurrent-client shutdown regression both passed. The native incremental
+validation certification also passed its baseline and three stress repeats.
+This verifies the specific deadlock correction under Windows. It does not
+prove that unrelated Windows process-exit faults can no longer occur.
+
+[Coverage #44964272199](https://github.com/Cruel/nt/actions/runs/44964272199)
+failed in the Linux CTest stage: the daemon lifecycle test at
+`tests/tooling/daemon_broker_tests.cpp:1356` saw `serve-start` return
+`ok=false` during `ctest --parallel 2`, without reporting the underlying
+error. The full CTest stage ran 1,474 tests with this single failed test; the
+subsequent 24-case native CLI coverage stage passed. The downstream Editor
+coverage job was skipped. Coverage is **not** acceptable on this SHA.
+
+A code inspection of Unix `ensure_private_runtime_directory` found a
+first-start race: after `lstat` observes `ENOENT`, another broker can
+create the same per-user directory before `mkdir`, yielding `EEXIST`.
+The original code treated that harmless race as fatal. A new Linux
+regression launches **12 simultaneous real broker processes per fresh runtime
+directory, over six independent rounds**; it reproduced exactly
+`{"error":"failed to create private daemon runtime directory","ok":false}`
+with the original implementation (50 child failures on the first run).
+The fix accepts `EEXIST` **only as a reason to inspect the final directory**;
+the existing owner, directory type, and private-permission checks remain
+mandatory. After the fix, the 72-process case passed ten consecutive complete
+executions, 48/48 local daemon tests passed, 197/197 Node CI contracts passed,
+and pinned clang-format 18.1.8 checked all 733 C++ source files. The
+original hosted Coverage failure omitted its error text, so matching the
+precise observed CI failure remains a strong, reproducible hypothesis rather
+than proven historical attribution. The failing lifecycle test now records
+the actual startup response on future failures.
+
+The successful nonpublishing Release preview
+[#44956993507](https://github.com/Cruel/nt/actions/runs/44956993507)
+still qualifies only earlier SHA `61c555368`. The Linux race correction
+requires another exact-SHA Build/Coverage/Extended and Release preview.
+No postmerge acceptance or warm-cache improvement is claimed.
+
 ## Current evidence and limitations
 
 - Local complete CI contracts: **197/197 pass**, including the native coverage
