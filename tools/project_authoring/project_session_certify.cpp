@@ -3683,6 +3683,55 @@ void clean_cache_alias_roundtrip(const std::filesystem::path& fixture)
             "Identical manifest bytes with changed metadata retain the exact clean cache hit");
     metadata_only.reset();
 
+#ifdef _WIN32
+    const auto cache_path = temp.root / ".noveltea/cache/authoring/native-clean-current.json";
+    auto same_directory = Json::parse(read(cache_path));
+    const auto exact_root = same_directory.at("projectRoot").as<std::string>();
+    auto differently_cased_root = exact_root;
+    const auto component = differently_cased_root.rfind("noveltea-project-session-");
+    require(component != std::string::npos, "Expected a known certification Project basename");
+    differently_cased_root[component] = 'N';
+    require(differently_cased_root != exact_root &&
+                std::filesystem::equivalent(differently_cased_root, temp.root),
+            "Windows path-case alias must resolve to the same physical Project");
+    same_directory["projectRoot"] = differently_cased_root;
+    auto same_directory_payload = same_directory;
+    same_directory_payload.erase("payloadRevision");
+    same_directory_payload.erase("stageRevision");
+    same_directory_payload.erase("stages");
+    same_directory["payloadRevision"] =
+        noveltea::core::xxh3_128_revision(same_directory_payload.to_string());
+    write(cache_path, same_directory.to_string() + "\n");
+    auto same_directory_import = ProjectSession::open(temp.root, error);
+    require(same_directory_import && same_directory_import->validate_clean_project().cache_hit,
+            "Case-different Windows spelling must not reject a same-directory cache");
+    same_directory_import.reset();
+
+    // A forged but well-formed ledger with an unrelated *existing* directory
+    // must still be refused, even if its payload digest is recomputed.
+    same_directory["projectRoot"] = temp.root.parent_path().generic_string();
+    same_directory_payload = same_directory;
+    same_directory_payload.erase("payloadRevision");
+    same_directory_payload.erase("stageRevision");
+    same_directory_payload.erase("stages");
+    same_directory["payloadRevision"] =
+        noveltea::core::xxh3_128_revision(same_directory_payload.to_string());
+    write(cache_path, same_directory.to_string() + "\n");
+    auto wrong_directory_import = ProjectSession::open(temp.root, error);
+    require(wrong_directory_import && !wrong_directory_import->validate_clean_project().cache_hit,
+            "A different physical Project must never import another cache entry");
+    wrong_directory_import.reset();
+
+    same_directory["projectRoot"] = exact_root;
+    same_directory_payload = same_directory;
+    same_directory_payload.erase("payloadRevision");
+    same_directory_payload.erase("stageRevision");
+    same_directory_payload.erase("stages");
+    same_directory["payloadRevision"] =
+        noveltea::core::xxh3_128_revision(same_directory_payload.to_string());
+    write(cache_path, same_directory.to_string() + "\n");
+#endif
+
     auto alternate = temp.root;
 #ifdef _WIN32
     const auto short_path = [](const std::filesystem::path& input) {

@@ -376,6 +376,18 @@ with private_daemon_fixture() as root:
     assert work(same_metadata, "noticeValidationRuns") == 1, same_metadata["validationWork"]
     assert work(validate(), "noticeValidationReuses") == 1
 
+    # Two immediate same-size rewrites without any sleeps must each revoke
+    # the prior proof. On hosted Windows the timestamp and basic change-time
+    # token can both be insufficient; a synchronous USN or exact hash is needed.
+    for old, new in ((b"!", b"?"), (b"?", b"!")):
+        previous = notice.stat()
+        notice.write_bytes(notice.read_bytes().replace(old, new))
+        os.utime(notice, ns=(previous.st_atime_ns, previous.st_mtime_ns))
+        rewritten = validate()
+        assert rewritten["diagnostics"] == diagnostics
+        assert work(rewritten, "noticeValidationRuns") == 1, rewritten["validationWork"]
+        assert work(validate(), "noticeValidationReuses") == 1
+
     # The same restored-metadata write must revoke a previously valid stage
     # even when resident maintenance observed it before public validation.
     last_valid = notice.read_bytes()

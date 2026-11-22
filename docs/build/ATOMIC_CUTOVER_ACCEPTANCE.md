@@ -651,6 +651,51 @@ failed. It did **not** rerun the Android cooperative job on this SHA; the
 previous Gradle wrapper transport retry remains unqualified. No Release
 preview or master merge is supported on this run.
 
+## Thirteenth hosted campaign: verified coverage, two independent Windows defects
+
+On `151b31352c735dfa809b95a95dfd38354da096f7`,
+[Coverage #45019015276](https://github.com/Cruel/nt/actions/runs/45019015276)
+passed all three jobs for the second consecutive exact-commit campaign, while
+[Build #45019015161](https://github.com/Cruel/nt/actions/runs/45019015161)
+failed two of 38 jobs, both on Windows. The previous formatting failure is
+resolved: independent Editor checks, Editor/Electron, and Linux/macOS installers
+passed.
+
+In Windows C++ policy, `native_cli_portable_validation_cache` reproduced a
+**stale distribution-notice stage**: an in-place same-size rewrite followed
+by restored mtime reported `noticeValidationReuses=1` and
+`noticeValidationRuns=0`. The independent Windows `FileBasicInfo.ChangeTime`
+fence is insufficient for this particular immediately restored-mtime write.
+The follow-up queries the synchronous per-file NTFS USN through
+`FSCTL_READ_FILE_USN_DATA`; when unavailable or unsupported it uses a
+bounded, same-handle exact hash for notices up to the validated 1 MiB cap.
+Reparse points and unreadable files never receive reusable proof. The test
+now checks two further immediate same-size restored-mtime rewrites without
+sleeping or weakening correctness expectations. The normal incremental CLI
+certification and shader validation cache both passed in that failed job.
+
+In the Windows production Editor host, a fresh Electron native worker
+still returned `cacheHit=false`, rechecking 11 records, despite persisted
+source revisions, semantic fingerprint, valid result and resident ledger
+all matching. This proves the previous metadata-only cache fix was
+insufficient. The follow-up compares the persisted `projectRoot` to the
+**actual same physical directory** using `std::filesystem::equivalent` on
+Windows rather than bytewise path spelling; the existing narrow 8.3 alias
+test is extended with a different-case same-directory ledger and a
+recomputed-digest different-directory rejection test. This is an independently
+valid path-identity fix; the old log does **not** prove path identity was
+the specific rejecting condition. Opt-in native cold-cache admission
+checkpoints are enabled only for the certification's cold worker so that a
+subsequent hosted miss will identify the gate instead of forcing another
+guess.
+
+[Extended #45019063161](https://github.com/Cruel/nt/actions/runs/45019063161)
+was dispatched manually before Build had completed; its provenance check
+correctly rejected the in-progress Build immediately, and no qualification
+tests ran. The next automatic path-triggered Extended run must wait for the
+exact completed successful Build and fail closed otherwise. No successful
+full premerge, postmerge, or nonpublishing Release acceptance is claimed.
+
 ## Current evidence and limitations
 
 - Local complete CI contracts: **201/201 pass**, including the native coverage

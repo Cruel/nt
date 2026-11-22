@@ -372,10 +372,19 @@ async function main() {
     // validateClean rightly reports an already-warm session (cacheHit=false).
     // Polling is disabled ONLY for this one cold-read witness; the separate
     // interactive Editor used for concurrent mutation still has live polling.
+    // Diagnostic checkpoints identify a rejected physical-root, generation,
+    // payload, or resident proof without weakening the exact cache contract.
+    // No CLI is spawned while the opt-in trace is enabled.
+    process.env.NOVELTEA_NATIVE_CACHE_TRACE = '1';
     const coldReader = editorSession(project, 'after-save-cold-cache-witness', 0);
     sessions.push(coldReader);
-    await coldReader.open();
-    const importedDiskCache = await coldReader.request('validateClean');
+    let importedDiskCache;
+    try {
+      await coldReader.open();
+      importedDiskCache = await coldReader.request('validateClean');
+    } finally {
+      delete process.env.NOVELTEA_NATIVE_CACHE_TRACE;
+    }
     assert.equal(importedDiskCache.valid, true, JSON.stringify(importedDiskCache.diagnostics));
     const postReadCache = await checkCache(project, ['project.yaml', addedPath]);
     assert.equal(
