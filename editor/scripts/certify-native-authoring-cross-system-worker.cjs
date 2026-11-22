@@ -377,12 +377,22 @@ async function main() {
     await coldReader.open();
     const importedDiskCache = await coldReader.request('validateClean');
     assert.equal(importedDiskCache.valid, true, JSON.stringify(importedDiskCache.diagnostics));
+    const postReadCache = await checkCache(project, ['project.yaml', addedPath]);
     assert.equal(
       importedDiskCache.cacheHit,
       true,
-      `Fresh worker failed to import exact Editor/CLI cache: ${JSON.stringify(importedDiskCache)}`,
+      `Fresh worker failed to import exact Editor/CLI cache: ${JSON.stringify({
+        valid: importedDiskCache.valid,
+        work: importedDiskCache.work,
+        cacheRevisionsStillExact: JSON.stringify(postReadCache.revisions) ===
+          JSON.stringify(newCache.revisions),
+        cacheSemanticStillExact: postReadCache.semanticFingerprint ===
+          newCache.semanticFingerprint,
+        cacheResultValid: postReadCache.result?.valid,
+        cacheResidentPresent: Boolean(postReadCache.resident),
+        cacheFile: cacheFile(project),
+      })}`,
     );
-    const postReadCache = await checkCache(project, ['project.yaml', addedPath]);
     assert.deepEqual(
       postReadCache.revisions,
       newCache.revisions,

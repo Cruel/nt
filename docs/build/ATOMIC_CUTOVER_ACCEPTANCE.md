@@ -607,6 +607,50 @@ checks passed. Since the source-owned pinned wrapper properties changed,
 the amended SHA requires fresh exact-commit Build, Coverage, Extended
 and a nonpublishing Release preview.
 
+## Twelfth hosted campaign: independent Windows cache and Linux gcov failures
+
+At exact SHA `d84897a4b63057156494ac7a678bac615dfb4d7a`,
+[Build #44999094016](https://github.com/Cruel/nt/actions/runs/44999094016)
+failed **only** in `Production Editor host (windows-x64)`, during
+the independent native Editor/CLI disk cache certification. A fresh native
+worker returned a valid result but `cacheHit=false` with 11 records and
+11 contributions rechecked, instead of importing the exact on-disk ledger.
+The recorded error lacked physical cache-admission details. Linux and other
+Windows build producers passed. Separate native regression demonstrated that
+`read_clean_cache` rejects a still-valid exact source generation when only
+`project.yaml` metadata/mtime changes. The source cache now compares
+byte-exact saved/current revisions for **all** files, independent of metadata,
+and retains the full physical-source proof and rejection on changed bytes.
+Before this fix, the new metadata-only cold-import test failed; afterward,
+path-alias, correctness, recovery, and offline cache tests passed. This is a
+real cache false-miss defect, but the original Windows CI log omitted source
+metadata, so it cannot conclusively establish that defect as that run's
+specific cause. The cross-system certification failure now reports whether
+persisted source revisions and fingerprint remained exact.
+
+[Coverage #44999094043](https://github.com/Cruel/nt/actions/runs/44999094043)
+failed in the isolated native CLI CTest phase. All 1,475 ordinary CTests
+passed, but `native_cli_daemon_owner` emitted
+`libgcov profiling error ... linker.cpp.gcda: Merge mismatch for function 4548`.
+The offline `gcov-tool merge` subsequently rejected that corrupted profile
+(`5695 functions vs 5563 functions`). The existing CMake coverage contract
+isolated **tests**, not simultaneously live CLI, broker, and owner/disposable
+worker **processes** of the same test. An instrumented daemon can outlive a
+foreground CLI that is exiting and updating the same .gcda file. The follow-up
+gives instrumented broker/owner/disposable processes their own per-PID sibling
+`GCOV_PREFIX` roots, while preserving ordinary foreground CLI per-test
+roots and the existing offline merge. Production/normal CLI behavior is
+unmodified. Coverage fixture now certifies an additional process-specific
+sibling root is merged. This is a concrete shared-profile hazard; hosted
+repetition is required to verify it resolves the observed intermittent merge
+mismatch.
+
+[Extended #44999094055](https://github.com/Cruel/nt/actions/runs/44999094055)
+failed closed in source authorization because the exact-SHA Build had
+failed. It did **not** rerun the Android cooperative job on this SHA; the
+previous Gradle wrapper transport retry remains unqualified. No Release
+preview or master merge is supported on this run.
+
 ## Current evidence and limitations
 
 - Local complete CI contracts: **201/201 pass**, including the native coverage

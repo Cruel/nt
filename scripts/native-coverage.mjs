@@ -39,8 +39,9 @@ function containsCounters(directory) {
 export function restoreIsolatedCoverageCounters(buildDirectory) {
   requireCoverageBuild(buildDirectory);
   const build = path.resolve(buildDirectory);
-  // Per-test GCOV_PREFIX directories are configured by tools/editor_tool/CMakeLists.txt.
-  // They deliberately live beside (not inside) the build directory.
+  // Per-test GCOV_PREFIX roots and per-PID broker/worker sibling roots are
+  // configured by tools/editor_tool/CMakeLists.txt and native_cli.cpp.
+  // Each is a separate directory beside (not inside) the build directory.
   const isolated = build + '.gcov-cli';
   const work = mkdtempSync(path.join(process.env.RUNNER_TEMP || tmpdir(), 'noveltea-gcov-merge-'));
   let merged = null;

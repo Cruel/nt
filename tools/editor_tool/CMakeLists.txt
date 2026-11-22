@@ -358,7 +358,8 @@ if(WIN32)
 endif()
 target_compile_definitions(noveltea-native-cli PRIVATE ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
 target_compile_definitions(noveltea-native-cli PRIVATE
-    NOVELTEA_ENABLE_VALIDATION_COUNTERS=$<BOOL:${NOVELTEA_ENABLE_VALIDATION_COUNTERS}>)
+    NOVELTEA_ENABLE_VALIDATION_COUNTERS=$<BOOL:${NOVELTEA_ENABLE_VALIDATION_COUNTERS}>
+    NOVELTEA_NATIVE_CLI_GCOV_PROCESS_ISOLATION=$<BOOL:${NOVELTEA_ENABLE_COVERAGE}>)
 noveltea_apply_policy_warnings(noveltea-native-cli)
 # Native font coverage resolves the same trusted system fonts as the installed
 # production CLI, without a launcher or source-tree absolute path dependency.
@@ -612,7 +613,8 @@ if(NOVELTEA_ENABLE_COVERAGE AND BUILD_TESTING)
             # public contract's pinned runtime compiler identity.
             set_property(TEST "${_native_cli_test}" APPEND PROPERTY ENVIRONMENT
                 "GCOV_PREFIX=${CMAKE_BINARY_DIR}.gcov-cli/${_native_cli_test}"
-                "GCOV_PREFIX_STRIP=0")
+                "GCOV_PREFIX_STRIP=0"
+                "NOVELTEA_NATIVE_CLI_GCOV_ROOT=${CMAKE_BINARY_DIR}.gcov-cli/${_native_cli_test}")
         endif()
     endforeach()
 endif()

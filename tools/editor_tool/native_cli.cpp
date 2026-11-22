@@ -3676,6 +3676,22 @@ int main(int argc, char** argv)
     } release_resident;
     const std::vector<std::string> args(argv + 1, argv + argc);
     try {
+#if NOVELTEA_NATIVE_CLI_GCOV_PROCESS_ISOLATION && !defined(_WIN32)
+        // Instrumented brokers and their disposable/owner workers outlive the
+        // foreground CLI that spawned them. Sharing one .gcda output path
+        // across these concurrently exiting processes can corrupt libgcov's
+        // merge, even when separate CTests have different GCOV_PREFIX roots.
+        // Every broker/worker gets a private sibling root; ordinary foreground
+        // invocations stay in the original per-test root for cheap offline merge.
+        if (!args.empty() && (args[0] == "__daemon-broker" || args[0] == "__daemon-owner" ||
+                              args[0] == "__daemon-disposable")) {
+            if (const char* root = std::getenv("NOVELTEA_NATIVE_CLI_GCOV_ROOT"); root && *root) {
+                const auto isolated = std::string(root) + ".process-" + std::to_string(::getpid());
+                if (::setenv("GCOV_PREFIX", isolated.c_str(), 1) != 0)
+                    throw std::runtime_error("Cannot isolate gcov counters for native worker.");
+            }
+        }
+#endif
         if (args.size() == 2 && args[0] == "__editor-native")
             return run_editor_native_operation(args[1]);
         if (const auto daemon = noveltea::cli::run_native_daemon_process(

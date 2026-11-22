@@ -250,11 +250,15 @@ read_clean_cache(const fs::path& root, const std::map<std::string, std::string>&
             saved_revisions.emplace(std::string(entry.key()),
                                     metadata.at("revision").as<std::string>());
         }
-        const auto current_metadata = source_metadata(root, revisions);
+        // Admission already proved the current physical source bytes. Treat
+        // metadata-only changes as the same generation, but reject a content
+        // change even when size and mtime were restored to their cached values.
+        // Comparing timestamps here can make an otherwise valid cold
+        // Windows Editor/CLI import miss after a metadata-only update.
         std::map<std::string, std::string> changed_revisions;
         for (const auto& entry : value.at("sources").object_range()) {
             const std::string path(entry.key());
-            if (!current_metadata.contains(path) || current_metadata.at(path) != entry.value())
+            if (!revisions.contains(path) || saved_revisions.at(path) != revisions.at(path))
                 changed_revisions.emplace(path,
                                           revisions.contains(path) ? revisions.at(path) : "absent");
         }

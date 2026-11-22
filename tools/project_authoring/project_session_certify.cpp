@@ -3672,6 +3672,17 @@ void clean_cache_alias_roundtrip(const std::filesystem::path& fixture)
     require(!first.cache_hit && first.snapshot.valid,
             "Initial native Project clean validation publishes cache");
 
+    // File timestamp changes alone do not invalidate a byte-exact cache.
+    // This matters for Windows Editor/CLI interop: timestamps can change
+    // independently of the canonical contents that the ledger fingerprints.
+    const auto manifest = temp.root / "project.yaml";
+    const auto saved_timestamp = std::filesystem::last_write_time(manifest);
+    std::filesystem::last_write_time(manifest, saved_timestamp - std::chrono::seconds(10));
+    auto metadata_only = ProjectSession::open(temp.root, error);
+    require(metadata_only && metadata_only->validate_clean_project().cache_hit,
+            "Identical manifest bytes with changed metadata retain the exact clean cache hit");
+    metadata_only.reset();
+
     auto alternate = temp.root;
 #ifdef _WIN32
     const auto short_path = [](const std::filesystem::path& input) {

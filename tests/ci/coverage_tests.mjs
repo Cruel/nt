@@ -72,11 +72,16 @@ test('native suite snapshots remain independent and merge their coverage union',
     };
     isolatedRun('native_cli_test_a', []);
     isolatedRun('native_cli_test_b', ['other-branch']);
+    // Long-lived daemon/owner workers write to their own PID-specific
+    // siblings, never the foreground CLI's per-test .gcda files. The offline
+    // merger must include these process-specific roots too.
+    isolatedRun('native_cli_test_a.process-1234', ['other-branch']);
     assert.ok(!existsSync(counters));
     const redirected = path.join(isolated, 'native_cli_test_a', build.replace(/^\/+/, ''),
       'engine/CMakeFiles/model.dir/src/model.cpp.gcda');
     assert.ok(existsSync(redirected));
     assert.ok(existsSync(redirected.replace('native_cli_test_a', 'native_cli_test_b')));
+    assert.ok(existsSync(redirected.replace('native_cli_test_a', 'native_cli_test_a.process-1234')));
     run(process.execPath, [reporter, 'restore-isolated', build]);
     assert.ok(existsSync(counters));
     run(process.execPath, [reporter, 'report', build, path.join(reports, 'ctest-cli')]);
