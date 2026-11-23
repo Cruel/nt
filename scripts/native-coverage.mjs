@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -36,6 +37,57 @@ function containsCounters(directory) {
   return false;
 }
 
+// GCC 13 writes a 16-byte gcda header followed by tagged records (negative
+// record lengths encode zero counter blocks) and a final zero tag. gcov-tool
+// can silently accept a truncated file, or crash later when merging it with
+// a complete profile. Check record boundaries before admitting snapshots.
+export function assertCompleteGcda(file) {
+  const bytes = readFileSync(file);
+  let offset = 16;
+  let functionRecords = 0;
+  const fail = () => {
+    throw new Error(
+      `Incomplete GCC gcov profile (${bytes.length} bytes, ${functionRecords} functions, offset ${offset}): ${file}`,
+    );
+  };
+  if (bytes.length < 20 || bytes.toString('ascii', 0, 4) !== 'adcg') fail();
+  while (offset + 4 <= bytes.length) {
+    const tag = bytes.readUInt32LE(offset);
+    if (tag === 0) {
+      if (offset + 4 === bytes.length && functionRecords > 0) return;
+      fail();
+    }
+    if (offset + 8 > bytes.length) fail();
+    const length = bytes.readInt32LE(offset + 4);
+    if (tag === 0x01000000) functionRecords++;
+    offset += 8 + Math.max(0, length);
+    if (offset > bytes.length) fail();
+  }
+  fail();
+}
+
+function assertCompleteCounterTree(directory, evidenceRoot, profileName) {
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const file = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      assertCompleteCounterTree(file, evidenceRoot, profileName);
+    } else if (entry.isFile() && entry.name.endsWith('.gcda')) {
+      try {
+        assertCompleteGcda(file);
+      } catch (error) {
+        // Keep only the failed input, never a gigabyte-scale gcov build tree.
+        // Coverage's existing artifact-upload step preserves this diagnostic.
+        mkdirSync(evidenceRoot, { recursive: true });
+        const digest = createHash('sha256').update(file).digest('hex').slice(0, 12);
+        const evidence = path.join(evidenceRoot, `${profileName}-${digest}.gcda`);
+        if (statSync(file).size <= 16 * 1024 * 1024) copyFileSync(file, evidence);
+        writeFileSync(`${evidence}.txt`, `${error.message}\n`);
+        throw error;
+      }
+    }
+  }
+}
+
 // A native broker can finish its CTest parent while an orphaned owner is
 // still flushing libgcov at process exit. A recursively copied .gcda at that
 // instant is neither a complete snapshot nor a valid merge input. Per-PID
@@ -51,6 +103,26 @@ function nativeProcessRunning(pid) {
     if (error?.code === 'ENOENT' || error?.code === 'ESRCH') return false;
     throw error;
   }
+}
+
+function terminatedCoverageRoots(isolated) {
+  const excluded = new Set();
+  for (const entry of readdirSync(isolated, { withFileTypes: true })) {
+    if (!entry.isDirectory() || !/^native_(?:cli|authoring_cli)_[a-z0-9_]+$/.test(entry.name))
+      continue;
+    const manifest = path.join(isolated, entry.name, 'terminated-process-pids.txt');
+    if (!existsSync(manifest)) continue;
+    const contents = readFileSync(manifest, 'utf8');
+    if (!/^(?:[1-9][0-9]*\n)*$/.test(contents)) {
+      throw new Error(`Invalid terminated-process coverage manifest: ${manifest}`);
+    }
+    const pids = contents.trim().split('\n').filter(Boolean);
+    if (pids.length > 32 || new Set(pids).size !== pids.length) {
+      throw new Error(`Invalid terminated-process PID inventory in ${manifest}`);
+    }
+    for (const pid of pids) excluded.add(`${entry.name}.process-${pid}`);
+  }
+  return excluded;
 }
 
 function awaitExitedCoverageProcesses(isolated) {
@@ -86,20 +158,36 @@ export function restoreIsolatedCoverageCounters(buildDirectory) {
   // Each is a separate directory beside (not inside) the build directory.
   const isolated = build + '.gcov-cli';
   awaitExitedCoverageProcesses(isolated);
+  const terminated = terminatedCoverageRoots(isolated);
   const work = mkdtempSync(path.join(process.env.RUNNER_TEMP || tmpdir(), 'noveltea-gcov-merge-'));
   const snapshots = [];
   try {
+    const skipped = [];
     for (const entry of readdirSync(isolated, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
+      if (terminated.has(entry.name)) {
+        skipped.push(entry.name);
+        continue;
+      }
       // GCOV_PREFIX_STRIP=0 retains the absolute object directory beneath each test root.
       const source = path.join(isolated, entry.name, build.slice(path.parse(build).root.length));
       if (!existsSync(source) || !containsCounters(source)) continue;
+      assertCompleteCounterTree(
+        source,
+        path.join(path.dirname(build), 'reports/coverage/cpp/diagnostics'),
+        entry.name,
+      );
       const snapshot = path.join(work, `test-${snapshots.length}`);
       cpSync(source, snapshot, { recursive: true });
       snapshots.push({ directory: snapshot, source: entry.name });
     }
     if (!snapshots.length) {
       throw new Error(`No isolated native CLI coverage counters in ${isolated}`);
+    }
+    if (skipped.length) {
+      console.log(
+        `Excluded ${skipped.length} deliberately terminated native CLI PID roots from gcov merge: ${skipped.sort().join(', ')}`,
+      );
     }
 
     // Pairwise rounds keep the merge tree balanced. Merging each process
@@ -116,9 +204,11 @@ export function restoreIsolatedCoverageCounters(buildDirectory) {
         const left = layer[index];
         const right = layer[index + 1];
         const output = path.join(work, `merged-${round}-${index / 2}`);
-        const result = spawnSync('gcov-tool', [
-          'merge', '-o', output, left.directory, right.directory,
-        ], { encoding: 'utf8' });
+        const result = spawnSync(
+          'gcov-tool',
+          ['merge', '-o', output, left.directory, right.directory],
+          { encoding: 'utf8' },
+        );
         if (result.error) throw result.error;
         if (result.status !== 0) {
           throw new Error(

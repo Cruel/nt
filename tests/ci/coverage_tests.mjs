@@ -130,6 +130,43 @@ test('native suite snapshots remain independent and merge their coverage union',
     assert.ok(existsSync(redirected));
     assert.ok(existsSync(redirected.replace('native_cli_test_a', 'native_cli_test_b')));
     assert.ok(existsSync(redirected.replace('native_cli_test_a', 'native_cli_test_a.process-99999999')));
+    // This is the failure seen when a deliberately SIGKILLed owner leaves
+    // a partial gcda while libgcov flushes. Without an explicit PID inventory,
+    // a successful CTest must still fail its coverage merge.
+    const terminatedPid = '99999998';
+    const partial = redirected.replace(
+      'native_cli_test_a',
+      `native_cli_test_a.process-${terminatedPid}`,
+    );
+    mkdirSync(path.dirname(partial), { recursive: true });
+    const complete = readFileSync(redirected);
+    writeFileSync(partial, complete.subarray(0, complete.length - 5));
+    const unexpected = spawnSync(process.execPath, [reporter, 'restore-isolated', build], {
+      encoding: 'utf8',
+      cwd: root,
+    });
+    assert.notEqual(unexpected.status, 0, 'Unexpected corrupt profiles must fail closed');
+    assert.match(unexpected.stderr, /Incomplete GCC gcov profile/);
+    assert.ok(!existsSync(counters), 'Failed merges cannot publish partial counters');
+    const diagnostics = path.join(root, 'reports/coverage/cpp/diagnostics');
+    const evidence = readdirSync(diagnostics).find((name) => name.endsWith('.gcda'));
+    assert.ok(evidence?.startsWith(`native_cli_test_a.process-${terminatedPid}-`));
+    assert.deepEqual(
+      readFileSync(path.join(diagnostics, evidence)),
+      readFileSync(partial),
+      'The raw corrupt profile must survive for diagnosis',
+    );
+
+    const inventory = path.join(isolated, 'native_cli_test_a', 'terminated-process-pids.txt');
+    writeFileSync(inventory, 'invalid\n');
+    const invalidInventory = spawnSync(process.execPath, [reporter, 'restore-isolated', build], {
+      encoding: 'utf8',
+      cwd: root,
+    });
+    assert.notEqual(invalidInventory.status, 0);
+    assert.match(invalidInventory.stderr, /Invalid terminated-process coverage manifest/);
+    writeFileSync(inventory, `${terminatedPid}\n`);
+
     const restored = run(process.execPath, [reporter, 'restore-isolated', build]);
     assert.match(restored.stdout, /Restored merged native CLI coverage from 10 isolated roots/);
     assert.ok(existsSync(counters));

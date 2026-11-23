@@ -27,6 +27,14 @@ One `noveltea-coverage-cpp` artifact contains four directories:
   merged offline in balanced rounds after each process exits; its JUnit results remain separate.
   Every instrumented native CLI invocation, including foreground commands and daemon workers,
   writes to a per-process counter root; per-CTest roots remain for other test executables.
+  The daemon-owner certification records the exact PIDs it deliberately terminates
+  with SIGTERM/SIGKILL. Those profiles cannot be trusted to have completed libgcov
+  shutdown, so only those declared PID roots are omitted from the offline merge.
+  Other inputs are validated for complete GCC gcda record boundaries and terminal
+  markers; unexpected truncation fails CI and preserves the bounded raw profile
+  under the native coverage artifact's `diagnostics/` directory. This prevents
+  a killed worker's partial gcda from crashing gcov-tool without turning genuine
+  profile corruption into an accepted result.
 - `feature-lab/`: Lab-only HTML/JSON/Cobertura plus the authored suite's JSON execution results.
 - `combined/`: the union of covered native lines/branches from both saved snapshots. Overlapping
   coverage counts once; percentages are not averaged or added.

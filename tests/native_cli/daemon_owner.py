@@ -26,6 +26,18 @@ with tempfile.TemporaryDirectory(prefix='nt-549-') as temporary:
     env.update(NOVELTEA_CLI_CERTIFICATION='1',
                NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT=str(root / 'daemon'))
 
+    def record_terminated_profile(pid):
+        # Instrumented workers intentionally killed by this certification may
+        # leave a partial .gcda if the signal arrives during libgcov shutdown.
+        # Tell the offline merger which PID roots are unsafe to count; every
+        # unlisted profile must still merge successfully.
+        coverage_root = env.get('NOVELTEA_NATIVE_CLI_GCOV_ROOT')
+        if coverage_root and sys.platform.startswith('linux'):
+            directory = Path(coverage_root)
+            directory.mkdir(parents=True, exist_ok=True)
+            with (directory / 'terminated-process-pids.txt').open('a', encoding='ascii') as log:
+                log.write(f'{pid}\n')
+
     def invoke(*args, cwd=root, expected=0, timeout=45, input_text=None):
         completed = subprocess.run([str(installed), '--json', *map(str, args)],
                                    cwd=cwd, env=env, capture_output=True, text=True,
@@ -155,11 +167,13 @@ with tempfile.TemporaryDirectory(prefix='nt-549-') as temporary:
         # resident owner and broker usable for the next native heavy job.
         process, worker_pid = paused_worker()
         os.kill(worker_pid, signal.SIGTERM)
+        record_terminated_profile(worker_pid)
         out, err = process.communicate(timeout=30)
         assert process.returncode == 70 and not err, (process.returncode, out, err)
         assert not json.loads(out)['success']
         process, worker_pid = paused_worker()
         process.terminate()
+        record_terminated_profile(process.pid)
         process.communicate(timeout=10)
         deadline = time.monotonic() + 15
         while daemon_status()['disposableBusyWorkers'] and time.monotonic() < deadline:
@@ -257,6 +271,7 @@ with tempfile.TemporaryDirectory(prefix='nt-549-') as temporary:
             assert Path(f'/proc/{owner_pid}/exe').resolve() == installed
             sessions_before_failure = current['projectSessions']
             os.kill(owner_pid, signal.SIGKILL)
+            record_terminated_profile(owner_pid)
             time.sleep(0.1)
             recovered = project_command('entity', 'inspect', 'rooms', 'renamed')
             assert recovered == changed
