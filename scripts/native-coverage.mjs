@@ -117,7 +117,9 @@ function terminatedCoverageRoots(isolated) {
       throw new Error(`Invalid terminated-process coverage manifest: ${manifest}`);
     }
     const pids = contents.trim().split('\n').filter(Boolean);
-    if (pids.length > 32 || new Set(pids).size !== pids.length) {
+    // Independent CTest and broker observers can record the same signal;
+    // duplicate PID evidence is harmless, but an unbounded log is not.
+    if (pids.length > 1024) {
       throw new Error(`Invalid terminated-process PID inventory in ${manifest}`);
     }
     for (const pid of pids) excluded.add(`${entry.name}.process-${pid}`);

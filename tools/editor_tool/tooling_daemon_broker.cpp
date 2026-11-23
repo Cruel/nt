@@ -5595,8 +5595,32 @@ void terminate_child_process(ChildProcess& process)
     }
     if (process.pid <= 0)
         return;
-    if (child_process_alive(process))
+    if (child_process_alive(process)) {
+        // Coverage's per-process gcda writer may be interrupted by SIGTERM
+        // or the subsequent SIGKILL while flushing a large profile. This
+        // broker-initiated termination is not visible to Python CTest, so
+        // record the exact PID before signalling it. The offline merger skips
+        // only positively identified terminated writers and still rejects
+        // unexplained malformed profiles.
+#if defined(__linux__)
+        if (const char* root = std::getenv("NOVELTEA_NATIVE_CLI_GCOV_ROOT"); root && *root) {
+            std::error_code ec;
+            std::filesystem::create_directories(root, ec);
+            const auto manifest = std::filesystem::path(root) / "terminated-process-pids.txt";
+            const int fd =
+                ec ? -1 : ::open(manifest.c_str(), O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0600);
+            if (fd >= 0) {
+                const auto line = std::to_string(process.pid) + "\n";
+                if (::flock(fd, LOCK_EX) == 0) {
+                    (void)::write(fd, line.data(), line.size());
+                    (void)::flock(fd, LOCK_UN);
+                }
+                (void)::close(fd);
+            }
+        }
+#endif
         (void)::kill(process.pid, SIGTERM);
+    }
     for (int attempt = 0; attempt < 20; ++attempt) {
         int status = 0;
         const auto result = ::waitpid(process.pid, &status, WNOHANG);

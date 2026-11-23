@@ -165,7 +165,9 @@ test('native suite snapshots remain independent and merge their coverage union',
     });
     assert.notEqual(invalidInventory.status, 0);
     assert.match(invalidInventory.stderr, /Invalid terminated-process coverage manifest/);
-    writeFileSync(inventory, `${terminatedPid}\n`);
+    // The test and the broker may both record the same terminated PID.
+    // Duplicate positive evidence must not make the merge fail.
+    writeFileSync(inventory, `${terminatedPid}\n${terminatedPid}\n`);
 
     const restored = run(process.execPath, [reporter, 'restore-isolated', build]);
     assert.match(restored.stdout, /Restored merged native CLI coverage from 10 isolated roots/);

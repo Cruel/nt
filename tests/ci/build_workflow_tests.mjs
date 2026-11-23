@@ -628,6 +628,14 @@ test('CI publishes distinct informational coverage summaries and detailed artifa
   const isolationHeader = readFileSync('tools/editor_tool/native_cli_gcov_isolation.hpp', 'utf8');
   assert.match(isolationHeader, /std::filesystem::create_directories\(isolated\)/);
   assert.match(isolationHeader, /setenv\("GCOV_PREFIX", isolated\.c_str\(\), 1\)/);
+  // Both the CTest author and the native broker must report intentionally
+  // terminated PID roots. The broker owns idle-worker retirement, which is
+  // invisible to the Python test and can interrupt large gcda flushes.
+  const broker = readFileSync('tools/editor_tool/tooling_daemon_broker.cpp', 'utf8');
+  const terminate = broker.slice(broker.indexOf('void terminate_child_process(ChildProcess& process)\n{'));
+  assert.match(terminate, /NOVELTEA_NATIVE_CLI_GCOV_ROOT/);
+  assert.match(terminate, /terminated-process-pids\.txt/);
+  assert.ok(terminate.indexOf('terminated-process-pids.txt') < terminate.indexOf('::kill(process.pid, SIGTERM)'));
   assert.match(step(native, 'Build excluded native CLI certification target'), /--target noveltea-cli-native-certify/);
   assert.ok(native.indexOf(resetLab) < native.indexOf(lab));
   assert.ok(native.indexOf(lab) < native.indexOf(labReport));

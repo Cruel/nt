@@ -27,9 +27,10 @@ One `noveltea-coverage-cpp` artifact contains four directories:
   merged offline in balanced rounds after each process exits; its JUnit results remain separate.
   Every instrumented native CLI invocation, including foreground commands and daemon workers,
   writes to a per-process counter root; per-CTest roots remain for other test executables.
-  The daemon-owner certification records the exact PIDs it deliberately terminates
-  with SIGTERM/SIGKILL. Those profiles cannot be trusted to have completed libgcov
-  shutdown, so only those declared PID roots are omitted from the offline merge.
+  The daemon-owner certification and native broker record the exact PIDs they
+  deliberately terminate with SIGTERM/SIGKILL, including broker-retired standby
+  workers. Those profiles cannot be trusted to have completed libgcov shutdown,
+  so only those declared PID roots are omitted from the offline merge.
   Other inputs are validated for complete GCC gcda record boundaries and terminal
   markers; unexpected truncation fails CI and preserves the bounded raw profile
   under the native coverage artifact's `diagnostics/` directory. This prevents
