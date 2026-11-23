@@ -5612,7 +5612,16 @@ void terminate_child_process(ChildProcess& process)
             if (fd >= 0) {
                 const auto line = std::to_string(process.pid) + "\n";
                 if (::flock(fd, LOCK_EX) == 0) {
-                    (void)::write(fd, line.data(), line.size());
+                    std::size_t offset = 0;
+                    while (offset < line.size()) {
+                        const auto written =
+                            ::write(fd, line.data() + offset, line.size() - offset);
+                        if (written < 0 && errno == EINTR)
+                            continue;
+                        if (written <= 0)
+                            break;
+                        offset += static_cast<std::size_t>(written);
+                    }
                     (void)::flock(fd, LOCK_UN);
                 }
                 (void)::close(fd);

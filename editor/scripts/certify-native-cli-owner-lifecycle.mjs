@@ -99,7 +99,18 @@ try {
       if (command.exitCode !== null) break;
       await delay(100);
     }
-    assert.ok(pinned, `Disposable worker did not pin a Project: ${stderr}`);
+    if (!pinned) {
+      const status = spawnSync(executable, ['--json', 'daemon', 'status'], {
+        env: pinnedEnvironment,
+        encoding: 'utf8',
+        timeout: 10_000,
+      });
+      throw new Error(
+        `Disposable worker did not pin a Project (exit ${command.exitCode}, signal ${command.signalCode}).` +
+          `\nCLI stdout: ${stdout}\nCLI stderr: ${stderr}` +
+          `\nDaemon status: ${status.stdout || status.stderr || status.error?.message || '(no response)'}`,
+      );
+    }
     assert.equal(command.kill('SIGINT'), true, 'Could not signal the public CLI.');
     await delay(200);
   } finally {

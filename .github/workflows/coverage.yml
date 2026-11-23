@@ -180,6 +180,7 @@ jobs:
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
       - name: Build
+        id: native_build
         run: cmake --build --preset linux-debug
 
       - name: Clang-certify standalone host Narrative sources
@@ -224,7 +225,7 @@ jobs:
             --output-junit "$GITHUB_WORKSPACE/build/reports/coverage/cpp/ctest/test-results.xml"
 
       - name: Report CTest coverage
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.native_build.outcome == 'success' }}
         run: |
           node scripts/native-coverage.mjs report build/linux-debug build/reports/coverage/cpp/ctest
           node scripts/coverage-summary.mjs cpp build/reports/coverage/cpp/ctest/summary.json CTest >> "$GITHUB_STEP_SUMMARY"
@@ -232,11 +233,11 @@ jobs:
       # CLI and daemon processes share instrumented static libraries with
       # desktop tests; isolate their counters to avoid gcov merge mismatches.
       - name: Reset native CLI CTest coverage counters
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.native_build.outcome == 'success' }}
         run: node scripts/native-coverage.mjs reset build/linux-debug
 
       - name: Native CLI CTest
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.native_build.outcome == 'success' }}
         run: |
           mkdir -p build/reports/coverage/cpp/ctest-cli
           # Each CLI CTest has an isolated GCOV_PREFIX (registered by CMake).
@@ -263,23 +264,23 @@ jobs:
           exit "$result"
 
       - name: Report native CLI CTest coverage
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.native_build.outcome == 'success' }}
         run: |
           node scripts/native-coverage.mjs report build/linux-debug build/reports/coverage/cpp/ctest-cli
           node scripts/coverage-summary.mjs cpp build/reports/coverage/cpp/ctest-cli/summary.json 'Native CLI CTest' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Stage pinned FFmpeg for Feature Lab
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.native_build.outcome == 'success' }}
         run: |
           node editor/scripts/private-media-tools.mjs build/coverage-media
           chmod +x build/coverage-media/tools/ffmpeg/bin/ffmpeg
 
       - name: Reset Feature Lab coverage counters
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.native_build.outcome == 'success' }}
         run: node scripts/native-coverage.mjs reset build/linux-debug
 
       - name: Feature Lab authored Tests
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.native_build.outcome == 'success' }}
         env:
           NOVELTEA_FFMPEG: ${{ github.workspace }}/build/coverage-media/tools/ffmpeg/bin/ffmpeg
           NOVELTEA_NATIVE_TOOL_BRIDGE: ${{ github.workspace }}/build/linux-debug/tools/editor_tool/noveltea-tooling-bridge
@@ -306,13 +307,13 @@ jobs:
           cp -a "$gcov_build/." "$GITHUB_WORKSPACE/build/linux-debug/"
 
       - name: Report Feature Lab coverage
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.native_build.outcome == 'success' }}
         run: |
           node scripts/native-coverage.mjs report build/linux-debug build/reports/coverage/cpp/feature-lab
           node scripts/coverage-summary.mjs cpp build/reports/coverage/cpp/feature-lab/summary.json 'Feature Lab' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Report combined native coverage
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.native_build.outcome == 'success' }}
         run: |
           node scripts/native-coverage.mjs merge build/reports/coverage/cpp
           node scripts/coverage-summary.mjs cpp build/reports/coverage/cpp/combined/summary.json 'Combined (union)' >> "$GITHUB_STEP_SUMMARY"
@@ -328,7 +329,7 @@ jobs:
           fail_ci_if_error: false
 
       - name: Upload C++ coverage
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.native_build.outcome == 'success' }}
         uses: actions/upload-artifact@v7
         with:
           name: noveltea-coverage-cpp

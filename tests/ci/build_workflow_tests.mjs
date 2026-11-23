@@ -644,10 +644,27 @@ test('CI publishes distinct informational coverage summaries and detailed artifa
   assert.match(cliReport, /native-coverage\.mjs report .*\/ctest-cli/);
   assert.match(labReport, /native-coverage\.mjs report .*\/feature-lab/);
   assert.match(combined, /native-coverage\.mjs merge/);
-  for (const report of [ctestReport, cliReport, labReport, combined]) {
+  for (const report of [ctestReport, cliReport, labReport, combined])
     assert.match(report, /coverage-summary\.mjs cpp .*GITHUB_STEP_SUMMARY/);
-    assert.equal(field(report, 'if'), '${{ !cancelled() }}');
-  }
+  assert.equal(field(step(native, 'Build'), 'id'), 'native_build');
+  // Reporting partial test coverage remains allowed, but a failed compile
+  // must never launch CTest/Feature Lab against missing executables.
+  for (const label of [
+    'Report CTest coverage',
+    'Reset native CLI CTest coverage counters',
+    'Native CLI CTest',
+    'Report native CLI CTest coverage',
+    'Stage pinned FFmpeg for Feature Lab',
+    'Reset Feature Lab coverage counters',
+    'Feature Lab authored Tests',
+    'Report Feature Lab coverage',
+    'Report combined native coverage',
+    'Upload C++ coverage',
+  ])
+    assert.equal(
+      field(step(native, label), 'if'),
+      "${{ !cancelled() && steps.native_build.outcome == 'success' }}",
+    );
   assert.match(step(editor, 'Test and instrument editor'), /test:coverage/);
   assert.equal(field(step(editor, 'Test and instrument editor'), 'id'), 'editor-tests');
   for (const label of ['Summarize editor coverage', 'Publish editor coverage to Codecov'])
@@ -768,9 +785,9 @@ test('native coverage stages verified FFmpeg for Feature Lab video preparation',
   const linux = coverageJob('native');
   const stage = step(linux, 'Stage pinned FFmpeg for Feature Lab');
   const tests = step(linux, 'Feature Lab authored Tests');
-  // A failed C++ policy or CTest step must not suppress the media prerequisite
-  // while the independently reported Feature Lab suite is still scheduled.
-  assert.equal(field(stage, 'if'), '${{ !cancelled() }}');
+  // A failed policy or CTest still permits independent Feature Lab coverage,
+  // but a failed native build cannot run any test using missing executables.
+  assert.equal(field(stage, 'if'), "${{ !cancelled() && steps.native_build.outcome == 'success' }}");
   assert.match(stage, /node editor\/scripts\/private-media-tools\.mjs build\/coverage-media/);
   assert.match(tests, /NOVELTEA_FFMPEG: .*build\/coverage-media\/tools\/ffmpeg\/bin\/ffmpeg/);
   assert.ok(linux.indexOf(stage) < linux.indexOf(tests));
