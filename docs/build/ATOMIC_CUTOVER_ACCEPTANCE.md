@@ -767,3 +767,42 @@ a Release until coordinated acceptance is satisfied.
 - No hosted premerge or postmerge success is implied by local tests. Add
   direct run links, full job results and measured wall times here as they
   become available; #646 remains open until all acceptance conditions pass.
+
+## 2026-11-22: First-attempt green Build/Coverage and premerge Extended trigger
+
+After the native cache-writer and exact-generation certification fix at
+`441224a9c1c5103ec33f3afc73bb97a3d68a5b2e`, the same-source branch
+campaign completed successfully on **attempt 1**:
+
+- [Build #45108753097](https://github.com/Cruel/nt/actions/runs/45108753097):
+  **38/38 jobs passed**; run start 2026-11-23 03:55:12 UTC,
+  updated 05:18:26 UTC (83m14s elapsed, including any waiting/aggregation).
+  Linux, Windows, macOS, Android, Web, Editor, production artifacts and actual
+  runtime launches were all accepted by the Build workflow.
+- [Coverage #45108753040](https://github.com/Cruel/nt/actions/runs/45108753040):
+  **3/3 jobs passed**; run start 03:55:12 UTC, updated 05:42:56 UTC
+  (107m44s elapsed, including any waiting/aggregation). Native CTest, CLI
+  certification, Feature Lab and union GCC/gcov report completed without the
+  previous counter-merge mismatch or missing shutdown-stage assertion.
+
+The intermittently failing coverage certification was reproduced locally using
+a fresh Ninja/GCC `NOVELTEA_ENABLE_COVERAGE=ON` build, with
+`--coverage -fprofile-update=atomic -Og -g`. Its immediate restored-mtime
+shortcut could leave delayed actual source changes pending when the owner was
+shut down; stale external stages must be invalidated. The test now explicitly
+re-certifies the final physical generation before demanding persisted stage
+reuse. A separate deterministic process-level test proved an unchanged
+semantic-only validation must not erase stage evidence for the **same exact
+source revisions**, while a changed generation still discards it. The final
+instrumented CTest passed seven repeated runs, a clean one-run gcov merge
+restored 57 process-private profiles, and gcovr produced a coverage report.
+
+**This document-only change intentionally triggers the next exact-SHA premerge
+Build, Coverage and Extended Qualification cohort.** The Extended workflow's
+only premerge push trigger is this acceptance-document path, and its definition
+is absent from default-branch `master`, so an ordinary branch push cannot
+manually dispatch it. The newly triggered cohort must itself pass on attempt 1;
+prior successful runs are diagnostic evidence but cannot authorize a different
+source SHA. The Extended preview receipt remains nonpublishing, and Release
+preview must await a successful same-SHA Build and Extended receipt. No master
+merge or publication is authorized by this trigger.
