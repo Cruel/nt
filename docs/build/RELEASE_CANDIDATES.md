@@ -194,15 +194,25 @@ weekly key composed of runner OS/architecture, purpose/target/build mode,
 detected compiler identity and source-controlled CMake/vcpkg compatibility
 inputs. Different compilation modes do not use each other's fallback cache.
 The exact-week key is immutable; it is created only on a trusted push and
-restored read-only by pull requests. Compiler cache size is limited to
-256 MiB per job, with actual restore time, hit/matched key, size, compiler
-hit statistics and save time emitted to the Actions summary. The
+restored read-only by pull requests. The default compiler-object cache is bounded to
+256 MiB per job; the Windows GNU production CLI uses 512 MiB, Windows
+release/devtools players 384 MiB each, and native GCC-instrumented coverage
+384 MiB. Each compatibility scope has an independent immutable cache key.
+Only compiler outputs are stored by ccache, not whole CMake directories or
+multi-gigabyte static archives. Actual restore time, hit/matched key, size,
+compiler hit statistics and save time are emitted to the Actions summary. The
 `scripts/ci/time-command.mjs` wrapper records elapsed build-and-link phases
 and propagates failures without retrying or suppressing them.
 
 Linux vcpkg binary cache writers rotate weekly per configuration rather than
-saving a large immutable entry per commit. All Build and Release vcpkg
-bootstraps using the shared helper verify an exact detached SDK commit from
+saving a large immutable entry per commit. Cache the compiled vcpkg binary
+packages and compatible installed trees, not the vcpkg Git SDK/source checkout.
+Windows policy and production players share a compressed compiled-package
+cache with the same MSVC/ABI/pin identity; they do not archive the derived
+uncompressed vcpkg installed tree. The MinGW production CLI uses its own
+compressed compiled-package and compiler-object scopes, never MSVC outputs. All Build
+and Release vcpkg bootstraps using the shared helper verify an exact detached
+SDK commit from
 the pinned builtin-registry revision in `vcpkg-configuration.json`. Cache
 restore is a performance optimization; cached state cannot override the SDK
 source pin. Future CI tickets must pin any remaining mutable upstream downloads
@@ -211,9 +221,10 @@ before treating them as canonical production inputs.
 `node scripts/ci/cache-budget.mjs report` inspects Actions cache occupancy,
 printing a safe deletion plan without mutating state.
 `node scripts/ci/cache-budget.mjs apply` is the explicit maintenance
-operation. It removes **only superseded SHA/weekly generations**, preserving
-the newest available generation for each recognized compatible scope and
-every unique/unrecognized cache. It fails visibly if conservative pruning
+operation. It removes **only superseded SHA/weekly generations on the same
+GitHub ref**, preserving the newest available generation for each recognized
+compatible scope and every unique/unrecognized cache. Other refs are never
+treated as interchangeable merely because their keys match. It fails visibly if conservative pruning
 cannot reach its 9.5 GiB internal ceiling (leaving headroom under GitHub's
 10 GiB limit); it never deletes unique configurations to satisfy a number.
 The maintenance workflow runs daily on trusted master with `actions:write`;
@@ -222,9 +233,10 @@ genuine cold-cache benchmark, deliberately invalidate a pinned scope on a
 separate development run and measure restore/compile time; do not delete
 unrelated production caches in an uncontrolled experiment.
 
-The independent Coverage job restores shared pinned vcpkg caches read-only and
-has one 128 MiB instrumented compiler-cache allowance. Extended Qualification
-restores dependency, SDK, and compiler caches without publishing new entries.
+The independent Coverage job restores shared pinned compiled vcpkg caches
+read-only and has one 384 MiB instrumented compiler-object allowance. Extended
+Qualification restores compiled dependency and compiler caches without
+publishing new entries.
 `node scripts/ci/cache-budget.mjs allocation` models occupancy, new Coverage
 allocation, a 128 MiB safety reserve and remaining production headroom below
 10 GiB; see [Extended Qualification](EXTENDED_QUALIFICATION.md). The
@@ -233,7 +245,11 @@ writes. Actual production cache residency is still a #646 acceptance gate.
 
 Observed on 2026-11-19, the repository held 11,920,810,128 bytes of Actions
 cache (~11.10 GiB). The safe prune deleted six older compatible generations,
-leaving ~9.37 GiB, with all latest-per-family entries preserved. This is a
+leaving ~9.37 GiB, with all latest-per-family entries preserved. On
+2026-11-22, live occupancy had reached **10.03 GiB**: an obsolete Nov. 18
+compatibility branch held six independently scoped caches totaling **3.60 GiB**.
+Deleting only those expired-use cache entries (no branch/source/artifact deletion)
+reduced observed cache occupancy to **6.43 GiB**. This is a
 point-in-time occupancy measurement, not proof that future cross-platform
 Build/Release warm runs meet a <20-minute target. Cache performance and
 complete release-candidate parity require new workflow-run evidence on the

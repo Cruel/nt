@@ -72,7 +72,7 @@ CodeCov network/upload failures do not. The normal Build runs CTest, native CLI
 certification and Feature Lab without instrumentation, independent of these reports.
 The editor Coverage job builds its own addon and stages checksum-verified media tools;
 it does not depend on Build artifacts. Native/editor coverage caches restore vcpkg
-read-only, with the native compiler cache bounded to 128 MiB. Extended Qualification
+read-only, with the native instrumented compiler-object cache bounded to 384 MiB. Extended Qualification
 restores caches read-only to prioritize Build's 10 GiB cache capacity.
 
 Download `noveltea-coverage-editor` for editor HTML, Istanbul JSON, summary JSON and LCOV. gcovr uses repository-relative paths; Vitest's raw Istanbul JSON uses resolved source paths

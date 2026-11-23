@@ -4,6 +4,10 @@ inputs:
   scope:
     description: Compiler/target/ABI/flags scope, which must not be shared by incompatible variants.
     required: true
+  compiler:
+    description: Optional actual C++ compiler executable for the compatibility key (e.g. g++ or cl.exe).
+    required: false
+    default: ""
   fallback-scope:
     description: Deprecated. Incompatible scopes are never restored.
     required: false
@@ -33,7 +37,9 @@ runs:
         echo "start=$(date +%s)" >> "$GITHUB_OUTPUT"
         echo "publisher=$(node scripts/ci/cache-budget.mjs publisher)" >> "$GITHUB_OUTPUT"
         week="$(node scripts/ci/cache-budget.mjs window)"
-        if [[ "${{ inputs.scope }}" == emscripten* ]] && command -v em++ >/dev/null; then
+        if [[ -n "${{ inputs.compiler }}" ]]; then
+          compiler="${{ inputs.compiler }}"
+        elif [[ "${{ inputs.scope }}" == emscripten* ]] && command -v em++ >/dev/null; then
           compiler=em++
         elif [[ "${{ inputs.scope }}" == android* ]] && [[ -n "${ANDROID_NDK_HOME:-}" ]] && [[ -x "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++" ]]; then
           compiler="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++"

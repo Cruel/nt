@@ -701,16 +701,16 @@ jobs:
         shell: pwsh
         run: choco install ccache --yes --no-progress
 
-      - name: Cache vcpkg SDK and binaries
+      # Cache only compressed compiled packages: the installed .lib tree is
+      # derived from them and may contain multi-gigabyte uncompressed archives.
+      # Windows production players restore this same compatible closure.
+      - name: Cache Windows compiled vcpkg dependencies
         uses: actions/cache@v5
         with:
-          path: |
-            .cache/vcpkg
-            .cache/vcpkg-binary
-            build/windows-release/vcpkg_installed
-          key: windows-x64-vcpkg-policy-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/**') }}
+          path: .cache/vcpkg-binary
+          key: windows-2025-x64-vcpkg-compiled-v2-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/**') }}
           restore-keys: |
-            windows-x64-vcpkg-policy-
+            windows-2025-x64-vcpkg-compiled-v2-
 
       - name: Restore Windows compiler outputs
         id: windows-ccache
@@ -1375,6 +1375,7 @@ jobs:
       - name: Set up Debian 12 native host dependencies
         uses: ./.github/actions/setup-linux-native
         with:
+          ccache: "true"
           pkg-config: "true"
           autotools: "true"
           graphics: "true"
@@ -1393,8 +1394,24 @@ jobs:
           scope: linux-authoring-release
           binary-scope: linux-authoring-release
           cache-prefix: debian-12-glibc-2.36-x64
+      - name: Restore Debian release CLI compiler objects
+        id: ccache
+        uses: ./.github/actions/setup-ccache
+        with:
+          scope: debian12-authoring-release
+          compiler: g++
       - name: Compile actual Debian glibc 2.36 release CLI
+        env:
+          NOVELTEA_CLI_USE_CCACHE: "1"
         run: node scripts/ci/time-command.mjs linux-debian12-release-cli-build-and-link pnpm -C editor run noveltea:build
+      - name: Save Debian release CLI compiler objects
+        uses: ./.github/actions/save-ccache
+        with:
+          primary-key: ${{ steps.ccache.outputs.primary-key }}
+          cache-hit: ${{ steps.ccache.outputs.cache-hit }}
+      - name: Report Debian release CLI compiler-cache statistics
+        if: always()
+        run: ccache --show-stats
       - name: Build required renderer and Electron native certification bundles
         run: |
           pnpm -C editor exec vp build
@@ -1415,6 +1432,8 @@ jobs:
     name: Production host CLI (${{ matrix.platform }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
+    env:
+      CCACHE_MAXSIZE: ${{ matrix.platform == 'windows' && '512M' || '256M' }}
     strategy:
       fail-fast: false
       matrix:
@@ -1441,15 +1460,24 @@ jobs:
       - name: Install macOS build tools
         if: matrix.platform == 'macos'
         run: brew install ninja ccache
-      - name: Restore host vcpkg SDK and binary cache
+      - name: Install Windows compiler cache
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: choco install ccache --yes --no-progress
+      - name: Restore compiled host vcpkg packages
+        if: matrix.platform == 'macos'
         uses: actions/cache/restore@v5
         with:
-          path: |
-            .cache/vcpkg
-            .cache/vcpkg-binary
+          path: .cache/vcpkg-binary
           key: ${{ matrix.runner }}-host-vcpkg-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/**') }}
           restore-keys: |
             ${{ matrix.runner }}-host-vcpkg-
+      - name: Cache compiled Windows GNU CLI dependencies
+        if: matrix.platform == 'windows'
+        uses: actions/cache@v5
+        with:
+          path: .cache/vcpkg-binary
+          key: windows-2025-x64-gnu-vcpkg-compiled-v1-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/**') }}
       - name: Bootstrap verified vcpkg revision
         shell: pwsh
         run: |
@@ -1472,13 +1500,15 @@ jobs:
         if: matrix.platform == 'windows'
         shell: pwsh
         run: ./scripts/ci/prefetch-lua-source.ps1
-      - name: Restore macOS authoring compiler objects
-        if: matrix.platform == 'macos'
+      - name: Restore production CLI compiler objects
         id: ccache
         uses: ./.github/actions/setup-ccache
         with:
-          scope: macos-authoring-release
+          scope: ${{ matrix.platform == 'windows' && 'windows-gnu-cli-release' || 'macos-authoring-release' }}
+          compiler: ${{ matrix.platform == 'windows' && 'g++' || 'clang++' }}
       - name: Compile actual GNU/AppleClang production CLI
+        env:
+          NOVELTEA_CLI_USE_CCACHE: "1"
         run: node scripts/ci/time-command.mjs ${{ matrix.preset }}-build-and-link pnpm -C editor run noveltea:build
       - name: Certify Windows GNU CLI has no unshipped dynamic runtime DLLs
         if: matrix.platform == 'windows'
@@ -1509,12 +1539,14 @@ jobs:
         uses: ./.github/actions/produce-candidate
         with:
           candidate: ${{ matrix.candidate }}
-      - name: Save bounded macOS compiler objects
-        if: matrix.platform == 'macos'
+      - name: Save bounded production CLI compiler objects
         uses: ./.github/actions/save-ccache
         with:
           primary-key: ${{ steps.ccache.outputs.primary-key }}
           cache-hit: ${{ steps.ccache.outputs.cache-hit }}
+      - name: Report production CLI compiler-cache statistics
+        if: always()
+        run: ccache --show-stats
 
   production-android-arm64:
     name: Android ARM64 production candidate (${{ matrix.variant }})
@@ -1642,6 +1674,8 @@ jobs:
     runs-on: ${{ matrix.runner }}
     needs: shader-assets
     timeout-minutes: 90
+    env:
+      CCACHE_MAXSIZE: ${{ matrix.platform == 'windows' && '384M' || '256M' }}
     strategy:
       fail-fast: false
       matrix:
@@ -1717,6 +1751,10 @@ jobs:
       - name: Install macOS build dependencies
         if: runner.os == 'macOS'
         run: brew install ninja ccache
+      - name: Install Windows desktop compiler cache
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: choco install ccache --yes --no-progress
       - name: Restore exact Linux glibc 2.28 vcpkg build closure
         if: matrix.platform == 'linux'
         uses: actions/cache/restore@v5
@@ -1728,16 +1766,14 @@ jobs:
           key: manylinux-2.28-x64-player-${{ matrix.variant }}-${{ hashFiles('.github/containers/linux-player-glibc228.Dockerfile', 'vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/x64-linux-noveltea.cmake', 'cmake/NovelTeaLua.cmake') }}
           restore-keys: |
             manylinux-2.28-x64-player-${{ matrix.variant }}-
-      - name: Restore pinned non-Linux vcpkg binary dependencies
+      - name: Restore compiled non-Linux vcpkg packages
         if: matrix.platform != 'linux'
         uses: actions/cache/restore@v5
         with:
-          path: |
-            .cache/vcpkg
-            .cache/vcpkg-binary
-          key: ${{ matrix.runner }}-${{ matrix.arch }}-vcpkg-common-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'cmake/vcpkg-triplets/**') }}
+          path: .cache/vcpkg-binary
+          key: ${{ matrix.platform == 'windows' && format('windows-2025-x64-vcpkg-compiled-v2-{0}', hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/**')) || format('{0}-{1}-vcpkg-common-{2}', matrix.runner, matrix.arch, hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'cmake/vcpkg-triplets/**')) }}
           restore-keys: |
-            ${{ matrix.runner }}-${{ matrix.arch }}-vcpkg-common-
+            ${{ matrix.platform == 'windows' && 'windows-2025-x64-vcpkg-compiled-v2-' || format('{0}-{1}-vcpkg-common-', matrix.runner, matrix.arch) }}
       - name: Bootstrap source-pinned vcpkg SDK
         if: matrix.platform != 'linux'
         shell: pwsh
@@ -1763,11 +1799,11 @@ jobs:
         shell: pwsh
         run: ./scripts/ci/prefetch-lua-source.ps1
       - name: Restore compatible compiler objects
-        if: matrix.platform != 'windows'
         id: ccache
         uses: ./.github/actions/setup-ccache
         with:
           scope: desktop-${{ matrix.arch }}-${{ matrix.preset }}
+          compiler: ${{ matrix.platform == 'windows' && 'cl.exe' || '' }}
       - name: Download certified shader assets
         uses: actions/download-artifact@v7
         with:
@@ -1816,10 +1852,7 @@ jobs:
         if: matrix.platform != 'linux'
         shell: pwsh
         run: |
-          $launchers = @()
-          if ("${{ matrix.platform }}" -eq "macos") {
-            $launchers = @("-DCMAKE_C_COMPILER_LAUNCHER=ccache", "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache")
-          }
+          $launchers = @("-DCMAKE_C_COMPILER_LAUNCHER=ccache", "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache")
           $hostTools = if ("${{ matrix.platform }}" -eq "windows") { "ON" } else { "OFF" }
           cmake --preset ${{ matrix.preset }} -G Ninja `
             -DCMAKE_BUILD_TYPE=Release `
@@ -1879,13 +1912,12 @@ jobs:
         with:
           candidate: ${{ matrix.candidate }}
       - name: Save compatible compiler objects
-        if: matrix.platform != 'windows'
         uses: ./.github/actions/save-ccache
         with:
           primary-key: ${{ steps.ccache.outputs.primary-key }}
           cache-hit: ${{ steps.ccache.outputs.cache-hit }}
       - name: Report compiler-cache statistics
-        if: always() && matrix.platform != 'windows'
+        if: always()
         run: ccache --show-stats
 
   production-desktop-launch-smoke:

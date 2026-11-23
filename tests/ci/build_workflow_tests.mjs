@@ -496,10 +496,9 @@ test('installed native CLI certification builds the required native production b
 });
 
 test('vcpkg binary caches have independent bounded weekly configuration writers', () => {
-  const sdk = step(vcpkg, 'Cache vcpkg SDK');
   const binaries = step(vcpkg, 'Cache vcpkg binaries');
   const installed = step(vcpkg, 'Cache vcpkg installed tree');
-  assert.equal(field(sdk, 'path'), '.cache/vcpkg');
+  assert.doesNotMatch(vcpkg, /path: \.cache\/vcpkg\s*\n/);
   assert.equal(field(binaries, 'path'), '.cache/vcpkg-binary');
   assert.ok(field(binaries, 'key').includes("${{ inputs['binary-scope'] }}"));
   assert.ok(field(binaries, 'key').endsWith('${{ steps.window.outputs.week }}'));
@@ -533,6 +532,53 @@ test('vcpkg binary caches have independent bounded weekly configuration writers'
     field(step(extendedJob('linux-cooperative'), 'Set up vcpkg'), 'binary-fallback-scope'),
     'linux-debug',
   );
+});
+
+test('expensive Windows production compilation restores strictly compatible object and dependency caches', () => {
+  const host = job('production-other-host-clis');
+  const player = job('production-desktop-players');
+  const policy = job('windows');
+  const debian = job('production-linux-release-cli');
+  const compilerAction = readFileSync(
+    new URL('../../.github/actions/setup-ccache/action.yml', import.meta.url), 'utf8',
+  );
+
+  const hostCache = step(host, 'Restore production CLI compiler objects');
+  const hostBuild = step(host, 'Compile actual GNU/AppleClang production CLI');
+  assert.match(host, /choco install ccache/);
+  assert.match(debian, /ccache: "true"/);
+  assert.match(step(debian, 'Restore Debian release CLI compiler objects'), /compiler: g\+\+/);
+  assert.match(step(debian, 'Compile actual Debian glibc 2.36 release CLI'),
+    /NOVELTEA_CLI_USE_CCACHE: "1"/);
+  assert.match(debian, /Save Debian release CLI compiler objects/);
+  assert.match(hostCache, /compiler: .*g\+\+/);
+  assert.match(hostCache, /windows-gnu-cli-release/);
+  assert.match(hostBuild, /NOVELTEA_CLI_USE_CCACHE: "1"/);
+  assert.match(cliBuildScript, /CMAKE_C_COMPILER_LAUNCHER=ccache/);
+  assert.match(cliBuildScript, /CMAKE_CXX_COMPILER_LAUNCHER=ccache/);
+  assert.match(host, /Cache compiled Windows GNU CLI dependencies/);
+  assert.equal(field(step(host, 'Cache compiled Windows GNU CLI dependencies'), 'path'), '.cache/vcpkg-binary');
+
+  const playerCache = step(player, 'Restore compatible compiler objects');
+  const playerBuild = step(player, 'Compile non-Linux release player with its production compiler');
+  assert.match(player, /choco install ccache/);
+  assert.match(playerCache, /compiler: .*cl\.exe/);
+  assert.match(playerCache, /desktop-.*matrix\.preset/);
+  assert.match(playerBuild, /CMAKE_CXX_COMPILER_LAUNCHER=ccache/);
+  assert.match(player, /CCACHE_MAXSIZE: .*384M/);
+  assert.match(host, /CCACHE_MAXSIZE: .*512M/);
+  assert.match(compilerAction, /if \[\[ -n "\$\{\{ inputs\.compiler \}\}" \]\]/);
+
+  const compiledPolicy = step(policy, 'Cache Windows compiled vcpkg dependencies');
+  const compiledPlayer = step(player, 'Restore compiled non-Linux vcpkg packages');
+  assert.match(compiledPolicy, /windows-2025-x64-vcpkg-compiled-v2/);
+  assert.equal(field(compiledPolicy, 'path'), '.cache/vcpkg-binary');
+  assert.match(compiledPlayer, /windows-2025-x64-vcpkg-compiled-v2/);
+  assert.doesNotMatch(compiledPolicy, /\n\s*\.cache\/vcpkg\s*\n/);
+  assert.doesNotMatch(compiledPlayer, /\n\s*\.cache\/vcpkg\s*\n/);
+  assert.doesNotMatch(step(host, 'Cache compiled Windows GNU CLI dependencies'), /\n\s*\.cache\/vcpkg\s*\n/);
+  // Build directories, including uncompressed static libs, are never shared as dependency caches.
+  assert.doesNotMatch(compiledPolicy, /build\/windows-release/);
 });
 
 test('CI publishes distinct informational coverage summaries and detailed artifacts', () => {

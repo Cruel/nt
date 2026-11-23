@@ -1,5 +1,5 @@
 name: Setup Linux vcpkg
-description: Restore NovelTea's Linux vcpkg caches and bootstrap the repository-managed vcpkg checkout.
+description: Restore compiled Linux vcpkg packages and bootstrap the pinned checkout without caching downloaded SDK sources.
 inputs:
   installed-dir:
     description: vcpkg installed tree to restore.
@@ -25,24 +25,6 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Cache vcpkg SDK
-      if: inputs['read-only'] != 'true'
-      uses: actions/cache@v5
-      with:
-        path: .cache/vcpkg
-        key: ${{ inputs['cache-prefix'] }}-vcpkg-sdk-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
-        restore-keys: |
-          ${{ inputs['cache-prefix'] }}-vcpkg-sdk-
-
-    - name: Restore cache vcpkg sdk (read only)
-      if: inputs['read-only'] == 'true'
-      uses: actions/cache/restore@v5
-      with:
-        path: .cache/vcpkg
-        key: ${{ inputs['cache-prefix'] }}-vcpkg-sdk-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
-        restore-keys: |
-          ${{ inputs['cache-prefix'] }}-vcpkg-sdk-
-
     - name: Resolve bounded vcpkg cache window
       id: window
       shell: bash

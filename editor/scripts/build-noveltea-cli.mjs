@@ -113,6 +113,9 @@ run(cmake, [
   '-DNOVELTEA_COMPILE_SHADERS=OFF',
   '-DNOVELTEA_CMAKE_STAGE_RUNTIME_ASSETS=OFF',
   `-DNOVELTEA_NATIVE_CLI_BUILD_IDENTITY=${buildIdentity}`,
+  ...(process.env.NOVELTEA_CLI_USE_CCACHE === '1'
+    ? ['-DCMAKE_C_COMPILER_LAUNCHER=ccache', '-DCMAKE_CXX_COMPILER_LAUNCHER=ccache']
+    : []),
   ...(prebuiltShadercRoot ? [`-DNOVELTEA_PREBUILT_SHADERC_ROOT=${prebuiltShadercRoot}`] : []),
   ...crossArguments,
 ]);

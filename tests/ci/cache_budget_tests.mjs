@@ -34,12 +34,12 @@ test('coverage and Extended allocation leaves production headroom below the 10 G
   // Captured 2026-11-20 inventory; not a promise of post-cutover cache residency.
   const observed = 10_066_130_683;
   const plan = planCiCacheAllocation(observed);
-  assert.equal(plan.coverageBytes, 128 * 1024 ** 2);
+  assert.equal(plan.coverageBytes, 384 * 1024 ** 2);
   assert.equal(plan.extendedBytes, 0);
   assert.equal(plan.safetyBytes, 128 * 1024 ** 2);
   assert.equal(plan.withinLimit, true);
-  assert.ok(plan.remainingProductionBytes > 256 * 1024 ** 2);
-  assert.ok(plan.remainingProductionBytes < 512 * 1024 ** 2);
+  assert.ok(plan.remainingProductionBytes > 0);
+  assert.ok(plan.remainingProductionBytes < 256 * 1024 ** 2);
   assert.equal(planCiCacheAllocation(10 * GiB).withinLimit, false);
   assert.throws(() => planCiCacheAllocation(1, { coverageBytes: -1 }));
   assert.throws(() => planCiCacheAllocation(Number.POSITIVE_INFINITY));
@@ -58,6 +58,18 @@ test('prune only superseded immutable generations; preserve last compatible key 
   assert.equal(plan.projectedBytes, 6 * GiB);
   assert.equal(plan.satisfied, true);
   assert.equal(plan.protectedIds.includes(5), true);
+});
+
+test('identical cache keys on different GitHub refs are not interchangeable', () => {
+  const caches = [
+    { ...entry(1, `Linux-ccache-host-${shaA}`, 2 * GiB, '2026-11-01T00:00:00Z'), ref: 'refs/heads/master' },
+    { ...entry(2, `Linux-ccache-host-${shaA}`, 2 * GiB, '2026-11-20T00:00:00Z'), ref: 'refs/heads/integration' },
+    { ...entry(3, `Linux-ccache-host-${shaB}`, 2 * GiB, '2026-11-21T00:00:00Z'), ref: 'refs/heads/master' },
+  ];
+  const plan = planCachePrune(caches, 4 * GiB);
+  assert.deepEqual(plan.deleteIds, [1]);
+  assert.ok(plan.protectedIds.includes(2));
+  assert.ok(plan.protectedIds.includes(3));
 });
 
 test('cache budget fails visibly rather than evicting unique or last-needed configurations', () => {

@@ -71,13 +71,13 @@ test('instrumented coverage and Extended restore dependency caches without creat
     assert.equal(setup?.with?.['read-only'], 'true', name);
   }
   const cacheSteps = vcpkg.runs.steps.filter((step) => step.uses?.startsWith('actions/cache'));
-  assert.equal(cacheSteps.length, 6);
+  assert.equal(cacheSteps.length, 4);
   for (const step of cacheSteps) {
     assert.equal(step.if,
       step.uses === 'actions/cache/restore@v5'
         ? "inputs['read-only'] == 'true'" : "inputs['read-only'] != 'true'");
   }
-  assert.equal(coverage.env.CCACHE_MAXSIZE, '128M');
+  assert.equal(coverage.env.CCACHE_MAXSIZE, '384M');
   for (const job of Object.values(extended.jobs)) {
     for (const step of job.steps) {
       assert.ok(!step.uses?.includes('actions/cache/save'), 'Extended cache writing is forbidden');

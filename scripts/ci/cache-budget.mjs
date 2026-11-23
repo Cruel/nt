@@ -44,9 +44,12 @@ export function planCachePrune(entries, budgetBytes = DEFAULT_BUDGET_BYTES) {
   for (const entry of cacheEntries) {
     const name = family(entry.key);
     if (!name) continue;
-    const group = groups.get(name) ?? [];
+    // Actions caches are branch-scoped. Identical keys on different refs are
+    // not interchangeable; preserve each ref's last usable generation.
+    const scope = `${entry.ref ?? ''}\0${name}`;
+    const group = groups.get(scope) ?? [];
     group.push(entry);
-    groups.set(name, group);
+    groups.set(scope, group);
   }
   const eligible = [];
   const protectedIds = [];
@@ -77,11 +80,11 @@ export function planCachePrune(entries, budgetBytes = DEFAULT_BUDGET_BYTES) {
 }
 
 // Informational capacity plan: Extended restores caches read-only; Coverage has
-// one bounded 128 MiB compiler writer. Do not count workflow artifacts here.
+// one bounded 384 MiB compiler writer. Do not count workflow artifacts here.
 // Any newly generated production scopes must fit in remaining headroom; #646
 // certifies that their actual hosted residency does, rather than assuming it.
 export function planCiCacheAllocation(observedBytes, {
-  coverageBytes = 128 * MiB,
+  coverageBytes = 384 * MiB,
   extendedBytes = 0,
   safetyBytes = 128 * MiB,
 } = {}) {
@@ -123,12 +126,12 @@ async function main(argv) {
     throw new Error('PR jobs cannot prune trusted cache scopes.');
   }
   const entries = JSON.parse(gh(['cache', 'list', '--repo', repo, '--limit', '1000',
-    '--json', 'id,key,sizeInBytes,lastAccessedAt']));
+    '--json', 'id,key,ref,sizeInBytes,lastAccessedAt']));
   const plan = planCachePrune(entries);
   if (command === 'allocation') {
     const allocation = planCiCacheAllocation(plan.originalBytes);
     const remainingMiB = Math.floor(allocation.remainingProductionBytes / MiB);
-    process.stdout.write(`Observed: ${(plan.originalBytes / GiB).toFixed(2)} GiB; Coverage incremental allowance: 128 MiB; Extended: restore-only; safety: 128 MiB; production budget before 10 GiB: ${remainingMiB} MiB.\n`);
+    process.stdout.write(`Observed: ${(plan.originalBytes / GiB).toFixed(2)} GiB; Coverage incremental allowance: 384 MiB; Extended: restore-only; safety: 128 MiB; production budget before 10 GiB: ${remainingMiB} MiB.\n`);
     if (!allocation.withinLimit) process.exitCode = 1;
     return;
   }
@@ -140,7 +143,7 @@ async function main(argv) {
       process.stdout.write(`Deleted superseded cache ID ${id}.\n`);
     }
     const remaining = JSON.parse(gh(['cache', 'list', '--repo', repo, '--limit', '1000',
-      '--json', 'id,key,sizeInBytes,lastAccessedAt']));
+      '--json', 'id,key,ref,sizeInBytes,lastAccessedAt']));
     const occupied = remaining.reduce((bytes, entry) => bytes + entry.sizeInBytes, 0);
     process.stdout.write(`Observed cache occupancy after prune: ${fmt(occupied)}.\n`);
     if (occupied > plan.budgetBytes) process.exitCode = 1;

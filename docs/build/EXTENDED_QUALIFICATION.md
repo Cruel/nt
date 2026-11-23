@@ -51,16 +51,21 @@ publication fails closed.
 
 ## Cache budget and completion boundary
 
-Coverage retains a 128 MiB compiler-cache write allowance; Extended restores
-existing dependency/SDK and compiler caches **read-only**, rather than
-introducing competing weekly cache generations. The shared vcpkg bootstrap
+Coverage retains a 384 MiB instrumented compiler-object cache allowance; Extended
+restores compiled dependency and compiler caches **read-only**, rather than
+introducing competing weekly cache generations. Downloaded vcpkg source/SDK
+checkouts are pinned and bootstrapped but are not cached. The shared vcpkg bootstrap
 continues to pin its source regardless of a cache hit. Run
 `node scripts/ci/cache-budget.mjs allocation` for the current occupancy,
 Coverage allowance, 128 MiB safety reserve and remaining capacity before the
-10 GiB limit. The snapshot recorded on 2026-11-20 was 9.37 GiB, leaving
-approximately 384 MiB for additional production cache growth under that
-conservative allocation. This is a **local capacity model**, not a claim that
-the complete canonical Build matrix will remain resident: #646 measures
+10 GiB limit. The snapshot recorded on 2026-11-20 was 9.37 GiB; it predated
+the higher instrumented allowance and is not an allocation estimate for the
+new policy. On 2026-11-22, six obsolete branch-specific cache entries were
+reclaimed, lowering observed repository occupancy from 10.03 to 6.43 GiB.
+The next exact-SHA hosted campaign must verify that new Windows GNU/MSVC
+compiler-object and compiled-vcpkg cache generations fit after population.
+This is a **local capacity model**, not a claim that the complete canonical
+Build matrix will remain resident: #646 measures
 actual hosted cache residency, workflow success, warm/cold timings and
 cross-platform reliability before the coordinated one-time merge.
 

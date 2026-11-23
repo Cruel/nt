@@ -18,7 +18,7 @@ env:
   VCPKG_DEFAULT_TRIPLET: x64-linux
   VCPKG_BINARY_SOURCES: clear;files,${{ github.workspace }}/.cache/vcpkg-binary,readwrite
   CCACHE_DIR: ${{ github.workspace }}/.cache/ccache
-  CCACHE_MAXSIZE: 128M
+  CCACHE_MAXSIZE: 384M
   CCACHE_BASEDIR: ${{ github.workspace }}
   NOVELTEA_SHADERC_TOOLCHAIN_TAG: r6
   NOVELTEA_BUILD_IDENTITY: git:${{ github.sha }}
@@ -134,7 +134,7 @@ jobs:
         id: ccache
         uses: ./.github/actions/setup-ccache
         with:
-          scope: linux-debug-coverage
+          scope: linux-debug-coverage-v3
 
       - name: Set up coverage reporter
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
