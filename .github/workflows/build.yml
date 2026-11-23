@@ -1578,6 +1578,13 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - name: Restore Gradle dependency and wrapper cache
+        uses: gradle/actions/setup-gradle@v5
+        with:
+          # Keep development-branch cache writes bounded to this integration branch.
+          cache-read-only: ${{ github.ref != 'refs/heads/master' && github.ref != 'refs/heads/ci/build-release-refactor-641' }}
+          gradle-home-cache-excludes: |
+            caches/build-cache-1
       - name: Install Linux native dependencies
         uses: ./.github/actions/setup-linux-native
         with:

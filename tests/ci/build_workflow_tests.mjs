@@ -233,8 +233,27 @@ test('source-owned production producers require the same pinned ABI floors as Re
   assert.match(android, /ANDROID_NDK_VERSION/);
   assert.match(android, /verify-android-load-alignment/);
   assert.match(android, /assembleRelease/);
+  assert.match(android, /gradle\/actions\/setup-gradle@v5/);
+  assert.match(android, /cache-read-only: \$\{\{ github\.ref != 'refs\/heads\/master'/);
+  assert.match(android, /caches\/build-cache-1/);
+  const androidSettings = readFileSync(new URL('../../android/settings.gradle', import.meta.url), 'utf8');
+  assert.equal((androidSettings.match(/maven-central\.storage-download\.googleapis\.com\/maven2/g) || []).length, 2);
+  assert.equal((androidSettings.match(/System\.getenv\("GITHUB_ACTIONS"\) == "true"/g) || []).length, 2);
+  assert.match(androidSettings, /mavenCentral\(\)/);
   assert.match(job('android'), /android-player-x64-debug/);
   assert.match(job('production-editor-hosts'), /NOVELTEA_MAX_GLIBC_VERSION=2\.36/);
+});
+
+test('native-only pinned cancellation warms its own broker before measuring the worker', () => {
+  const lifecycle = readFileSync(
+    new URL('../../editor/scripts/certify-native-cli-owner-lifecycle.mjs', import.meta.url),
+    'utf8',
+  );
+  const warm = lifecycle.indexOf("execute(['platform', 'profiles'], pinnedEnvironment)");
+  const launch = lifecycle.indexOf("const command = spawn(");
+  assert.ok(warm > 0 && launch > warm);
+  assert.match(lifecycle, /NOVELTEA_CLI_CERTIFICATION_PINNED_BARRIER: marker/);
+  assert.match(lifecycle, /Daemon status:/);
 });
 
 test('sanitizer CI keeps optimized instrumentation and a bounded first-party test selection', () => {

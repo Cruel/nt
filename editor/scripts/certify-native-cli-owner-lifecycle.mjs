@@ -63,6 +63,13 @@ try {
   assert.deepEqual(restarted, initial, 'Restarted daemon did not reopen the native Project.');
   console.log('Native-only installed daemon restart and warm scoped Project read PASSED.');
 
+  // The cancellation exercise intentionally uses its own isolated broker root.
+  // Establish that broker's Project owner before starting the pinned-worker
+  // timer. Warming only the baseline broker leaves this one cold on Windows
+  // and confounds broker/owner startup time with worker pinning.
+  const pinnedWarm = execute(['platform', 'profiles'], pinnedEnvironment);
+  assert.deepEqual(pinnedWarm, initial, 'Pinned broker failed its own warm Project admission.');
+
   // Force a real pinned worker; the marker belongs to the disposable, not the
   // resident daemon. Interrupt the public CLI, release the worker and reject
   // any report that silently published a completed run after cancellation.
