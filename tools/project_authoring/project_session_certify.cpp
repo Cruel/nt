@@ -4461,6 +4461,17 @@ int main(int argc, char** argv)
                         });
                     require(accepted, "Probe must accept its own exact generation");
                     report(true, true, result.cache_hit, true);
+                } else if (command == "validate-deferred-without-stages") {
+                    // A semantic-only validation of the exact same physical
+                    // generation must not erase a prior deferred external
+                    // stage builder. Simulate a caller without stage inputs.
+                    const auto result = session->validate_clean_project(false, true);
+                    require(result.snapshot.valid && result.deferred_exact_revisions,
+                            "Semantic-only probe must pin the same valid Project generation");
+                    const bool accepted = session->publish_deferred_clean_validation(
+                        result, *result.deferred_exact_revisions);
+                    require(accepted, "Semantic-only probe must accept unchanged source evidence");
+                    report(true, true, result.cache_hit, true);
                 } else if (command == "dirty") {
                     const auto result = session->patch(
                         session->snapshot().working_revision,

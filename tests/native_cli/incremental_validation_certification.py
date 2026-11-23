@@ -637,6 +637,15 @@ with tempfile.TemporaryDirectory(
                 # so shutdown must conservatively defer publication rather
                 # than claim the just-tested generation stayed unchanged.
 
+            if size == 1 and sys.platform in ("linux", "win32"):
+                # The shortcut-only corruption probe above can return an exact
+                # broker result without invoking the native owner. Its last
+                # restored-mtime write can also deliver a delayed physical
+                # change notification after that shortcut. Shutdown must not
+                # inherit stages from a generation the owner never re-certified.
+                # Reprove this final generation before testing persisted stages.
+                final_stage_proof = validate_after_membership_change(project)
+                assert public(final_stage_proof) == public(saved), (size, final_stage_proof)
             # A persisted ledger is exercised by a genuinely restarted owner,
             # not an unchanged request to the still-live daemon.
             stop()

@@ -1275,13 +1275,21 @@ bool ProjectSession::publish_deferred_clean_validation(
     }
     if (resident_cache_maintenance_) {
         cache_maintenance_pending_ = true;
-        cache_stage_revisions_ = post_revisions;
-        cache_stage_builder_ = std::move(deferred_stages);
-        // A semantic-only repeat must not discard independently proved font
-        // and shader stage evidence from a previously admitted cache hit.
-        cache_stage_json_ = stages_json != "null" ? std::string(stages_json)
-                            : validated.cache_hit ? validated.stages_json
-                                                  : std::string{};
+        // A semantic-only repeat may lack external stage inputs even when an
+        // earlier validation certified those stages for these exact source
+        // revisions. Do not erase that deferred builder merely because the
+        // newer request has no replacement evidence. Different revisions must
+        // never inherit an old builder (including after watcher recovery).
+        const std::string incoming_stages = stages_json != "null" ? std::string(stages_json)
+                                            : validated.cache_hit && validated.stages_json != "null"
+                                                ? validated.stages_json
+                                                : std::string{};
+        if (deferred_stages || !incoming_stages.empty() ||
+            cache_stage_revisions_ != post_revisions) {
+            cache_stage_revisions_ = post_revisions;
+            cache_stage_builder_ = std::move(deferred_stages);
+            cache_stage_json_ = incoming_stages;
+        }
     } else if (owns_clean_cache_lease() &&
                (!validated.cache_hit || stages_json != "null" || deferred_stages)) {
         try {
