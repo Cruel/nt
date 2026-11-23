@@ -2937,35 +2937,41 @@ private:
             else
                 release_child_process(process);
         }
-        const auto retained_snapshot = project_snapshots_.latest(canonical_root, now_millis());
-        const auto exact_validation = exact_validation_results_.find(canonical_root, now_millis());
-        const auto exact_validation_checkpoint =
-            exact_validation
-                ? std::optional<ProjectAuthorityCheckpoint>(exact_validation->authority)
-                : std::nullopt;
-        bool retained_for_rehydration = false;
-        if (exact_validation_checkpoint) {
-            // Exact validation survives owner eviction independently of portable semantic bytes.
-            // Install its native physical baseline dormant so the next validation can prove disk
-            // equality without starting QuickJS. A later owner admission restores its own retained
-            // snapshot checkpoint before rehydration.
-            retained_for_rehydration =
-                project_authority_.restore_checkpoint_for_rehydration(*exact_validation_checkpoint);
-        } else if (retained_snapshot) {
-            // Snapshot serialization is allowed to lag the live owner. Always restore the exact
-            // native baseline captured with the retained bytes before making the Project dormant;
-            // otherwise a replacement could rehydrate generation N-1 against generation N's
-            // already-advanced manifest and incorrectly observe no delta. The same rule recovers
-            // changes a crashed owner consumed after its last snapshot.
-            const auto checkpoint = project_snapshots_.authority_checkpoint(
-                canonical_root, retained_snapshot->identity, now_millis());
-            retained_for_rehydration =
-                checkpoint && project_authority_.restore_checkpoint_for_rehydration(*checkpoint);
-        }
-        if (!retained_for_rehydration) {
-            if (retained_snapshot)
-                project_snapshots_.invalidate_current(canonical_root);
-            (void)project_authority_.release(root);
+        // A terminal broker has no next Project admission. Rebuilding a dormant
+        // physical baseline from a large owner checkpoint here is wasted work
+        // and can hold the exiting Windows broker alive after stop is acknowledged.
+        // The owner has already flushed its disk ledger before the process exit.
+        if (state_.load() != State::stopped) {
+            const auto retained_snapshot = project_snapshots_.latest(canonical_root, now_millis());
+            const auto exact_validation = exact_validation_results_.find(canonical_root, now_millis());
+            const auto exact_validation_checkpoint =
+                exact_validation
+                    ? std::optional<ProjectAuthorityCheckpoint>(exact_validation->authority)
+                    : std::nullopt;
+            bool retained_for_rehydration = false;
+            if (exact_validation_checkpoint) {
+                // Exact validation survives owner eviction independently of portable semantic bytes.
+                // Install its native physical baseline dormant so the next validation can prove disk
+                // equality without starting QuickJS. A later owner admission restores its own retained
+                // snapshot checkpoint before rehydration.
+                retained_for_rehydration =
+                    project_authority_.restore_checkpoint_for_rehydration(*exact_validation_checkpoint);
+            } else if (retained_snapshot) {
+                // Snapshot serialization is allowed to lag the live owner. Always restore the exact
+                // native baseline captured with the retained bytes before making the Project dormant;
+                // otherwise a replacement could rehydrate generation N-1 against generation N's
+                // already-advanced manifest and incorrectly observe no delta. The same rule recovers
+                // changes a crashed owner consumed after its last snapshot.
+                const auto checkpoint = project_snapshots_.authority_checkpoint(
+                    canonical_root, retained_snapshot->identity, now_millis());
+                retained_for_rehydration =
+                    checkpoint && project_authority_.restore_checkpoint_for_rehydration(*checkpoint);
+            }
+            if (!retained_for_rehydration) {
+                if (retained_snapshot)
+                    project_snapshots_.invalidate_current(canonical_root);
+                (void)project_authority_.release(root);
+            }
         }
         {
             std::scoped_lock lock(queue_mutex_);
@@ -4688,10 +4694,22 @@ private:
     {
         const auto sleep_interval = std::chrono::milliseconds(
             std::max<std::uint64_t>(10, std::min<std::uint64_t>(250, context_.daemon_idle_ms / 4)));
-        while (state_.load() != State::stopped && state_.load() != State::draining) {
+        const auto draining = [this] {
+            const auto state = state_.load();
+            return state == State::draining || state == State::stopped;
+        };
+        while (!draining()) {
             std::this_thread::sleep_for(sleep_interval);
+            // A stop can arrive during the sleep; do not initiate more costly
+            // owner/cache maintenance after terminal drain has begun.
+            if (draining())
+                break;
             maintain_project_owners();
+            if (draining())
+                break;
             maintain_disposable_workers();
+            if (draining())
+                break;
             if (critical_sections_.load() != 0 || exact_validation_probes_.load() != 0)
                 continue;
             {

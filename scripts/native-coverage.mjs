@@ -87,39 +87,56 @@ export function restoreIsolatedCoverageCounters(buildDirectory) {
   const isolated = build + '.gcov-cli';
   awaitExitedCoverageProcesses(isolated);
   const work = mkdtempSync(path.join(process.env.RUNNER_TEMP || tmpdir(), 'noveltea-gcov-merge-'));
-  let merged = null;
-  let count = 0;
+  const snapshots = [];
   try {
     for (const entry of readdirSync(isolated, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
       // GCOV_PREFIX_STRIP=0 retains the absolute object directory beneath each test root.
       const source = path.join(isolated, entry.name, build.slice(path.parse(build).root.length));
       if (!existsSync(source) || !containsCounters(source)) continue;
-      // Snapshot before merging; a detached test daemon can still write to
-      // its own root, but cannot change another test or the merged snapshot.
-      const snapshot = path.join(work, `test-${count}`);
+      const snapshot = path.join(work, `test-${snapshots.length}`);
       cpSync(source, snapshot, { recursive: true });
-      if (merged === null) {
-        merged = snapshot;
-      } else {
-        const output = path.join(work, `merged-${count}`);
-        const result = spawnSync('gcov-tool', ['merge', '-o', output, merged, snapshot], {
-          encoding: 'utf8',
-        });
+      snapshots.push({ directory: snapshot, source: entry.name });
+    }
+    if (!snapshots.length) {
+      throw new Error(`No isolated native CLI coverage counters in ${isolated}`);
+    }
+
+    // Pairwise rounds keep the merge tree balanced. Merging each process
+    // directly into an ever-growing accumulator reprocesses earlier gcov
+    // profiles O(N²) times when a CTest launches hundreds of CLI invocations.
+    let layer = snapshots;
+    for (let round = 0; layer.length > 1; ++round) {
+      const next = [];
+      for (let index = 0; index < layer.length; index += 2) {
+        if (index + 1 >= layer.length) {
+          next.push(layer[index]);
+          continue;
+        }
+        const left = layer[index];
+        const right = layer[index + 1];
+        const output = path.join(work, `merged-${round}-${index / 2}`);
+        const result = spawnSync('gcov-tool', [
+          'merge', '-o', output, left.directory, right.directory,
+        ], { encoding: 'utf8' });
         if (result.error) throw result.error;
         if (result.status !== 0) {
-          throw new Error(`gcov-tool merge failed for ${entry.name}: ${result.stdout}${result.stderr}`);
+          throw new Error(
+            `gcov-tool merge failed for ${left.source} + ${right.source}: ${result.stdout}${result.stderr}`,
+          );
         }
-        merged = output;
+        rmSync(left.directory, { recursive: true, force: true });
+        rmSync(right.directory, { recursive: true, force: true });
+        next.push({ directory: output, source: `${left.source} + ${right.source}` });
       }
-      count++;
+      layer = next;
     }
-    if (!merged) throw new Error(`No isolated native CLI coverage counters in ${isolated}`);
+    const merged = layer[0].directory;
     // This is the only writer to the reporting tree. All instrumented CLI
     // processes write solely to their own per-test GCOV_PREFIX.
     resetCoverageCounters(build);
     cpSync(merged, build, { recursive: true });
-    console.log(`Restored merged native CLI coverage from ${count} isolated tests.`);
+    console.log(`Restored merged native CLI coverage from ${snapshots.length} isolated roots.`);
   } finally {
     rmSync(work, { recursive: true, force: true });
     // Do not delete the per-test roots: late daemon exits may still write there.

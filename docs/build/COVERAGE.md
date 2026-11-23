@@ -24,7 +24,9 @@ One `noveltea-coverage-cpp` artifact contains four directories:
 
 - `ctest/`: CTest-only HTML/JSON/Cobertura plus JUnit execution results.
 - `ctest-cli/`: native CLI CTest-only coverage from isolated GCOV_PREFIX trees,
-  merged offline after each worker exits; its JUnit results remain separate.
+  merged offline in balanced rounds after each process exits; its JUnit results remain separate.
+  Every instrumented native CLI invocation, including foreground commands and daemon workers,
+  writes to a per-process counter root; per-CTest roots remain for other test executables.
 - `feature-lab/`: Lab-only HTML/JSON/Cobertura plus the authored suite's JSON execution results.
 - `combined/`: the union of covered native lines/branches from both saved snapshots. Overlapping
   coverage counts once; percentages are not averaged or added.
