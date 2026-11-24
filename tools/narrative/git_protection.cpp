@@ -507,7 +507,7 @@ Json impact_report(const Catalog& previous, const Catalog& current)
 }
 } // namespace
 
-Json inspect_git_baseline(const fs::path& root, const std::string& revision, const Catalog& current)
+Json inspect_git_baseline(const fs::path& root, const std::string& revision, Catalog& current)
 {
     const auto previous = baseline(root, revision);
     const auto old_records = by_id(previous.catalog);
@@ -518,11 +518,55 @@ Json inspect_git_baseline(const fs::path& root, const std::string& revision, con
         const auto target = new_records.find(id);
         const Record* now = target == new_records.end() ? nullptr : target->second;
         const auto& decisions = record->metadata.at("decisions");
+        // A schema-invalid record is absent from the admitted catalog, not
+        // necessarily from disk. Only the canonical parser's exact identity,
+        // status and decisions can establish that protection is unchanged.
+        // Unknown or ambiguous rejected sources are structural errors, not
+        // evidence of a deletion or an authorization to edit protected canon.
+        bool rejected_source = false;
+        if (!now && std::any_of(decisions.begin(), decisions.end(), [](const Json& decision) {
+                return decision.at("authority") == "user-protected";
+            })) {
+            const Record* candidate = nullptr;
+            bool ambiguous = false;
+            bool unknown_identity = false;
+            for (const auto& rejected : current.rejected_records) {
+                const bool known_id = rejected.metadata.is_object() &&
+                                      rejected.metadata.contains("id") &&
+                                      rejected.metadata["id"].is_string();
+                if (rejected.path == record->path || (known_id && rejected.metadata["id"] == id)) {
+                    ambiguous = ambiguous || candidate != nullptr;
+                    candidate = &rejected;
+                } else if (!known_id) {
+                    unknown_identity = true;
+                }
+            }
+            rejected_source = candidate || unknown_identity;
+            if (rejected_source) {
+                const auto same_protection = [&] {
+                    if (!candidate || ambiguous || !candidate->metadata.is_object())
+                        return false;
+                    for (const auto* field : {"id", "type", "schema", "status", "decisions"})
+                        if (!candidate->metadata.contains(field) ||
+                            candidate->metadata.at(field) != record->metadata.at(field))
+                            return false;
+                    return true;
+                };
+                if (!same_protection())
+                    current.report(
+                        candidate ? *candidate : *record, "protected-record-unverified",
+                        "Cannot verify protected record " + id +
+                            " in rejected working metadata; restore its identity, status "
+                            "and decisions from the Git baseline before continuing.");
+            }
+        }
         for (std::size_t i = 0; i < decisions.size(); ++i) {
             const auto& before = decisions[i];
             if (before.at("authority") != "user-protected")
                 continue;
             ++checked;
+            if (rejected_source)
+                continue;
             const Json* after = nullptr;
             std::size_t after_index = 0;
             if (now) {

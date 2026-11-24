@@ -99,6 +99,16 @@ comparison incomplete; without a positive finding this yields
 `record-id#decision-id`, `severity: approval-required`, a category
 (`changed`, `demoted`, `removed`, `record-deleted`, or `record-retired`),
 old/new decision metadata, before/after source positions, and baseline SHA.
+A structurally rejected working record is not automatically a deleted record.
+The native reader retains its parsed metadata outside the admitted catalog and
+checks its original identity, schema, type, status and decisions against the
+baseline. If those fields are unchanged, unrelated schema errors do not fabricate
+a protected-deletion finding. If the protected source is ambiguous, unreadable,
+or its protected metadata cannot be attested unchanged, the validator emits the
+structural error `protected-record-unverified` rather than asserting deletion
+or granting permission. A genuinely absent record still yields `record-deleted`.
+Rejected records never enter the typed graph; the comparison remains incomplete
+and validation fails until all structural and protection checks pass.
 Path moves without metadata changes are not protected-decision violations.
 Record `status` and decision `authority` remain independent: a previously
 protected decision stays protected in draft records; a user-approved

@@ -502,18 +502,21 @@ Catalog read_catalog(const std::filesystem::path& root,
             if (!file) {
                 record.locations[""] = {1, 1};
                 catalog.report(record, "io", "Cannot read record.");
+                catalog.rejected_records.push_back(std::move(record));
                 continue;
             }
             source.assign(std::istreambuf_iterator<char>(file), {});
             if (file.bad()) {
                 record.locations[""] = {1, 1};
                 catalog.report(record, "io", "Cannot read record bytes.");
+                catalog.rejected_records.push_back(std::move(record));
                 continue;
             }
         }
         if (!valid_utf8(source)) {
             record.locations[""] = {1, 1};
             catalog.report(record, "io", "Cannot read record as UTF-8 text.");
+            catalog.rejected_records.push_back(std::move(record));
             continue;
         }
         record.source_revision = core::xxh3_128_revision(source);
@@ -542,6 +545,7 @@ Catalog read_catalog(const std::filesystem::path& root,
             record.locations[""] = {1, 1};
             catalog.report(record, "frontmatter",
                            "Start the file with YAML between --- delimiter lines.");
+            catalog.rejected_records.push_back(std::move(record));
             continue;
         }
         try {
@@ -549,12 +553,15 @@ Catalog read_catalog(const std::filesystem::path& root,
         } catch (const YamlError& error) {
             record.locations[""] = error.at;
             catalog.report(record, "yaml", error.what());
+            catalog.rejected_records.push_back(std::move(record));
             continue;
         }
         const bool complete = !record.metadata.is_object() ||
                               record.metadata.value("completeness", Json()) != "partial";
-        if (!admit(record.metadata, schema, catalog, record, "", complete))
+        if (!admit(record.metadata, schema, catalog, record, "", complete)) {
+            catalog.rejected_records.push_back(std::move(record));
             continue;
+        }
         references(record.metadata, schema, catalog, record, "");
         record.body = source.substr(body_start);
         if (authoring::trim_ecmascript(record.body).empty())

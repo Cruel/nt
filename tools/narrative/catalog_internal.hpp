@@ -21,6 +21,9 @@ struct Record {
 };
 struct Catalog {
     std::vector<Record> records;
+    // Rejected source records are never catalog members or graph vertices.
+    // Preserve parsed metadata (or null if unreadable) for Git protection.
+    std::vector<Record> rejected_records;
     Json diagnostics = Json::array();
     Json references = Json::array();
     Json located(const Record& record, const std::string& pointer,
@@ -45,5 +48,5 @@ Json trace_story_routes(const Catalog& catalog);
 Json readiness_from_catalog(const Catalog& source, const std::string& stage,
                             const std::string& view, const std::vector<std::string>& milestones);
 Json inspect_git_baseline(const std::filesystem::path& root, const std::string& revision,
-                          const Catalog& current);
+                          Catalog& current);
 } // namespace noveltea::narrative

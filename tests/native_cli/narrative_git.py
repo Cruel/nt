@@ -154,12 +154,51 @@ with tempfile.TemporaryDirectory(prefix='nt-narrative-git-') as temporary:
     assert 'milestone.accept-investigation' in deleted['catalog']['protection']['impact']['changed']
     milestone.write_bytes(original)
 
+    # A rejected schema field does not delete the existing protected record.
+    update(milestone, "status: draft", "unsupported_field: true\nstatus: draft")
+    rejected_field = invoke(repo, story, '--base', base, code=1)
+    assert any(d['code'] == 'schema' for d in rejected_field['diagnostics'])
+    assert not any(d['code'] == 'protected-record-unverified' for d in rejected_field['diagnostics'])
+    assert rejected_field['catalog']['protection']['findings'] == []
+    assert rejected_field['catalog']['protection']['complete'] is False
+    assert rejected_field['catalog']['authorization']['status'] == 'indeterminate'
+
+    # An invalid record with the same stable ID may also have moved.
+    moved.parent.mkdir()
+    milestone.rename(moved)
+    rejected_move = invoke(repo, story, '--base', base, code=1)
+    assert rejected_move['catalog']['protection']['findings'] == []
+    assert not any(d['code'] == 'protected-record-unverified' for d in rejected_move['diagnostics'])
+    moved.rename(milestone)
+    moved.parent.rmdir()
+
+    # Schema errors must not hide real protected edits, retirement, or an
+    # identity that cannot be authenticated by the canonical parser.
+    invalid_field_bytes = milestone.read_bytes()
+    for old, new in [
+        ('permission rather than trespass', 'trespass rather than permission'),
+        ('authority: user-protected', 'authority: delegated'),
+        ('status: draft', 'status: superseded'),
+        ('id: milestone.accept-investigation', 'id: milestone.different'),
+        ('unsupported_field: true', 'unsupported_field: ['),
+    ]:
+        milestone.write_bytes(invalid_field_bytes)
+        update(milestone, old, new)
+        unverifiable = invoke(repo, story, '--base', base, code=1)
+        assert unverifiable['catalog']['protection']['findings'] == []
+        assert any(d['code'] == 'protected-record-unverified' for d in unverifiable['diagnostics'])
+        assert unverifiable['catalog']['protection']['complete'] is False
+        assert unverifiable['catalog']['authorization']['status'] == 'indeterminate'
+    milestone.write_bytes(original)
+
     # Invalid working metadata must never yield a misleading 'unchanged' verdict.
     update(milestone, "schema: '0.1'", "schema: '0.0'")
     invalid_current = invoke(repo, story, '--base', base, code=1)
     assert any(d['code'] == 'schema' for d in invalid_current['diagnostics'])
     assert invalid_current['catalog']['authorization']['status'] == 'indeterminate'
     assert invalid_current['catalog']['protection']['complete'] is False
+    assert invalid_current['catalog']['protection']['findings'] == []
+    assert any(d['code'] == 'protected-record-unverified' for d in invalid_current['diagnostics'])
     milestone.write_bytes(original)
 
     # A structurally invalid historical record must never be silently ignored.
