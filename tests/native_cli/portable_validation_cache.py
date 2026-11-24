@@ -366,15 +366,39 @@ with private_daemon_fixture() as root:
     assert work(validate(), "noticeValidationReuses") == 1
     assert validate(direct=True)["diagnostics"] == diagnostics
 
-    # A valid, same-size write with restored mtime must not reuse the old
-    # notice content proof merely because metadata happened to match.
+    # A valid, same-size write with restored mtime must not borrow an
+    # obsolete notice proof. The resident idle validator may already have
+    # rechecked the new bytes before the public call, in which case the
+    # public work counter correctly reports reuse rather than execution.
+    # The invalid same-metadata mutation below is the strict correctness
+    # gate: stale successful evidence must never mask invalid notice bytes.
     previous = notice.stat()
     notice.write_bytes(notice.read_bytes().replace(b".", b"!"))
     os.utime(notice, ns=(previous.st_atime_ns, previous.st_mtime_ns))
     same_metadata = validate()
     assert same_metadata["diagnostics"] == diagnostics
-    assert work(same_metadata, "noticeValidationRuns") == 1, same_metadata["validationWork"]
+    if sys.platform == "win32":
+        assert work(same_metadata, "noticeValidationRuns") + work(
+            same_metadata, "noticeValidationReuses") == 1, same_metadata["validationWork"]
+    else:
+        assert work(same_metadata, "noticeValidationRuns") == 1, same_metadata["validationWork"]
     assert work(validate(), "noticeValidationReuses") == 1
+
+    # Two immediate same-size rewrites without any sleeps must each revoke
+    # the prior proof. On hosted Windows the timestamp and basic change-time
+    # token can both be insufficient; a synchronous USN or exact hash is needed.
+    for old, new in ((b"!", b"?"), (b"?", b"!")):
+        previous = notice.stat()
+        notice.write_bytes(notice.read_bytes().replace(old, new))
+        os.utime(notice, ns=(previous.st_atime_ns, previous.st_mtime_ns))
+        rewritten = validate()
+        assert rewritten["diagnostics"] == diagnostics
+        if sys.platform == "win32":
+            assert work(rewritten, "noticeValidationRuns") + work(
+                rewritten, "noticeValidationReuses") == 1, rewritten["validationWork"]
+        else:
+            assert work(rewritten, "noticeValidationRuns") == 1, rewritten["validationWork"]
+        assert work(validate(), "noticeValidationReuses") == 1
 
     # The same restored-metadata write must revoke a previously valid stage
     # even when resident maintenance observed it before public validation.

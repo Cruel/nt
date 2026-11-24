@@ -351,6 +351,8 @@ target_link_libraries(noveltea_daemon_test_support PRIVATE
     miniz::miniz
 )
 if(WIN32)
+    target_compile_definitions(noveltea_daemon_test_support PRIVATE
+        NOVELTEA_DAEMON_TEST_SUPPORT=1)
     # This test support library compiles the same daemon broker translation unit
     # as noveltea_tooling_native. Keep its Windows JSON syntax verifier bound to
     # the same pinned jsoncons headers (not just the production target).

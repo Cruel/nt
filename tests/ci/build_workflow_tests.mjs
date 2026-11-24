@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -7,6 +7,8 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 const workflow = readFileSync(new URL('../../.github/workflows/build.yml', import.meta.url), 'utf8');
+const coverageWorkflow = readFileSync(new URL('../../.github/workflows/coverage.yml', import.meta.url), 'utf8');
+const extendedWorkflow = readFileSync(new URL('../../.github/workflows/extended-qualification.yml', import.meta.url), 'utf8');
 const releaseWorkflow = readFileSync(
   new URL('../../.github/workflows/release.yml', import.meta.url),
   'utf8',
@@ -65,6 +67,13 @@ const candidateContracts = readFileSync(
   'utf8',
 );
 
+const productionCandidateCatalog = JSON.parse(
+  readFileSync(new URL('../../scripts/ci/release-candidates.json', import.meta.url), 'utf8'),
+);
+const candidateProducerAction = readFileSync(
+  new URL('../../.github/actions/produce-candidate/action.yml', import.meta.url), 'utf8',
+);
+
 function releaseJob(name) {
   const match = releaseWorkflow.match(
     new RegExp(`^  ${name}:\\n[\\s\\S]*?(?=^  [\\w-]+:|$(?![\\s\\S]))`, 'm'),
@@ -73,11 +82,14 @@ function releaseJob(name) {
   return match[0];
 }
 
-function job(name) {
-  const match = workflow.match(new RegExp(`^  ${name}:\\n[\\s\\S]*?(?=^  [\\w-]+:|$(?![\\s\\S]))`, 'm'));
+function jobIn(source, name) {
+  const match = source.match(new RegExp(`^  ${name}:\\n[\\s\\S]*?(?=^  [\\w-]+:|$(?![\\s\\S]))`, 'm'));
   assert.ok(match, `Missing job ${name}`);
   return match[0];
 }
+function job(name) { return jobIn(workflow, name); }
+function coverageJob(name) { return jobIn(coverageWorkflow, name); }
+function extendedJob(name) { return jobIn(extendedWorkflow, name); }
 
 function step(source, name) {
   const start = source.indexOf(`- name: ${name}\n`);
@@ -92,6 +104,158 @@ function field(source, name) {
   return match[1];
 }
 
+test('Build produces one explicitly qualified candidate for every source-owned shipping row', () => {
+  const ids = Object.keys(productionCandidateCatalog.candidates);
+  assert.equal(ids.length, 20);
+  for (const id of ids) {
+    assert.ok(workflow.includes(`candidate: ${id}`) ||
+      workflow.includes(`- ${id}\n`) || workflow.includes(`--candidate ${id}`),
+    `Missing Build candidate producer row ${id}`);
+  }
+  const required = [
+    'production-web-variants', 'production-linux-release-cli',
+    'production-other-host-clis', 'production-android-arm64',
+    'production-desktop-players', 'production-editor-hosts',
+  ];
+  for (const name of required) {
+    assert.match(job(name), /actions\/produce-candidate/);
+    assert.match(job(name), /matrix:|candidate:/);
+    assert.doesNotMatch(job(name), /needs: release-inventory|needs: publish/);
+  }
+  assert.match(candidateProducerAction, /release-candidate\.mjs produce/);
+  assert.match(candidateProducerAction, /release-candidate\.mjs verify/);
+  assert.match(candidateProducerAction, /actions\/upload-artifact@v7/);
+  assert.match(candidateProducerAction, /if-no-files-found: error/);
+  assert.match(job('production-desktop-players'), /glibc 2\.28/);
+  assert.match(job('production-linux-release-cli'), /glibc 2\.36/);
+  assert.match(job('production-other-host-clis'), /MinGW GNU/);
+  assert.match(job('production-editor-hosts'), /stage-editor-candidate\.mjs/);
+  const launch = job('production-desktop-launch-smoke');
+  assert.match(launch, /needs: \[production-desktop-players, production-linux-release-cli, production-other-host-clis\]/);
+  assert.match(launch, /materialize-candidate-template\.mjs/);
+  for (const platform of ['linux', 'windows', 'macos'])
+    assert.match(launch, new RegExp(`${platform}_release_smoke\\.py`));
+  assert.match(launch, /release-candidate\.mjs verify/);
+});
+
+test('cold native correctness has full timeout headroom without dropping required CTests', () => {
+  const linux = job('linux');
+  assert.match(linux, /timeout-minutes: 150/);
+  assert.match(linux, /name: CTest native correctness/);
+  assert.match(linux, /name: Representative native CLI CTests/);
+  assert.match(linux, /name: Feature Lab authored Tests/);
+});
+
+test('Extended Build authorization polls only pending states and rejects all terminal failures', () => {
+  const source = extendedJob('source');
+  const first = source.indexOf('for poll in $(seq 1 190); do');
+  assert.notEqual(first, -1);
+  const ending = '\n              done';
+  const last = source.indexOf(ending, first);
+  assert.notEqual(last, -1);
+  const poll = source.slice(first, last + ending.length);
+  const root = mkdtempSync(path.join(tmpdir(), 'noveltea-extended-build-gate-'));
+  try {
+    const gh = path.join(root, 'gh');
+    const sleep = path.join(root, 'sleep');
+    writeFileSync(gh, '#!/bin/sh\nprintf "%s\\n" "$MOCK_BUILD_STATE"\n');
+    writeFileSync(sleep, '#!/bin/sh\nprintf "STILL_PENDING\\n"\nexit 77\n');
+    chmodSync(gh, 0o755);
+    chmodSync(sleep, 0o755);
+    const run = (status, conclusion) => spawnSync('bash', ['-c', [
+      'set -euo pipefail',
+      "GITHUB_REPOSITORY='Cruel/nt'",
+      `REQUESTED_SHA='${'a'.repeat(40)}'`,
+      "source_branch='ci/build-release-refactor-641'",
+      "run_id=''",
+      poll,
+      'echo "SELECTED:${run_id}"',
+    ].join('\n')], {
+      env: {
+        ...process.env,
+        PATH: `${root}${path.delimiter}${process.env.PATH}`,
+        MOCK_BUILD_STATE: `12345\t${status}\t${conclusion}`,
+      },
+      encoding: 'utf8',
+      timeout: 4000,
+    });
+    const successful = run('completed', 'success');
+    assert.equal(successful.status, 0, successful.stderr);
+    assert.match(successful.stdout, /SELECTED:12345/);
+    for (const conclusion of ['failure', 'cancelled', 'timed_out', 'action_required', 'skipped']) {
+      const rejected = run('completed', conclusion);
+      assert.equal(rejected.status, 1, conclusion);
+      assert.match(rejected.stderr, new RegExp(`completed with ${conclusion}`));
+      assert.doesNotMatch(rejected.stdout, /STILL_PENDING/);
+    }
+    const pending = run('in_progress', '');
+    assert.equal(pending.status, 77, pending.stderr);
+    assert.match(pending.stdout, /STILL_PENDING/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('Extended stops on cancelled/timed-out exact-SHA Builds and waits for cold Build completion', () => {
+  const source = extendedJob('source');
+  assert.match(source, /timeout-minutes: 210/);
+  assert.match(source, /seq 1 190/);
+  assert.match(source, /--json databaseId,status,conclusion/);
+  assert.match(source, /latest_status.*== completed/);
+  assert.match(source, /latest_conclusion.*== success/);
+  assert.match(source, /completed with.*latest_conclusion.*no Extended authorization/);
+  assert.doesNotMatch(source, /--status failure/);
+});
+
+test('independent Editor checks run before artifact producers without weakening complete Editor certification', () => {
+  const preflight = job('editor-preflight');
+  assert.doesNotMatch(preflight, /^    needs:/m);
+  assert.match(preflight, /pnpm -C editor run check/);
+  assert.match(preflight, /vp test run/);
+  assert.match(job('editor'), /needs: \[linux-cli, web-preview\]/);
+  assert.match(job('editor'), /pnpm -C editor run test/);
+  assert.match(coverageJob('editor'), /pnpm -C editor run test:coverage/);
+  assert.match(job('editor'), /pnpm -C editor run package:smoke/);
+  assert.match(job('examples'), /needs: \[linux-cli, web\]/);
+  assert.match(job('examples'), /noveltea-host-cli-linux-x64/);
+  assert.match(job('examples'), /noveltea-web-player-threads-release/);
+});
+
+test('source-owned production producers require the same pinned ABI floors as Release', () => {
+  const desktop = job('production-desktop-players');
+  const web = job('production-web-variants');
+  const android = job('production-android-arm64');
+  assert.match(desktop, /linux-player-glibc228\.Dockerfile/);
+  assert.match(desktop, /NOVELTEA_MAX_GLIBC_VERSION=2\.28/);
+  assert.match(desktop, /macos-26/);
+  assert.match(web, /EMSDK_VERSION/);
+  assert.match(web, /-DBUILD_TESTING=OFF/);
+  assert.match(android, /ANDROID_NDK_VERSION/);
+  assert.match(android, /verify-android-load-alignment/);
+  assert.match(android, /assembleRelease/);
+  assert.match(android, /gradle\/actions\/setup-gradle@v5/);
+  assert.match(android, /cache-read-only: \$\{\{ github\.ref != 'refs\/heads\/master'/);
+  assert.match(android, /caches\/build-cache-1/);
+  const androidSettings = readFileSync(new URL('../../android/settings.gradle', import.meta.url), 'utf8');
+  assert.equal((androidSettings.match(/maven-central\.storage-download\.googleapis\.com\/maven2/g) || []).length, 2);
+  assert.equal((androidSettings.match(/System\.getenv\("GITHUB_ACTIONS"\) == "true"/g) || []).length, 2);
+  assert.match(androidSettings, /mavenCentral\(\)/);
+  assert.match(job('android'), /android-player-x64-debug/);
+  assert.match(job('production-editor-hosts'), /NOVELTEA_MAX_GLIBC_VERSION=2\.36/);
+});
+
+test('native-only pinned cancellation warms its own broker before measuring the worker', () => {
+  const lifecycle = readFileSync(
+    new URL('../../editor/scripts/certify-native-cli-owner-lifecycle.mjs', import.meta.url),
+    'utf8',
+  );
+  const warm = lifecycle.indexOf("execute(['platform', 'profiles'], pinnedEnvironment)");
+  const launch = lifecycle.indexOf("const command = spawn(");
+  assert.ok(warm > 0 && launch > warm);
+  assert.match(lifecycle, /NOVELTEA_CLI_CERTIFICATION_PINNED_BARRIER: marker/);
+  assert.match(lifecycle, /Daemon status:/);
+});
+
 test('sanitizer CI keeps optimized instrumentation and a bounded first-party test selection', () => {
   const sanitizerPreset = cmakePresets.configurePresets.find(
     (preset) => preset.name === 'linux-sanitize',
@@ -104,7 +268,7 @@ test('sanitizer CI keeps optimized instrumentation and a bounded first-party tes
     assert.doesNotMatch(sanitizerPreset.cacheVariables[flags], /-DNDEBUG\b/);
   }
   const lane = step(
-    job('linux-sanitize'),
+    extendedJob('linux-sanitize'),
     'Run strict ASan, LeakSanitizer, UBSan, and parser fuzz smoke tests',
   );
   assert.match(lane, /ASAN_OPTIONS: detect_leaks=1:halt_on_error=1/);
@@ -266,72 +430,41 @@ test('native reconciliation fixture cleanup awaits native worker exit before del
   assert.match(reconciliationTests, /pollIntervalMs: deterministicPollIntervalMs/g);
 });
 
-test('release Linux and Windows CLI certification build the required renderer first', () => {
-  const producer = releaseJob('shader-assets');
-  const consumer = releaseJob('windows-cli');
-  for (const [release, cliBuild] of [
-    [producer, 'Build NovelTea host CLI'],
-    [consumer, 'Build native production bundles'],
-  ]) {
-    const renderer = step(release, 'Build renderer required by native production certification');
-    const certification = step(
-      release,
-      release === producer ? 'Certify NovelTea host CLI' : 'Certify Windows CLI',
-    );
-    assert.match(renderer, /pnpm -C editor exec vp build/);
-    assert.ok(release.indexOf(step(release, cliBuild)) < release.indexOf(renderer));
-    assert.ok(release.indexOf(renderer) < release.indexOf(certification));
+test('Release Linux and Windows standalone CLIs are never independently compiled', () => {
+  const linux = releaseJob('shader-assets');
+  const windows = releaseJob('windows-cli');
+  assert.match(linux, /candidate: linux-release-cli-x64/);
+  assert.match(windows, /candidate: windows-release-cli-x64/);
+  for (const job of [linux, windows]) {
+    assert.match(job, /uses: \.\/\.github\/actions\/restore-release-candidate/);
+    assert.match(job, /build-run-id:/);
+    assert.doesNotMatch(job, /cmake --build|noveltea:build|Build renderer required by native production certification/);
   }
+  assert.match(windows, /objdump -p/);
+  assert.match(windows, /libgcc_s_/);
+  assert.match(windows, /libstdc/);
 });
 
-test('release Windows CLI build and certification are separate same-run artifact stages', () => {
-  const producer = releaseJob('windows-cli-build');
-  const consumer = releaseJob('windows-cli');
-  const cliUpload = step(producer, 'Upload Windows CLI build');
-  const runtimeImports = step(producer, 'Verify Windows CLI ships without GNU runtime DLL imports');
-  const headersUpload = step(producer, 'Upload Windows CLI certification shader headers');
-  const cliDownload = step(consumer, 'Download Windows CLI build');
-  const headersDownload = step(consumer, 'Download Windows CLI certification shader headers');
-  const bundleBuild = step(consumer, 'Build native production bundles');
-  const certification = step(consumer, 'Certify Windows CLI');
-
-  assert.match(producer, /pnpm -C editor run noveltea:build/);
-  assert.ok(producer.indexOf(runtimeImports) < producer.indexOf(cliUpload));
-  assert.match(runtimeImports, /objdump -p/);
-  assert.match(runtimeImports, /libgcc_s_/);
-  assert.match(runtimeImports, /libstdc/);
-  assert.match(
-    editorToolCmake,
-    /target_link_options\(noveltea-native-cli PRIVATE -static -static-libgcc -static-libstdc\+\+\)/,
-  );
-  assert.doesNotMatch(consumer, /pnpm -C editor run noveltea:build/);
-  assert.match(consumer, /needs: \[release-metadata, windows-cli-build\]/);
-  assert.equal(field(cliUpload, 'path'), 'build/cli/windows');
-  assert.equal(field(cliDownload, 'path'), 'build/cli/windows');
-  assert.equal(
-    field(headersUpload, 'path'),
-    'build/windows-cli-gnu/_deps/bgfx.cmake-src/bgfx/src',
-  );
-  assert.equal(
-    field(headersDownload, 'path'),
-    'build/windows-cli-gnu/_deps/bgfx.cmake-src/bgfx/src',
-  );
-  assert.equal(field(cliUpload, 'retention-days'), '1');
-  assert.equal(field(headersUpload, 'retention-days'), '1');
-  assert.match(bundleBuild, /pnpm -C editor exec vp pack/);
-  assert.ok(consumer.indexOf(cliDownload) < consumer.indexOf(certification));
-  assert.ok(consumer.indexOf(headersDownload) < consumer.indexOf(certification));
-  assert.ok(consumer.indexOf(bundleBuild) < consumer.indexOf(certification));
-  assert.doesNotMatch(consumer, /Cache vcpkg SDK and binaries|Set up Zig for ScriptC Windows target/);
+test('Windows CLI promotion requires one trusted cross-run producer, not a second compiler lane', () => {
+  assert.doesNotMatch(releaseWorkflow, /^  windows-cli-build:\s*$/m);
+  const windows = releaseJob('windows-cli');
+  assert.match(windows, /needs: release-metadata/);
+  assert.match(windows, /candidate: windows-release-cli-x64/);
+  assert.match(windows, /noveltea-cli-windows-release-dist/);
+  assert.match(windows, /attest-build-provenance/);
+  assert.match(editorToolCmake, /target_link_options\(noveltea-native-cli PRIVATE -static -static-libgcc -static-libstdc\+\+\)/);
 });
 
-test('release Linux CLI artifact consumers restore both required executable bits', () => {
+test('the shared candidate-restoration action restores executable modes and authenticates its Build run', () => {
+  const restoration = readFileSync(
+    new URL('../../.github/actions/restore-release-candidate/action.yml', import.meta.url), 'utf8');
+  assert.match(restoration, /chmod \+x "\$CANDIDATE_ROOT\/\$CANDIDATE_EXECUTABLE"/);
+  assert.match(restoration, /noveltea-ui-test-runner/);
+  assert.match(restoration, /tools\/ffmpeg\/bin\/ffmpeg/);
+  assert.match(restoration, /NOVELTEA_BUILD_RUN_ID:/);
+  assert.match(restoration, /--stage "\$CANDIDATE_STAGE"/);
   for (const name of ['desktop-hosts', 'web', 'android']) {
-    const consumer = releaseJob(name);
-    const chmod = step(consumer, 'Make NovelTea host CLI executable');
-    assert.match(chmod, /chmod \+x build\/cli\/linux\/noveltea build\/cli\/linux\/noveltea-ui-test-runner/);
-    assert.ok(consumer.indexOf(chmod) < consumer.indexOf('Validate canonical export fixture') ||
-      !consumer.includes('Validate canonical export fixture'));
+    assert.match(releaseJob(name), /noveltea-release-native-cli-linux-x64|restore-release-candidate/);
   }
 });
 
@@ -381,14 +514,16 @@ test('installed native CLI certification builds the required native production b
   assert.doesNotMatch(consumer, /matrix\.sections/);
 });
 
-test('vcpkg binary caches have independent configuration writers and refresh on new commits', () => {
-  const sdk = step(vcpkg, 'Cache vcpkg SDK');
+test('vcpkg binary caches have independent bounded weekly configuration writers', () => {
   const binaries = step(vcpkg, 'Cache vcpkg binaries');
   const installed = step(vcpkg, 'Cache vcpkg installed tree');
-  assert.equal(field(sdk, 'path'), '.cache/vcpkg');
+  assert.doesNotMatch(vcpkg, /path: \.cache\/vcpkg\s*\n/);
   assert.equal(field(binaries, 'path'), '.cache/vcpkg-binary');
   assert.ok(field(binaries, 'key').includes("${{ inputs['binary-scope'] }}"));
-  assert.ok(field(binaries, 'key').endsWith('${{ github.sha }}'));
+  assert.ok(field(binaries, 'key').endsWith('${{ steps.window.outputs.week }}'));
+  assert.doesNotMatch(binaries, /github\.sha/);
+  assert.match(vcpkg, /node scripts\/ci\/pin-vcpkg\.mjs/);
+  assert.match(vcpkg, /cache-budget\.mjs window/);
   assert.ok(field(binaries, 'key').includes("${{ inputs['cache-prefix'] }}"));
   assert.ok(
     binaries.includes(
@@ -406,22 +541,71 @@ test('vcpkg binary caches have independent configuration writers and refresh on 
   ]);
   const writers = new Set();
   for (const [jobName, scope] of expectedWriters) {
-    const setup = step(job(jobName), 'Set up vcpkg');
+    const setup = step(['linux-cooperative', 'linux-sanitize'].includes(jobName) ? extendedJob(jobName) : job(jobName), 'Set up vcpkg');
     assert.equal(field(setup, 'binary-scope'), scope);
     assert.ok(!writers.has(scope), `vcpkg binary writer '${scope}' is shared by parallel jobs`);
     writers.add(scope);
   }
-  assert.equal(field(step(job('linux-cooperative'), 'Set up vcpkg'), 'scope'), 'linux-debug');
+  assert.equal(field(step(extendedJob('linux-cooperative'), 'Set up vcpkg'), 'scope'), 'linux-debug');
   assert.equal(
-    field(step(job('linux-cooperative'), 'Set up vcpkg'), 'binary-fallback-scope'),
+    field(step(extendedJob('linux-cooperative'), 'Set up vcpkg'), 'binary-fallback-scope'),
     'linux-debug',
   );
 });
 
+test('expensive Windows production compilation restores strictly compatible object and dependency caches', () => {
+  const host = job('production-other-host-clis');
+  const player = job('production-desktop-players');
+  const policy = job('windows');
+  const debian = job('production-linux-release-cli');
+  const compilerAction = readFileSync(
+    new URL('../../.github/actions/setup-ccache/action.yml', import.meta.url), 'utf8',
+  );
+
+  const hostCache = step(host, 'Restore production CLI compiler objects');
+  const hostBuild = step(host, 'Compile actual GNU/AppleClang production CLI');
+  assert.match(host, /choco install ccache/);
+  assert.match(debian, /ccache: "true"/);
+  assert.match(step(debian, 'Restore Debian release CLI compiler objects'), /compiler: g\+\+/);
+  assert.match(step(debian, 'Compile actual Debian glibc 2.36 release CLI'),
+    /NOVELTEA_CLI_USE_CCACHE: "1"/);
+  assert.match(debian, /Save Debian release CLI compiler objects/);
+  assert.match(hostCache, /compiler: .*g\+\+/);
+  assert.match(hostCache, /windows-gnu-cli-release/);
+  assert.match(hostBuild, /NOVELTEA_CLI_USE_CCACHE: "1"/);
+  assert.match(cliBuildScript, /CMAKE_C_COMPILER_LAUNCHER=ccache/);
+  assert.match(cliBuildScript, /CMAKE_CXX_COMPILER_LAUNCHER=ccache/);
+  assert.match(host, /Cache compiled Windows GNU CLI dependencies/);
+  assert.equal(field(step(host, 'Cache compiled Windows GNU CLI dependencies'), 'path'), '.cache/vcpkg-binary');
+
+  const playerCache = step(player, 'Restore compatible compiler objects');
+  const playerBuild = step(player, 'Compile non-Linux release player with its production compiler');
+  assert.match(player, /choco install ccache/);
+  assert.match(playerCache, /compiler: .*cl\.exe/);
+  assert.match(playerCache, /desktop-.*matrix\.preset/);
+  assert.match(playerBuild, /CMAKE_CXX_COMPILER_LAUNCHER=ccache/);
+  assert.match(player, /CCACHE_MAXSIZE: .*384M/);
+  assert.match(host, /CCACHE_MAXSIZE: .*512M/);
+  assert.match(compilerAction, /if \[\[ -n "\$\{\{ inputs\.compiler \}\}" \]\]/);
+
+  const compiledPolicy = step(policy, 'Cache Windows compiled vcpkg dependencies');
+  const compiledPlayer = step(player, 'Restore compiled non-Linux vcpkg packages');
+  assert.match(compiledPolicy, /windows-2025-x64-vcpkg-compiled-v2/);
+  assert.equal(field(compiledPolicy, 'path'), '.cache/vcpkg-binary');
+  assert.match(compiledPlayer, /windows-2025-x64-vcpkg-compiled-v2/);
+  assert.doesNotMatch(compiledPolicy, /\n\s*\.cache\/vcpkg\s*\n/);
+  assert.doesNotMatch(compiledPlayer, /\n\s*\.cache\/vcpkg\s*\n/);
+  assert.doesNotMatch(step(host, 'Cache compiled Windows GNU CLI dependencies'), /\n\s*\.cache\/vcpkg\s*\n/);
+  // Build directories, including uncompressed static libs, are never shared as dependency caches.
+  assert.doesNotMatch(compiledPolicy, /build\/windows-release/);
+});
+
 test('CI publishes distinct informational coverage summaries and detailed artifacts', () => {
-  const native = job('linux');
-  const editor = job('editor');
+  const native = coverageJob('native');
+  const editor = coverageJob('editor');
   assert.match(step(native, 'Configure'), /NOVELTEA_ENABLE_COVERAGE=ON/);
+  assert.match(step(job('linux'), 'Configure'), /NOVELTEA_ENABLE_COVERAGE=OFF/);
+  assert.doesNotMatch(job('editor'), /test:coverage/);
   const ctest = step(native, 'CTest');
   const ctestReport = step(native, 'Report CTest coverage');
   const cliReset = step(native, 'Reset native CLI CTest coverage counters');
@@ -455,7 +639,22 @@ test('CI publishes distinct informational coverage summaries and detailed artifa
   assert.doesNotMatch(cliCtest, /export GCOV_PREFIX=/);
   assert.match(editorToolCmake, /RESOURCE_LOCK "noveltea_gcov_cli"/);
   assert.match(editorToolCmake, /ENVIRONMENT "NOVELTEA_TEST_COMPILER_IDENTITY=\$\{NOVELTEA_NATIVE_CLI_COMPILER_IDENTITY\}"/);
-  assert.match(editorToolCmake, /set_property\(TEST "\$\{_native_cli_test\}" APPEND PROPERTY ENVIRONMENT\s+"GCOV_PREFIX=\$\{CMAKE_BINARY_DIR\}\.gcov-cli\/\$\{_native_cli_test\}"\s+"GCOV_PREFIX_STRIP=0"\)/);
+  assert.match(editorToolCmake, /set_property\(TEST "\$\{_native_cli_test\}" APPEND PROPERTY ENVIRONMENT\s+"GCOV_PREFIX=\$\{CMAKE_BINARY_DIR\}\.gcov-cli\/\$\{_native_cli_test\}"\s+"GCOV_PREFIX_STRIP=0"\s+"NOVELTEA_NATIVE_CLI_GCOV_ROOT=\$\{CMAKE_BINARY_DIR\}\.gcov-cli\/\$\{_native_cli_test\}"\)/);
+  assert.match(editorToolCmake, /NOVELTEA_NATIVE_CLI_GCOV_PROCESS_ISOLATION=\$<BOOL:\$\{NOVELTEA_ENABLE_COVERAGE\}>/);
+  const nativeCliSource = readFileSync('tools/editor_tool/native_cli.cpp', 'utf8');
+  assert.match(nativeCliSource, /NOVELTEA_NATIVE_CLI_GCOV_PROCESS_ISOLATION/);
+  assert.match(nativeCliSource, /isolate_native_cli_gcov_process\(\)/);
+  const isolationHeader = readFileSync('tools/editor_tool/native_cli_gcov_isolation.hpp', 'utf8');
+  assert.match(isolationHeader, /std::filesystem::create_directories\(isolated\)/);
+  assert.match(isolationHeader, /setenv\("GCOV_PREFIX", isolated\.c_str\(\), 1\)/);
+  // Both the CTest author and the native broker must report intentionally
+  // terminated PID roots. The broker owns idle-worker retirement, which is
+  // invisible to the Python test and can interrupt large gcda flushes.
+  const broker = readFileSync('tools/editor_tool/tooling_daemon_broker.cpp', 'utf8');
+  const terminate = broker.slice(broker.indexOf('void terminate_child_process(ChildProcess& process)\n{'));
+  assert.match(terminate, /NOVELTEA_NATIVE_CLI_GCOV_ROOT/);
+  assert.match(terminate, /terminated-process-pids\.txt/);
+  assert.ok(terminate.indexOf('terminated-process-pids.txt') < terminate.indexOf('::kill(process.pid, SIGTERM)'));
   assert.match(step(native, 'Build excluded native CLI certification target'), /--target noveltea-cli-native-certify/);
   assert.ok(native.indexOf(resetLab) < native.indexOf(lab));
   assert.ok(native.indexOf(lab) < native.indexOf(labReport));
@@ -464,18 +663,32 @@ test('CI publishes distinct informational coverage summaries and detailed artifa
   assert.match(cliReport, /native-coverage\.mjs report .*\/ctest-cli/);
   assert.match(labReport, /native-coverage\.mjs report .*\/feature-lab/);
   assert.match(combined, /native-coverage\.mjs merge/);
-  for (const report of [ctestReport, cliReport, labReport, combined]) {
+  for (const report of [ctestReport, cliReport, labReport, combined])
     assert.match(report, /coverage-summary\.mjs cpp .*GITHUB_STEP_SUMMARY/);
-    assert.equal(field(report, 'if'), '${{ !cancelled() }}');
-  }
-  assert.match(step(editor, 'Test'), /test:coverage/);
-  assert.equal(field(step(editor, 'Test'), 'id'), 'editor-tests');
+  assert.equal(field(step(native, 'Build'), 'id'), 'native_build');
+  // Reporting partial test coverage remains allowed, but a failed compile
+  // must never launch CTest/Feature Lab against missing executables.
   for (const label of [
-    'Summarize editor coverage',
-    'Publish editor coverage to Codecov',
-    'Upload editor coverage',
+    'Report CTest coverage',
+    'Reset native CLI CTest coverage counters',
+    'Native CLI CTest',
+    'Report native CLI CTest coverage',
+    'Stage pinned FFmpeg for Feature Lab',
+    'Reset Feature Lab coverage counters',
+    'Feature Lab authored Tests',
+    'Report Feature Lab coverage',
+    'Report combined native coverage',
+    'Upload C++ coverage',
   ])
+    assert.equal(
+      field(step(native, label), 'if'),
+      "${{ !cancelled() && steps.native_build.outcome == 'success' }}",
+    );
+  assert.match(step(editor, 'Test and instrument editor'), /test:coverage/);
+  assert.equal(field(step(editor, 'Test and instrument editor'), 'id'), 'editor-tests');
+  for (const label of ['Summarize editor coverage', 'Publish editor coverage to Codecov'])
     assert.match(field(step(editor, label), 'if'), /steps\.editor-tests\.outcome == 'success'/);
+  assert.equal(field(step(editor, 'Upload editor coverage'), 'if'), '${{ !cancelled() }}');
   assert.match(step(editor, 'Summarize editor coverage'), /coverage-summary\.mjs editor .*GITHUB_STEP_SUMMARY/);
   assert.match(step(native, 'Upload C++ coverage'), /name: noveltea-coverage-cpp/);
   assert.match(step(editor, 'Upload editor coverage'), /name: noveltea-coverage-editor/);
@@ -570,71 +783,63 @@ test('Web editor preview verifies the actual devtools-off and devtools-on Emscri
   );
 });
 
-test('native build and release jobs verify the linked devtools capability matrix', () => {
+test('Build qualifies native devtools and Release restores the exact two Linux production variants', () => {
   const linux = job('linux');
-  const verifyEnabled = step(linux, 'Verify native devtools composition');
-  assert.match(
-    verifyEnabled,
-    /check-native-devtools-symbols\.sh build\/linux-debug\/apps\/sandbox\/noveltea-sandbox on/,
-  );
-  assert.match(
-    verifyEnabled,
-    /check-native-devtools-symbols\.sh build\/linux-debug\/apps\/player\/noveltea-player on/,
-  );
-
-  const desktopHosts = releaseJob('desktop-hosts');
-  const linuxVariants = [...desktopHosts.matchAll(
-    /- platform: linux\s+arch: x64\s+runner: ubuntu-latest\s+preset: (\S+)\s+variant: (\S+)/g,
-  )].map(([, preset, variant]) => [preset, variant]);
-  assert.deepEqual(linuxVariants, [
-    ['linux-release', 'release'],
-    ['linux-release-devtools', 'devtools'],
-  ]);
-  const verifyRelease = step(desktopHosts, 'Verify Linux player devtools composition');
-  assert.equal(field(verifyRelease, 'if'), "matrix.platform == 'linux'");
-  assert.ok(verifyRelease.includes(
-    "check-native-devtools-symbols.sh build/${{ matrix.preset }}/apps/player/noveltea-player ${{ matrix.variant == 'release' && 'off' || 'on' }}",
-  ));
+  assert.match(step(linux, 'Verify native devtools composition'),
+    /check-native-devtools-symbols\.sh build\/linux-debug\/apps\/player\/noveltea-player on/);
+  const producer = job('production-desktop-players');
+  assert.match(producer, /check-native-devtools-symbols\.sh build\/\$\{\{ matrix\.preset \}\}\/apps\/player\/noveltea-player/);
+  const desktop = releaseJob('desktop-hosts');
+  for (const [preset, id] of [
+    ['linux-release', 'linux-player-x64-release'],
+    ['linux-release-devtools', 'linux-player-x64-devtools'],
+  ]) {
+    assert.match(desktop, new RegExp('preset: '+preset+'\\s+variant: '+(id.endsWith('devtools')?'devtools':'release')+'\\s+candidate: '+id));
+  }
+  assert.match(desktop, /name: Restore and authenticate exact platform player candidate/);
+  assert.doesNotMatch(desktop, /cmake --build/);
 });
 
 test('native coverage stages verified FFmpeg for Feature Lab video preparation', () => {
-  const linux = job('linux');
+  const linux = coverageJob('native');
   const stage = step(linux, 'Stage pinned FFmpeg for Feature Lab');
   const tests = step(linux, 'Feature Lab authored Tests');
-  // A failed C++ policy or CTest step must not suppress the media prerequisite
-  // while the independently reported Feature Lab suite is still scheduled.
-  assert.equal(field(stage, 'if'), '${{ !cancelled() }}');
+  // A failed policy or CTest still permits independent Feature Lab coverage,
+  // but a failed native build cannot run any test using missing executables.
+  assert.equal(field(stage, 'if'), "${{ !cancelled() && steps.native_build.outcome == 'success' }}");
   assert.match(stage, /node editor\/scripts\/private-media-tools\.mjs build\/coverage-media/);
   assert.match(tests, /NOVELTEA_FFMPEG: .*build\/coverage-media\/tools\/ffmpeg\/bin\/ffmpeg/);
   assert.ok(linux.indexOf(stage) < linux.indexOf(tests));
 });
 
-test('release editor consumers restore bundled FFmpeg executable permissions', () => {
-  const marker = '- name: Make NovelTea host tools executable';
-  const start = releaseWorkflow.indexOf(marker);
-  assert.notEqual(start, -1);
-  const block = releaseWorkflow.slice(start, releaseWorkflow.indexOf('- name: ', start + marker.length));
-  assert.match(block, /tools\/ffmpeg\/bin\/ffmpeg/);
+test('both native CLI consumers and Editor packaging inherit verified FFmpeg from qualified Build', () => {
+  const restoration = readFileSync(new URL(
+    '../../.github/actions/restore-release-candidate/action.yml', import.meta.url), 'utf8');
+  assert.match(restoration, /tools\/ffmpeg\/bin\/ffmpeg/);
+  const editor = releaseJob('desktop-editor');
+  assert.match(editor, /restore-release-candidate/);
+  assert.match(editor, /promote-editor-candidate\.mjs/);
+  assert.doesNotMatch(editor, /noveltea:build|build-native-authoring-addon/);
 });
 
 test('artifact consumers do not wait for unrelated test and cooperative build jobs', () => {
   assert.equal(field(job('editor'), 'needs'), '[linux-cli, web-preview]');
   assert.equal(field(job('android'), 'needs'), '[shader-assets, linux-cli]');
-  assert.equal(field(job('linux-cooperative'), 'needs'), 'shader-assets');
-  assert.equal(field(job('android-cooperative'), 'needs'), 'shader-assets');
+  assert.equal(field(extendedJob('linux-cooperative'), 'needs'), '[source, shader-assets]');
+  assert.equal(field(extendedJob('android-cooperative'), 'needs'), '[source, shader-assets]');
 });
 
 test('CI keeps shared-display CTest runs serial until their isolation is established', () => {
   assert.doesNotMatch(workflow, /CTEST_PARALLEL_LEVEL:/);
   for (const name of ['linux', 'linux-sanitize']) {
-    const commands = job(name).split('\n').filter((line) => line.includes('ctest --test-dir'));
+    const commands = (name === 'linux' ? job(name) : extendedJob(name)).split('\n').filter((line) => line.includes('ctest --test-dir'));
     assert.equal(commands.length, 2);
     for (const command of commands) assert.doesNotMatch(command, /--parallel|\s-j/);
   }
 });
 
 test('sanitizer native Agent Kit generation has installed Node workspace dependencies', () => {
-  const sanitizer = job('linux-sanitize');
+  const sanitizer = extendedJob('linux-sanitize');
   const node = step(sanitizer, 'Set up Node.js');
   const dependencies = step(sanitizer, 'Install workspace dependencies for native Agent Kit');
   const build = step(sanitizer, 'Build sanitizer targets');
@@ -755,18 +960,21 @@ test('fetched LIEF is host-only Windows PE tooling, never a player dependency', 
   );
 });
 
-test('release desktop hosts install editor dependencies before the Windows CMake Agent Kit build', () => {
+test('desktop Release installs Editor dependencies before running real export acceptance on verified bytes', () => {
   const desktop = releaseJob('desktop-hosts');
-  const pnpm = step(desktop, 'Set up pnpm for desktop export and native tooling');
-  const node = step(desktop, 'Set up Node.js for desktop export and native tooling');
-  const dependencies = step(desktop, 'Install root workspace dependencies for desktop export and native tooling');
-  const build = step(desktop, 'Build non-Linux desktop player');
+  const pnpm = step(desktop, 'Install root JS dependencies for native export acceptance');
+  const node = step(desktop, 'Set up Node.js for platform certification');
+  const deps = step(desktop, 'Install pinned workspace packages');
+  const restore = step(desktop, 'Restore and authenticate exact platform player candidate');
+  const run = step(desktop, 'Finalize and launch Windows portable export');
   assert.match(pnpm, /pnpm\/action-setup@v6/);
   assert.match(node, /node-version-file: \.node-version/);
-  assert.match(dependencies, /pnpm install --frozen-lockfile/);
+  assert.match(deps, /pnpm install --frozen-lockfile/);
   assert.ok(desktop.indexOf(pnpm) < desktop.indexOf(node));
-  assert.ok(desktop.indexOf(node) < desktop.indexOf(dependencies));
-  assert.ok(desktop.indexOf(dependencies) < desktop.indexOf(build));
+  assert.ok(desktop.indexOf(node) < desktop.indexOf(deps));
+  assert.ok(desktop.indexOf(deps) < desktop.indexOf(restore));
+  assert.ok(desktop.indexOf(restore) < desktop.indexOf(run));
+  assert.doesNotMatch(desktop, /cmake --build/);
 });
 
 test('native gcov preserves atomic counters and debuggability without forcing -O0', () => {
@@ -794,36 +1002,27 @@ test('release certification obtains evidence from real native exports, never ret
   assert.match(android, /canonical-android-x86_64-fixture-evidence\.json/);
 });
 
-test('macOS player and CLI compile concurrently with independent triplets and artifact handoff', () => {
+test('macOS Release restores independent exact Build CLI and player artifacts, then certifies both', () => {
   const desktop = releaseJob('desktop-hosts');
   const cli = releaseJob('macos-cli');
   const certify = releaseJob('macos-certify');
   const inventory = releaseJob('release-inventory');
   const editor = releaseJob('desktop-editor');
-  assert.match(desktop, /preset: macos-release/);
-  assert.match(desktop, /noveltea-release-macos-player-build/);
-  assert.doesNotMatch(desktop, /run: pnpm -C editor run noveltea:build/);
+  assert.match(desktop, /candidate: macos-player-arm64-release/);
+  assert.match(desktop, /candidate: macos-player-arm64-devtools/);
+  assert.match(desktop, /build-run-id:/);
   assert.match(cli, /runs-on: macos-26/);
-  assert.match(cli, /run: pnpm -C editor run noveltea:build/);
+  assert.match(cli, /candidate: macos-release-cli-arm64/);
+  assert.doesNotMatch(cli, /noveltea:build|cmake --build/);
   assert.match(cli, /noveltea-release-host-cli-macos-arm64/);
-  assert.match(cli, /macos-authoring-release\/vcpkg_installed/);
-  assert.match(cliBuildScript, /macos-authoring-release/);
-  assert.match(cliBuildScript, /noveltea-native-cli/);
   assert.match(cli, /noveltea-release-native-cli-macos-arm64/);
   assert.match(certify, /needs: \[release-metadata, desktop-hosts, macos-cli\]/);
   assert.match(certify, /noveltea-release-macos-player-build/);
   assert.match(certify, /noveltea-release-host-cli-macos-arm64/);
   assert.match(certify, /noveltea-release-native-cli-macos-arm64/);
-  assert.match(certify, /test -f build\/cli\/macos-native\/noveltea/);
-  assert.match(certify, /test -f build\/cli\/macos-native\/assets\/system\/fonts\/LiberationSans\.ttf/);
-  assert.match(certify, /tests\/native_cli\/macos_release_smoke\.py \\\s*"\$PWD\/build\/cli\/macos-native\/noveltea"/);
-  assert.doesNotMatch(certify, /tests\/native_cli\/macos_release_smoke\.py \\\s*"\$PWD\/build\/cli\/macos\/noveltea"/);
-  assert.match(certify, /NOVELTEA_CLI: \$\{\{ github\.workspace \}\}\/build\/cli\/macos\/noveltea/);
-  assert.ok(certify.indexOf('Download macOS host CLI') < certify.indexOf('Finalize and launch macOS app bundle export'));
-  assert.match(certify, /- variant: release\s+preset: macos-release/);
-  assert.match(certify, /- variant: devtools\s+preset: macos-release-devtools/);
-  assert.match(certify, /noveltea-platform-certification-macos-arm64-\$\{\{ matrix\.variant \}\}\.json/);
-  assert.match(certify, /noveltea-desktop-host-macos-arm64-\$\{\{ matrix\.variant \}\}-dist/);
+  assert.match(certify, /tests\/native_cli\/macos_release_smoke\.py/);
+  assert.match(certify, /noveltea-platform-certification-macos-arm64-/);
+  assert.match(certify, /noveltea-desktop-host-macos-arm64-/);
   assert.match(editor, /macos-cli/);
   assert.match(inventory, /macos-certify/);
 });
@@ -905,7 +1104,7 @@ test('Android libpng source is checksum-pinned for player-template provenance', 
 });
 
 test('sanitizer passes partition GPU smoke tests without disabling engine leak checks', () => {
-  const sanitizer = job('linux-sanitize');
+  const sanitizer = extendedJob('linux-sanitize');
   const strict = step(sanitizer, 'Run strict ASan, LeakSanitizer, UBSan, and parser fuzz smoke tests');
   const gpu = step(sanitizer, 'Run GPU smoke tests under ASan and UBSan');
   assert.equal(field(strict, 'ASAN_OPTIONS'), 'detect_leaks=1:halt_on_error=1');
@@ -947,7 +1146,7 @@ test('CI leaves compile concurrency automatic while serializing heavyweight Linu
 
 
 test('Linux native coverage reserves runner disk before its instrumented build', () => {
-  const build = job('linux');
+  const build = coverageJob('native');
   const reclaim = step(build, 'Reclaim disk for native coverage build');
   assert.match(reclaim, /sudo rm -rf \/usr\/share\/dotnet \/usr\/local\/lib\/android/);
   assert.match(reclaim, /\/opt\/hostedtoolcache\/CodeQL/);
@@ -958,25 +1157,20 @@ test('Linux native coverage reserves runner disk before its instrumented build',
   );
 });
 
-test('Android Release reclaims unrelated runner toolchains before multi-ABI builds', () => {
+test('Android Release recovers all three Build native ABIs after reclaim, then runs real APK/AAB export certification', () => {
   const android = releaseJob('android');
-  const reclaim = step(android, 'Reclaim disk for Android release builds');
+  const reclaim = step(android, 'Reclaim disk for Android package/export smoke');
+  const restore = step(android, 'Restore authenticated optimized ARM64 standard native package');
+  const diagnostic = step(android, 'Restore independently verified x86_64 Debug ABI-only diagnostic template');
   assert.match(reclaim, /sudo rm -rf \/usr\/share\/dotnet \/opt\/ghc/);
   assert.match(reclaim, /\/opt\/hostedtoolcache\/CodeQL/);
-  assert.doesNotMatch(reclaim, /rm -rf[^\n]*\/usr\/local\/lib\/android/);
-  assert.ok(
-    android.indexOf('Set up Node.js for Android certification') <
-      android.indexOf('Build unsigned Android player template source'),
-    'pin Node before the Android native builds fill the runner',
-  );
-  assert.ok(
-    android.indexOf('Reclaim disk for Android release builds') <
-      android.indexOf('Cache Android SDK packages'),
-    'free disk before the pinned SDK/NDK is restored',
-  );
-  const templateBuild = step(android, 'Build unsigned Android player template source');
-  assert.match(templateBuild, /:app:assembleRelease -PnovelteaAbi=arm64-v8a/);
-  assert.match(templateBuild, /:app:assembleDebug -PnovelteaAbi=x86_64/);
+  assert.ok(android.indexOf(reclaim) < android.indexOf(restore));
+  assert.match(diagnostic, /stage: diagnose/);
+  for (const candidate of ['android-player-arm64-release', 'android-player-arm64-devtools', 'android-player-x64-debug'])
+    assert.ok(android.includes('candidate: '+candidate));
+  assert.match(android, /verify-android-load-alignment\.mjs/);
+  assert.match(android, /:app:assembleRelease|--flavor release --variant devtools --artifact both/);
+  assert.doesNotMatch(android, /cmake --build|Build unsigned Android player template source/);
 });
 
 test('Linux packaged editor smoke uses an isolated X11 desktop and session bus', () => {
@@ -988,12 +1182,12 @@ test('Linux packaged editor smoke uses an isolated X11 desktop and session bus',
 
 test('Android SDK installation retries a broken NDK archive without preserving incomplete packages', () => {
   const script = fileURLToPath(new URL('../../scripts/ci/install-android-sdk-packages.sh', import.meta.url));
-  const install = step(job('android-cooperative'), 'Install Android SDK packages');
+  const install = step(extendedJob('android-cooperative'), 'Install Android SDK packages');
   assert.match(install, /scripts\/ci\/install-android-sdk-packages\.sh/);
   assert.equal(
-    workflow.match(/run: scripts\/ci\/install-android-sdk-packages\.sh/g)?.length,
+    (workflow + extendedWorkflow).match(/run: scripts\/ci\/install-android-sdk-packages\.sh/g)?.length,
     2,
-    'Android and coverage jobs share the same archive integrity policy',
+    'Android and Extended jobs share the same archive integrity policy',
   );
   const root = mkdtempSync(path.join(tmpdir(), 'noveltea-android-sdk-retry-'));
   try {

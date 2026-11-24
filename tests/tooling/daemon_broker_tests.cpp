@@ -23,12 +23,19 @@
 #include <utility>
 #include <vector>
 
+#if defined(_WIN32)
+namespace noveltea::tooling::daemon {
+[[nodiscard]] bool test_close_cancels_blocked_named_pipe_write();
+}
+#endif
+
 #if !defined(_WIN32)
 #include <fcntl.h>
 #include <sys/file.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/un.h>
+#include <sys/wait.h>
 #include <unistd.h>
 #endif
 
@@ -1341,12 +1348,69 @@ TEST_CASE("daemon protocol event shapes preserve request identity")
     CHECK(cancellation == Json{{"type", "cancel"}, {"requestId", "req-4"}});
 }
 
+#if defined(__linux__)
+TEST_CASE("Linux brokers concurrently initialize a fresh private runtime directory",
+          "[daemon-duplex][linux-native]")
+{
+    // Concurrent startup must tolerate a sibling process creating the same
+    // private runtime directory between lstat(ENOENT) and mkdir(EEXIST).
+    for (int round = 0; round < 6; ++round) {
+        auto runtime = temp_runtime_root("concurrent-runtime");
+        constexpr int workers = 12;
+        int gate[2]{-1, -1};
+        REQUIRE(::pipe(gate) == 0);
+        std::vector<pid_t> children;
+        for (int index = 0; index < workers; ++index) {
+            const auto pid = ::fork();
+            REQUIRE(pid >= 0);
+            if (pid == 0) {
+                ::close(gate[1]);
+                char signal = 0;
+                const auto released = ::read(gate[0], &signal, 1);
+                ::close(gate[0]);
+                if (released != 1)
+                    ::_exit(10);
+                auto request =
+                    context(unique_build("parallel-directory") + "-" + std::to_string(index));
+                request["runtimeRoot"] = runtime.path.string();
+                request["action"] = "serve-start";
+                const auto started = invoke_daemon(request);
+                if (!started.value("ok", false)) {
+                    std::cerr << "parallel daemon start " << index << ": " << started.dump()
+                              << std::endl;
+                    ::_exit(11);
+                }
+                request["action"] = "serve-abort";
+                if (!invoke_daemon(request).value("ok", false))
+                    ::_exit(12);
+                ::_exit(0);
+            }
+            children.push_back(pid);
+        }
+        ::close(gate[0]);
+        for (int index = 0; index < workers; ++index) {
+            const char signal = 'S';
+            REQUIRE(::write(gate[1], &signal, 1) == 1);
+        }
+        ::close(gate[1]);
+        for (const auto pid : children) {
+            int status = 0;
+            REQUIRE(::waitpid(pid, &status, 0) == pid);
+            CHECK(WIFEXITED(status));
+            if (WIFEXITED(status))
+                CHECK(WEXITSTATUS(status) == 0);
+        }
+    }
+}
+#endif
+
 TEST_CASE("daemon broker exposes starting, queues work until ready, and drains on stop",
           "[daemon-duplex][windows-native]")
 {
     auto request = context(unique_build("lifecycle"));
     request["action"] = "serve-start";
     const auto started = invoke_daemon(request);
+    INFO("daemon startup response: " << started.dump());
     REQUIRE(started["ok"] == true);
     REQUIRE(started["running"] == true);
     CHECK(started["state"] == "starting");
@@ -2292,33 +2356,50 @@ TEST_CASE("daemon graceful stop waits for active requests to settle")
 }
 
 #if defined(_WIN32)
-TEST_CASE("daemon Windows stop acknowledges while another client is pending",
+TEST_CASE("Windows broker close cancels an unread named-pipe write without deadlocking",
           "[daemon-duplex][windows-native]")
 {
-    auto request = context(unique_build("pending-client-stop"));
-    request["action"] = "serve-start";
-    REQUIRE(invoke_daemon(request)["ok"] == true);
-    request["action"] = "serve-ready";
-    REQUIRE(invoke_daemon(request)["ok"] == true);
+    CHECK(noveltea::tooling::daemon::test_close_cancels_blocked_named_pipe_write());
+}
 
-    auto pending_request = request;
-    pending_request["action"] = "request";
-    pending_request["requestId"] = "pending-during-stop";
-    pending_request["method"] = "work";
-    // Keep another client connected while stop cancels queued work.
-    auto pending = std::async(std::launch::async,
-                              [pending_request] { return invoke_daemon(pending_request); });
-    REQUIRE(wait_until([&] { return daemon_status(request).value("queuedRequests", 0) == 1; }));
+TEST_CASE("daemon Windows stop drains and joins simultaneous waiting clients",
+          "[daemon-duplex][windows-native]")
+{
+    // Each round opens multiple independent named pipes whose pending requests
+    // are cancelled by stop. If close waits on a writer's mutex before it cancels
+    // that writer's overlapped I/O, these clients can strand serve-wait.
+    for (int round = 0; round < 4; ++round) {
+        auto request = context(unique_build("pending-client-stop"));
+        request["action"] = "serve-start";
+        REQUIRE(invoke_daemon(request)["ok"] == true);
+        request["action"] = "serve-ready";
+        REQUIRE(invoke_daemon(request)["ok"] == true);
 
-    request["action"] = "stop";
-    const auto stopped = invoke_daemon(request);
-    REQUIRE(stopped["ok"] == true);
-    CHECK(stopped["state"] == "stopped");
-    REQUIRE(pending.wait_for(std::chrono::seconds(2)) == std::future_status::ready);
-    CHECK(pending.get()["ok"] == false);
+        std::vector<std::future<Json>> pending;
+        for (int client = 0; client < 8; ++client) {
+            auto pending_request = request;
+            pending_request["action"] = "request";
+            pending_request["requestId"] = "pending-during-stop-" + std::to_string(client);
+            pending_request["method"] = "work";
+            pending.push_back(std::async(
+                std::launch::async, [pending_request] { return invoke_daemon(pending_request); }));
+        }
+        REQUIRE(wait_until(
+            [&] { return daemon_status(request).value("queuedRequests", 0) == pending.size(); },
+            std::chrono::seconds(5)));
 
-    request["action"] = "serve-wait";
-    REQUIRE(invoke_daemon(request)["ok"] == true);
+        request["action"] = "stop";
+        const auto stopped = invoke_daemon(request);
+        REQUIRE(stopped["ok"] == true);
+        CHECK(stopped["state"] == "stopped");
+        for (auto& waiting : pending) {
+            REQUIRE(waiting.wait_for(std::chrono::seconds(5)) == std::future_status::ready);
+            CHECK(waiting.get()["ok"] == false);
+        }
+
+        request["action"] = "serve-wait";
+        REQUIRE(invoke_daemon(request)["ok"] == true);
+    }
 }
 #endif
 

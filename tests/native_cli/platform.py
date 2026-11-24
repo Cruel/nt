@@ -34,6 +34,13 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-platform-') as temporar
                    'NOVELTEA_USER_CONFIG_ROOT': str(root / 'user-config'), 'HOME': str(root),
                    'NOVELTEA_CLI_CERTIFICATION': '1',
                    'NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT': str(root / 'daemon')}
+    if os.name != 'nt' and os.environ.get('GCOV_PREFIX'):
+        # This suite tests platform commands, not daemon lifecycle. Under gcov,
+        # a detached broker can merge counters with a later CLI invocation
+        # while both write the same per-CTest GCOV_PREFIX tree. Keep all
+        # instrumented processes foreground; daemon behavior is certified by
+        # the dedicated daemon-owner/idle suites.
+        environment['NOVELTEA_NO_DAEMON'] = '1'
 
     def run(*args, code=0, cwd=root):
         process = subprocess.run([str(installed), '--json', *map(str, args)], cwd=cwd,

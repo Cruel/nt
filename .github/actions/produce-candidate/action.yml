@@ -1,0 +1,37 @@
+name: Qualify and upload source-owned production candidate
+description: Fail-closed manifest producer/consumer verification and exact artifact upload from Build.
+inputs:
+  candidate:
+    description: ID from scripts/ci/release-candidates.json.
+    required: true
+outputs:
+  artifact-name:
+    description: Exact Build artifact name from the canonical candidate inventory.
+    value: ${{ steps.identity.outputs.artifact }}
+runs:
+  using: composite
+  steps:
+    - name: Resolve candidate artifact from source-owned catalog
+      id: identity
+      shell: bash
+      env:
+        CANDIDATE_ID: ${{ inputs.candidate }}
+      run: |
+        set -euo pipefail
+        echo "artifact=$(node scripts/ci/release-candidate.mjs describe --candidate "$CANDIDATE_ID" --field artifactName)" >> "$GITHUB_OUTPUT"
+        echo "root=$(node scripts/ci/release-candidate.mjs describe --candidate "$CANDIDATE_ID" --field root)" >> "$GITHUB_OUTPUT"
+    - name: Produce and verify candidate manifest before upload
+      shell: bash
+      env:
+        CANDIDATE_ID: ${{ inputs.candidate }}
+      run: |
+        set -euo pipefail
+        node scripts/ci/release-candidate.mjs produce --candidate "$CANDIDATE_ID"
+        node scripts/ci/release-candidate.mjs verify --candidate "$CANDIDATE_ID" --stage qualify
+    - name: Upload exact qualified candidate bytes
+      uses: actions/upload-artifact@v7
+      with:
+        name: ${{ steps.identity.outputs.artifact }}
+        path: ${{ steps.identity.outputs.root }}
+        if-no-files-found: error
+        include-hidden-files: true

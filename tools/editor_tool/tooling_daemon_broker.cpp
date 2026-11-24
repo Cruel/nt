@@ -8,6 +8,9 @@
 #include <nlohmann/json.hpp>
 #if defined(_WIN32)
 #include <jsoncons/json.hpp>
+#if defined(NOVELTEA_DAEMON_TEST_SUPPORT)
+#include <future>
+#endif
 #endif
 
 #include <algorithm>
@@ -64,6 +67,9 @@ namespace {
 using Json = nlohmann::json;
 using Clock = std::chrono::steady_clock;
 using IoDeadline = std::optional<Clock::time_point>;
+#if defined(_WIN32) && defined(NOVELTEA_DAEMON_TEST_SUPPORT)
+std::atomic<bool> test_named_pipe_write_pending{false};
+#endif
 constexpr std::string_view completion_frame_limit_error =
     "daemon completion exceeds the transport frame limit";
 
@@ -374,7 +380,13 @@ void ensure_private_runtime_directory(const std::filesystem::path& directory)
 {
     struct stat info {};
     if (::lstat(directory.c_str(), &info) != 0) {
-        if (errno != ENOENT || ::mkdir(directory.c_str(), 0700) != 0)
+        if (errno != ENOENT)
+            throw std::runtime_error("failed to inspect private daemon runtime directory");
+        // Multiple broker identities can start in parallel against the same
+        // per-user runtime root. Another process creating it after ENOENT is
+        // normal, not a startup failure. Always re-inspect the final path,
+        // including after EEXIST: it still must be a private owned directory.
+        if (::mkdir(directory.c_str(), 0700) != 0 && errno != EEXIST)
             throw std::runtime_error("failed to create private daemon runtime directory");
         if (::lstat(directory.c_str(), &info) != 0)
             throw std::runtime_error("failed to inspect private daemon runtime directory");
@@ -559,6 +571,10 @@ bool overlapped_transfer(ConnectionHandle connection, bool reading, std::uint8_t
         CloseHandle(operation.hEvent);
         return false;
     }
+#if defined(NOVELTEA_DAEMON_TEST_SUPPORT)
+    if (!reading)
+        test_named_pipe_write_pending.store(true, std::memory_order_release);
+#endif
     const auto wait = WaitForSingleObject(
         operation.hEvent, deadline ? remaining_windows_timeout(*deadline) : INFINITE);
     if (wait != WAIT_OBJECT_0) {
@@ -684,27 +700,47 @@ struct ClientConnection {
     bool send(std::string_view payload)
     {
         std::scoped_lock lock(write_mutex);
-        return handle != invalid_connection && send_payload(handle, payload);
+#if defined(_WIN32)
+        if (closing.load(std::memory_order_acquire))
+            return false;
+#endif
+        const auto connection = handle.load(std::memory_order_relaxed);
+        return connection != invalid_connection && send_payload(connection, payload);
     }
 
     void close(bool drain_response = false)
     {
+#if defined(_WIN32)
+        // A non-reading owner/control client can leave send_payload blocked in
+        // overlapped WriteFile while holding write_mutex. Cancel that I/O BEFORE
+        // acquiring the mutex, or graceful stop can wait forever for the write
+        // that only close() can interrupt. Publish closing first so no writer
+        // can start new I/O after cancellation. Only the first close owns the
+        // handle until it is invalidated under write_mutex.
+        if (!closing.exchange(true, std::memory_order_acq_rel) && !drain_response) {
+            const auto connection = handle.load(std::memory_order_acquire);
+            if (connection != invalid_connection)
+                (void)CancelIoEx(connection, nullptr);
+        }
+#endif
         std::scoped_lock lock(write_mutex);
-        if (handle == invalid_connection)
+        const auto previous = handle.exchange(invalid_connection, std::memory_order_acq_rel);
+        if (previous == invalid_connection)
             return;
-        const auto previous = handle;
-        handle = invalid_connection;
         close_connection(previous, drain_response);
     }
 
     ConnectionHandle current() const
     {
         std::scoped_lock lock(write_mutex);
-        return handle;
+        return handle.load(std::memory_order_relaxed);
     }
 
     mutable std::mutex write_mutex;
-    ConnectionHandle handle = invalid_connection;
+    std::atomic<ConnectionHandle> handle{invalid_connection};
+#if defined(_WIN32)
+    std::atomic<bool> closing{false};
+#endif
 };
 
 struct QueuedRequest {
@@ -2901,35 +2937,41 @@ private:
             else
                 release_child_process(process);
         }
-        const auto retained_snapshot = project_snapshots_.latest(canonical_root, now_millis());
-        const auto exact_validation = exact_validation_results_.find(canonical_root, now_millis());
-        const auto exact_validation_checkpoint =
-            exact_validation
-                ? std::optional<ProjectAuthorityCheckpoint>(exact_validation->authority)
-                : std::nullopt;
-        bool retained_for_rehydration = false;
-        if (exact_validation_checkpoint) {
-            // Exact validation survives owner eviction independently of portable semantic bytes.
-            // Install its native physical baseline dormant so the next validation can prove disk
-            // equality without starting QuickJS. A later owner admission restores its own retained
-            // snapshot checkpoint before rehydration.
-            retained_for_rehydration =
-                project_authority_.restore_checkpoint_for_rehydration(*exact_validation_checkpoint);
-        } else if (retained_snapshot) {
-            // Snapshot serialization is allowed to lag the live owner. Always restore the exact
-            // native baseline captured with the retained bytes before making the Project dormant;
-            // otherwise a replacement could rehydrate generation N-1 against generation N's
-            // already-advanced manifest and incorrectly observe no delta. The same rule recovers
-            // changes a crashed owner consumed after its last snapshot.
-            const auto checkpoint = project_snapshots_.authority_checkpoint(
-                canonical_root, retained_snapshot->identity, now_millis());
-            retained_for_rehydration =
-                checkpoint && project_authority_.restore_checkpoint_for_rehydration(*checkpoint);
-        }
-        if (!retained_for_rehydration) {
-            if (retained_snapshot)
-                project_snapshots_.invalidate_current(canonical_root);
-            (void)project_authority_.release(root);
+        // A terminal broker has no next Project admission. Rebuilding a dormant
+        // physical baseline from a large owner checkpoint here is wasted work
+        // and can hold the exiting Windows broker alive after stop is acknowledged.
+        // The owner has already flushed its disk ledger before the process exit.
+        if (state_.load() != State::stopped) {
+            const auto retained_snapshot = project_snapshots_.latest(canonical_root, now_millis());
+            const auto exact_validation = exact_validation_results_.find(canonical_root, now_millis());
+            const auto exact_validation_checkpoint =
+                exact_validation
+                    ? std::optional<ProjectAuthorityCheckpoint>(exact_validation->authority)
+                    : std::nullopt;
+            bool retained_for_rehydration = false;
+            if (exact_validation_checkpoint) {
+                // Exact validation survives owner eviction independently of portable semantic bytes.
+                // Install its native physical baseline dormant so the next validation can prove disk
+                // equality without starting QuickJS. A later owner admission restores its own retained
+                // snapshot checkpoint before rehydration.
+                retained_for_rehydration =
+                    project_authority_.restore_checkpoint_for_rehydration(*exact_validation_checkpoint);
+            } else if (retained_snapshot) {
+                // Snapshot serialization is allowed to lag the live owner. Always restore the exact
+                // native baseline captured with the retained bytes before making the Project dormant;
+                // otherwise a replacement could rehydrate generation N-1 against generation N's
+                // already-advanced manifest and incorrectly observe no delta. The same rule recovers
+                // changes a crashed owner consumed after its last snapshot.
+                const auto checkpoint = project_snapshots_.authority_checkpoint(
+                    canonical_root, retained_snapshot->identity, now_millis());
+                retained_for_rehydration =
+                    checkpoint && project_authority_.restore_checkpoint_for_rehydration(*checkpoint);
+            }
+            if (!retained_for_rehydration) {
+                if (retained_snapshot)
+                    project_snapshots_.invalidate_current(canonical_root);
+                (void)project_authority_.release(root);
+            }
         }
         {
             std::scoped_lock lock(queue_mutex_);
@@ -4652,10 +4694,22 @@ private:
     {
         const auto sleep_interval = std::chrono::milliseconds(
             std::max<std::uint64_t>(10, std::min<std::uint64_t>(250, context_.daemon_idle_ms / 4)));
-        while (state_.load() != State::stopped && state_.load() != State::draining) {
+        const auto draining = [this] {
+            const auto state = state_.load();
+            return state == State::draining || state == State::stopped;
+        };
+        while (!draining()) {
             std::this_thread::sleep_for(sleep_interval);
+            // A stop can arrive during the sleep; do not initiate more costly
+            // owner/cache maintenance after terminal drain has begun.
+            if (draining())
+                break;
             maintain_project_owners();
+            if (draining())
+                break;
             maintain_disposable_workers();
+            if (draining())
+                break;
             if (critical_sections_.load() != 0 || exact_validation_probes_.load() != 0)
                 continue;
             {
@@ -5541,8 +5595,41 @@ void terminate_child_process(ChildProcess& process)
     }
     if (process.pid <= 0)
         return;
-    if (child_process_alive(process))
+    if (child_process_alive(process)) {
+        // Coverage's per-process gcda writer may be interrupted by SIGTERM
+        // or the subsequent SIGKILL while flushing a large profile. This
+        // broker-initiated termination is not visible to Python CTest, so
+        // record the exact PID before signalling it. The offline merger skips
+        // only positively identified terminated writers and still rejects
+        // unexplained malformed profiles.
+#if defined(__linux__)
+        if (const char* root = std::getenv("NOVELTEA_NATIVE_CLI_GCOV_ROOT"); root && *root) {
+            std::error_code ec;
+            std::filesystem::create_directories(root, ec);
+            const auto manifest = std::filesystem::path(root) / "terminated-process-pids.txt";
+            const int fd =
+                ec ? -1 : ::open(manifest.c_str(), O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0600);
+            if (fd >= 0) {
+                const auto line = std::to_string(process.pid) + "\n";
+                if (::flock(fd, LOCK_EX) == 0) {
+                    std::size_t offset = 0;
+                    while (offset < line.size()) {
+                        const auto written =
+                            ::write(fd, line.data() + offset, line.size() - offset);
+                        if (written < 0 && errno == EINTR)
+                            continue;
+                        if (written <= 0)
+                            break;
+                        offset += static_cast<std::size_t>(written);
+                    }
+                    (void)::flock(fd, LOCK_UN);
+                }
+                (void)::close(fd);
+            }
+        }
+#endif
         (void)::kill(process.pid, SIGTERM);
+    }
     for (int attempt = 0; attempt < 20; ++attempt) {
         int status = 0;
         const auto result = ::waitpid(process.pid, &status, WNOHANG);
@@ -6051,6 +6138,71 @@ std::uint64_t write_response(const Json& result, std::uint8_t* response,
 }
 
 } // namespace
+
+#if defined(_WIN32) && defined(NOVELTEA_DAEMON_TEST_SUPPORT)
+// The production named-pipe writer uses the same ClientConnection. Force a
+// pending overlapped WriteFile by leaving the client unread with a tiny pipe
+// quota. Close must cancel the write before waiting for its mutex, without a
+// retry, timeout increase, or a process-kill fallback.
+bool test_close_cancels_blocked_named_pipe_write()
+{
+    const auto name = std::wstring(L"\\\\.\\pipe\\NovelTea-close-test-") +
+                      std::to_wstring(GetCurrentProcessId()) + L"-" +
+                      std::to_wstring(GetTickCount64());
+    const auto pipe = CreateNamedPipeW(
+        name.c_str(), PIPE_ACCESS_OUTBOUND | FILE_FLAG_OVERLAPPED,
+        PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS, 1,
+        4096, 4096, 0, nullptr);
+    if (pipe == INVALID_HANDLE_VALUE)
+        return false;
+    const auto reader = CreateFileW(name.c_str(), GENERIC_READ, 0, nullptr, OPEN_EXISTING,
+                                    FILE_FLAG_OVERLAPPED, nullptr);
+    if (reader == INVALID_HANDLE_VALUE) {
+        CloseHandle(pipe);
+        return false;
+    }
+    OVERLAPPED connect{};
+    connect.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (connect.hEvent == nullptr) {
+        CloseHandle(reader);
+        CloseHandle(pipe);
+        return false;
+    }
+    const auto connected = ConnectNamedPipe(pipe, &connect);
+    const auto connect_error = connected ? ERROR_SUCCESS : GetLastError();
+    CloseHandle(connect.hEvent);
+    if (!connected && connect_error != ERROR_PIPE_CONNECTED) {
+        CloseHandle(reader);
+        CloseHandle(pipe);
+        return false;
+    }
+
+    ClientConnection writer(pipe);
+    const std::string payload(2 * 1024 * 1024, 'x');
+    test_named_pipe_write_pending.store(false, std::memory_order_release);
+    auto send = std::async(std::launch::async, [&] { return writer.send(payload); });
+    const auto deadline = Clock::now() + std::chrono::seconds(3);
+    while (!test_named_pipe_write_pending.load(std::memory_order_acquire) &&
+           send.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready &&
+           Clock::now() < deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    // Observe the actual WriteFile(ERROR_IO_PENDING) transition; a scheduler
+    // delay before the writer starts is not sufficient evidence of backpressure.
+    const auto pending = test_named_pipe_write_pending.load(std::memory_order_acquire) &&
+                         send.wait_for(std::chrono::milliseconds(0)) ==
+                             std::future_status::timeout;
+    auto close = std::async(std::launch::async, [&] { writer.close(); });
+    const auto cancelled = close.wait_for(std::chrono::seconds(3)) ==
+                           std::future_status::ready;
+    if (!cancelled)
+        CloseHandle(reader); // Ensure a broken implementation can unwind, not hang the suite.
+    close.wait();
+    const auto succeeded = send.get();
+    if (cancelled)
+        CloseHandle(reader);
+    return pending && cancelled && !succeeded;
+}
+#endif
 
 struct ProjectSnapshotStore::Impl {
     struct StoredSnapshot {
@@ -6929,6 +7081,7 @@ extern "C" std::uint64_t noveltea_tooling_daemon_json(const std::uint8_t* reques
         const bool was_running = before_stop.value("running", false);
 #if defined(_WIN32)
         HANDLE daemon_handle = nullptr;
+        DWORD daemon_process_id = 0;
         if (was_running) {
             if (!before_stop.contains("pid") || !before_stop["pid"].is_number_unsigned() ||
                 before_stop["pid"].get<std::uint64_t>() == 0 ||
@@ -6938,6 +7091,7 @@ extern "C" std::uint64_t noveltea_tooling_daemon_json(const std::uint8_t* reques
             // Acquire the process handle before requesting stop: a named pipe can disappear
             // before the broker exits, and a later PID lookup could refer to another process.
             const auto daemon_pid = static_cast<DWORD>(before_stop["pid"].get<std::uint64_t>());
+            daemon_process_id = daemon_pid;
             // Native broker tests run the server inside this process. Waiting for
             // our own process to exit would deadlock every in-process stop.
             if (daemon_pid != GetCurrentProcessId())
@@ -6957,9 +7111,14 @@ extern "C" std::uint64_t noveltea_tooling_daemon_json(const std::uint8_t* reques
             // Give the bounded shutdown its own budget rather than declaring
             // a healthy owner exit hung under a loaded hosted runner.
             const auto terminated = WaitForSingleObject(daemon_handle, 30'000);
+            const auto wait_error = terminated == WAIT_FAILED ? GetLastError() : ERROR_SUCCESS;
             CloseHandle(daemon_handle);
             if (terminated != WAIT_OBJECT_0)
-                result = {{"ok", false}, {"error", "daemon process did not exit after stop"}};
+                result = {{"ok", false},
+                          {"error", "daemon process did not exit after stop (pid=" +
+                                        std::to_string(daemon_process_id) + ", wait=" +
+                                        std::to_string(terminated) + ", win32=" +
+                                        std::to_string(wait_error) + ")"}};
             else {
                 const auto status = client_request(*context, "status", "stop-status");
                 if (status.value("ok", false) && !status.value("running", false))

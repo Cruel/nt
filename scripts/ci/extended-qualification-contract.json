@@ -1,0 +1,20 @@
+{
+  "format": "noveltea-extended-qualification-contract",
+  "workflow": ".github/workflows/extended-qualification.yml",
+  "producerWorkflow": ".github/workflows/build.yml",
+  "jobs": [
+    "source",
+    "shader-assets",
+    "linux-cooperative",
+    "linux-sanitize",
+    "windows-stress",
+    "windows-worker-stress",
+    "web-benchmark",
+    "android-cooperative",
+    "android-emulator",
+    "native-cli-performance"
+  ],
+  "evidenceArtifact": "noveltea-extended-qualification",
+  "qualificationTier": "extended",
+  "description": "All listed jobs must succeed; source must be an ancestor of trusted master and have a successful master-push Build. Only completed successful workflow runs can confer release eligibility."
+}

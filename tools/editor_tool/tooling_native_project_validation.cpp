@@ -10,6 +10,7 @@
 #include "../project_authoring/validation_work_instrumentation.hpp"
 #include "../project_authoring/material_semantics.hpp"
 
+#include <noveltea/core/fingerprint.hpp>
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
@@ -33,9 +34,21 @@
 #include <string_view>
 #include <vector>
 
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <Windows.h>
+#if !defined(__MINGW32__)
+#include <winioctl.h>
+#endif
+#endif
+
 namespace {
 using Json = nlohmann::json;
 using noveltea::authoring::ProjectSession;
+
+bool notice_fences_current(const Json& projection, const std::filesystem::path& root);
 
 void trace_native_validation(const char* stage)
 {
@@ -374,7 +387,8 @@ bool restore_stages(OwnerValidation& state, std::string_view serialized, Json& r
             !state.material_records || !state.material_assets ||
             state.material_sources != material_source_revisions(current) ||
             !state.portable_check->matches_portable(current) ||
-            !state.notice_check->matches(current))
+            !state.notice_check->matches(current) ||
+            !notice_fences_current(state.notice_check->inputs, state.root))
             return false;
         result["fontCoverageInputs"] = *state.font_inputs;
         result["materialCompilerPrograms"] = state.material_programs;
@@ -690,7 +704,109 @@ Json portable_inputs(const Json& project)
     return result;
 }
 
-Json notice_inputs(const Json& project)
+// Windows change timestamps can fail to distinguish a rapid in-place write
+// followed by a restored mtime. Use the file's synchronous USN when available;
+// if the filesystem exposes no usable journal record, fall back to hashing at
+// most the validated notice size (1 MiB). An unreadable or reparse-point notice
+// can never be treated as an unchanged, reusable external stage.
+#if defined(_WIN32)
+std::string windows_notice_change_time(const std::filesystem::path& path)
+{
+    const HANDLE handle = CreateFileW(path.c_str(), FILE_READ_ATTRIBUTES | FILE_READ_DATA,
+                                      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                                      nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+    if (handle == INVALID_HANDLE_VALUE)
+        return "unreadable";
+    FILE_BASIC_INFO basic{};
+    BY_HANDLE_FILE_INFORMATION identity{};
+    const bool safe = GetFileInformationByHandleEx(handle, FileBasicInfo, &basic, sizeof(basic)) != 0 &&
+                      GetFileInformationByHandle(handle, &identity) != 0 &&
+                      (identity.dwFileAttributes &
+                       (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY)) == 0;
+    if (!safe) {
+        CloseHandle(handle);
+        return "unreadable";
+    }
+#if !defined(__MINGW32__)
+    alignas(USN_RECORD_V2) std::array<std::byte, 4096> buffer{};
+    DWORD returned = 0;
+    if (DeviceIoControl(handle, FSCTL_READ_FILE_USN_DATA, nullptr, 0, buffer.data(),
+                        static_cast<DWORD>(buffer.size()), &returned, nullptr) &&
+        returned >= offsetof(USN_RECORD_V2, FileName)) {
+        const auto* record = reinterpret_cast<const USN_RECORD_V2*>(buffer.data());
+        if (record->MajorVersion == 2 &&
+            record->RecordLength >= offsetof(USN_RECORD_V2, FileName) &&
+            record->RecordLength <= returned) {
+            const auto fence = "usn:" + std::to_string(record->Usn) + ":change:" +
+                               std::to_string(basic.ChangeTime.QuadPart);
+            CloseHandle(handle);
+            return fence;
+        }
+    }
+#endif
+    // Read through the same non-reparse handle; closing and reopening by path
+    // here would introduce a replacement/symlink race into the fallback proof.
+    LARGE_INTEGER size{};
+    if (!GetFileSizeEx(handle, &size) || size.QuadPart <= 0 || size.QuadPart > 1024 * 1024) {
+        CloseHandle(handle);
+        return "unreadable";
+    }
+    LARGE_INTEGER start{};
+    std::string contents(static_cast<std::size_t>(size.QuadPart), '\0');
+    DWORD bytes_read = 0;
+    FILE_BASIC_INFO after{};
+    LARGE_INTEGER after_size{};
+    const bool stable =
+        SetFilePointerEx(handle, start, nullptr, FILE_BEGIN) != 0 &&
+        ReadFile(handle, contents.data(), static_cast<DWORD>(contents.size()), &bytes_read,
+                 nullptr) != 0 &&
+        bytes_read == contents.size() && GetFileSizeEx(handle, &after_size) != 0 &&
+        after_size.QuadPart == size.QuadPart &&
+        GetFileInformationByHandleEx(handle, FileBasicInfo, &after, sizeof(after)) != 0 &&
+        after.ChangeTime.QuadPart == basic.ChangeTime.QuadPart;
+    CloseHandle(handle);
+    return stable ? "hash:" + noveltea::core::xxh3_128_revision(contents) : "unreadable";
+}
+
+Json windows_notice_fences(const Json& projection, const std::filesystem::path& root)
+{
+    Json fences = Json::object();
+    const auto add = [&](const Json& notice) {
+        if (!notice.is_object() || !notice.contains("path") || !notice.at("path").is_string())
+            return;
+        const auto relative = notice.at("path").get<std::string>();
+        const auto path = std::filesystem::path(relative);
+        if (!relative.empty() && !path.is_absolute() && path == path.lexically_normal() &&
+            relative.find_first_of(":\\") == std::string::npos)
+            fences[relative] = windows_notice_change_time(root / path);
+    };
+    for (const auto& notice : projection.at("settings"))
+        add(notice);
+    for (const auto& [_, entries] : projection.at("assets").items())
+        for (const auto& notice : entries)
+            add(notice);
+    return fences;
+}
+#endif
+
+bool notice_fences_current(const Json& projection, const std::filesystem::path& root)
+{
+#if defined(_WIN32)
+    if (!projection.contains("windowsChangeStamps") ||
+        projection.at("windowsChangeStamps") != windows_notice_fences(projection, root))
+        return false;
+    for (const auto& [_, stamp] : projection.at("windowsChangeStamps").items())
+        if (stamp == "unreadable")
+            return false;
+    return true;
+#else
+    (void)projection;
+    (void)root;
+    return true;
+#endif
+}
+
+Json notice_inputs(const Json& project, const std::filesystem::path& root)
 {
     Json result = Json::object();
     const Json empty = Json::object();
@@ -706,6 +822,11 @@ Json notice_inputs(const Json& project)
                 attachment.value("purpose", std::string{}) == "distribution-notice")
                 result["assets"][id].push_back(attachment);
     }
+#if defined(_WIN32)
+    result["windowsChangeStamps"] = windows_notice_fences(result, root);
+#else
+    (void)root;
+#endif
     return result;
 }
 
@@ -1579,11 +1700,12 @@ Json validate(std::string_view request_text)
                 noveltea::authoring::ScopedValidationStageTime<
                     noveltea::authoring::WorkCounter::NoticeInputPreparationMicros>
                     timed;
-                return notice_inputs(admitted);
+                return notice_inputs(admitted, root);
             }();
             const bool notice_reuse =
                 state.notice_check &&
                 state.notice_check->matches(state.session->verified_source_revisions_view()) &&
+                notice_fences_current(state.notice_check->inputs, root) &&
                 state.notice_check->inputs == notice_key;
             result["work"]["noticeValidationReuses"] = notice_reuse ? 1 : 0;
             if (!notice_reuse) {

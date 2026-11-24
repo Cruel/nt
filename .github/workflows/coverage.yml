@@ -1,0 +1,410 @@
+name: Coverage
+
+on:
+  push:
+    branches: [master, main, ci/build-release-refactor-641]
+  pull_request:
+    branches: [master, main]
+
+concurrency:
+  group: coverage-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  VCPKG_ROOT: ${{ github.workspace }}/.cache/vcpkg
+  VCPKG_DEFAULT_TRIPLET: x64-linux
+  VCPKG_BINARY_SOURCES: clear;files,${{ github.workspace }}/.cache/vcpkg-binary,readwrite
+  CCACHE_DIR: ${{ github.workspace }}/.cache/ccache
+  CCACHE_MAXSIZE: 384M
+  CCACHE_BASEDIR: ${{ github.workspace }}
+  NOVELTEA_SHADERC_TOOLCHAIN_TAG: r6
+  NOVELTEA_BUILD_IDENTITY: git:${{ github.sha }}
+
+jobs:
+  shader-assets:
+    name: Shader assets
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake curl tar
+
+      - name: Download standalone shaderc
+        run: |
+          shaderc_root="${{ github.workspace }}/.cache/shaderc"
+          mkdir -p "$shaderc_root"
+          curl -fL \
+            -o "$shaderc_root/noveltea-bgfx-shaderc-linux-x64.tar.gz" \
+            "https://github.com/Cruel/nt-tools/releases/download/$NOVELTEA_SHADERC_TOOLCHAIN_TAG/noveltea-bgfx-shaderc-linux-x64.tar.gz"
+          tar -xzf "$shaderc_root/noveltea-bgfx-shaderc-linux-x64.tar.gz" -C "$shaderc_root"
+          test -x "$shaderc_root/bin/shaderc"
+          test -f "$shaderc_root/resources/bgfx_shader.sh"
+          test -f "$shaderc_root/resources/bgfx_compute.sh"
+          echo "SHADERC=$shaderc_root/bin/shaderc" >> "$GITHUB_ENV"
+          echo "BGFX_SHADER_INCLUDE=$shaderc_root/resources" >> "$GITHUB_ENV"
+
+      - name: Compile and verify shader assets
+        run: |
+          cmake \
+            -DNOVELTEA_SHADERC_EXECUTABLE="$SHADERC" \
+            -DNOVELTEA_SHADER_SOURCE_DIR="${{ github.workspace }}/engine/shaders/bgfx" \
+            -DNOVELTEA_SHADER_OUTPUT_ROOT="${{ github.workspace }}/build/generated-assets/shaders" \
+            '-DNOVELTEA_SHADER_VARIANTS=glsl-330;essl-300;metal' \
+            -DNOVELTEA_BGFX_SHADER_INCLUDE_DIR="$BGFX_SHADER_INCLUDE" \
+            -P "${{ github.workspace }}/cmake/CompileNovelTeaShaders.cmake"
+          cmake \
+            -DNOVELTEA_VERIFY_ONLY=ON \
+            -DNOVELTEA_SHADER_OUTPUT_ROOT="${{ github.workspace }}/build/generated-assets/shaders" \
+            '-DNOVELTEA_SHADER_VARIANTS=glsl-330;essl-300;metal' \
+            -P "${{ github.workspace }}/cmake/CompileNovelTeaShaders.cmake"
+
+      - name: Upload shader assets
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-shader-assets
+          path: build/generated-assets/shaders
+          if-no-files-found: error
+
+  native:
+    name: Native CTest, CLI, Feature Lab and combined gcov coverage
+    runs-on: ubuntu-24.04
+    needs: shader-assets
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      # Coverage duplicates every instrumented native object and retains
+      # .gcno/.gcda alongside full Debug binaries. Hosted ubuntu runners
+      # have filled their workspace volume before even finishing compilation.
+      # These unrelated toolchains are not used by the Linux desktop job.
+      - name: Reclaim disk for native coverage build
+        run: |
+          df -h "$GITHUB_WORKSPACE"
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /opt/hostedtoolcache/CodeQL
+          df -h "$GITHUB_WORKSPACE"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Node coverage driver
+        run: pnpm -C editor exec vp pack
+
+      - name: Set up Linux native dependencies
+        uses: ./.github/actions/setup-linux-native
+        with:
+          ccache: "true"
+          pkg-config: "true"
+          autotools: "true"
+          graphics: "true"
+          xvfb: "true"
+          extra-packages: libgl1-mesa-dri
+
+      - name: Set up vcpkg
+        uses: ./.github/actions/setup-linux-vcpkg
+        with:
+          installed-dir: build/linux-debug/vcpkg_installed
+          scope: linux-debug
+          binary-scope: linux-debug
+          read-only: "true"
+
+      - name: Set up compiler cache
+        id: ccache
+        uses: ./.github/actions/setup-ccache
+        with:
+          scope: linux-debug-coverage-v3
+
+      - name: Set up coverage reporter
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: false
+
+      - name: Download shader assets
+        uses: actions/download-artifact@v7
+        with:
+          name: noveltea-shader-assets
+          path: build/prebuilt-shader-assets
+
+      - name: Download prebuilt embedded bgfx tool closure
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p build/prebuilt-shaderc-download build/prebuilt-shaderc-toolchain
+          gh release download "$NOVELTEA_SHADERC_TOOLCHAIN_TAG" \
+            --repo Cruel/nt-tools \
+            --pattern 'noveltea-bgfx-shaderc-linux-x64.tar.gz' \
+            --pattern 'noveltea-bgfx-shaderc-linux-x64.tar.gz.sha256' \
+            --dir build/prebuilt-shaderc-download
+          (
+            cd build/prebuilt-shaderc-download
+            sha256sum -c noveltea-bgfx-shaderc-linux-x64.tar.gz.sha256
+          )
+          tar -xzf build/prebuilt-shaderc-download/noveltea-bgfx-shaderc-linux-x64.tar.gz \
+            -C build/prebuilt-shaderc-toolchain
+          echo "NOVELTEA_PREBUILT_SHADERC_ROOT=${{ github.workspace }}/build/prebuilt-shaderc-toolchain" >> "$GITHUB_ENV"
+
+      - name: Configure
+        run: |
+          cmake --preset linux-debug -G Ninja \
+            -DVCPKG_MANIFEST_FEATURES=tests \
+            -DNOVELTEA_ENABLE_COVERAGE=ON \
+            -DNOVELTEA_BUILD_HOST_TOOLS=ON \
+            -DNOVELTEA_PREBUILT_SHADERC_ROOT="$NOVELTEA_PREBUILT_SHADERC_ROOT" \
+            -DNOVELTEA_COMPILE_SHADERS=OFF \
+            -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" \
+            -DBUILD_TESTING=ON \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+      - name: Build
+        id: native_build
+        run: cmake --build --preset linux-debug
+
+      - name: Clang-certify standalone host Narrative sources
+        run: python3 scripts/check-host-narrative-clang.py build/linux-debug/compile_commands.json
+
+      # The authoring CLI certification executable is EXCLUDE_FROM_ALL, but
+      # CTest still registers its named test. Build it before running CTest.
+      - name: Build excluded native CLI certification target
+        run: cmake --build --preset linux-debug --target noveltea-cli-native-certify
+
+      - name: Export exact instrumented native CLI for Editor integration coverage
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-coverage-native-cli
+          path: build/linux-debug/tools/editor_tool/native-cli
+          if-no-files-found: error
+      - name: Verify native devtools composition
+        run: |
+          bash scripts/check-native-devtools-symbols.sh build/linux-debug/apps/sandbox/noveltea-sandbox on
+          bash scripts/check-native-devtools-symbols.sh build/linux-debug/apps/player/noveltea-player on
+
+      - name: Save compiler cache
+        uses: ./.github/actions/save-ccache
+        with:
+          primary-key: ${{ steps.ccache.outputs.primary-key }}
+          cache-hit: ${{ steps.ccache.outputs.cache-hit }}
+
+      - name: Enforce C++ runtime and dependency policy
+        run: cmake --build --preset linux-debug --target cxx-policy
+
+      - name: Reset CTest coverage counters
+        run: node scripts/native-coverage.mjs reset build/linux-debug
+
+      - name: CTest
+        run: |
+          mkdir -p build/reports/coverage/cpp/ctest
+          # Independent CTests share an atomic gcov runtime. Keep GPU tests
+          # marked RUN_SERIAL and capture/verify dependencies in CMake.
+          xvfb-run -a ctest --test-dir build/linux-debug --output-on-failure \
+            -E '^(native_cli_|native_authoring_cli_commands$)' \
+            --parallel 2 \
+            --output-junit "$GITHUB_WORKSPACE/build/reports/coverage/cpp/ctest/test-results.xml"
+
+      - name: Report CTest coverage
+        if: ${{ !cancelled() && steps.native_build.outcome == 'success' }}
+        run: |
+          node scripts/native-coverage.mjs report build/linux-debug build/reports/coverage/cpp/ctest
+          node scripts/coverage-summary.mjs cpp build/reports/coverage/cpp/ctest/summary.json CTest >> "$GITHUB_STEP_SUMMARY"
+
+      # CLI and daemon processes share instrumented static libraries with
+      # desktop tests; isolate their counters to avoid gcov merge mismatches.
+      - name: Reset native CLI CTest coverage counters
+        if: ${{ !cancelled() && steps.native_build.outcome == 'success' }}
+        run: node scripts/native-coverage.mjs reset build/linux-debug
+
+      - name: Native CLI CTest
+        if: ${{ !cancelled() && steps.native_build.outcome == 'success' }}
+        run: |
+          mkdir -p build/reports/coverage/cpp/ctest-cli
+          # Each CLI CTest has an isolated GCOV_PREFIX (registered by CMake).
+          # A detached daemon from an earlier test can finish after CTest
+          # moves on, so even serial CTests cannot safely share one .gcda tree.
+          # Merge completed per-test counters offline, preserving CLI coverage
+          # and every strict stdout/stderr contract.
+          # Keep instrumented CLI tests serial to avoid competing live daemons
+          # while the ordinary CTest suite runs independently at --parallel 2.
+          # Full multi-fixture parity and external-stage certifications run
+          # against the optimized native CLI in the Linux host CLI job. Here,
+          # representative CTests collect instrumented CLI/dependency paths
+          # without doing dozens of independent cold Feature Lab validations.
+          result=0
+          xvfb-run -a ctest --test-dir build/linux-debug --output-on-failure \
+            -R '^(native_cli_|native_authoring_cli_commands$)' \
+            -E '^(native_cli_(incremental_validation_certification|dependency_mutation_certification|shader_validation_cache|portable_validation_cache)|native_authoring_cli_commands)$' \
+            --parallel 1 \
+            --output-junit "$GITHUB_WORKSPACE/build/reports/coverage/cpp/ctest-cli/test-results.xml" || result=$?
+          # This merges snapshots via gcov-tool, then restores the .gcda next
+          # to the matching .gcno before gcovr. Live per-test roots remain
+          # untouched until runner teardown.
+          node scripts/native-coverage.mjs restore-isolated build/linux-debug
+          exit "$result"
+
+      - name: Report native CLI CTest coverage
+        if: ${{ !cancelled() && steps.native_build.outcome == 'success' }}
+        run: |
+          node scripts/native-coverage.mjs report build/linux-debug build/reports/coverage/cpp/ctest-cli
+          node scripts/coverage-summary.mjs cpp build/reports/coverage/cpp/ctest-cli/summary.json 'Native CLI CTest' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Stage pinned FFmpeg for Feature Lab
+        if: ${{ !cancelled() && steps.native_build.outcome == 'success' }}
+        run: |
+          node editor/scripts/private-media-tools.mjs build/coverage-media
+          chmod +x build/coverage-media/tools/ffmpeg/bin/ffmpeg
+
+      - name: Reset Feature Lab coverage counters
+        if: ${{ !cancelled() && steps.native_build.outcome == 'success' }}
+        run: node scripts/native-coverage.mjs reset build/linux-debug
+
+      - name: Feature Lab authored Tests
+        if: ${{ !cancelled() && steps.native_build.outcome == 'success' }}
+        env:
+          NOVELTEA_FFMPEG: ${{ github.workspace }}/build/coverage-media/tools/ffmpeg/bin/ffmpeg
+          NOVELTEA_NATIVE_TOOL_BRIDGE: ${{ github.workspace }}/build/linux-debug/tools/editor_tool/noveltea-tooling-bridge
+          NOVELTEA_UI_TEST_RUNNER: ${{ github.workspace }}/build/linux-debug/tools/editor_tool/noveltea-ui-test-runner
+        run: |
+          mkdir -p build/reports/coverage/cpp/feature-lab
+          # Run the authored test without a detached validation daemon. An
+          # instrumented broker still alive after this command can rewrite
+          # .gcda while gcovr reads it, yielding a corrupt platform-stage
+          # counter and a failed *coverage reporter* after valid gameplay.
+          # Isolate this suite's coverage from late writes of prior CTest
+          # daemons, then snapshot only the completed foreground process.
+          # Keep the foreground suite's private tree until runner teardown;
+          # late native workers must never race a destructive cleanup.
+          gcov_root="$(mktemp -d "$RUNNER_TEMP/noveltea-feature-lab-gcov.XXXXXXXX")"
+          export GCOV_PREFIX="$gcov_root"
+          export GCOV_PREFIX_STRIP=0
+          xvfb-run -a build/linux-debug/tools/editor_tool/native-cli/noveltea \
+            --no-daemon --project tests/projects/feature-lab --json test run \
+            > build/reports/coverage/cpp/feature-lab/test-results.json
+          gcov_build="$gcov_root/$GITHUB_WORKSPACE/build/linux-debug"
+          node scripts/native-coverage.mjs reset build/linux-debug
+          test -d "$gcov_build"
+          cp -a "$gcov_build/." "$GITHUB_WORKSPACE/build/linux-debug/"
+
+      - name: Report Feature Lab coverage
+        if: ${{ !cancelled() && steps.native_build.outcome == 'success' }}
+        run: |
+          node scripts/native-coverage.mjs report build/linux-debug build/reports/coverage/cpp/feature-lab
+          node scripts/coverage-summary.mjs cpp build/reports/coverage/cpp/feature-lab/summary.json 'Feature Lab' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Report combined native coverage
+        if: ${{ !cancelled() && steps.native_build.outcome == 'success' }}
+        run: |
+          node scripts/native-coverage.mjs merge build/reports/coverage/cpp
+          node scripts/coverage-summary.mjs cpp build/reports/coverage/cpp/combined/summary.json 'Combined (union)' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish combined native coverage to Codecov
+        if: ${{ success() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        uses: codecov/codecov-action@v7
+        with:
+          use_oidc: true
+          files: build/reports/coverage/cpp/combined/cobertura.xml
+          disable_search: true
+          flags: native
+          fail_ci_if_error: false
+
+      - name: Upload C++ coverage
+        if: ${{ !cancelled() && steps.native_build.outcome == 'success' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-coverage-cpp
+          path: build/reports/coverage/cpp
+          if-no-files-found: error
+
+      - name: Show ccache statistics
+        if: always()
+        run: ccache --show-stats
+
+
+  editor:
+    name: Editor Vitest V8 coverage
+    runs-on: ubuntu-24.04
+    # The Editor suite includes real CLI integration. Consume the same
+    # instrumented CLI that native Coverage already builds, not an unbuilt
+    # build/cli/linux path nor a second full compiler lane.
+    needs: native
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      NOVELTEA_AUTHORING_NODE_ADDON: ${{ github.workspace }}/build/native-authoring-host/noveltea-authoring-node.node
+      NOVELTEA_FFMPEG: ${{ github.workspace }}/build/coverage-media/tools/ffmpeg/bin/ffmpeg
+    steps:
+      - uses: actions/checkout@v6
+      - name: Set up Linux native authoring dependencies
+        uses: ./.github/actions/setup-linux-native
+        with:
+          pkg-config: "true"
+          xvfb: "true"
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Download instrumented native CLI produced by this Coverage run
+        uses: actions/download-artifact@v7
+        with:
+          name: noveltea-coverage-native-cli
+          path: build/cli/linux
+      - name: Restore executable mode and verify real native CLI
+        run: |
+          chmod +x build/cli/linux/noveltea
+          test -x build/cli/linux/noveltea
+          build/cli/linux/noveltea --no-daemon --json daemon status
+      - name: Build native authoring addon
+        run: node editor/scripts/build-native-authoring-addon.mjs --addon-only
+      - name: Stage checksum-verified native media tools
+        run: |
+          node editor/scripts/private-media-tools.mjs build/coverage-media
+          chmod +x build/coverage-media/tools/ffmpeg/bin/ffmpeg
+      - name: Bundle native worker for editor tests
+        run: pnpm -C editor exec vp pack
+      - name: Test and instrument editor
+        id: editor-tests
+        run: pnpm -C editor run test:coverage
+      - name: Summarize editor coverage
+        if: ${{ !cancelled() && steps.editor-tests.outcome == 'success' }}
+        run: node scripts/coverage-summary.mjs editor editor/coverage/coverage-summary.json >> "$GITHUB_STEP_SUMMARY"
+      - name: Publish editor coverage to Codecov
+        if: ${{ !cancelled() && steps.editor-tests.outcome == 'success' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        uses: codecov/codecov-action@v7
+        with:
+          use_oidc: true
+          files: editor/coverage/lcov.info
+          disable_search: true
+          flags: editor
+          fail_ci_if_error: false
+      - name: Upload editor coverage
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-coverage-editor
+          path: editor/coverage
+          if-no-files-found: error

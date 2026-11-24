@@ -9,7 +9,9 @@ Test failures and broken report generation still fail CI.
 
 ## Boundaries and CI
 
-The Build workflow's Linux desktop job instruments first-party native targets using GCC/gcov. It
+The independent `Coverage` workflow runs on every pull request and every master push, in parallel
+with required `Build`, without being a dependency or a required merge check. Its native job
+instruments first-party targets using GCC/gcov (`-Og -g`). It
 runs the normal CTest suite and the complete Feature Lab authored semantic/UI Test suite through the
 Node CLI driver, with an explicitly selected instrumented native bridge and UI runner. The job
 stages the checksum-verified, pinned FFmpeg tool separately and sets `NOVELTEA_FFMPEG` for the
@@ -18,9 +20,22 @@ CLI build. The standalone release CLI is not used: its native objects are uninst
 native preparation and playback operations exercised by that workflow, not TypeScript compiler
 execution, manual station visits, or every perceptual check in the catalog.
 
-One `noveltea-coverage-cpp` artifact contains three independent directories:
+One `noveltea-coverage-cpp` artifact contains four directories:
 
 - `ctest/`: CTest-only HTML/JSON/Cobertura plus JUnit execution results.
+- `ctest-cli/`: native CLI CTest-only coverage from isolated GCOV_PREFIX trees,
+  merged offline in balanced rounds after each process exits; its JUnit results remain separate.
+  Every instrumented native CLI invocation, including foreground commands and daemon workers,
+  writes to a per-process counter root; per-CTest roots remain for other test executables.
+  The daemon-owner certification and native broker record the exact PIDs they
+  deliberately terminate with SIGTERM/SIGKILL, including broker-retired standby
+  workers. Those profiles cannot be trusted to have completed libgcov shutdown,
+  so only those declared PID roots are omitted from the offline merge.
+  Other inputs are validated for complete GCC gcda record boundaries and terminal
+  markers; unexpected truncation fails CI and preserves the bounded raw profile
+  under the native coverage artifact's `diagnostics/` directory. This prevents
+  a killed worker's partial gcda from crashing gcov-tool without turning genuine
+  profile corruption into an accepted result.
 - `feature-lab/`: Lab-only HTML/JSON/Cobertura plus the authored suite's JSON execution results.
 - `combined/`: the union of covered native lines/branches from both saved snapshots. Overlapping
   coverage counts once; percentages are not averaged or added.
@@ -55,12 +70,19 @@ code, but this is not packaged Electron or native-bridge coverage. Coverage runs
 timeouts to account for instrumentation overhead without changing normal unit-test timeouts.
 
 CI appends three labeled native line/branch tables and a separate editor line/function/branch table
-to job summaries. The Build workflow also uploads `combined/cobertura.xml` under Codecov's
+to job summaries. Coverage also uploads `combined/cobertura.xml` under Codecov's
 `native` flag and `editor/coverage/lcov.info` under its `editor` flag. Each job authenticates
 through GitHub Actions OIDC (`id-token: write`), so no repository upload secret is needed.
-Uploads are informational (`fail_ci_if_error: false`) and are skipped for fork pull requests,
+Codecov uploads are informational (`fail_ci_if_error: false`) and are skipped for fork pull requests,
 where Codecov OIDC authentication is unavailable. The repository must be enabled in Codecov
 before reports are visible. Configure PR comments/status checks in Codecov itself.
+Test or coverage-report generation failures still fail the respective Coverage job;
+CodeCov network/upload failures do not. The normal Build runs CTest, native CLI
+certification and Feature Lab without instrumentation, independent of these reports.
+The editor Coverage job builds its own addon and stages checksum-verified media tools;
+it does not depend on Build artifacts. Native/editor coverage caches restore vcpkg
+read-only, with the native instrumented compiler-object cache bounded to 384 MiB. Extended Qualification
+restores caches read-only to prioritize Build's 10 GiB cache capacity.
 
 Download `noveltea-coverage-editor` for editor HTML, Istanbul JSON, summary JSON and LCOV. gcovr uses repository-relative paths; Vitest's raw Istanbul JSON uses resolved source paths
 (LCOV provides relative paths). These per-file report sets can support a future baseline ratchet or

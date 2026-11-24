@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { coverageSummary } from '../../scripts/coverage-summary.mjs';
 
 test('coverage summaries retain separate tool metrics and uncovered counts without a gate', () => {
@@ -22,7 +22,7 @@ test('coverage summaries retain separate tool metrics and uncovered counts witho
   }, 'Feature Lab'), /## C\+\+ coverage — Feature Lab/);
 });
 
-test('native suite snapshots remain independent and merge their coverage union', () => {
+test('native suite snapshots remain independent and merge their coverage union', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'nt-coverage-'));
   const build = path.join(root, 'build');
   const module = path.resolve('cmake/NovelTeaCoverage.cmake');
@@ -31,6 +31,7 @@ test('native suite snapshots remain independent and merge their coverage union',
   const run = (command, args) => {
     const result = spawnSync(command, args, { encoding: 'utf8', cwd: root });
     assert.equal(result.status, 0, result.stdout + result.stderr);
+    return result;
   };
   try {
     for (const directory of ['engine/src', 'deps', 'cmake']) mkdirSync(path.join(root, directory), { recursive: true });
@@ -42,7 +43,12 @@ test('native suite snapshots remain independent and merge their coverage union',
     // Different branch results must remain observable even at -Og: an
     // optimizer is allowed to remove branches with identical outcomes.
     writeFileSync(path.join(root, 'engine/src/model.cpp'), 'int model(int value) {\n  if (value < 0) return 1;\n  if (value > 0) return 2;\n  return 0;\n}\n');
-    writeFileSync(path.join(root, 'engine/src/main.cpp'), 'int model(int);\nint main(int argc, char**) { return model(argc > 2 ? -1 : argc > 1 ? 0 : 1) == 1 ? 1 : 0; }\n');
+    // Exercise the same startup isolation helper used by the real native CLI,
+    // rather than reproducing the per-process path convention in JavaScript.
+    const isolationHeader = path.resolve('tools/editor_tool/native_cli_gcov_isolation.hpp');
+    writeFileSync(path.join(root, 'engine/src/main.cpp'),
+      `#include "${isolationHeader}"\nint model(int);\nint main(int argc, char**) {\n  noveltea::cli::isolate_native_cli_gcov_process();\n  return model(argc > 2 ? -1 : argc > 1 ? 0 : 1) == 1 ? 1 : 0;\n}\n`);
+
     run('cmake', ['-S', root, '-B', build, '-DNOVELTEA_ENABLE_COVERAGE=ON', '-DCMAKE_C_COMPILER=gcc', '-DCMAKE_CXX_COMPILER=g++']);
     run('cmake', ['--build', build]);
     run(path.join(build, 'engine/probe'), []);
@@ -72,12 +78,99 @@ test('native suite snapshots remain independent and merge their coverage union',
     };
     isolatedRun('native_cli_test_a', []);
     isolatedRun('native_cli_test_b', ['other-branch']);
+    // Long-lived daemon/owner workers write to their own PID-specific
+    // siblings, never the foreground CLI's per-test .gcda files. The offline
+    // merger must include these process-specific roots too.
+    isolatedRun('native_cli_test_a.process-99999999', ['other-branch']);
+    // Multiple foreground invocations from one Python CTest may overlap and
+    // exit in any order. They must not touch the shared per-test .gcda, even
+    // when GCOV_PREFIX initially points to the same directory for all six.
+    const concurrentRoot = path.join(isolated, 'native_cli_test_concurrent');
+    const jobs = Array.from({ length: 6 }, (_, i) => new Promise((resolve, reject) => {
+      const child = spawn(path.join(build, 'engine/probe'), i % 2 ? ['other-branch'] : [], {
+        env: {
+          ...process.env,
+          NOVELTEA_NATIVE_CLI_GCOV_ROOT: concurrentRoot,
+          GCOV_PREFIX: concurrentRoot,
+          GCOV_PREFIX_STRIP: '0',
+        },
+        stdio: 'ignore',
+      });
+      child.on('error', reject);
+      child.on('close', (code) => code === 0 ? resolve() : reject(new Error(`probe exited ${code}`)));
+    }));
+    await Promise.all(jobs);
+    const privateRoots = readdirSync(isolated).filter((name) =>
+      /^native_cli_test_concurrent\.process-[1-9][0-9]*$/.test(name));
+    assert.equal(privateRoots.length, 6);
+    assert.ok(!existsSync(path.join(concurrentRoot, build.replace(/^\/+/, ''),
+      'engine/CMakeFiles/model.dir/src/model.cpp.gcda')));
+    for (const name of privateRoots) {
+      assert.ok(existsSync(path.join(isolated, name, build.replace(/^\/+/, ''),
+        'engine/CMakeFiles/model.dir/src/model.cpp.gcda')));
+    }
+
+    // Simulate an instrumented detached owner that is still alive when its
+    // CTest has finished. Its profile does not exist until the process exits.
+    // Snapshotting immediately silently omits this coverage; a snapshot
+    // during a real daemon's libgcov exit can corrupt the file instead.
+    const late = spawn('bash', ['-c',
+      'export GCOV_PREFIX="$GCOV_ROOT/native_cli_test_late.process-$$"; sleep 0.4; exec "$1" "$2"',
+      '_', path.join(build, 'engine/probe'), 'other-branch'], {
+      env: { ...process.env, GCOV_ROOT: isolated, GCOV_PREFIX_STRIP: '0' },
+      stdio: 'ignore',
+    });
+    assert.ok(late.pid > 0);
+    mkdirSync(path.join(isolated, `native_cli_test_late.process-${late.pid}`), {
+      recursive: true,
+    });
     assert.ok(!existsSync(counters));
     const redirected = path.join(isolated, 'native_cli_test_a', build.replace(/^\/+/, ''),
       'engine/CMakeFiles/model.dir/src/model.cpp.gcda');
     assert.ok(existsSync(redirected));
     assert.ok(existsSync(redirected.replace('native_cli_test_a', 'native_cli_test_b')));
-    run(process.execPath, [reporter, 'restore-isolated', build]);
+    assert.ok(existsSync(redirected.replace('native_cli_test_a', 'native_cli_test_a.process-99999999')));
+    // This is the failure seen when a deliberately SIGKILLed owner leaves
+    // a partial gcda while libgcov flushes. Without an explicit PID inventory,
+    // a successful CTest must still fail its coverage merge.
+    const terminatedPid = '99999998';
+    const partial = redirected.replace(
+      'native_cli_test_a',
+      `native_cli_test_a.process-${terminatedPid}`,
+    );
+    mkdirSync(path.dirname(partial), { recursive: true });
+    const complete = readFileSync(redirected);
+    writeFileSync(partial, complete.subarray(0, complete.length - 5));
+    const unexpected = spawnSync(process.execPath, [reporter, 'restore-isolated', build], {
+      encoding: 'utf8',
+      cwd: root,
+    });
+    assert.notEqual(unexpected.status, 0, 'Unexpected corrupt profiles must fail closed');
+    assert.match(unexpected.stderr, /Incomplete GCC gcov profile/);
+    assert.ok(!existsSync(counters), 'Failed merges cannot publish partial counters');
+    const diagnostics = path.join(root, 'reports/coverage/cpp/diagnostics');
+    const evidence = readdirSync(diagnostics).find((name) => name.endsWith('.gcda'));
+    assert.ok(evidence?.startsWith(`native_cli_test_a.process-${terminatedPid}-`));
+    assert.deepEqual(
+      readFileSync(path.join(diagnostics, evidence)),
+      readFileSync(partial),
+      'The raw corrupt profile must survive for diagnosis',
+    );
+
+    const inventory = path.join(isolated, 'native_cli_test_a', 'terminated-process-pids.txt');
+    writeFileSync(inventory, 'invalid\n');
+    const invalidInventory = spawnSync(process.execPath, [reporter, 'restore-isolated', build], {
+      encoding: 'utf8',
+      cwd: root,
+    });
+    assert.notEqual(invalidInventory.status, 0);
+    assert.match(invalidInventory.stderr, /Invalid terminated-process coverage manifest/);
+    // The test and the broker may both record the same terminated PID.
+    // Duplicate positive evidence must not make the merge fail.
+    writeFileSync(inventory, `${terminatedPid}\n${terminatedPid}\n`);
+
+    const restored = run(process.execPath, [reporter, 'restore-isolated', build]);
+    assert.match(restored.stdout, /Restored merged native CLI coverage from 10 isolated roots/);
     assert.ok(existsSync(counters));
     run(process.execPath, [reporter, 'report', build, path.join(reports, 'ctest-cli')]);
     const first = JSON.parse(readFileSync(path.join(reports, 'ctest/summary.json'), 'utf8'));

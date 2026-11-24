@@ -218,6 +218,12 @@ One reusable ending scene after both branches converge.
     assert by_dimension['character-artwork-main'][0]['status'] == 'hard-violation'
     assert by_dimension['character-artwork-main'][0]['severity'] == 'error'
     assert by_dimension['character-artwork-supporting'][0]['status'] == 'soft-overage'
+    # Code dispatch must compare the text, not string-literal pointer identity.
+    # Clang rejects pointer-to-literal comparisons and MSVC/GCC may silently
+    # produce the wrong semantic code if two literals have different addresses.
+    assert by_dimension['illustrated-backgrounds'][0]['code'] == 'budget-soft-overage'
+    assert by_dimension['background-variants'][0]['code'] == 'budget-within-target'
+    assert by_dimension['character-artwork-main'][0]['code'] == 'budget-hard-violation'
     assert {'target-risk', 'target-overrun'} <= {
         d['status'] for d in by_dimension['first-playthrough']}, by_dimension['first-playthrough']
 

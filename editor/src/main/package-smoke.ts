@@ -357,28 +357,65 @@ async function characterizePackagedCandidateRepair(
         const notReady = await window.noveltea.observeRepairCandidate(id);
         const unchanged = await window.noveltea.nativeProjectValidate(first.projectSessionId, first.nativeWorkingRevision, false);
         const saved = await window.noveltea.saveRepairCandidate(id, source.revision, ${JSON.stringify(original)});
-        const ready = await window.noveltea.observeRepairCandidate(id);
         const activeUntilExplicitOpen = await window.noveltea.nativeProjectValidate(first.projectSessionId, first.nativeWorkingRevision, false);
+        // Save is an atomic disk write, not a promise that the separate native
+        // validation/watcher has settled. Subscribe before observing so no
+        // readiness publication can be lost between an IPC reply and a listener.
+        const ready = await (async () => {
+          let resolvePublished;
+          let latest = null;
+          let deadline;
+          const published = new Promise((resolve) => { resolvePublished = resolve; });
+          const unsubscribe = window.noveltea.onRepairCandidateStatus((status) => {
+            if (status.id !== id) return;
+            latest = status;
+            if (status.ready === true && status.revision) resolvePublished(status);
+          });
+          try {
+            const observed = await window.noveltea.observeRepairCandidate(id);
+            latest = observed ?? latest;
+            if (observed?.ready === true && observed.revision) return observed;
+            return await Promise.race([
+              published,
+              new Promise((resolve) => {
+                deadline = setTimeout(() => resolve(latest), 30000);
+              }),
+            ]);
+          } finally {
+            if (deadline) clearTimeout(deadline);
+            unsubscribe();
+          }
+        })();
         const opened = ready?.ready && ready.revision
           ? await window.noveltea.openProject({ repairCandidateId: id, readyRevision: ready.revision })
           : null;
         return {
-          first: true,
-          failed: true,
-          originalSource: source.text === ${JSON.stringify(damaged)},
-          notReady: notReady?.ready === false,
-          incumbentUsable: !!unchanged && !!activeUntilExplicitOpen,
-          saved: saved.text === ${JSON.stringify(original)},
-          ready: ready?.ready === true,
-          explicitlyOpened: opened?.success === true && opened.projectSessionId !== first.projectSessionId,
+          checks: {
+            first: true,
+            failed: true,
+            originalSource: source.text === ${JSON.stringify(damaged)},
+            notReady: notReady?.ready === false,
+            incumbentUsable: !!unchanged && !!activeUntilExplicitOpen,
+            saved: saved.text === ${JSON.stringify(original)},
+            ready: ready?.ready === true,
+            explicitlyOpened: opened?.success === true && opened.projectSessionId !== first.projectSessionId,
+          },
+          // If readiness never arrives, retain actual native diagnostics in
+          // hosted logs instead of another ambiguous false boolean.
+          readyDiagnostics: ready?.diagnostics ?? [],
+          openError: opened?.error ?? null,
         };
       })()`,
       true,
-    )) as Record<string, boolean>;
-    if (Object.values(proof).some((passed) => !passed))
+    )) as {
+      checks: Record<string, boolean>;
+      readyDiagnostics: unknown[];
+      openError: string | null;
+    };
+    if (Object.values(proof.checks).some((passed) => !passed))
       console.error('[package-smoke:repair] Renderer candidate handoff failed:', proof);
     return (
-      Object.values(proof).every(Boolean) &&
+      Object.values(proof.checks).every(Boolean) &&
       (await fs.promises.readFile(manifest, 'utf8')) === original &&
       (await fs.promises.readFile(room)).equals(originalRoom)
     );

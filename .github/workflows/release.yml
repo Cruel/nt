@@ -5,6 +5,15 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      preview_build_run_id:
+        description: Completed exact-branch Build run ID (nonpublishing integration verification only)
+        required: false
+        type: string
+      preview_extended_run_id:
+        description: Completed exact-branch Extended run ID (nonpublishing integration verification only)
+        required: false
+        type: string
 
 concurrency:
   # VERSION is resolved after checkout, so serialize release qualification/publication globally.
@@ -18,23 +27,30 @@ env:
   RELEASE_REF: ${{ github.sha }}
   EMSDK_VERSION: 6.0.0
   CCACHE_DIR: ${{ github.workspace }}/.cache/ccache
-  CCACHE_MAXSIZE: 500M
+  CCACHE_MAXSIZE: 256M
   CCACHE_BASEDIR: ${{ github.workspace }}
   ANDROID_API_LEVEL: "35"
   ANDROID_BUILD_TOOLS_VERSION: "35.0.0"
   ANDROID_CMAKE_VERSION: "3.31.6"
   ANDROID_NDK_VERSION: "28.2.13676358"
   NOVELTEA_BUILD_IDENTITY: git:${{ github.sha }}
+  # This branch-only acceptance mode is never authoritative for publishing.
+  NOVELTEA_RELEASE_PREVIEW: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/ci/build-release-refactor-641' && 'true' || 'false' }}
+  PREVIEW_BUILD_RUN_ID: ${{ inputs.preview_build_run_id || '' }}
+  PREVIEW_EXTENDED_RUN_ID: ${{ inputs.preview_extended_run_id || '' }}
 
 jobs:
   release-metadata:
     name: Release metadata
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 240
     permissions:
       contents: read
+      actions: write
     outputs:
       release_tag: ${{ steps.release-identity.outputs.release_tag }}
+      build_run_id: ${{ steps.release-authority.outputs.build_run_id }}
+      extended_run_id: ${{ steps.release-authority.outputs.extended_run_id }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -44,6 +60,8 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
+      - name: Verify the shared Build/Release candidate and cache contracts
+        run: node --test tests/ci/release_candidate_tests.mjs tests/ci/cache_budget_tests.mjs tests/ci/vcpkg_pin_tests.mjs
       - name: Resolve and validate release identity
         id: release-identity
         shell: bash
@@ -54,212 +72,122 @@ jobs:
           fi
           release_tag="$(node .github/validate-release-version.mjs "${args[@]}")"
           echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
+      - name: Authorize exact-SHA master Build artifacts and completed Extended Qualification
+        id: release-authority
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci/release-promotion.mjs authorize "$GITHUB_SHA"
+      - name: Preserve independent release authorization evidence
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-release-authority
+          path: build/release-authority.json
+          if-no-files-found: error
 
   shader-assets:
-    name: Shader assets and Linux authoring CLI
-    runs-on: ubuntu-latest
-    container:
-      image: node:24.18.0-bookworm@sha256:4e9cb555d708e0829c9d93e5eeae9dfab0617b832ca436a690680e0fca735ef5
-    defaults:
-      run:
-        shell: bash
+    name: Restore Build-qualified Linux release CLI and shader inputs
+    runs-on: ubuntu-24.04
     needs: release-metadata
     env:
       RELEASE_TAG: ${{ needs.release-metadata.outputs.release_tag }}
-    timeout-minutes: 90
+    timeout-minutes: 30
     permissions:
       contents: read
+      actions: read
       id-token: write
       attestations: write
-
     steps:
-      - name: Checkout
+      - name: Checkout the exact selected master commit
         uses: actions/checkout@v6
         with:
           ref: ${{ env.RELEASE_REF }}
-
-      - name: Set up Linux native dependencies
-        uses: ./.github/actions/setup-linux-native
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
         with:
-          pkg-config: "true"
-          autotools: "true"
-          graphics: "true"
-          clang: "true"
-          extra-packages: zstd python3-venv
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v6
-
-      - name: Verify pinned Node.js
-        run: test "$(node --version)" = "v24.18.0"
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Set up vcpkg
-        uses: ./.github/actions/setup-linux-vcpkg
+          node-version-file: .node-version
+      - name: Restore the Debian ABI-floor native CLI, not the Ubuntu development CLI
+        uses: ./.github/actions/restore-release-candidate
         with:
-          installed-dir: build/linux-authoring-release/vcpkg_installed
-          scope: linux-authoring-release
-          binary-scope: linux-authoring-release
-          cache-prefix: debian-12-glibc-2.36-x64
-
-      - name: Cache embedded shaderc build outputs
-        uses: actions/cache@v5
-        with:
-          path: |
-            build/linux-authoring-release/_deps/bgfx.cmake-src
-            build/linux-authoring-release/_deps/bgfx.cmake-build
-            build/linux-authoring-release/tools/editor_tool/CMakeFiles/noveltea_bgfx_shaderc_embedded.dir
-            build/linux-authoring-release/tools/editor_tool/libnoveltea_bgfx_shaderc_embedded.a
-          key: debian-12-glibc-2.36-x64-release-shader-host-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/**', 'cmake/NovelTeaEmbeddedShaderc.cmake', 'cmake/patch-bimg-texturec-entry.cmake', 'engine/src/render/embedded_bgfx_resources.hpp.in') }}
-          restore-keys: |
-            debian-12-glibc-2.36-x64-release-shader-host-
-
-      # Cold vcpkg caches must survive intermittent failures from both upstream bzip2 mirrors.
-      - name: Seed checksum-pinned bzip2 source with retries
+          candidate: linux-release-cli-x64
+          build-run-id: ${{ needs.release-metadata.outputs.build_run_id }}
+          token: ${{ github.token }}
+      - name: Audit the exact Build CLI's Debian compatibility floor
         run: |
-          set -euo pipefail
-          archive="$VCPKG_ROOT/downloads/bzip2-1.0.8.tar.gz"
-          checksum=083f5e675d73f3233c7930ebe20425a533feedeaaa9d8cc86831312a6581cefbe6ed0d08d2fa89be81082f2a5abdabca8b3c080bf97218a1bd59dc118a30b9f3
-          mkdir -p "$(dirname "$archive")"
-          if [[ -f "$archive" ]] && printf '%s  %s\n' "$checksum" "$archive" | sha512sum --check --status; then
-            exit 0
-          fi
-          rm -f "$archive"
-          staged="$(mktemp)"
-          trap 'rm -f "$staged"' EXIT
-          for url in \
-            https://sourceware.org/pub/bzip2/bzip2-1.0.8.tar.gz \
-            https://www.mirrorservice.org/sites/sourceware.org/pub/bzip2/bzip2-1.0.8.tar.gz; do
-            if curl --fail --location --retry 5 --retry-all-errors --retry-delay 3 \
-              --connect-timeout 10 --max-time 30 --output "$staged" "$url"; then
-              if printf '%s  %s\n' "$checksum" "$staged" | sha512sum --check --status; then
-                mv "$staged" "$archive"
-                exit 0
-              fi
-              echo "bzip2 source checksum mismatch from $url" >&2
-            fi
-          done
-          # A restored vcpkg binary cache may already contain bzip2; do not fail solely on prefetch.
-          echo 'bzip2 prefetch failed; leaving package resolution to vcpkg' >&2
-
-      - name: Build NovelTea host CLI
-        run: pnpm -C editor run noveltea:build
-
-      - name: Build renderer required by native production certification
-        run: pnpm -C editor exec vp build
-
-      - name: Build Electron bundles required by native production certification
-        run: pnpm -C editor exec vp pack
-
-      - name: Certify NovelTea host CLI
-        run: pnpm -C editor run noveltea:certify -- --cli-only
-
-      - name: Build direct C++ Linux platform-export CLI
-        run: cmake --build --preset linux-authoring-release --target noveltea-native-cli
-
-      - name: Upload direct C++ Linux platform-export CLI
-        uses: actions/upload-artifact@v7
-        with:
-          name: noveltea-release-native-cli-linux-x64
-          path: build/linux-authoring-release/tools/editor_tool/native-cli
-          if-no-files-found: error
-
-      - name: Audit Linux authoring ABI floor
-        run: |
-          cmake \
-            -DNOVELTEA_BINARY="$PWD/build/cli/linux/noveltea" \
-            -DNOVELTEA_MAX_GLIBC_VERSION=2.36 \
-            -DNOVELTEA_MAX_GLIBCXX_VERSION=3.4.30 \
+          cmake -DNOVELTEA_BINARY="$PWD/build/cli/linux/noveltea" \
+            -DNOVELTEA_MAX_GLIBC_VERSION=2.36 -DNOVELTEA_MAX_GLIBCXX_VERSION=3.4.30 \
             -P cmake/AuditNovelTeaLinuxCompatibility.cmake
-
-      - name: Compile and verify shader assets
-        run: |
-          cmake -DNOVELTEA_CLI_EXECUTABLE="$PWD/build/cli/linux/noveltea" -DNOVELTEA_SHADER_SOURCE_DIR="$PWD/engine/shaders/bgfx" -DNOVELTEA_SHADER_OUTPUT_ROOT="$PWD/build/generated-assets/shaders" '-DNOVELTEA_SHADER_VARIANTS=glsl-330;essl-300;metal' -DNOVELTEA_BGFX_SHADER_INCLUDE_DIR="$PWD/build/linux-authoring-release/_deps/bgfx.cmake-src/bgfx/src" -P "$PWD/cmake/CompileNovelTeaShaders.cmake"
-          cmake -DNOVELTEA_VERIFY_ONLY=ON -DNOVELTEA_SHADER_OUTPUT_ROOT="$PWD/build/generated-assets/shaders" '-DNOVELTEA_SHADER_VARIANTS=glsl-330;essl-300;metal' -P "$PWD/cmake/CompileNovelTeaShaders.cmake"
-
-      - name: Upload shader assets
+      - name: Download source-locked Build shader outputs
+        uses: actions/download-artifact@v7
+        with:
+          name: noveltea-shader-assets
+          run-id: ${{ needs.release-metadata.outputs.build_run_id }}
+          github-token: ${{ github.token }}
+          path: build/generated-assets/shaders
+      - name: Publish shader inputs for independent Release packaging qualification
         uses: actions/upload-artifact@v7
         with:
           name: noveltea-release-shader-assets
           path: build/generated-assets/shaders
           if-no-files-found: error
-
-      - name: Upload NovelTea host CLI
+      - name: Publish the identical native exporter for independent Release platform smoke
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-release-native-cli-linux-x64
+          path: build/cli/linux
+          if-no-files-found: error
+      - name: Publish the exact release-native CLI for other Release checks
         uses: actions/upload-artifact@v7
         with:
           name: noveltea-release-host-cli-linux-x64
           path: build/cli/linux
           if-no-files-found: error
-
-      - name: Stage standalone NovelTea CLI release asset
+      - name: Stage the verified Linux standalone CLI without compilation
         run: |
           bundle="noveltea-${RELEASE_TAG}-linux-x64"
           mkdir -p "build/release-cli/${bundle}"
           cp -a build/cli/linux/. "build/release-cli/${bundle}/"
+          rm -f "build/release-cli/${bundle}/noveltea-candidate.json" \
+            "build/release-cli/${bundle}/candidate-generated-contracts.json"
           tar -C build/release-cli -czf "build/release-cli/${bundle}.tar.gz" "${bundle}"
-          rm -rf "build/release-cli/${bundle}"
-
-      - name: Attest standalone NovelTea CLI
+      - name: Attest exact standalone CLI release bytes
         uses: actions/attest-build-provenance@v4
         with:
           subject-path: build/release-cli/noveltea-${{ env.RELEASE_TAG }}-linux-x64.tar.gz
-
-      - name: Upload standalone NovelTea CLI release asset
+      - name: Upload Linux standalone CLI release asset
         uses: actions/upload-artifact@v7
         with:
           name: noveltea-cli-linux-release-dist
           path: build/release-cli/noveltea-${{ env.RELEASE_TAG }}-linux-x64.tar.gz
           if-no-files-found: error
 
-  windows-cli-build:
-    name: Build standalone CLI (windows-x64)
+  windows-cli:
+    name: Assemble independently verified standalone Windows GNU CLI
     runs-on: windows-2025
     needs: release-metadata
-    timeout-minutes: 90
+    env:
+      RELEASE_TAG: ${{ needs.release-metadata.outputs.release_tag }}
+    timeout-minutes: 40
     permissions:
       contents: read
+      actions: read
+      id-token: write
+      attestations: write
     steps:
-      - name: Checkout
+      - name: Checkout selected source revision
         uses: actions/checkout@v6
         with:
           ref: ${{ env.RELEASE_REF }}
-      - name: Install pnpm
-        uses: pnpm/action-setup@v6
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-      - name: Cache vcpkg SDK and binaries
-        uses: actions/cache@v5
+      - name: Restore and promote exact Windows GNU CLI Build candidate
+        uses: ./.github/actions/restore-release-candidate
         with:
-          path: |
-            .cache/vcpkg
-            .cache/vcpkg-binary
-          key: windows-x64-cli-vcpkg-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/**') }}
-          restore-keys: windows-x64-cli-vcpkg-
-      - name: Bootstrap vcpkg
-        shell: pwsh
-        run: |
-          if (!(Test-Path "$env:VCPKG_ROOT/.git")) { git clone https://github.com/microsoft/vcpkg "$env:VCPKG_ROOT" }
-          & "$env:VCPKG_ROOT/bootstrap-vcpkg.bat"
-      - name: Verify Windows GNU CLI tools
-        shell: pwsh
-        run: |
-          gcc --version
-          g++ --version
-          llvm-strip --version
-      - name: Seed checksum-pinned Lua 5.5.0 source for vcpkg
-        shell: pwsh
-        run: ./scripts/ci/prefetch-lua-source.ps1
-      - name: Build Windows CLI
-        env:
-          VCPKG_ROOT: ${{ github.workspace }}/.cache/vcpkg
-        run: pnpm -C editor run noveltea:build
-      - name: Verify Windows CLI ships without GNU runtime DLL imports
+          candidate: windows-release-cli-x64
+          build-run-id: ${{ needs.release-metadata.outputs.build_run_id }}
+          token: ${{ github.token }}
+      - name: Recheck PE imports and static-runtime distribution contract
         shell: pwsh
         run: |
           foreach ($exe in @("build/cli/windows/noveltea.exe", "build/cli/windows/noveltea-ui-test-runner.exe")) {
@@ -268,88 +196,25 @@ jobs:
             $unsafe = @($imports | Select-String -Pattern 'DLL Name: (libgcc_s_.*|libstdc\+\+-6|libwinpthread-1)\.dll' -CaseSensitive:$false)
             if ($unsafe.Count -ne 0) { throw "$exe requires unshipped GNU runtime DLLs: $($unsafe -join ', ')" }
           }
-      - name: Upload Windows CLI build
-        uses: actions/upload-artifact@v7
-        with:
-          name: noveltea-windows-cli-build
-          path: build/cli/windows
-          if-no-files-found: error
-          retention-days: 1
-      - name: Upload Windows CLI certification shader headers
-        uses: actions/upload-artifact@v7
-        with:
-          name: noveltea-windows-cli-certification-shader-headers
-          path: build/windows-cli-gnu/_deps/bgfx.cmake-src/bgfx/src
-          if-no-files-found: error
-          retention-days: 1
-
-  windows-cli:
-    name: Certify standalone CLI (windows-x64)
-    runs-on: windows-2025
-    needs: [release-metadata, windows-cli-build]
-    env:
-      RELEASE_TAG: ${{ needs.release-metadata.outputs.release_tag }}
-    timeout-minutes: 90
-    permissions:
-      contents: read
-      id-token: write
-      attestations: write
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ env.RELEASE_REF }}
-      - name: Install pnpm
-        uses: pnpm/action-setup@v6
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version-file: .node-version
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-      - name: Download Windows CLI build
-        uses: actions/download-artifact@v7
-        with:
-          name: noveltea-windows-cli-build
-          path: build/cli/windows
-      - name: Download Windows CLI certification shader headers
-        uses: actions/download-artifact@v7
-        with:
-          name: noveltea-windows-cli-certification-shader-headers
-          path: build/windows-cli-gnu/_deps/bgfx.cmake-src/bgfx/src
-      - name: Set up PE inspection environment
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
-      - name: Verify PE inspection tool
-        shell: pwsh
-        run: Get-Command dumpbin | Out-Null
-      - name: Build native production bundles
-        run: pnpm -C editor exec vp pack
-      - name: Build renderer required by native production certification
-        run: pnpm -C editor exec vp build
-      - name: Certify Windows CLI
-        run: pnpm -C editor run noveltea:certify -- --cli-only
-      - name: Stage standalone Windows CLI
+      - name: Assemble the exact released Windows CLI archive
         shell: pwsh
         run: |
           $bundle = "noveltea-$env:RELEASE_TAG-windows-x64"
           $bundleRoot = Join-Path "build/release-cli" $bundle
           New-Item -ItemType Directory -Force $bundleRoot | Out-Null
-          Copy-Item build/cli/windows/* $bundleRoot -Recurse
+          Copy-Item build/cli/windows/* $bundleRoot -Recurse -Exclude noveltea-candidate.json,candidate-generated-contracts.json
           Compress-Archive -Path $bundleRoot -DestinationPath "build/release-cli/$bundle.zip"
-          Remove-Item $bundleRoot -Recurse -Force
-      - name: Upload Windows host CLI
+      - name: Upload the source-locked native CLI for separate platform export checks
         uses: actions/upload-artifact@v7
         with:
           name: noveltea-release-host-cli-windows-x64
           path: build/cli/windows
           if-no-files-found: error
-      - name: Attest standalone Windows CLI
+      - name: Attest exact Windows standalone CLI release archive
         uses: actions/attest-build-provenance@v4
         with:
           subject-path: build/release-cli/noveltea-${{ env.RELEASE_TAG }}-windows-x64.zip
-      - name: Upload standalone Windows CLI release asset
+      - name: Upload Windows standalone CLI release asset
         uses: actions/upload-artifact@v7
         with:
           name: noveltea-cli-windows-release-dist
@@ -357,96 +222,49 @@ jobs:
           if-no-files-found: error
 
   macos-cli:
-    name: Build macOS host CLI (arm64)
+    name: Restore and recheck exact macOS arm64 standalone CLI
     runs-on: macos-26
     needs: release-metadata
-    timeout-minutes: 90
+    timeout-minutes: 35
     permissions:
       contents: read
+      actions: read
     steps:
-      - name: Checkout
+      - name: Checkout exact release revision
         uses: actions/checkout@v6
         with:
           ref: ${{ env.RELEASE_REF }}
-      - name: Install pnpm
-        uses: pnpm/action-setup@v6
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-      - name: Install macOS build tools
-        run: brew install ninja ccache
-      - name: Cache shared vcpkg SDK and binaries
-        uses: actions/cache@v5
+      - name: Restore and verify exact Build-qualified macOS native authoring CLI
+        uses: ./.github/actions/restore-release-candidate
         with:
-          path: |
-            .cache/vcpkg
-            .cache/vcpkg-binary
-          key: macos-26-arm64-vcpkg-common-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'cmake/vcpkg-triplets/**') }}
-          restore-keys: |
-            macos-26-arm64-vcpkg-common-
-      - name: Cache macOS authoring vcpkg installed
-        uses: actions/cache@v5
-        with:
-          path: build/macos-authoring-release/vcpkg_installed
-          key: macos-26-arm64-vcpkg-installed-macos-authoring-release-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/NovelTeaLua.cmake', 'cmake/vcpkg-triplets/arm64-osx-authoring-noveltea.cmake') }}
-          restore-keys: |
-            macos-26-arm64-vcpkg-installed-macos-authoring-release-
-      - name: Bootstrap vcpkg
-        shell: bash
-        run: |
-          if [[ ! -d "$VCPKG_ROOT/.git" ]]; then git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT"; fi
-          "$VCPKG_ROOT/bootstrap-vcpkg.sh"
-      - name: Cache macOS authoring compiler objects
-        uses: actions/cache@v5
-        with:
-          path: ${{ env.CCACHE_DIR }}
-          key: macOS-arm64-ccache-macos-authoring-release-${{ github.sha }}
-          restore-keys: |
-            macOS-arm64-ccache-macos-authoring-release-
-            macOS-arm64-ccache-
-      - name: Build NovelTea macOS host CLI
-        run: pnpm -C editor run noveltea:build
-      - name: Certify native macOS incremental validation and external stage parity
-        run: |
-          python3 tests/native_cli/incremental_validation_certification.py "$PWD/build/cli/macos/noveltea" "$PWD"
-          python3 tests/native_cli/shader_validation_cache.py "$PWD/build/cli/macos/noveltea" "$PWD/tests/projects/feature-lab"
-          python3 tests/native_cli/portable_validation_cache.py "$PWD/build/cli/macos/noveltea" "$PWD/tests/projects/feature-lab"
-      - name: Build macOS editor validation addon for real cache-writer interop
-        run: node editor/scripts/build-native-authoring-addon.mjs --addon-only
-      - name: Certify macOS CLI/editor cache-writer handoff
-        run: >-
-          python3 tests/native_cli/cache_writer_cli_editor.py
-          "$PWD/build/cli/macos/noveltea"
-          "$PWD/build/native-authoring-host/noveltea-authoring-node.node"
-          "$PWD"
-      # The release executable is now the same direct C++ exporter certified
-      # at the native CMake target. No second, scripting-backed host is built.
-      - name: Audit macOS host CLI deployment target
+          candidate: macos-release-cli-arm64
+          build-run-id: ${{ needs.release-metadata.outputs.build_run_id }}
+          token: ${{ github.token }}
+      - name: Verify native macOS CLI deployment target
         shell: bash
         run: |
           set -euo pipefail
           minos="$(otool -l build/cli/macos/noveltea | awk '$1 == "cmd" && $2 == "LC_BUILD_VERSION" { build=1; next } build && $1 == "minos" { print $2; exit }')"
-          test "$minos" = "14.0"
-          native_minos="$(otool -l build/macos-authoring-release/tools/editor_tool/native-cli/noveltea | awk '$1 == "cmd" && $2 == "LC_BUILD_VERSION" { build=1; next } build && $1 == "minos" { print $2; exit }')"
-          test "$native_minos" = "14.0"
-      - name: Upload NovelTea macOS host CLI
+          test "$minos" = '14.0'
+      - name: Upload exact macOS CLI for independent distribution certification
         uses: actions/upload-artifact@v7
         with:
           name: noveltea-release-host-cli-macos-arm64
           path: build/cli/macos
           if-no-files-found: error
-      - name: Upload native C++ macOS export certification CLI
+      - name: Reuse the same compiled native C++ macOS export executable
         uses: actions/upload-artifact@v7
         with:
           name: noveltea-release-native-cli-macos-arm64
-          path: build/macos-authoring-release/tools/editor_tool/native-cli/
+          path: build/cli/macos
           if-no-files-found: error
 
   desktop-hosts:
-    name: Desktop hosts (${{ matrix.platform }}-${{ matrix.arch }}-${{ matrix.variant }})
+    name: Package and certify exact Build desktop player (${{ matrix.platform }}-${{ matrix.arch }}-${{ matrix.variant }})
     runs-on: ${{ matrix.runner }}
     needs: [release-metadata, shader-assets]
     env:
@@ -458,6 +276,7 @@ jobs:
     timeout-minutes: 90
     permissions:
       contents: read
+      actions: read
       id-token: write
       attestations: write
     strategy:
@@ -466,287 +285,123 @@ jobs:
         include:
           - platform: linux
             arch: x64
-            runner: ubuntu-latest
+            runner: ubuntu-24.04
             preset: linux-release
             variant: release
-            triplet: x64-linux-noveltea
-            host_triplet: x64-linux
+            candidate: linux-player-x64-release
+            cli_candidate: linux-release-cli-x64
           - platform: windows
             arch: x64
             runner: windows-2025
             preset: windows-release
             variant: release
-            triplet: x64-windows-static-noveltea
-            host_triplet: x64-windows
+            candidate: windows-player-x64-release
+            cli_candidate: windows-release-cli-x64
           - platform: macos
             arch: arm64
             runner: macos-26
             preset: macos-release
             variant: release
-            triplet: arm64-osx-noveltea
-            host_triplet: arm64-osx
+            candidate: macos-player-arm64-release
+            cli_candidate: macos-release-cli-arm64
           - platform: linux
             arch: x64
-            runner: ubuntu-latest
+            runner: ubuntu-24.04
             preset: linux-release-devtools
             variant: devtools
-            triplet: x64-linux-noveltea
-            host_triplet: x64-linux
+            candidate: linux-player-x64-devtools
+            cli_candidate: linux-release-cli-x64
           - platform: windows
             arch: x64
             runner: windows-2025
             preset: windows-release-devtools
             variant: devtools
-            triplet: x64-windows-static-noveltea
-            host_triplet: x64-windows
+            candidate: windows-player-x64-devtools
+            cli_candidate: windows-release-cli-x64
           - platform: macos
             arch: arm64
             runner: macos-26
             preset: macos-release-devtools
             variant: devtools
-            triplet: arm64-osx-noveltea
-            host_triplet: arm64-osx
+            candidate: macos-player-arm64-devtools
+            cli_candidate: macos-release-cli-arm64
 
     steps:
-      - name: Checkout
+      - name: Checkout exact tagged commit
         uses: actions/checkout@v6
         with:
           ref: ${{ env.RELEASE_REF }}
-
-      - name: Set up Linux native dependencies
-        if: runner.os == 'Linux'
+      - name: Install Linux release smoke dependencies
+        if: matrix.platform == 'linux'
         uses: ./.github/actions/setup-linux-native
         with:
-          ccache: "true"
-          pkg-config: "true"
-          autotools: "true"
           graphics: "true"
           xvfb: "true"
           extra-packages: weston libgl1-mesa-dri x11-utils strace
-
-      # The Windows native CLI generates its Agent Kit during CMake build and
-      # imports editor TypeScript packages. Dependencies must precede CMake.
-      - name: Set up pnpm for desktop export and native tooling
+      - name: Install root JS dependencies for native export acceptance
         uses: pnpm/action-setup@v6
-
-      - name: Set up Node.js for desktop export and native tooling
+      - name: Set up Node.js for platform certification
         uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
-
-      - name: Install root workspace dependencies for desktop export and native tooling
+      - name: Install pinned workspace packages
         run: pnpm install --frozen-lockfile
-
-      - name: Install macOS packages
-        if: runner.os == 'macOS'
-        run: brew install ninja ccache
-
-      - name: Cache Linux player compatibility build state
-        if: matrix.platform == 'linux'
-        uses: actions/cache@v5
+      - name: Restore and authenticate exact platform player candidate
+        uses: ./.github/actions/restore-release-candidate
         with:
-          path: |
-            .cache/vcpkg-player-glibc228
-            .cache/vcpkg-binary-player-glibc228
-            build/${{ matrix.preset }}/vcpkg_installed
-          key: manylinux-2.28-x64-player-${{ matrix.variant }}-${{ hashFiles('.github/containers/linux-player-glibc228.Dockerfile', 'vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/x64-linux-noveltea.cmake', 'cmake/NovelTeaLua.cmake') }}-${{ github.sha }}
-          restore-keys: |
-            manylinux-2.28-x64-player-${{ matrix.variant }}-${{ hashFiles('.github/containers/linux-player-glibc228.Dockerfile', 'vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/x64-linux-noveltea.cmake', 'cmake/NovelTeaLua.cmake') }}-
-            manylinux-2.28-x64-player-${{ matrix.variant }}-
-
-      - name: Cache shared vcpkg SDK and binaries
-        if: runner.os != 'Linux'
-        uses: actions/cache@v5
+          candidate: ${{ matrix.candidate }}
+          build-run-id: ${{ needs.release-metadata.outputs.build_run_id }}
+          token: ${{ github.token }}
+      - name: Restore and authenticate exact platform CLI candidate
+        uses: ./.github/actions/restore-release-candidate
         with:
-          path: |
-            .cache/vcpkg
-            .cache/vcpkg-binary
-          key: ${{ matrix.runner }}-${{ matrix.arch }}-vcpkg-common-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'cmake/vcpkg-triplets/**') }}
-          restore-keys: |
-            ${{ matrix.runner }}-${{ matrix.arch }}-vcpkg-common-
-
-      - name: Cache vcpkg installed
-        if: runner.os != 'Linux'
-        uses: actions/cache@v5
+          candidate: ${{ matrix.cli_candidate }}
+          build-run-id: ${{ needs.release-metadata.outputs.build_run_id }}
+          token: ${{ github.token }}
+      - name: Restore exact Windows Build tooling bridge for independent Editor export tests
+        if: matrix.platform == 'windows'
+        uses: actions/download-artifact@v7
         with:
-          path: build/${{ matrix.preset }}/vcpkg_installed
-          key: ${{ matrix.runner }}-${{ matrix.arch }}-vcpkg-installed-${{ matrix.preset }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/NovelTeaLua.cmake') }}
-          restore-keys: |
-            ${{ matrix.runner }}-${{ matrix.arch }}-vcpkg-installed-${{ matrix.preset }}-
-
-      - name: Bootstrap vcpkg
-        if: runner.os != 'Linux'
-        shell: pwsh
-        run: |
-          if (!(Test-Path "$env:VCPKG_ROOT/.git")) {
-            git clone https://github.com/microsoft/vcpkg "$env:VCPKG_ROOT"
-          }
-          if ("${{ runner.os }}" -eq "Windows") {
-            & "$env:VCPKG_ROOT/bootstrap-vcpkg.bat"
-          } else {
-            & "$env:VCPKG_ROOT/bootstrap-vcpkg.sh"
-          }
-
-      - name: Set up MSVC developer environment
-        if: runner.os == 'Windows'
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
-
-      - name: Restore NovelTea vcpkg root after MSVC setup
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: Add-Content -Path $env:GITHUB_ENV -Value 'VCPKG_ROOT=${{ github.workspace }}/.cache/vcpkg'
-
-      - name: Seed checksum-pinned Lua 5.5.0 source for Windows vcpkg
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: ./scripts/ci/prefetch-lua-source.ps1
-
-      - name: Download shader assets
+          name: noveltea-build-windows-tooling-bridge-${{ matrix.variant }}
+          run-id: ${{ needs.release-metadata.outputs.build_run_id }}
+          github-token: ${{ github.token }}
+          path: build/${{ matrix.preset }}/tools/editor_tool
+      - name: Restore shared Build shader inputs for standalone fixture staging
         uses: actions/download-artifact@v7
         with:
           name: noveltea-release-shader-assets
-          path: build/prebuilt-shader-assets
-
-      - name: Download NovelTea host CLI
-        if: matrix.platform == 'linux'
-        uses: actions/download-artifact@v7
-        with:
-          name: noveltea-release-host-cli-linux-x64
-          path: build/cli/linux
-
-      - name: Make NovelTea host CLI executable
-        if: matrix.platform == 'linux'
-        run: chmod +x build/cli/linux/noveltea build/cli/linux/noveltea-ui-test-runner
-
-      - name: Download direct C++ Linux platform-export CLI
-        if: matrix.platform == 'linux'
-        uses: actions/download-artifact@v7
-        with:
-          name: noveltea-release-native-cli-linux-x64
-          path: build/native-export-cli-linux
-
-      - name: Make direct C++ Linux platform-export CLI executable
-        if: matrix.platform == 'linux'
-        run: chmod +x build/native-export-cli-linux/noveltea build/native-export-cli-linux/noveltea-ui-test-runner
-
-      - name: Cache ccache
-        if: runner.os != 'Windows'
-        uses: actions/cache@v5
-        with:
-          path: ${{ env.CCACHE_DIR }}
-          key: ${{ runner.os }}-${{ matrix.arch }}-ccache-${{ matrix.preset }}-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-${{ matrix.arch }}-ccache-${{ matrix.preset }}-
-
-      - name: Build pinned glibc 2.28 Linux player environment
-        if: matrix.platform == 'linux'
-        shell: bash
-        run: docker build --tag noveltea-linux-player-glibc228 --file .github/containers/linux-player-glibc228.Dockerfile .
-
-      - name: Build Linux player against glibc 2.28
-        if: matrix.platform == 'linux'
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p .cache/container-home .cache/vcpkg-player-glibc228 .cache/vcpkg-binary-player-glibc228
-          docker run --rm \
-            --user "$(id -u):$(id -g)" \
-            --env HOME=/workspace/.cache/container-home \
-            --env VCPKG_ROOT=/workspace/.cache/vcpkg-player-glibc228 \
-            --env 'VCPKG_BINARY_SOURCES=clear;files,/workspace/.cache/vcpkg-binary-player-glibc228,readwrite' \
-            --env CCACHE_DIR=/workspace/.cache/ccache \
-            --env CCACHE_MAXSIZE=500M \
-            --env CCACHE_BASEDIR=/workspace \
-            --volume "$GITHUB_WORKSPACE:/workspace" \
-            --workdir /workspace \
-            noveltea-linux-player-glibc228 \
-            bash -lc '
-              set -euo pipefail
-              if [[ ! -d "$VCPKG_ROOT/.git" ]]; then
-                git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT"
-              fi
-              "$VCPKG_ROOT/bootstrap-vcpkg.sh"
-              cmake --preset ${{ matrix.preset }} -G Ninja \
-                -DNOVELTEA_BUILD_HOST_TOOLS=OFF \
-                -DNOVELTEA_COMPILE_SHADERS=OFF \
-                -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT=/workspace/build/prebuilt-shader-assets \
-                -DNOVELTEA_PROJECT_ASSET_SOURCE=/workspace/apps/sandbox/assets \
-                -DNOVELTEA_CMAKE_STAGE_RUNTIME_ASSETS=ON \
-                -DBUILD_TESTING=OFF \
-                -DVCPKG_TARGET_TRIPLET=x64-linux-noveltea \
-                -DVCPKG_HOST_TRIPLET=x64-linux \
-                -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-                -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-              cmake --build --preset ${{ matrix.preset }} --target noveltea-player cxx-policy
-              closure="$(ldd build/${{ matrix.preset }}/apps/player/noveltea-player)"
-              printf "%s\n" "$closure"
-              if grep -q "not found" <<<"$closure"; then
-                echo "glibc 2.28 compatibility environment cannot load the player dependency closure" >&2
-                exit 1
-              fi
-            '
-
-      - name: Build non-Linux desktop player
-        if: matrix.platform != 'linux'
+          path: build/generated-assets/shaders
+      - name: Stage fixture runtime assets without compiling a second player
         shell: pwsh
         run: |
-          $ccacheArgs = @()
-          if ("${{ runner.os }}" -ne "Windows") { $ccacheArgs = @("-DCMAKE_C_COMPILER_LAUNCHER=ccache", "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache") }
-          $hostTools = if ("${{ matrix.platform }}" -eq "windows") { "ON" } else { "OFF" }
-          cmake --preset ${{ matrix.preset }} -G Ninja `
-            -DNOVELTEA_BUILD_HOST_TOOLS=$hostTools `
-            -DNOVELTEA_COMPILE_SHADERS=OFF `
-            -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" `
+          cmake -DNOVELTEA_SHADER_ASSET_SOURCE="${{ github.workspace }}/build/generated-assets" `
+            -DNOVELTEA_RUNTIME_ASSET_ROOT="${{ github.workspace }}/build/${{ matrix.preset }}/runtime-assets" `
             -DNOVELTEA_PROJECT_ASSET_SOURCE="${{ github.workspace }}/apps/sandbox/assets" `
-            -DNOVELTEA_CMAKE_STAGE_RUNTIME_ASSETS=ON `
-            -DBUILD_TESTING=OFF `
-            -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} `
-            -DVCPKG_HOST_TRIPLET=${{ matrix.host_triplet }} `
-            @ccacheArgs
-          $targets = @("noveltea-player", "cxx-policy")
-          if ("${{ matrix.platform }}" -eq "windows") { $targets += "noveltea-tooling-bridge"; $targets += "noveltea-native-cli" }
-          cmake --build --preset ${{ matrix.preset }} --target @targets
+            -DNOVELTEA_STAGE_STAMP="${{ github.workspace }}/build/${{ matrix.preset }}/runtime-assets.stamp" `
+            -P cmake/StageNovelTeaAssets.cmake
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-      - name: Verify SDL3 X11 backend is present
-        if: matrix.platform == 'linux'
+      - name: Assemble tagged archive, exact detached symbols, notices and SBOM from immutable Build tree
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NOVELTEA_BUILD_RUN_ID: ${{ needs.release-metadata.outputs.build_run_id }}
+        run: node scripts/ci/promote-release-template.mjs ${{ matrix.candidate }} "$RELEASE_TAG"
         shell: bash
-        run: |
-          set -euo pipefail
-          sdl_archive="${{ github.workspace }}/build/${{ matrix.preset }}/vcpkg_installed/x64-linux-noveltea/lib/libSDL3.a"
-          test -f "$sdl_archive"
-          if ! ar t "$sdl_archive" | grep -q '^SDL_x11video\.c\.o$'; then
-            echo "SDL3 archive is missing its X11 backend despite the x11 vcpkg feature." >&2
-            ar t "$sdl_archive" | grep -Ei 'x11|xcb' || true
-            exit 1
-          fi
-
-      - name: Verify Linux player devtools composition
-        if: matrix.platform == 'linux'
-        shell: bash
-        run: bash scripts/check-native-devtools-symbols.sh build/${{ matrix.preset }}/apps/player/noveltea-player ${{ matrix.variant == 'release' && 'off' || 'on' }}
-
-      - name: Audit Linux player dependency closure
-        if: matrix.platform == 'linux'
-        shell: bash
-        run: |
-          cmake \
-            "-DNOVELTEA_PLAYER=${{ github.workspace }}/build/${{ matrix.preset }}/apps/player/noveltea-player" \
-            "-DNOVELTEA_AUDIT_REPORT=${{ github.workspace }}/dist/noveltea-dependency-audit-${{ matrix.platform }}-${{ matrix.arch }}-${{ matrix.variant }}.json" \
-            "-DNOVELTEA_MAX_GLIBC_VERSION=2.28" \
-            -DNOVELTEA_REQUIRE_STATIC_GNU_CXX_RUNTIME=ON \
-            -P cmake/AuditNovelTeaPlayerDependencies.cmake
-
-      - name: Audit non-Linux player dependency closure
-        if: matrix.platform != 'linux'
+      - name: Enable Windows PE inspection with the pinned MSVC developer environment
+        if: matrix.platform == 'windows'
+        uses: TheMrMilchmann/setup-msvc-dev@v4
+        with:
+          arch: x64
+      - name: Audit actual release platform dependency closure
         shell: pwsh
-        run: cmake -DNOVELTEA_PLAYER="${{ github.workspace }}/build/${{ matrix.preset }}/apps/player/noveltea-player${{ matrix.platform == 'windows' && '.exe' || '' }}" -DNOVELTEA_AUDIT_REPORT="${{ github.workspace }}/dist/noveltea-dependency-audit-${{ matrix.platform }}-${{ matrix.arch }}-${{ matrix.variant }}.json" -P cmake/AuditNovelTeaPlayerDependencies.cmake
-
-      - name: Package player template and symbols
-        shell: pwsh
-        run: cmake -DNOVELTEA_TEMPLATE_PRESET=${{ matrix.preset }} -DNOVELTEA_TEMPLATE_PLATFORM=${{ matrix.platform }} -DNOVELTEA_TEMPLATE_ARCH=${{ matrix.arch }} -DNOVELTEA_TEMPLATE_VARIANT=${{ matrix.variant }} -DNOVELTEA_RELEASE_TAG="$env:RELEASE_TAG" -P cmake/PackageNovelTeaPlayerTemplate.cmake
+        run: |
+          $exe = "${{ github.workspace }}/build/package/noveltea-player-${{ matrix.platform }}-${{ matrix.arch }}-${{ matrix.variant }}/bin/noveltea-player${{ matrix.platform == 'windows' && '.exe' || '' }}"
+          $report = "${{ github.workspace }}/dist/noveltea-dependency-audit-${{ matrix.platform }}-${{ matrix.arch }}-${{ matrix.variant }}.json"
+          $extra = @()
+          if ("${{ matrix.platform }}" -eq "linux") {
+            $extra = @("-DNOVELTEA_MAX_GLIBC_VERSION=2.28", "-DNOVELTEA_REQUIRE_STATIC_GNU_CXX_RUNTIME=ON")
+          }
+          cmake "-DNOVELTEA_PLAYER=$exe" "-DNOVELTEA_AUDIT_REPORT=$report" @extra -P cmake/AuditNovelTeaPlayerDependencies.cmake
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Upload macOS player template for independent certification
         if: matrix.platform == 'macos'
@@ -769,14 +424,14 @@ jobs:
       - name: Export and launch real Linux portable and AppImage players with native C++ CLI
         if: matrix.platform == 'linux'
         env:
-          NOVELTEA_LICENSE_VIEWER_RUNNER: ${{ github.workspace }}/build/native-export-cli-linux/noveltea-ui-test-runner
+          NOVELTEA_LICENSE_VIEWER_RUNNER: ${{ github.workspace }}/build/cli/linux/noveltea-ui-test-runner
           NOVELTEA_LINUX_APPIMAGE_TOOL: ${{ runner.temp }}/appimagetool.AppImage
           APPIMAGE_EXTRACT_AND_RUN: '1'
           NOVELTEA_PLAYER_HEADLESS_ERRORS: '1'
           NOVELTEA_CANONICAL_EVIDENCE_OUTPUT: ${{ github.workspace }}/dist/canonical-linux-${{ matrix.variant }}-fixture-evidence.json
         run: |
           xvfb-run -a python3 tests/native_cli/linux_release_smoke.py \
-            "$PWD/build/native-export-cli-linux/noveltea" \
+            "$PWD/build/cli/linux/noveltea" \
             "$PWD/dist/noveltea-player-template-${RELEASE_TAG}-linux-x64-${{ matrix.variant }}.tar.gz" \
             "$PWD" \
             "$PWD/dist/noveltea-native-linux-release-certification.json"
@@ -796,7 +451,7 @@ jobs:
           NOVELTEA_NATIVE_SMOKE_EVIDENCE_OUTPUT: ${{ github.workspace }}\dist\noveltea-native-smoke-windows-x64-${{ matrix.variant }}.json
           NOVELTEA_PLAYER_HEADLESS_ERRORS: "1"
           NOVELTEA_NATIVE_TOOL_BRIDGE: ${{ github.workspace }}\build\${{ matrix.preset }}\tools\editor_tool\noveltea-tooling-bridge.exe
-          NOVELTEA_LICENSE_VIEWER_RUNNER: ${{ github.workspace }}\build\${{ matrix.preset }}\tools\editor_tool\noveltea-ui-test-runner.exe
+          NOVELTEA_LICENSE_VIEWER_RUNNER: ${{ github.workspace }}\build\cli\windows\noveltea-ui-test-runner.exe
         run: pnpm exec vp test run src/renderer/test/platform-staging-service.test.ts src/renderer/test/platform-export-acceptance-fixture.test.ts
 
       - name: Install pinned software OpenGL for Windows player launch
@@ -808,11 +463,11 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         env:
-          NOVELTEA_LICENSE_VIEWER_RUNNER: ${{ github.workspace }}/build/${{ matrix.preset }}/tools/editor_tool/noveltea-ui-test-runner.exe
+          NOVELTEA_LICENSE_VIEWER_RUNNER: ${{ github.workspace }}/build/cli/windows/noveltea-ui-test-runner.exe
           NOVELTEA_CANONICAL_EVIDENCE_OUTPUT: ${{ github.workspace }}/dist/canonical-windows-${{ matrix.variant }}-fixture-evidence.json
         run: |
           python tests/native_cli/windows_release_smoke.py `
-            "${{ github.workspace }}/build/${{ matrix.preset }}/tools/editor_tool/native-cli/noveltea.exe" `
+            "${{ github.workspace }}/build/cli/windows/noveltea.exe" `
             "${{ github.workspace }}/dist/noveltea-player-template-${{ env.RELEASE_TAG }}-windows-x64-${{ matrix.variant }}.zip" `
             "${{ github.workspace }}" `
             "${{ github.workspace }}/dist/noveltea-native-windows-release-certification.json"
@@ -1031,96 +686,76 @@ jobs:
           if-no-files-found: error
 
   web:
-    name: Web release
+    name: Certify exact Build-derived Web release and developer variants
     runs-on: ubuntu-24.04
     needs: [release-metadata, shader-assets]
     env:
       RELEASE_TAG: ${{ needs.release-metadata.outputs.release_tag }}
-    timeout-minutes: 150
+    timeout-minutes: 95
     permissions:
       contents: read
+      actions: read
       id-token: write
       attestations: write
-
     steps:
-      - name: Checkout
+      - name: Checkout immutable release source
         uses: actions/checkout@v6
         with:
           ref: ${{ env.RELEASE_REF }}
-
-      - name: Set up Linux native dependencies
-        uses: ./.github/actions/setup-linux-native
+      - name: Restore and verify canonical threaded Web release candidate
+        uses: ./.github/actions/restore-release-candidate
         with:
-          ccache: "true"
-          autotools: "true"
-
-      - name: Install Emscripten
-        run: |
-          git clone https://github.com/emscripten-core/emsdk.git "${{ github.workspace }}/.cache/emsdk"
-          cd "${{ github.workspace }}/.cache/emsdk"
-          ./emsdk install $EMSDK_VERSION
-          ./emsdk activate $EMSDK_VERSION
-
-      - name: Cache ccache
-        uses: actions/cache@v5
+          candidate: web-player-threads-release
+          build-run-id: ${{ needs.release-metadata.outputs.build_run_id }}
+          token: ${{ github.token }}
+      - name: Restore and verify canonical single-threaded Web release candidate
+        uses: ./.github/actions/restore-release-candidate
         with:
-          path: ${{ env.CCACHE_DIR }}
-          key: ${{ runner.os }}-ccache-emscripten-${{ env.EMSDK_VERSION }}-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-ccache-emscripten-${{ env.EMSDK_VERSION }}-
-
-      - name: Download shader assets
-        uses: actions/download-artifact@v7
+          candidate: web-player-no-threads-release
+          build-run-id: ${{ needs.release-metadata.outputs.build_run_id }}
+          token: ${{ github.token }}
+      - name: Restore and verify optimized threaded Web developer candidate
+        uses: ./.github/actions/restore-release-candidate
         with:
-          name: noveltea-release-shader-assets
-          path: build/prebuilt-shader-assets
-
-      - name: Build Web release
+          candidate: web-player-threads-devtools
+          build-run-id: ${{ needs.release-metadata.outputs.build_run_id }}
+          token: ${{ github.token }}
+      - name: Restore and verify optimized single-threaded Web developer candidate
+        uses: ./.github/actions/restore-release-candidate
+        with:
+          candidate: web-player-no-threads-devtools
+          build-run-id: ${{ needs.release-metadata.outputs.build_run_id }}
+          token: ${{ github.token }}
+      - name: Attach versioned metadata without recompiling or changing WebAssembly bytes
         env:
-          EMSDK: ${{ github.workspace }}/.cache/emsdk
+          GH_TOKEN: ${{ github.token }}
+          NOVELTEA_BUILD_RUN_ID: ${{ needs.release-metadata.outputs.build_run_id }}
         run: |
-          source "$EMSDK/emsdk_env.sh"
-          emcmake cmake --preset web-release -G Ninja -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=OFF -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-          cmake --build --preset web-release --target noveltea-player
-          node scripts/check-web-release-wasm.mjs build/web-release/apps/player/player.wasm build/web-release/apps/player/player.wasm.debug.wasm
-          cmake --build --preset web-release --target cxx-policy
-          emcmake cmake --preset web-release-no-threads -G Ninja -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=OFF -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-          cmake --build --preset web-release-no-threads --target noveltea-player
-          emcmake cmake --preset web-editor-preview -G Ninja -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=OFF -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-          cmake --build --preset web-editor-preview --target noveltea-editor-preview
-
-      - name: Verify release player surface
-        run: |
-          ! grep -aE 'noveltea_preview_|noveltea_runtime_(set_variable|give_object|teleport_room|debug_snapshot)' build/web-release/apps/player/player.js
-          ! grep -aE 'noveltea_preview_|noveltea_runtime_(set_variable|give_object|teleport_room|debug_snapshot)|MessageChannel' build/web-release-no-threads/apps/player/player.js
-
-      - name: Package Web player template
-        env:
-          EMSDK: ${{ github.workspace }}/.cache/emsdk
-        run: |
-          cmake -DNOVELTEA_TEMPLATE_PRESET=web-release -DNOVELTEA_RELEASE_TAG="$RELEASE_TAG" -P cmake/PackageNovelTeaWebPlayerTemplate.cmake
-          cmake -DNOVELTEA_TEMPLATE_PRESET=web-release-no-threads -DNOVELTEA_RELEASE_TAG="$RELEASE_TAG" -P cmake/PackageNovelTeaWebPlayerTemplate.cmake
-
-      - name: Build and package optimized Web developer templates
-        env:
-          EMSDK: ${{ github.workspace }}/.cache/emsdk
-        run: |
-          source "$EMSDK/emsdk_env.sh"
-          for preset in web-release-devtools web-release-no-threads-devtools; do
-            emcmake cmake --preset "$preset" -G Ninja \
-              -DNOVELTEA_COMPILE_SHADERS=OFF \
-              -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" \
-              -DBUILD_TESTING=OFF -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-            cmake --build --preset "$preset" --target noveltea-player
-            node scripts/check-web-release-wasm.mjs "build/$preset/apps/player/player.wasm" "build/$preset/apps/player/player.wasm.debug.wasm"
-            cmake -DNOVELTEA_TEMPLATE_PRESET="$preset" -DNOVELTEA_RELEASE_TAG="$RELEASE_TAG" \
-              -P cmake/PackageNovelTeaWebPlayerTemplate.cmake
+          set -euo pipefail
+          for id in web-player-threads-release web-player-no-threads-release \
+            web-player-threads-devtools web-player-no-threads-devtools; do
+            node scripts/ci/promote-release-template.mjs "$id" "$RELEASE_TAG"
           done
-
-      - name: Attest Web player templates
-        uses: actions/attest-build-provenance@v3
+      - name: Independently recheck production WASM and scripting boundaries
+        run: |
+          set -euo pipefail
+          for kind in web-wasm32-threads-release web-wasm32-release \
+            web-wasm32-threads-devtools web-wasm32-devtools; do
+            stage="build/package/noveltea-player-$kind"
+            test -f "$stage/player.wasm"
+            ! grep -aE 'noveltea_preview_|noveltea_runtime_(set_variable|give_object|teleport_room|debug_snapshot)' "$stage/player.js"
+          done
+      - name: Attest exact Web template archives after source-locked assembly
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: dist/noveltea-player-template-*-web-wasm32*.zip
+      - name: Restore exact Build-generated Editor preview from the same source SHA
+        uses: actions/download-artifact@v7
+        with:
+          name: noveltea-web-editor-preview
+          run-id: ${{ needs.release-metadata.outputs.build_run_id }}
+          github-token: ${{ github.token }}
+          path: build/web-editor-preview/apps/editor_preview
 
       - name: Install editor test dependencies for certification fixture
         uses: pnpm/action-setup@v6
@@ -1411,132 +1046,98 @@ jobs:
           if-no-files-found: error
 
   android:
-    name: Android release
+    name: Package and export exact Build-qualified Android ABI variants
     runs-on: ubuntu-24.04
     needs: [release-metadata, shader-assets]
     env:
       RELEASE_TAG: ${{ needs.release-metadata.outputs.release_tag }}
-    timeout-minutes: 150
+    timeout-minutes: 130
     permissions:
       contents: read
-
+      actions: read
+      id-token: write
+      attestations: write
     steps:
-      - name: Checkout
+      - name: Checkout exact release SHA
         uses: actions/checkout@v6
         with:
           ref: ${{ env.RELEASE_REF }}
-
-      # The release builds ARM64, x86_64 Debug and a separate ARM64 developer
-      # template on one hosted runner. The second native compile has exhausted
-      # the workspace disk on a stock ubuntu-24.04 image. Reclaim unrelated
-      # preinstalled toolchains before restoring the pinned Android SDK/NDK;
-      # do not remove /usr/local/lib/android, which this job needs.
-      - name: Reclaim disk for Android release builds
+      - name: Reclaim disk for Android package/export smoke
         run: |
           df -h "$GITHUB_WORKSPACE"
           sudo rm -rf /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL \
             /usr/local/share/powershell
-          df -h "$GITHUB_WORKSPACE"
-
-      # Set up the pinned Node toolchain before the Android native builds
-      # consume most of the runner's disk. Delaying the install until after
-      # the second 20+ minute template compile can fail inside setup-node
-      # itself, before the certification steps have even started.
-      - name: Set up Node.js for Android certification
+      - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
-
-      - name: Set up Java
+      - name: Set up Java for Android artifact export
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 17
-
-      - name: Set up Linux native dependencies
+      - name: Set up Linux Android launch and inspection dependencies
         uses: ./.github/actions/setup-linux-native
         with:
-          ccache: "true"
           autotools: "true"
-
       - name: Accept Android SDK licenses
         run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses
-
-      - name: Cache Android SDK packages
-        id: cache-android-sdk
-        uses: actions/cache@v5
+      - name: Restore pinned SDK inputs without saving additional compiler caches
+        uses: actions/cache/restore@v5
         with:
           path: |
             ${{ env.ANDROID_HOME }}/ndk/${{ env.ANDROID_NDK_VERSION }}
             ${{ env.ANDROID_HOME }}/cmake/${{ env.ANDROID_CMAKE_VERSION }}
           key: ${{ runner.os }}-android-sdk-android${{ env.ANDROID_API_LEVEL }}-buildtools${{ env.ANDROID_BUILD_TOOLS_VERSION }}-cmake${{ env.ANDROID_CMAKE_VERSION }}-ndk${{ env.ANDROID_NDK_VERSION }}
-
-      - name: Install Android SDK packages
+      - name: Install exactly pinned Android SDK packages needed for export qualification
         run: |
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platform-tools" "platforms;android-${ANDROID_API_LEVEL}" "build-tools;${ANDROID_BUILD_TOOLS_VERSION}" "ndk;${ANDROID_NDK_VERSION}" "cmake;${ANDROID_CMAKE_VERSION}"
-
-      - name: Download SDL3 Android AAR
-        run: |
-          mkdir -p android/app/libs .cache/sdl3-android
-          curl -L -o .cache/sdl3-android/SDL3-devel-3.4.10-android.zip https://github.com/libsdl-org/SDL/releases/download/release-3.4.10/SDL3-devel-3.4.10-android.zip
-          unzip -p .cache/sdl3-android/SDL3-devel-3.4.10-android.zip SDL3-3.4.10.aar > android/app/libs/SDL3-3.4.10.aar
-
-      - name: Cache ccache
-        uses: actions/cache@v5
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platform-tools" \
+            "platforms;android-${ANDROID_API_LEVEL}" \
+            "build-tools;${ANDROID_BUILD_TOOLS_VERSION}" \
+            "ndk;${ANDROID_NDK_VERSION}" "cmake;${ANDROID_CMAKE_VERSION}"
+      - name: Restore authenticated optimized ARM64 standard native package
+        uses: ./.github/actions/restore-release-candidate
         with:
-          path: ${{ env.CCACHE_DIR }}
-          key: ${{ runner.os }}-ccache-android-ndk${{ env.ANDROID_NDK_VERSION }}-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-ccache-android-ndk${{ env.ANDROID_NDK_VERSION }}-
-
-      - name: Download shader assets
-        uses: actions/download-artifact@v7
+          candidate: android-player-arm64-release
+          build-run-id: ${{ needs.release-metadata.outputs.build_run_id }}
+          token: ${{ github.token }}
+      - name: Restore authenticated optimized ARM64 developer native package
+        uses: ./.github/actions/restore-release-candidate
         with:
-          name: noveltea-release-shader-assets
-          path: build/prebuilt-shader-assets
-
-      - name: Build unsigned Android player template source
-        working-directory: android
+          candidate: android-player-arm64-devtools
+          build-run-id: ${{ needs.release-metadata.outputs.build_run_id }}
+          token: ${{ github.token }}
+      - name: Restore independently verified x86_64 Debug ABI-only diagnostic template
+        uses: ./.github/actions/restore-release-candidate
+        with:
+          candidate: android-player-x64-debug
+          stage: diagnose
+          build-run-id: ${{ needs.release-metadata.outputs.build_run_id }}
+          token: ${{ github.token }}
+      - name: Assemble versioned Android release/developer/diagnostic archives without compiling native code
         env:
-          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/${{ env.ANDROID_NDK_VERSION }}
+          GH_TOKEN: ${{ github.token }}
+          NOVELTEA_BUILD_RUN_ID: ${{ needs.release-metadata.outputs.build_run_id }}
         run: |
-          ./gradlew --no-daemon :app:assembleRelease -PnovelteaAbi=arm64-v8a -PnovelteaCompileShaders=OFF -PnovelteaPrebuiltShaderAssetRoot="${{ github.workspace }}/build/prebuilt-shader-assets" -PnovelteaUseCcache=true
-          ./gradlew --no-daemon :app:assembleDebug -PnovelteaAbi=x86_64 -PnovelteaCompileShaders=OFF -PnovelteaPrebuiltShaderAssetRoot="${{ github.workspace }}/build/prebuilt-shader-assets" -PnovelteaUseCcache=true
-
-      - name: Download checksum-pinned bundletool
+          set -euo pipefail
+          for id in android-player-arm64-release android-player-arm64-devtools android-player-x64-debug; do
+            node scripts/ci/promote-release-template.mjs "$id" "$RELEASE_TAG"
+          done
+      - name: Recover exact checksum-pinned bundletool from the verified Android template
         run: |
           mkdir -p build/tools
-          curl -fL -o build/tools/bundletool-all-1.18.1.jar https://github.com/google/bundletool/releases/download/1.18.1/bundletool-all-1.18.1.jar
+          cp build/package/android-arm64-v8a-release/source/android/tools/bundletool-1.18.1.jar \
+            build/tools/bundletool-all-1.18.1.jar
           echo '675786493983787ffa11550bdb7c0715679a44e1643f3ff980a529e9c822595c  build/tools/bundletool-all-1.18.1.jar' | sha256sum -c -
-
-      - name: Package official Android player templates
-        run: |
-          cmake -DNOVELTEA_RELEASE_TAG="$RELEASE_TAG" -DNOVELTEA_ANDROID_ABI=arm64-v8a -DNOVELTEA_ANDROID_FLAVOR=release -DNOVELTEA_BUNDLETOOL_JAR="${{ github.workspace }}/build/tools/bundletool-all-1.18.1.jar" -P cmake/PackageNovelTeaAndroidPlayerTemplate.cmake
-          cmake -DNOVELTEA_RELEASE_TAG="$RELEASE_TAG" -DNOVELTEA_ANDROID_ABI=x86_64 -DNOVELTEA_ANDROID_FLAVOR=debug -DNOVELTEA_BUNDLETOOL_JAR="${{ github.workspace }}/build/tools/bundletool-all-1.18.1.jar" -P cmake/PackageNovelTeaAndroidPlayerTemplate.cmake
-
-      - name: Build and package optimized Android ARM64 developer template
-        working-directory: android
-        env:
-          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/${{ env.ANDROID_NDK_VERSION }}
-        run: |
-          ./gradlew --no-daemon :app:assembleRelease -PnovelteaAbi=arm64-v8a \
-            -PnovelteaEnableDevtools=true -PnovelteaCompileShaders=OFF \
-            -PnovelteaPrebuiltShaderAssetRoot="${{ github.workspace }}/build/prebuilt-shader-assets" -PnovelteaUseCcache=true
-          cd ..
-          cmake -DNOVELTEA_RELEASE_TAG="$RELEASE_TAG" -DNOVELTEA_ANDROID_ABI=arm64-v8a \
-            -DNOVELTEA_ANDROID_FLAVOR=release -DNOVELTEA_ANDROID_TEMPLATE_VARIANT=devtools \
-            -DNOVELTEA_BUNDLETOOL_JAR="${{ github.workspace }}/build/tools/bundletool-all-1.18.1.jar" \
-            -P cmake/PackageNovelTeaAndroidPlayerTemplate.cmake
-
-      - name: Verify Android native 16 KiB load alignment
+      - name: Reverify exact native load alignment for every released Android ABI
         run: |
           readelf="$ANDROID_HOME/ndk/$ANDROID_NDK_VERSION/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
           test -x "$readelf"
           node scripts/verify-android-load-alignment.mjs \
             --readelf "$readelf" \
             --root build/package/android-arm64-v8a-release/source/android/prebuilt-native \
-            --root build/package/android-x86_64-debug/source/android/prebuilt-native \
             --root build/package/android-arm64-v8a-devtools/source/android/prebuilt-native \
+            --root build/package/android-x86_64-debug/source/android/prebuilt-native \
             --output dist/noveltea-android-load-alignment.json
 
       - name: Install pnpm and editor dependencies
@@ -1715,7 +1316,7 @@ jobs:
           if-no-files-found: error
 
   desktop-editor:
-    name: Desktop editor (${{ matrix.platform }}-${{ matrix.arch }})
+    name: Independently certify exact Build Editor installers (${{ matrix.platform }}-${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
     needs: [release-metadata, web, desktop-hosts, windows-cli, macos-cli]
     env:
@@ -1723,6 +1324,7 @@ jobs:
     timeout-minutes: 90
     permissions:
       contents: read
+      actions: read
       id-token: write
       attestations: write
     strategy:
@@ -1732,269 +1334,61 @@ jobs:
           - platform: linux
             arch: x64
             runner: ubuntu-24.04
-            cli_artifact: noveltea-release-host-cli-linux-x64
-            cli_path: build/cli/linux
-            cli_executable: build/cli/linux/noveltea
+            candidate: linux-editor-x64
           - platform: windows
             arch: x64
             runner: windows-2025
-            cli_artifact: noveltea-release-host-cli-windows-x64
-            cli_path: build/cli/windows
-            cli_executable: build/cli/windows/noveltea.exe
+            candidate: windows-editor-x64
           - platform: macos
             arch: arm64
             runner: macos-26
-            cli_artifact: noveltea-release-host-cli-macos-arm64
-            cli_path: build/cli/macos
-            cli_executable: build/cli/macos/noveltea
-
+            candidate: macos-editor-arm64
     steps:
-      - name: Checkout
+      - name: Checkout exact immutable release source
         uses: actions/checkout@v6
         with:
           ref: ${{ env.RELEASE_REF }}
-
-      - name: Set up Linux native dependencies
-        if: runner.os == 'Linux'
-        uses: ./.github/actions/setup-linux-native
-        with:
-          pkg-config: "true"
-          xvfb: "true"
-          extra-packages: >-
-            rpm fakeroot
-            libx11-dev libxext-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev
-            libxkbcommon-dev libxdamage-dev libxfixes-dev libcups2-dev libnss3-dev libnspr4-dev
-            libatk1.0-dev libatk-bridge2.0-dev libgtk-3-dev libdrm-dev libasound2-dev
-            libgbm-dev libpango1.0-dev libcairo2-dev libssl-dev
-
-      - name: Download Web editor preview
-        uses: actions/download-artifact@v7
-        with:
-          name: noveltea-web-editor-preview
-          path: build/web-editor-preview/apps/editor_preview
-
-      - name: Verify packaged engine preview
-        shell: pwsh
-        run: |
-          foreach ($file in @("index.html", "index.js", "index.wasm", "index.data")) {
-            if (!(Test-Path "build/web-editor-preview/apps/editor_preview/$file")) {
-              throw "Missing web preview file: $file"
-            }
-          }
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v6
-
-      - name: Set up Node.js
+      - name: Set up Node.js for installer verification
         uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Set up MSVC for native Project authoring
-        if: runner.os == 'Windows'
-        uses: TheMrMilchmann/setup-msvc-dev@v4
-        with:
-          arch: x64
-
-      - name: Install macOS Ninja for native Project authoring
-        if: runner.os == 'macOS'
-        run: brew install ninja
-
-      - name: Build native Project authoring Electron addon
-        if: runner.os != 'Linux'
-        run: node editor/scripts/build-native-authoring-addon.mjs --addon-only
-
-      - name: Audit native macOS Project authoring minimum
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          set -euo pipefail
-          addon="build/native-authoring-host/noveltea-authoring-node.node"
-          minos="$(otool -l "$addon" | awk '$1 == "cmd" && $2 == "LC_BUILD_VERSION" { build=1; next } build && $1 == "minos" { print $2; exit }')"
-          test "$minos" = "14.0"
-
-      - name: Prepare version-matched Linux Electron Node-API headers
-        if: runner.os == 'Linux'
-        run: node editor/scripts/build-native-authoring-addon.mjs --headers-only
-
-      - name: Generate Linux authoring contracts for the ABI-floor container
-        if: runner.os == 'Linux'
-        run: |
-          node editor/scripts/generate-native-schema.mjs --output build/native-authoring-host/generated
-          node editor/scripts/generate-native-schema.mjs --output build/native-authoring-host/generated --check
-
-      - name: Build Linux authoring addon at the supported ABI floor
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          set -euo pipefail
-          docker build --tag noveltea-linux-authoring-abi --file .github/containers/linux-player-glibc228.Dockerfile .
-          electron_version="$(node -p "require('./editor/node_modules/electron/package.json').version")"
-          mkdir -p .cache/container-home .cache/ccache
-          docker run --rm \
-            --user "$(id -u):$(id -g)" \
-            --volume "$GITHUB_WORKSPACE:/workspace" \
-            --workdir /workspace \
-            --env HOME=/workspace/.cache/container-home \
-            --env ELECTRON_VERSION="$electron_version" \
-            --env CCACHE_DIR=/workspace/.cache/ccache \
-            noveltea-linux-authoring-abi \
-            bash -lc '
-              set -euo pipefail
-              # The login shell may replace the incoming ccache environment.
-              # Keep the compiler cache inside the writable mounted checkout.
-              export CCACHE_DIR=/workspace/.cache/ccache
-              test -w "$CCACHE_DIR"
-              # A private static libstdc++ copy crashes Electron native workers in std::regex.
-              cmake -S tools/project_authoring -B build/native-authoring-host -G Ninja \
-                -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF \
-                -DNOVELTEA_BUILD_AUTHORING_NODE_ADDON=ON \
-                -DNOVELTEA_NATIVE_SCHEMA_PREGENERATED=ON \
-                -DNOVELTEA_NODE_API_INCLUDE_DIR="/workspace/build/electron-authoring-headers/$ELECTRON_VERSION/include/node" \
-                "-DCMAKE_MODULE_LINKER_FLAGS=-static-libgcc"
-              cmake --build build/native-authoring-host --target noveltea-authoring-node
-              # Prevent static libstdc++ linkage from silently returning.
-              readelf -d build/native-authoring-host/noveltea-authoring-node.node |
-                grep -F "Shared library: [libstdc++.so.6]"
-              cmake -DNOVELTEA_BINARY=/workspace/build/native-authoring-host/noveltea-authoring-node.node \
-                -DNOVELTEA_MAX_GLIBC_VERSION=2.36 -DNOVELTEA_MAX_GLIBCXX_VERSION=3.4.30 \
-                -P cmake/AuditNovelTeaLinuxCompatibility.cmake
-            '
-
-      - name: Download NovelTea host CLI
-        uses: actions/download-artifact@v7
-        with:
-          name: ${{ matrix.cli_artifact }}
-          path: ${{ matrix.cli_path }}
-
-      - name: Make NovelTea host tools executable
-        if: runner.os != 'Windows'
-        run: |
-          chmod +x \
-            "${{ matrix.cli_path }}/noveltea" \
-            "${{ matrix.cli_path }}/noveltea-ui-test-runner" \
-            "${{ matrix.cli_path }}/tools/ffmpeg/bin/ffmpeg"
-
-      - name: Certify standalone native CLI disk Project validation on this host
-        run: node editor/scripts/certify-native-daemon-validation.mjs "${{ github.workspace }}/${{ matrix.cli_executable }}" tests/projects/feature-lab
-
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.11'
-      - name: Certify daemon/editor cross-process clean-cache writer election
-        run: python tests/native_cli/cache_writer_cli_editor.py "${{ github.workspace }}/${{ matrix.cli_executable }}" "${{ github.workspace }}/build/native-authoring-host/noveltea-authoring-node.node" "${{ github.workspace }}"
-
-      - name: Certify native CLI command inventory on this host
-        run: node editor/scripts/certify-native-cli-inventory.mjs "${{ github.workspace }}/${{ matrix.cli_executable }}"
-
-      - name: Certify native CLI record inspection parity on this host
-        run: node editor/scripts/certify-native-cli-commands.mjs "${{ github.workspace }}/${{ matrix.cli_executable }}" tests/projects/feature-lab
-
-      # Pack the editor's native-operation integration and development forwarder
-      # before the host integration certification. No TypeScript CLI oracle is built.
-      - name: Build native editor certification tool bundle
-        run: pnpm -C editor exec vp pack
-
-      - name: Build native production renderer for host certification
-        run: pnpm -C editor exec vp build
-
-      # Catch host-loader defects (such as missing Windows Electron
-      # delay-load hook) before running the slower editor/CLI differential.
-      - name: Certify Windows Electron native-addon worker loading
-        if: runner.os == 'Windows'
-        run: node editor/scripts/certify-native-authoring-electron-loader.mjs "${{ github.workspace }}/build/native-authoring-host/noveltea-authoring-node.node"
-
-      - name: Certify native CLI candidate commands on this host
-        shell: pwsh
-        run: |
-          $cli = "${{ github.workspace }}/${{ matrix.cli_executable }}"
-          node editor/scripts/certify-native-cli-project-routing.mjs $cli
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          node editor/scripts/certify-native-cli-lifecycle.mjs $cli
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          node editor/scripts/certify-native-cli-transport.mjs $cli
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          node editor/scripts/certify-native-cli-tests.mjs $cli
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          node editor/scripts/certify-native-cli-package.mjs $cli
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          node editor/scripts/certify-native-cli-platform.mjs $cli
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-      - name: Certify full native production lifecycle and editor/CLI authority
-        env:
-          NOVELTEA_AUTHORING_NODE_ADDON: ${{ github.workspace }}/build/native-authoring-host/noveltea-authoring-node.node
-        run: pnpm -C editor run noveltea:certify -- "${{ github.workspace }}/${{ matrix.cli_executable }}"
-
-      - name: Diagnose macOS native daemon-owner crash
-        if: failure() && matrix.platform == 'macos'
-        shell: bash
-        run: |
-          # The daemon broker intentionally isolates owner stderr. Preserve
-          # actual macOS native crash reports when its process dies rather
-          # than treating a DAEMON_BROKER exit as a recoverable busy lock.
-          directory="$HOME/Library/Logs/DiagnosticReports"
-          if [[ -d "$directory" ]]; then
-            find "$directory" -maxdepth 1 -type f -mmin -45 \
-              \( -iname '*noveltea*' -o -iname '*electron*' \) -print |
-              head -5 | while IFS= read -r report; do
-                echo "::group::$(basename "$report")"
-                sed -n '1,180p' "$report"
-                echo "::endgroup::"
-              done
-          fi
-
-      - name: Build and verify native editor artifacts
-        shell: pwsh
-        env:
-          NOVELTEA_CLI_PATH: ${{ github.workspace }}/${{ matrix.cli_executable }}
-          NOVELTEA_AUTHORING_NODE_ADDON: ${{ github.workspace }}/build/native-authoring-host/noveltea-authoring-node.node
-        run: pnpm -C editor run artifact -- --release-tag "$env:RELEASE_TAG"
-
-      - name: Audit packaged Linux authoring ABI floor
+      - name: Install Linux package verification/installation utilities
         if: matrix.platform == 'linux'
-        run: |
-          cmake \
-            -DNOVELTEA_TREE="${{ github.workspace }}/editor/out/electron-builder" \
-            -DNOVELTEA_MAX_GLIBC_VERSION=2.36 \
-            -DNOVELTEA_MAX_GLIBCXX_VERSION=3.4.30 \
-            -P cmake/AuditNovelTeaLinuxCompatibility.cmake
-
-      - name: Verify packaged macOS authoring minimum
-        if: matrix.platform == 'macos'
-        shell: bash
-        run: |
-          set -euo pipefail
-          plist="$(find editor/out/electron-builder \( -path '*/noveltea-editor.app/Contents/Info.plist' -o -path '*/NovelTea Editor.app/Contents/Info.plist' \) -print -quit)"
-          test -n "$plist"
-          test "$(plutil -extract LSMinimumSystemVersion raw -o - "$plist")" = "14.0"
-
-      - name: Run permanent packaged-application smoke
+        uses: ./.github/actions/setup-linux-native
+        with:
+          extra-packages: rpm fakeroot
+      - name: Restore verified original Editor installers from master Build
+        uses: ./.github/actions/restore-release-candidate
+        with:
+          candidate: ${{ matrix.candidate }}
+          build-run-id: ${{ needs.release-metadata.outputs.build_run_id }}
+          token: ${{ github.token }}
+      - name: Rehydrate and verify Build package pointer without modifying signed installers
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NOVELTEA_BUILD_RUN_ID: ${{ needs.release-metadata.outputs.build_run_id }}
         shell: pwsh
-        run: pnpm -C editor run package:smoke
-
-      - name: Install, invoke, and remove Linux editor packages
-        if: runner.os == 'Linux'
-        run: .github/linux-editor-installer-smoke.sh
-
-      - name: Stage editor distributables
+        run: |
+          node scripts/ci/promote-editor-candidate.mjs ${{ matrix.candidate }} "$env:RELEASE_TAG"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Validate and stage exact original installers under public Release names
         shell: pwsh
         env:
           NOVELTEA_RELEASE_PLATFORM: ${{ matrix.platform }}
           NOVELTEA_RELEASE_ARCH: ${{ matrix.arch }}
-        run: cmake -DNOVELTEA_PACKAGE_KIND=desktop-editor -DNOVELTEA_RELEASE_TAG="$env:RELEASE_TAG" -P cmake/PackageNovelTeaRelease.cmake
-
-      - name: Upload editor release artifacts
+        run: |
+          cmake -DNOVELTEA_PACKAGE_KIND=desktop-editor -DNOVELTEA_RELEASE_TAG="$env:RELEASE_TAG" -P cmake/PackageNovelTeaRelease.cmake
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Install, invoke and remove exact Linux DEB and RPM from the trusted candidate
+        if: matrix.platform == 'linux'
+        run: .github/linux-editor-installer-smoke.sh
+      - name: Upload exact Build-qualified Editor release installers
         uses: actions/upload-artifact@v7
         with:
           name: noveltea-desktop-editor-${{ matrix.platform }}-${{ matrix.arch }}-release-dist
           path: dist/*
           if-no-files-found: error
-
-      - name: Attest editor release artifacts
+      - name: Attest original Editor installer bytes under their release names
         uses: actions/attest-build-provenance@v4
         with:
           subject-path: dist/noveltea-editor-*
@@ -2006,15 +1400,26 @@ jobs:
       [release-metadata, desktop-hosts, macos-certify, web, android, desktop-editor, windows-cli, release-examples]
     env:
       RELEASE_TAG: ${{ needs.release-metadata.outputs.release_tag }}
-    timeout-minutes: 15
+    timeout-minutes: 25
     permissions:
       contents: read
+      actions: read
 
     steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
           ref: ${{ env.RELEASE_REF }}
+
+      - name: Download independently authorized Build and Extended run identities
+        uses: actions/download-artifact@v7
+        with:
+          name: noveltea-release-authority
+          path: build
+      - name: Revalidate the original selected Build and qualification receipts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci/release-promotion.mjs verify "$GITHUB_SHA"
 
       - name: Download release assets
         uses: actions/download-artifact@v7
@@ -2048,13 +1453,14 @@ jobs:
   publish:
     name: Publish GitHub Release
     runs-on: ubuntu-24.04
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     needs: [release-metadata, release-inventory]
     env:
       RELEASE_TAG: ${{ needs.release-metadata.outputs.release_tag }}
     timeout-minutes: 15
     permissions:
       contents: read
+      actions: read
       id-token: write
       attestations: write
 
@@ -2063,6 +1469,16 @@ jobs:
         uses: actions/checkout@v6
         with:
           ref: ${{ env.RELEASE_REF }}
+
+      - name: Download pinned Build/Extended authorization evidence
+        uses: actions/download-artifact@v7
+        with:
+          name: noveltea-release-authority
+          path: build
+      - name: Fail closed if exact source Build or Extended evidence has changed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci/release-promotion.mjs verify "$GITHUB_SHA"
 
       - name: Download qualified release
         uses: actions/download-artifact@v7

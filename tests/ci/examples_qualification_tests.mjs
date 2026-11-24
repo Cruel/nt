@@ -259,16 +259,23 @@ test("site CI consumes qualified examples through native workflow dependencies",
     new URL("../../.github/workflows/site.yml", import.meta.url),
     "utf8",
   );
+  const buildSiteWorkflow = readFileSync(
+    new URL("../../.github/workflows/site-after-build.yml", import.meta.url),
+    "utf8",
+  );
   const releaseSiteWorkflow = readFileSync(
     new URL("../../.github/workflows/site-release.yml", import.meta.url),
     "utf8",
   );
 
-  assert.match(
-    buildWorkflow,
-    /\n  site:\n[\s\S]*?needs: examples\n[\s\S]*?uses: \.\/\.github\/workflows\/site\.yml/,
-  );
+  assert.doesNotMatch(buildWorkflow, /\n  site:\n/);
+  assert.match(buildSiteWorkflow, /workflows: \[Build\]/);
+  assert.match(buildSiteWorkflow, /github\.event\.workflow_run\.conclusion == 'success'/);
+  assert.match(buildSiteWorkflow, /name: noveltea-development-examples/);
+  assert.match(buildSiteWorkflow, /github\.event\.workflow_run\.head_sha/);
+  assert.match(buildSiteWorkflow, /uses: \.\/\.github\/workflows\/site\.yml/);
   assert.match(siteWorkflow, /workflow_call:/);
+  assert.match(siteWorkflow, /source_sha:/);
   assert.match(siteWorkflow, /name: noveltea-development-examples/);
   assert.doesNotMatch(siteWorkflow, /gh run list|sleep 20|deadline=/);
 
