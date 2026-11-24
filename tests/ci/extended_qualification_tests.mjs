@@ -77,7 +77,9 @@ test('instrumented coverage and Extended restore dependency caches without creat
       step.uses === 'actions/cache/restore@v5'
         ? "inputs['read-only'] == 'true'" : "inputs['read-only'] != 'true'");
   }
-  assert.equal(coverage.env.CCACHE_MAXSIZE, '384M');
+  assert.equal(coverage.env.CCACHE_MAXSIZE, '1536M');
+  assert.ok(coverage.jobs.native.steps.some((step) =>
+    step.run?.includes('scripts/ci/install-coverage-ccache.sh')));
   for (const job of Object.values(extended.jobs)) {
     for (const step of job.steps) {
       assert.ok(!step.uses?.includes('actions/cache/save'), 'Extended cache writing is forbidden');

@@ -600,6 +600,60 @@ test('expensive Windows production compilation restores strictly compatible obje
   assert.doesNotMatch(compiledPolicy, /build\/windows-release/);
 });
 
+test('compiler cache refresh and maintenance are explicit, scoped, and observable', () => {
+  const setup = readFileSync(
+    new URL('../../.github/actions/setup-ccache/action.yml', import.meta.url), 'utf8',
+  );
+  const save = readFileSync(
+    new URL('../../.github/actions/save-ccache/action.yml', import.meta.url), 'utf8',
+  );
+  const maintenance = readFileSync(
+    new URL('../../.github/workflows/cache-maintenance.yml', import.meta.url), 'utf8',
+  );
+  assert.match(setup, /cache-budget\.mjs generation/);
+  assert.match(setup, /restore-keys: \$\{\{ steps\.identity\.outputs\.prefix \}\}/);
+  assert.match(setup, /ccache --zero-stats/);
+  assert.doesNotMatch(setup, /uses: actions\/cache@/);
+  assert.match(save, /ccache --print-stats/);
+  assert.match(save, /cache-budget\.mjs refresh/);
+  assert.match(save, /steps\.save-start\.outputs\.publisher == 'true'/);
+  assert.match(save, /steps\.save-start\.outputs\.refresh == 'true'/);
+  assert.match(job('linux'), /CCACHE_MAXSIZE: 1536M/);
+  assert.match(job('windows'), /CCACHE_MAXSIZE: 768M/);
+  assert.match(maintenance, /workflows: \[Build, Coverage\]/);
+  assert.match(maintenance, /github\.event\.workflow_run\.event == 'push'/);
+  assert.match(maintenance, /github\.event\.workflow_run\.head_branch == 'master'/);
+  assert.match(maintenance, /github\.event\.workflow_run\.head_repository\.full_name == github\.repository/);
+});
+
+test('Linux ABI-floor and macOS compiled vcpkg archives have a single qualified master writer', () => {
+  const cli = job('production-other-host-clis');
+  const player = job('production-desktop-players');
+  const linuxRestore = step(player, 'Restore exact Linux glibc 2.28 compiled vcpkg packages');
+  const linuxSave = step(player, 'Save qualified Linux player compiled vcpkg packages');
+  const macSave = step(player, 'Save qualified macOS player compiled vcpkg packages');
+  const cliSave = step(cli, 'Save qualified macOS CLI compiled vcpkg packages');
+  assert.equal(field(linuxRestore, 'path'), '.cache/vcpkg-binary-player-glibc228');
+  assert.equal(field(linuxSave, 'path'), '.cache/vcpkg-binary-player-glibc228');
+  assert.equal(field(macSave, 'path'), '.cache/vcpkg-binary');
+  assert.equal(field(cliSave, 'path'), '.cache/vcpkg-binary');
+  assert.match(linuxRestore, /manylinux-2.28-x64-player-compiled-v2-/);
+  assert.match(linuxSave, /steps\.linux-player-vcpkg\.outputs\.cache-primary-key/);
+  assert.match(macSave, /steps\.desktop-vcpkg\.outputs\.cache-primary-key/);
+  assert.match(cliSave, /steps\.macos-vcpkg\.outputs\.cache-primary-key/);
+  for (const stepText of [linuxSave, macSave, cliSave]) {
+    assert.match(stepText, /github\.event_name == 'push'/);
+    assert.match(stepText, /github\.ref == 'refs\/heads\/master'/);
+    assert.match(stepText, /github\.repository == 'Cruel\/nt'/);
+    assert.match(stepText, /outputs\.cache-hit != 'true'/);
+    assert.match(stepText, /uses: actions\/cache\/save@v5/);
+  }
+  assert.match(linuxSave, /matrix\.variant == 'release'/);
+  assert.match(macSave, /matrix\.variant == 'release'/);
+  assert.ok(player.indexOf(linuxSave) > player.indexOf(step(player, 'Manifest and upload exact qualified desktop player')));
+  assert.ok(cli.indexOf(cliSave) > cli.indexOf(step(cli, 'Manifest and upload actual native host CLI')));
+});
+
 test('CI publishes distinct informational coverage summaries and detailed artifacts', () => {
   const native = coverageJob('native');
   const editor = coverageJob('editor');

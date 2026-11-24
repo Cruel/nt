@@ -18,7 +18,7 @@ env:
   VCPKG_DEFAULT_TRIPLET: x64-linux
   VCPKG_BINARY_SOURCES: clear;files,${{ github.workspace }}/.cache/vcpkg-binary,readwrite
   CCACHE_DIR: ${{ github.workspace }}/.cache/ccache
-  CCACHE_MAXSIZE: 384M
+  CCACHE_MAXSIZE: 1536M
   CCACHE_BASEDIR: ${{ github.workspace }}
   NOVELTEA_SHADERC_TOOLCHAIN_TAG: r6
   NOVELTEA_BUILD_IDENTITY: git:${{ github.sha }}
@@ -115,12 +115,14 @@ jobs:
       - name: Set up Linux native dependencies
         uses: ./.github/actions/setup-linux-native
         with:
-          ccache: "true"
           pkg-config: "true"
           autotools: "true"
           graphics: "true"
           xvfb: "true"
           extra-packages: libgl1-mesa-dri
+
+      - name: Install and verify atomic-coverage-compatible ccache
+        run: bash scripts/ci/install-coverage-ccache.sh
 
       - name: Set up vcpkg
         uses: ./.github/actions/setup-linux-vcpkg

@@ -263,6 +263,9 @@ jobs:
     # Keep the correctness witnesses; provision enough time for cold runners.
     # Cached-build speed remains independently measurable and is not a timeout.
     timeout-minutes: 150
+    env:
+      # Debug C++ objects previously evicted almost the entire useful working set.
+      CCACHE_MAXSIZE: 1536M
 
     steps:
       - name: Checkout
@@ -671,6 +674,8 @@ jobs:
     # exceed 90 minutes on GitHub-hosted runners. Keep this temporary headroom
     # until the Windows build and test stages can be shortened.
     timeout-minutes: 150
+    env:
+      CCACHE_MAXSIZE: 768M
 
     steps:
       - name: Checkout
@@ -1465,6 +1470,7 @@ jobs:
         shell: pwsh
         run: choco install ccache --yes --no-progress
       - name: Restore compiled host vcpkg packages
+        id: macos-vcpkg
         if: matrix.platform == 'macos'
         uses: actions/cache/restore@v5
         with:
@@ -1539,6 +1545,15 @@ jobs:
         uses: ./.github/actions/produce-candidate
         with:
           candidate: ${{ matrix.candidate }}
+      - name: Save qualified macOS CLI compiled vcpkg packages
+        if: >-
+          matrix.platform == 'macos' && github.event_name == 'push' &&
+          github.ref == 'refs/heads/master' && github.repository == 'Cruel/nt' &&
+          steps.macos-vcpkg.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: .cache/vcpkg-binary
+          key: ${{ steps.macos-vcpkg.outputs.cache-primary-key }}
       - name: Save bounded production CLI compiler objects
         uses: ./.github/actions/save-ccache
         with:
@@ -1762,18 +1777,19 @@ jobs:
         if: matrix.platform == 'windows'
         shell: pwsh
         run: choco install ccache --yes --no-progress
-      - name: Restore exact Linux glibc 2.28 vcpkg build closure
+      - name: Restore exact Linux glibc 2.28 compiled vcpkg packages
+        id: linux-player-vcpkg
         if: matrix.platform == 'linux'
         uses: actions/cache/restore@v5
         with:
-          path: |
-            .cache/vcpkg-player-glibc228
-            .cache/vcpkg-binary-player-glibc228
-            build/${{ matrix.preset }}/vcpkg_installed
-          key: manylinux-2.28-x64-player-${{ matrix.variant }}-${{ hashFiles('.github/containers/linux-player-glibc228.Dockerfile', 'vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/x64-linux-noveltea.cmake', 'cmake/NovelTeaLua.cmake') }}
+          # Both variants use the same pinned ABI/triplet. vcpkg checks each
+          # binary package ABI; never cache the downloaded SDK or installed tree.
+          path: .cache/vcpkg-binary-player-glibc228
+          key: manylinux-2.28-x64-player-compiled-v2-${{ hashFiles('.github/containers/linux-player-glibc228.Dockerfile', 'vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/x64-linux-noveltea.cmake', 'cmake/NovelTeaLua.cmake') }}
           restore-keys: |
-            manylinux-2.28-x64-player-${{ matrix.variant }}-
+            manylinux-2.28-x64-player-compiled-v2-
       - name: Restore compiled non-Linux vcpkg packages
+        id: desktop-vcpkg
         if: matrix.platform != 'linux'
         uses: actions/cache/restore@v5
         with:
@@ -1918,6 +1934,26 @@ jobs:
         uses: ./.github/actions/produce-candidate
         with:
           candidate: ${{ matrix.candidate }}
+      # Only one successfully qualified variant publishes each compatible
+      # compiled-package cache; all other variants restore it read-only.
+      - name: Save qualified Linux player compiled vcpkg packages
+        if: >-
+          matrix.platform == 'linux' && matrix.variant == 'release' &&
+          github.event_name == 'push' && github.ref == 'refs/heads/master' &&
+          github.repository == 'Cruel/nt' && steps.linux-player-vcpkg.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: .cache/vcpkg-binary-player-glibc228
+          key: ${{ steps.linux-player-vcpkg.outputs.cache-primary-key }}
+      - name: Save qualified macOS player compiled vcpkg packages
+        if: >-
+          matrix.platform == 'macos' && matrix.variant == 'release' &&
+          github.event_name == 'push' && github.ref == 'refs/heads/master' &&
+          github.repository == 'Cruel/nt' && steps.desktop-vcpkg.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: .cache/vcpkg-binary
+          key: ${{ steps.desktop-vcpkg.outputs.cache-primary-key }}
       - name: Save compatible compiler objects
         uses: ./.github/actions/save-ccache
         with:

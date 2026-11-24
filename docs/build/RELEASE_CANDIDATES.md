@@ -189,20 +189,32 @@ this implementation checkpoint.
 
 ## Cache identity, publication and maintenance
 
-`.github/actions/setup-ccache` and `save-ccache` use a stable, rotating
-weekly key composed of runner OS/architecture, purpose/target/build mode,
+`.github/actions/setup-ccache` and `save-ccache` use a stable compatibility
+prefix composed of runner OS/architecture, purpose/target/build mode,
 detected compiler identity and source-controlled CMake/vcpkg compatibility
 inputs. Different compilation modes do not use each other's fallback cache.
-The exact-week key is immutable; it is created only on a trusted push and
-restored read-only by pull requests. The default compiler-object cache is bounded to
-256 MiB per job; the Windows GNU production CLI uses 512 MiB, Windows
-release/devtools players 384 MiB each, and native GCC-instrumented coverage
-384 MiB. Each compatibility scope has an independent immutable cache key.
-Only compiler outputs are stored by ccache, not whole CMake directories or
-multi-gigabyte static archives. Actual restore time, hit/matched key, size,
-compiler hit statistics and save time are emitted to the Actions summary. The
-`scripts/ci/time-command.mjs` wrapper records elapsed build-and-link phases
-and propagates failures without retrying or suppressing them.
+A new immutable run/attempt generation is published only after a successful
+trusted compilation with actual misses: a missing cache, at least eight
+misses, or a miss rate of at least five percent. The exact prefix can restore
+older compatible weekly generations during the transition. A cache hit is
+not a reason to freeze an inadequate cache for an entire week. Pull requests
+restore read-only; already warm or empty compilations do not publish a
+redundant generation. Statistics are reset after restore so reported compiler
+hits/misses belong to the current job.
+
+The default compiler-object limit is 256M; the Windows GNU production CLI
+uses 512M, Windows release/devtools players 384M each, Windows C++ policy
+768M, and Linux Debug correctness and native GCC Coverage 1536M each.
+These are ccache size limits, not guarantees of actual cache residency.
+Coverage uses checksum-pinned ccache 4.14.3 and a compile-twice probe that
+requires byte-identical object/coverage notes and a real cache hit while
+retaining `-fprofile-update=atomic`. Ubuntu's older ccache does not support
+that option. Only compiler outputs are stored by ccache, not whole CMake
+directories or multi-gigabyte static archives. Actual restore time, hit/matched
+key, size, compiler hit statistics and save time are emitted to the Actions
+summary. The `scripts/ci/time-command.mjs` wrapper records elapsed
+build-and-link phases and propagates failures without retrying or suppressing
+them.
 
 Linux vcpkg binary cache writers rotate weekly per configuration rather than
 saving a large immutable entry per commit. Cache the compiled vcpkg binary
@@ -210,8 +222,12 @@ packages and compatible installed trees, not the vcpkg Git SDK/source checkout.
 Windows policy and production players share a compressed compiled-package
 cache with the same MSVC/ABI/pin identity; they do not archive the derived
 uncompressed vcpkg installed tree. The MinGW production CLI uses its own
-compressed compiled-package and compiler-object scopes, never MSVC outputs. All Build
-and Release vcpkg bootstraps using the shared helper verify an exact detached
+compressed compiled-package and compiler-object scopes, never MSVC outputs.
+The macOS CLI has its own compiled-package writer; the qualified standard
+macOS player and Linux glibc 2.28 player each publish one compiled-package
+cache consumed by their matching devtools variant. These writers run only
+after successful trusted master builds, and do not save downloaded SDK trees.
+All Build and Release vcpkg bootstraps using the shared helper verify an exact detached
 SDK commit from
 the pinned builtin-registry revision in `vcpkg-configuration.json`. Cache
 restore is a performance optimization; cached state cannot override the SDK
@@ -221,20 +237,23 @@ before treating them as canonical production inputs.
 `node scripts/ci/cache-budget.mjs report` inspects Actions cache occupancy,
 printing a safe deletion plan without mutating state.
 `node scripts/ci/cache-budget.mjs apply` is the explicit maintenance
-operation. It removes **only superseded SHA/weekly generations on the same
-GitHub ref**, preserving the newest available generation for each recognized
-compatible scope and every unique/unrecognized cache. Other refs are never
-treated as interchangeable merely because their keys match. It fails visibly if conservative pruning
+operation. It removes **only superseded SHA/weekly/run generations on the same
+GitHub ref**, preserving the newest published master compiler generation for
+each compatibility prefix and every unique/unrecognized cache. Master compiler
+generations are compacted even below the budget; other duplicate generations
+are pruned only as necessary. Other refs are never treated as interchangeable
+merely because their keys match. It fails visibly if conservative pruning
 cannot reach its 9.5 GiB internal ceiling (leaving headroom under GitHub's
 10 GiB limit); it never deletes unique configurations to satisfy a number.
-The maintenance workflow runs daily on trusted master with `actions:write`;
-it will not start until the complete integration branch is merged. For a
+The maintenance workflow runs daily and after completed trusted-master push
+Build/Coverage runs with `actions:write`. It does not execute maintenance code
+from PRs or foreign repositories. For a
 genuine cold-cache benchmark, deliberately invalidate a pinned scope on a
 separate development run and measure restore/compile time; do not delete
 unrelated production caches in an uncontrolled experiment.
 
 The independent Coverage job restores shared pinned compiled vcpkg caches
-read-only and has one 384 MiB instrumented compiler-object allowance. Extended
+read-only and has one 1536M instrumented compiler-object allowance. Extended
 Qualification restores compiled dependency and compiler caches without
 publishing new entries.
 `node scripts/ci/cache-budget.mjs allocation` models occupancy, new Coverage

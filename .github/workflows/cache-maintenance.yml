@@ -4,6 +4,10 @@ on:
   schedule:
     - cron: "17 4 * * *"
   workflow_dispatch:
+  workflow_run:
+    workflows: [Build, Coverage]
+    types: [completed]
+    branches: [master]
 
 concurrency:
   group: cache-budget-maintenance
@@ -16,7 +20,13 @@ permissions:
 jobs:
   prune:
     name: Audit and prune superseded cache generations
-    if: github.repository == 'Cruel/nt' && github.ref == 'refs/heads/master'
+    # Never execute cache maintenance for an untrusted PR or a foreign run.
+    if: >-
+      github.repository == 'Cruel/nt' && github.ref == 'refs/heads/master' &&
+      (github.event_name != 'workflow_run' ||
+        (github.event.workflow_run.event == 'push' &&
+         github.event.workflow_run.head_branch == 'master' &&
+         github.event.workflow_run.head_repository.full_name == github.repository))
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:

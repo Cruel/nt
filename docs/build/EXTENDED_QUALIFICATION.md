@@ -51,9 +51,9 @@ publication fails closed.
 
 ## Cache budget and completion boundary
 
-Coverage retains a 384 MiB instrumented compiler-object cache allowance; Extended
+Coverage retains a 1536M instrumented compiler-object cache allowance; Extended
 restores compiled dependency and compiler caches **read-only**, rather than
-introducing competing weekly cache generations. Downloaded vcpkg source/SDK
+introducing competing compiler cache generations. Downloaded vcpkg source/SDK
 checkouts are pinned and bootstrapped but are not cached. The shared vcpkg bootstrap
 continues to pin its source regardless of a cache hit. Run
 `node scripts/ci/cache-budget.mjs allocation` for the current occupancy,
@@ -67,7 +67,7 @@ compiler-object and compiled-vcpkg cache generations fit after population.
 This is a **local capacity model**, not a claim that the complete canonical
 Build matrix will remain resident: #646 measures
 actual hosted cache residency, workflow success, warm/cold timings and
-cross-platform reliability before the coordinated one-time merge.
+cross-platform reliability through post-cutover acceptance.
 
 Local validation: `node --test tests/ci/extended_qualification_tests.mjs
 tests/ci/cache_budget_tests.mjs`. The full integrated hosted nonpublishing

@@ -3,6 +3,8 @@ import { test } from 'node:test';
 import {
   planCachePrune,
   rollingCacheWindow,
+  compilerCacheGeneration,
+  shouldRefreshCompilerCache,
   canPublishCompilerCache,
   planCiCacheAllocation,
 } from '../../scripts/ci/cache-budget.mjs';
@@ -16,9 +18,30 @@ function entry(id, key, sizeInBytes, lastAccessedAt) {
   return { id, key, sizeInBytes, lastAccessedAt };
 }
 
-test('cache rotation is weekly and does not key per source SHA', () => {
+test('compiled dependency cache rotation remains weekly', () => {
   assert.equal(rollingCacheWindow(new Date('2026-11-19T10:00:00Z')), rollingCacheWindow(new Date('2026-11-20T10:00:00Z')));
   assert.notEqual(rollingCacheWindow(new Date('2026-11-19T10:00:00Z')), rollingCacheWindow(new Date('2026-11-26T10:00:00Z')));
+});
+
+test('compiler cache generations can refresh inside the same week and across attempts', () => {
+  assert.equal(compilerCacheGeneration('45299795523', '1'), 'r45299795523-a1');
+  assert.notEqual(compilerCacheGeneration('45299795523', '1'), compilerCacheGeneration('45299795524', '1'));
+  assert.notEqual(compilerCacheGeneration('45299795523', '1'), compilerCacheGeneration('45299795523', '2'));
+  assert.throws(() => compilerCacheGeneration('', '1'));
+  assert.throws(() => compilerCacheGeneration('1', 'abc'));
+});
+
+test('compiler cache refresh reflects actual job misses and does not publish empty or already warm caches', () => {
+  const stats = (misses, direct, preprocessed = 0) =>
+    `cache_miss\t${misses}\ndirect_cache_hit\t${direct}\npreprocessed_cache_hit\t${preprocessed}\n`;
+  assert.equal(shouldRefreshCompilerCache(stats(0, 0), false), false);
+  assert.equal(shouldRefreshCompilerCache(stats(0, 1500), true), false);
+  assert.equal(shouldRefreshCompilerCache(stats(2, 1500), true), false);
+  assert.equal(shouldRefreshCompilerCache(stats(2, 0), false), true);
+  assert.equal(shouldRefreshCompilerCache(stats(8, 1500), true), true);
+  assert.equal(shouldRefreshCompilerCache(stats(5, 90), true), true);
+  assert.equal(shouldRefreshCompilerCache(stats(1607, 0), true), true);
+  assert.throws(() => shouldRefreshCompilerCache('cache_miss\t1', false));
 });
 
 test('only trusted pushes publish shared compiler caches', () => {
@@ -31,15 +54,15 @@ test('only trusted pushes publish shared compiler caches', () => {
 });
 
 test('coverage and Extended allocation leaves production headroom below the 10 GiB limit', () => {
-  // Captured 2026-11-20 inventory; not a promise of post-cutover cache residency.
-  const observed = 10_066_130_683;
+  // The retired integration branch has been removed from the cache inventory.
+  const observed = 4_686_000_000;
   const plan = planCiCacheAllocation(observed);
-  assert.equal(plan.coverageBytes, 384 * 1024 ** 2);
+  assert.equal(plan.coverageBytes, 1536 * 1024 ** 2);
   assert.equal(plan.extendedBytes, 0);
   assert.equal(plan.safetyBytes, 128 * 1024 ** 2);
   assert.equal(plan.withinLimit, true);
   assert.ok(plan.remainingProductionBytes > 0);
-  assert.ok(plan.remainingProductionBytes < 256 * 1024 ** 2);
+  assert.ok(plan.remainingProductionBytes > 3 * GiB);
   assert.equal(planCiCacheAllocation(10 * GiB).withinLimit, false);
   assert.throws(() => planCiCacheAllocation(1, { coverageBytes: -1 }));
   assert.throws(() => planCiCacheAllocation(Number.POSITIVE_INFINITY));
@@ -70,6 +93,21 @@ test('identical cache keys on different GitHub refs are not interchangeable', ()
   assert.deepEqual(plan.deleteIds, [1]);
   assert.ok(plan.protectedIds.includes(2));
   assert.ok(plan.protectedIds.includes(3));
+});
+
+test('master compiler cache refresh compacts prior immutable generations even below budget', () => {
+  const ref = 'refs/heads/master';
+  const prefix = 'Linux-X64-ccache-v2-linux-debug-identity-pins-';
+  const caches = [
+    { ...entry(1, prefix + 'w2968', 200, '2026-11-24T03:00:00Z'), ref, createdAt: '2026-11-23T00:00:00Z' },
+    { ...entry(2, prefix + 'r45299795523-a1', 800, '2026-11-24T02:00:00Z'), ref, createdAt: '2026-11-24T02:00:00Z' },
+    { ...entry(3, prefix + 'w2968', 200, '2026-11-24T03:00:00Z'), ref: 'refs/heads/other' },
+    { ...entry(4, 'Linux-X64-ccache-v2-other-scope-identity-pins-w2968', 200, '2026-11-23T00:00:00Z'), ref },
+  ];
+  const plan = planCachePrune(caches, 10 * GiB);
+  assert.deepEqual(plan.deleteIds, [1]);
+  assert.deepEqual(new Set(plan.protectedIds), new Set([2, 3, 4]));
+  assert.equal(plan.projectedBytes, 1200);
 });
 
 test('cache budget fails visibly rather than evicting unique or last-needed configurations', () => {
