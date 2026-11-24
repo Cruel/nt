@@ -117,11 +117,11 @@ export function planCachePrune(entries, budgetBytes = DEFAULT_BUDGET_BYTES) {
 }
 
 // Informational capacity plan: Extended restores caches read-only; Coverage has
-// one bounded 1536 MiB compiler writer. Do not count workflow artifacts here.
+// one bounded 2048 MiB compiler writer. Do not count workflow artifacts here.
 // Any newly generated production scopes must fit in remaining headroom; #646
 // certifies that their actual hosted residency does, rather than assuming it.
 export function planCiCacheAllocation(observedBytes, {
-  coverageBytes = 1536 * MiB,
+  coverageBytes = 2048 * MiB,
   extendedBytes = 0,
   safetyBytes = 128 * MiB,
 } = {}) {
@@ -176,7 +176,7 @@ async function main(argv) {
   if (command === 'allocation') {
     const allocation = planCiCacheAllocation(plan.originalBytes);
     const remainingMiB = Math.floor(allocation.remainingProductionBytes / MiB);
-    process.stdout.write(`Observed: ${(plan.originalBytes / GiB).toFixed(2)} GiB; Coverage incremental allowance: 1536 MiB; Extended: restore-only; safety: 128 MiB; production budget before 10 GiB: ${remainingMiB} MiB.\n`);
+    process.stdout.write(`Observed: ${(plan.originalBytes / GiB).toFixed(2)} GiB; Coverage incremental allowance: ${allocation.coverageBytes / MiB} MiB; Extended: restore-only; safety: 128 MiB; production budget before 10 GiB: ${remainingMiB} MiB.\n`);
     if (!allocation.withinLimit) process.exitCode = 1;
     return;
   }

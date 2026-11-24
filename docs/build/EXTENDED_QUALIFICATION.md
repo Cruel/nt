@@ -51,7 +51,7 @@ publication fails closed.
 
 ## Cache budget and completion boundary
 
-Coverage retains a 1536M instrumented compiler-object cache allowance; Extended
+Coverage retains a 2048M instrumented compiler-object cache allowance; Extended
 restores compiled dependency and compiler caches **read-only**, rather than
 introducing competing compiler cache generations. Downloaded vcpkg source/SDK
 checkouts are pinned and bootstrapped but are not cached. The shared vcpkg bootstrap

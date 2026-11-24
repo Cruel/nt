@@ -1,10 +1,85 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync, existsSync, symlinkSync, readlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { coverageSummary } from '../../scripts/coverage-summary.mjs';
+
+test('native coverage artifact restores exact executable, CTest and gcov inputs without compiler objects or stale counters', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'nt-coverage-artifact-'));
+  const artifact = path.join(root, 'artifact');
+  const build = path.join(root, 'build/linux-debug');
+  const script = path.resolve('scripts/ci/coverage-build-artifact.sh');
+  const reporter = path.resolve('scripts/native-coverage.mjs');
+  const module = path.resolve('cmake/NovelTeaCoverage.cmake');
+  const env = { ...process.env, GITHUB_SHA: 'a'.repeat(40), GITHUB_RUN_ID: '42', GITHUB_RUN_ATTEMPT: '1' };
+  const execute = (command, args, extra = {}, cwd = root) =>
+    spawnSync(command, args, { encoding: 'utf8', cwd, env: { ...env, ...extra } });
+  const run = (command, args, extra, cwd) => {
+    const result = execute(command, args, extra, cwd);
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    return result;
+  };
+  try {
+    for (const dir of ['engine/src', 'cmake', 'build/prebuilt-shader-assets', 'build/prebuilt-shaderc-toolchain', 'editor/dist-electron'])
+      mkdirSync(path.join(root, dir), { recursive: true });
+    writeFileSync(path.join(root, 'cmake/gcovr.cfg'), readFileSync(path.resolve('cmake/gcovr.cfg')));
+    writeFileSync(path.join(root, 'CMakeLists.txt'), `cmake_minimum_required(VERSION 3.24)\nproject(coverage_artifact LANGUAGES C CXX)\nenable_testing()\nadd_subdirectory(engine)\ninclude("${module}")\n`);
+    writeFileSync(path.join(root, 'engine/CMakeLists.txt'), 'add_library(model STATIC src/model.cpp)\nadd_executable(noveltea src/main.cpp)\ntarget_link_libraries(noveltea PRIVATE model)\nset_target_properties(noveltea PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tools/editor_tool/native-cli")\nadd_test(NAME native_cli_probe COMMAND noveltea)\n');
+    writeFileSync(path.join(root, 'engine/src/model.cpp'), 'int model(int value) { return value == 42 ? 0 : 1; }\n');
+    writeFileSync(path.join(root, 'engine/src/main.cpp'), 'int model(int);\nint main(int argc, char**) { return model(argc == 1 ? 42 : 0); }\n');
+    writeFileSync(path.join(root, 'build/prebuilt-shader-assets/shader.bin'), 'shader');
+    writeFileSync(path.join(root, 'build/prebuilt-shaderc-toolchain/resource'), 'tool');
+    writeFileSync(path.join(root, 'editor/dist-electron/driver.mjs'), 'export {};');
+    run('cmake', ['-S', root, '-B', build, '-DNOVELTEA_ENABLE_COVERAGE=ON', '-DCMAKE_C_COMPILER=gcc', '-DCMAKE_CXX_COMPILER=g++']);
+    run('cmake', ['--build', build]);
+    run('ctest', ['--test-dir', build, '--output-on-failure', '--no-tests=error']);
+    const binary = path.join(build, 'tools/editor_tool/native-cli/noveltea');
+    const bytes = readFileSync(binary);
+    const profile = path.join(build, 'engine/CMakeFiles/model.dir/src/model.cpp');
+    assert.ok(existsSync(profile + '.gcda'));
+    assert.ok(existsSync(profile + '.o'));
+    assert.ok(existsSync(path.join(build, 'engine/libmodel.a')));
+    symlinkSync('noveltea', path.join(path.dirname(binary), 'alias'));
+    run('bash', [script, 'pack', artifact]);
+    assert.notEqual(execute('bash', [script, 'restore', artifact]).status, 0, 'Existing build must not be overlaid');
+    for (const dir of ['build/linux-debug', 'build/prebuilt-shader-assets', 'build/prebuilt-shaderc-toolchain', 'editor/dist-electron'])
+      rmSync(path.join(root, dir), { recursive: true });
+    for (const changed of [{ GITHUB_SHA: 'b'.repeat(40) }, { GITHUB_RUN_ID: '43' }]) {
+      assert.notEqual(execute('bash', [script, 'restore', artifact], changed).status, 0);
+      assert.ok(!existsSync(build), 'Invalid identity must fail before extracting');
+    }
+    const other = path.join(root, 'other');
+    mkdirSync(other);
+    assert.notEqual(execute('bash', [script, 'restore', artifact], {}, other).status, 0);
+    assert.ok(!existsSync(path.join(other, 'build')));
+    const archive = path.join(artifact, 'native-test-build.tar.zst');
+    const validArchive = readFileSync(archive);
+    writeFileSync(archive, validArchive.subarray(0, validArchive.length - 1));
+    assert.notEqual(execute('bash', [script, 'restore', artifact]).status, 0);
+    assert.ok(!existsSync(build));
+    writeFileSync(archive, validArchive);
+    // A retry of a consumer can restore the same producer from attempt 1.
+    run('bash', [script, 'restore', artifact], { GITHUB_RUN_ATTEMPT: '2' });
+    assert.deepEqual(readFileSync(binary), bytes);
+    assert.equal(readlinkSync(path.join(path.dirname(binary), 'alias')), 'noveltea');
+    assert.ok(existsSync(profile + '.gcno'));
+    assert.ok(!existsSync(profile + '.gcda'));
+    assert.ok(!existsSync(profile + '.o'));
+    assert.ok(!existsSync(path.join(build, 'engine/libmodel.a')));
+    assert.equal(readFileSync(path.join(root, 'build/prebuilt-shader-assets/shader.bin'), 'utf8'), 'shader');
+    assert.equal(readFileSync(path.join(root, 'build/prebuilt-shaderc-toolchain/resource'), 'utf8'), 'tool');
+    assert.equal(readFileSync(path.join(root, 'editor/dist-electron/driver.mjs'), 'utf8'), 'export {};');
+    run('ctest', ['--test-dir', build, '--output-on-failure', '--no-tests=error']);
+    assert.ok(existsSync(profile + '.gcda'));
+    run(process.execPath, [reporter, 'report', build, path.join(root, 'report')]);
+    const report = JSON.parse(readFileSync(path.join(root, 'report/summary.json'), 'utf8'));
+    assert.ok(report.line_covered > 0, 'Restored binary must generate usable coverage');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test('coverage summaries retain separate tool metrics and uncovered counts without a gate', () => {
   assert.equal(coverageSummary('cpp', {

@@ -18,7 +18,7 @@ env:
   VCPKG_DEFAULT_TRIPLET: x64-linux
   VCPKG_BINARY_SOURCES: clear;files,${{ github.workspace }}/.cache/vcpkg-binary,readwrite
   CCACHE_DIR: ${{ github.workspace }}/.cache/ccache
-  CCACHE_MAXSIZE: 1536M
+  CCACHE_MAXSIZE: 2048M
   CCACHE_BASEDIR: ${{ github.workspace }}
   NOVELTEA_SHADERC_TOOLCHAIN_TAG: r6
   NOVELTEA_BUILD_IDENTITY: git:${{ github.sha }}
@@ -69,17 +69,18 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: noveltea-shader-assets
+          overwrite: true
           path: build/generated-assets/shaders
           if-no-files-found: error
 
   native:
-    name: Native CTest, CLI, Feature Lab and combined gcov coverage
+    name: Build instrumented native test binaries
     runs-on: ubuntu-24.04
     needs: shader-assets
     timeout-minutes: 120
-    permissions:
-      contents: read
-      id-token: write
+    outputs:
+      test-build-id: ${{ steps.test-build.outputs.artifact-id }}
+      cli-id: ${{ steps.native-cli.outputs.artifact-id }}
 
     steps:
       - name: Checkout
@@ -117,7 +118,7 @@ jobs:
           autotools: "true"
           graphics: "true"
           xvfb: "true"
-          extra-packages: libgl1-mesa-dri
+          extra-packages: libgl1-mesa-dri zstd
 
       - name: Install and verify atomic-coverage-compatible ccache
         run: bash scripts/ci/install-coverage-ccache.sh
@@ -135,11 +136,6 @@ jobs:
         uses: ./.github/actions/setup-ccache
         with:
           scope: linux-debug-coverage-v3
-
-      - name: Set up coverage reporter
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
-        with:
-          enable-cache: false
 
       - name: Download shader assets
         uses: actions/download-artifact@v7
@@ -192,9 +188,11 @@ jobs:
         run: cmake --build --preset linux-debug --target noveltea-cli-native-certify
 
       - name: Export exact instrumented native CLI for Editor integration coverage
+        id: native-cli
         uses: actions/upload-artifact@v7
         with:
           name: noveltea-coverage-native-cli
+          overwrite: true
           path: build/linux-debug/tools/editor_tool/native-cli
           if-no-files-found: error
       - name: Verify native devtools composition
@@ -211,6 +209,37 @@ jobs:
       - name: Enforce C++ runtime and dependency policy
         run: cmake --build --preset linux-debug --target cxx-policy
 
+      - name: Package exact instrumented test build
+        run: bash scripts/ci/coverage-build-artifact.sh pack "$RUNNER_TEMP/noveltea-coverage-test-build"
+      - name: Upload exact instrumented test build
+        id: test-build
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-coverage-test-build
+          path: ${{ runner.temp }}/noveltea-coverage-test-build
+          compression-level: 0
+          retention-days: 7
+          overwrite: true
+          if-no-files-found: error
+      - name: Show ccache statistics
+        if: always()
+        run: ccache --show-stats
+
+  native-ctest:
+    name: Native CTest coverage
+    runs-on: ubuntu-24.04
+    needs: native
+    timeout-minutes: 60
+    outputs:
+      report-id: ${{ steps.report.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Restore native test build
+        id: restore
+        uses: ./.github/actions/restore-coverage-build
+        with:
+          artifact-id: ${{ needs.native.outputs.test-build-id }}
+
       - name: Reset CTest coverage counters
         run: node scripts/native-coverage.mjs reset build/linux-debug
 
@@ -219,25 +248,46 @@ jobs:
           mkdir -p build/reports/coverage/cpp/ctest
           # Independent CTests share an atomic gcov runtime. Keep GPU tests
           # marked RUN_SERIAL and capture/verify dependencies in CMake.
-          xvfb-run -a ctest --test-dir build/linux-debug --output-on-failure \
-            -E '^(native_cli_|native_authoring_cli_commands$)' \
+          xvfb-run -a ctest --test-dir build/linux-debug --output-on-failure --no-tests=error \
+            -E '^(native_cli_|native_authoring_cli_)' \
             --parallel 2 \
             --output-junit "$GITHUB_WORKSPACE/build/reports/coverage/cpp/ctest/test-results.xml"
 
       - name: Report CTest coverage
-        if: ${{ !cancelled() && steps.native_build.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.restore.outcome == 'success' }}
         run: |
           node scripts/native-coverage.mjs report build/linux-debug build/reports/coverage/cpp/ctest
           node scripts/coverage-summary.mjs cpp build/reports/coverage/cpp/ctest/summary.json CTest >> "$GITHUB_STEP_SUMMARY"
 
-      # CLI and daemon processes share instrumented static libraries with
-      # desktop tests; isolate their counters to avoid gcov merge mismatches.
+      - name: Upload suite coverage
+        id: report
+        if: ${{ !cancelled() && steps.restore.outcome == 'success' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-coverage-suite-native-ctest
+          path: build/reports/coverage/cpp
+          overwrite: true
+          if-no-files-found: error
+
+  native-cli:
+    name: Native CLI CTest coverage
+    runs-on: ubuntu-24.04
+    needs: native
+    timeout-minutes: 60
+    outputs:
+      report-id: ${{ steps.report.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Restore native test build
+        id: restore
+        uses: ./.github/actions/restore-coverage-build
+        with:
+          artifact-id: ${{ needs.native.outputs.test-build-id }}
+
       - name: Reset native CLI CTest coverage counters
-        if: ${{ !cancelled() && steps.native_build.outcome == 'success' }}
         run: node scripts/native-coverage.mjs reset build/linux-debug
 
       - name: Native CLI CTest
-        if: ${{ !cancelled() && steps.native_build.outcome == 'success' }}
         run: |
           mkdir -p build/reports/coverage/cpp/ctest-cli
           # Each CLI CTest has an isolated GCOV_PREFIX (registered by CMake).
@@ -252,8 +302,8 @@ jobs:
           # representative CTests collect instrumented CLI/dependency paths
           # without doing dozens of independent cold Feature Lab validations.
           result=0
-          xvfb-run -a ctest --test-dir build/linux-debug --output-on-failure \
-            -R '^(native_cli_|native_authoring_cli_commands$)' \
+          xvfb-run -a ctest --test-dir build/linux-debug --output-on-failure --no-tests=error \
+            -R '^(native_cli_|native_authoring_cli_)' \
             -E '^(native_cli_(incremental_validation_certification|dependency_mutation_certification|shader_validation_cache|portable_validation_cache)|native_authoring_cli_commands)$' \
             --parallel 1 \
             --output-junit "$GITHUB_WORKSPACE/build/reports/coverage/cpp/ctest-cli/test-results.xml" || result=$?
@@ -264,23 +314,45 @@ jobs:
           exit "$result"
 
       - name: Report native CLI CTest coverage
-        if: ${{ !cancelled() && steps.native_build.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.restore.outcome == 'success' }}
         run: |
           node scripts/native-coverage.mjs report build/linux-debug build/reports/coverage/cpp/ctest-cli
           node scripts/coverage-summary.mjs cpp build/reports/coverage/cpp/ctest-cli/summary.json 'Native CLI CTest' >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Upload suite coverage
+        id: report
+        if: ${{ !cancelled() && steps.restore.outcome == 'success' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-coverage-suite-native-cli
+          path: build/reports/coverage/cpp
+          overwrite: true
+          if-no-files-found: error
+
+  native-feature-lab:
+    name: Feature Lab coverage
+    runs-on: ubuntu-24.04
+    needs: native
+    timeout-minutes: 60
+    outputs:
+      report-id: ${{ steps.report.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Restore native test build
+        id: restore
+        uses: ./.github/actions/restore-coverage-build
+        with:
+          artifact-id: ${{ needs.native.outputs.test-build-id }}
+
       - name: Stage pinned FFmpeg for Feature Lab
-        if: ${{ !cancelled() && steps.native_build.outcome == 'success' }}
         run: |
           node editor/scripts/private-media-tools.mjs build/coverage-media
           chmod +x build/coverage-media/tools/ffmpeg/bin/ffmpeg
 
       - name: Reset Feature Lab coverage counters
-        if: ${{ !cancelled() && steps.native_build.outcome == 'success' }}
         run: node scripts/native-coverage.mjs reset build/linux-debug
 
       - name: Feature Lab authored Tests
-        if: ${{ !cancelled() && steps.native_build.outcome == 'success' }}
         env:
           NOVELTEA_FFMPEG: ${{ github.workspace }}/build/coverage-media/tools/ffmpeg/bin/ffmpeg
           NOVELTEA_NATIVE_TOOL_BRIDGE: ${{ github.workspace }}/build/linux-debug/tools/editor_tool/noveltea-tooling-bridge
@@ -307,19 +379,54 @@ jobs:
           cp -a "$gcov_build/." "$GITHUB_WORKSPACE/build/linux-debug/"
 
       - name: Report Feature Lab coverage
-        if: ${{ !cancelled() && steps.native_build.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.restore.outcome == 'success' }}
         run: |
           node scripts/native-coverage.mjs report build/linux-debug build/reports/coverage/cpp/feature-lab
           node scripts/coverage-summary.mjs cpp build/reports/coverage/cpp/feature-lab/summary.json 'Feature Lab' >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Upload suite coverage
+        id: report
+        if: ${{ !cancelled() && steps.restore.outcome == 'success' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-coverage-suite-native-feature-lab
+          path: build/reports/coverage/cpp
+          overwrite: true
+          if-no-files-found: error
+
+  native-combined:
+    name: Merge native coverage reports
+    runs-on: ubuntu-24.04
+    needs: [native-ctest, native-cli, native-feature-lab]
+    # Preserve partial diagnostics when all three suites produced artifacts.
+    # Never silently substitute reports from other attempts or other runs.
+    if: ${{ !cancelled() && needs.native-ctest.outputs.report-id != '' && needs.native-cli.outputs.report-id != '' && needs.native-feature-lab.outputs.report-id != '' }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: false
+      - name: Download exact suite reports
+        uses: actions/download-artifact@v7
+        with:
+          artifact-ids: ${{ needs.native-ctest.outputs.report-id }},${{ needs.native-cli.outputs.report-id }},${{ needs.native-feature-lab.outputs.report-id }}
+          path: build/reports/coverage/cpp
+          merge-multiple: true
+
       - name: Report combined native coverage
-        if: ${{ !cancelled() && steps.native_build.outcome == 'success' }}
         run: |
           node scripts/native-coverage.mjs merge build/reports/coverage/cpp
           node scripts/coverage-summary.mjs cpp build/reports/coverage/cpp/combined/summary.json 'Combined (union)' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Publish combined native coverage to Codecov
-        if: ${{ success() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        if: ${{ success() && needs.native-ctest.result == 'success' && needs.native-cli.result == 'success' && needs.native-feature-lab.result == 'success' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
         uses: codecov/codecov-action@v7
         with:
           use_oidc: true
@@ -329,16 +436,13 @@ jobs:
           fail_ci_if_error: false
 
       - name: Upload C++ coverage
-        if: ${{ !cancelled() && steps.native_build.outcome == 'success' }}
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
         with:
           name: noveltea-coverage-cpp
+          overwrite: true
           path: build/reports/coverage/cpp
           if-no-files-found: error
-
-      - name: Show ccache statistics
-        if: always()
-        run: ccache --show-stats
 
 
   editor:
@@ -371,7 +475,7 @@ jobs:
       - name: Download instrumented native CLI produced by this Coverage run
         uses: actions/download-artifact@v7
         with:
-          name: noveltea-coverage-native-cli
+          artifact-ids: ${{ needs.native.outputs.cli-id }}
           path: build/cli/linux
       - name: Restore executable mode and verify real native CLI
         run: |
@@ -406,5 +510,6 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: noveltea-coverage-editor
+          overwrite: true
           path: editor/coverage
           if-no-files-found: error

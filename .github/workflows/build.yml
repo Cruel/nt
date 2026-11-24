@@ -206,7 +206,7 @@ jobs:
   shader-assets:
     name: Shader assets
     runs-on: ubuntu-24.04
-    needs: cxx-format
+    # Formatting is an independent required Build check, not a shader input.
     timeout-minutes: 45
 
     steps:
@@ -1174,6 +1174,8 @@ jobs:
     runs-on: ubuntu-24.04
     needs: [shader-assets, linux-cli]
     timeout-minutes: 90
+    env:
+      CCACHE_MAXSIZE: 512M
 
     steps:
       - name: Checkout
@@ -1566,6 +1568,8 @@ jobs:
     runs-on: ubuntu-24.04
     needs: shader-assets
     timeout-minutes: 100
+    env:
+      CCACHE_MAXSIZE: 512M
     strategy:
       fail-fast: false
       matrix:

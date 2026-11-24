@@ -39,14 +39,14 @@ test('coverage starts on each PR and master push independently of Build', () => 
   assert.ok(coverage.jobs.editor.steps.find((step) => step.name === 'Test and instrument editor')
     .run.includes('test:coverage'));
   for (const job of Object.values(coverage.jobs)) {
-    assert.ok(!job.needs || Object.keys(coverage.jobs).includes(job.needs),
+    assert.ok([job.needs ?? []].flat().every((dependency) => Object.hasOwn(coverage.jobs, dependency)),
       'Coverage cannot depend on Build artifacts or statuses');
   }
   assert.ok(!Object.keys(build.jobs).some((name) =>
     ['linux-sanitize', 'web-benchmark', 'android-emulator'].includes(name)));
-  assert.equal(coverage.jobs.native.permissions['id-token'], 'write');
+  assert.equal(coverage.jobs['native-combined'].permissions['id-token'], 'write');
   assert.equal(coverage.jobs.editor.permissions['id-token'], 'write');
-  for (const jobName of ['native', 'editor']) {
+  for (const jobName of ['native-combined', 'editor']) {
     const job = coverage.jobs[jobName];
     const codecov = job.steps.find((step) => String(step.uses).startsWith('codecov/codecov-action@'));
     const upload = job.steps.find((step) => step.name?.startsWith('Upload') && step.uses === 'actions/upload-artifact@v7');
@@ -77,7 +77,7 @@ test('instrumented coverage and Extended restore dependency caches without creat
       step.uses === 'actions/cache/restore@v5'
         ? "inputs['read-only'] == 'true'" : "inputs['read-only'] != 'true'");
   }
-  assert.equal(coverage.env.CCACHE_MAXSIZE, '1536M');
+  assert.equal(coverage.env.CCACHE_MAXSIZE, '2048M');
   assert.ok(coverage.jobs.native.steps.some((step) =>
     step.run?.includes('scripts/ci/install-coverage-ccache.sh')));
   for (const job of Object.values(extended.jobs)) {
@@ -96,7 +96,8 @@ test('instrumented coverage and Extended restore dependency caches without creat
   assert.equal(nativeCli.with.name, 'noveltea-coverage-native-cli');
   assert.equal(nativeCli.with.path, 'build/linux-debug/tools/editor_tool/native-cli');
   const restoredCli = editor.steps.find((step) => step.name?.startsWith('Download instrumented native CLI'));
-  assert.equal(restoredCli.with.name, nativeCli.with.name);
+  assert.equal(restoredCli.with['artifact-ids'], '${{ needs.native.outputs.cli-id }}');
+  assert.equal(coverage.jobs.native.outputs['cli-id'], '${{ steps.native-cli.outputs.artifact-id }}');
   assert.equal(restoredCli.with.path, 'build/cli/linux');
   assert.ok(editor.steps.find((step) => step.name?.startsWith('Restore executable mode'))?.run.includes('build/cli/linux/noveltea'));
 });

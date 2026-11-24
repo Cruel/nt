@@ -10,11 +10,17 @@ Test failures and broken report generation still fail CI.
 ## Boundaries and CI
 
 The independent `Coverage` workflow runs on every pull request and every master push, in parallel
-with required `Build`, without being a dependency or a required merge check. Its native job
-instruments first-party targets using GCC/gcov (`-Og -g`). It
-runs the normal CTest suite and the complete Feature Lab authored semantic/UI Test suite through the
-Node CLI driver, with an explicitly selected instrumented native bridge and UI runner. The job
-stages the checksum-verified, pinned FFmpeg tool separately and sets `NOVELTEA_FFMPEG` for the
+with required `Build`, without being a dependency or a required merge check. A single producer
+instruments first-party targets using GCC/gcov (`-Og -g`) and publishes the exact test build
+and CLI as run-scoped artifacts. Native CTest, native CLI CTest, Feature Lab, and Editor coverage
+then execute concurrently on independent runners. The native consumers restore the exact producer
+artifact by ID, verifying its checksum, source SHA, workflow run and absolute checkout path.
+The compressed transfer retains executable modes, symlinks, generated test registrations,
+assets, and coverage notes, but not compiler objects, static archives or live coverage counters.
+Consumers do not repeat native compilation. Only the small final native report merge waits for
+the three native suites; Editor coverage does not wait for native test execution or reporting.
+The Feature Lab job runs the complete authored semantic/UI Test suite with an explicitly selected
+instrumented native bridge and UI runner. It stages the checksum-verified, pinned FFmpeg tool separately and sets `NOVELTEA_FFMPEG` for the
 Feature Lab suite so video-backed Animations can be prepared without waiting for the standalone
 CLI build. The standalone release CLI is not used: its native objects are uninstrumented. The Lab measurement includes the
 native preparation and playback operations exercised by that workflow, not TypeScript compiler
@@ -37,15 +43,18 @@ One `noveltea-coverage-cpp` artifact contains four directories:
   a killed worker's partial gcda from crashing gcov-tool without turning genuine
   profile corruption into an accepted result.
 - `feature-lab/`: Lab-only HTML/JSON/Cobertura plus the authored suite's JSON execution results.
-- `combined/`: the union of covered native lines/branches from both saved snapshots. Overlapping
+- `combined/`: the union of covered native lines/branches from all three saved snapshots. Overlapping
   coverage counts once; percentages are not averaged or added.
 
-Execution counters are cleared before each suite. The CTest snapshot is captured **before** clearing
-its counters for the Lab; combined reporting reads only the saved gcovr JSON snapshots, never the
-last suite's live counters. Both measurements use the same configured native build and filters, so
-unexecuted compiled sources remain visible and denominators are comparable. Reports on test failure
-can be partial and must not be mistaken for a successful baseline. Compare the two independent views
-to see what the authored workflows exercise and what additional paths they cover beyond CTest.
+Each suite starts with its own counter-free copy of the instrumented build. All tests using the
+per-CTest CLI counter isolation convention run in the CLI lane, which merges their completed
+counter trees before reporting. The total selected test set is unchanged. Combined reporting
+reads only the three exact suite artifact IDs and frozen gcovr JSON snapshots, never live counters.
+The measurements use the same configured native build and filters, so unexecuted compiled sources
+remain visible and denominators are comparable. Individual suite reports remain downloadable on
+failure; a combined partial report is diagnostic only, and native Codecov publication requires
+all three suites to succeed. Compare the independent views to see what the authored workflows
+exercise and what additional paths they cover beyond CTest.
 
 Profile updates are atomic because runtime workers execute concurrently; ordinary shared-counter
 increments can corrupt gcov branch counts. Dependency targets (including prebuilt upstream host-tool
@@ -81,7 +90,9 @@ CodeCov network/upload failures do not. The normal Build runs CTest, native CLI
 certification and Feature Lab without instrumentation, independent of these reports.
 The editor Coverage job builds its own addon and stages checksum-verified media tools;
 it does not depend on Build artifacts. Native/editor coverage caches restore vcpkg
-read-only, with the native instrumented compiler-object cache bounded to 1536M.
+read-only, with the native instrumented compiler-object cache bounded to 2048M.
+Frozen native coverage snapshots use two gcov reporter workers; the separate
+suite counters, filters, reports and merged coverage union remain unchanged.
 Coverage installs checksum-pinned ccache 4.14.3 and verifies an actual cache
 hit reproduces both the object and coverage notes under GCC's atomic profiling
 flags before building. Extended Qualification restores caches read-only to

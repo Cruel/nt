@@ -57,7 +57,7 @@ test('coverage and Extended allocation leaves production headroom below the 10 G
   // The retired integration branch has been removed from the cache inventory.
   const observed = 4_686_000_000;
   const plan = planCiCacheAllocation(observed);
-  assert.equal(plan.coverageBytes, 1536 * 1024 ** 2);
+  assert.equal(plan.coverageBytes, 2048 * 1024 ** 2);
   assert.equal(plan.extendedBytes, 0);
   assert.equal(plan.safetyBytes, 128 * 1024 ** 2);
   assert.equal(plan.withinLimit, true);

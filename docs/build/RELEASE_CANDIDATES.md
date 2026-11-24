@@ -204,7 +204,9 @@ hits/misses belong to the current job.
 
 The default compiler-object limit is 256M; the Windows GNU production CLI
 uses 512M, Windows release/devtools players 384M each, Windows C++ policy
-768M, and Linux Debug correctness and native GCC Coverage 1536M each.
+768M, Linux Debug correctness 1536M, native GCC Coverage 2048M, and each
+Android compiler-object scope 512M. Increase these in measured increments:
+immutable cache replacement temporarily retains old and new generations.
 These are ccache size limits, not guarantees of actual cache residency.
 Coverage uses checksum-pinned ccache 4.14.3 and a compile-twice probe that
 requires byte-identical object/coverage notes and a real cache hit while
@@ -261,7 +263,7 @@ separate development run and measure restore/compile time; do not delete
 unrelated production caches in an uncontrolled experiment.
 
 The independent Coverage job restores shared pinned compiled vcpkg caches
-read-only and has one 1536M instrumented compiler-object allowance. Extended
+read-only and has one 2048M instrumented compiler-object allowance. Extended
 Qualification restores compiled dependency and compiler caches without
 publishing new entries.
 `node scripts/ci/cache-budget.mjs allocation` models occupancy, new Coverage

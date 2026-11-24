@@ -620,6 +620,8 @@ test('compiler cache refresh and maintenance are explicit, scoped, and observabl
   assert.match(save, /steps\.save-start\.outputs\.refresh == 'true'/);
   assert.match(job('linux'), /CCACHE_MAXSIZE: 1536M/);
   assert.match(job('windows'), /CCACHE_MAXSIZE: 768M/);
+  assert.match(job('android'), /CCACHE_MAXSIZE: 512M/);
+  assert.match(job('production-android-arm64'), /CCACHE_MAXSIZE: 512M/);
   assert.match(maintenance, /workflows: \[Build, Coverage\]/);
   assert.match(maintenance, /github\.event\.workflow_run\.event == 'push'/);
   assert.match(maintenance, /github\.event\.workflow_run\.head_branch == 'master'/);
@@ -657,18 +659,22 @@ test('Linux ABI-floor and macOS compiled vcpkg archives have a single qualified 
 test('CI publishes distinct informational coverage summaries and detailed artifacts', () => {
   const native = coverageJob('native');
   const editor = coverageJob('editor');
+  const ctestJob = coverageJob('native-ctest');
+  const cliJob = coverageJob('native-cli');
+  const labJob = coverageJob('native-feature-lab');
+  const mergeJob = coverageJob('native-combined');
   assert.match(step(native, 'Configure'), /NOVELTEA_ENABLE_COVERAGE=ON/);
   assert.match(step(job('linux'), 'Configure'), /NOVELTEA_ENABLE_COVERAGE=OFF/);
   assert.doesNotMatch(job('editor'), /test:coverage/);
-  const ctest = step(native, 'CTest');
-  const ctestReport = step(native, 'Report CTest coverage');
-  const cliReset = step(native, 'Reset native CLI CTest coverage counters');
-  const cliCtest = step(native, 'Native CLI CTest');
-  const cliReport = step(native, 'Report native CLI CTest coverage');
-  const resetLab = step(native, 'Reset Feature Lab coverage counters');
-  const lab = step(native, 'Feature Lab authored Tests');
-  const labReport = step(native, 'Report Feature Lab coverage');
-  const combined = step(native, 'Report combined native coverage');
+  const ctest = step(ctestJob, 'CTest');
+  const ctestReport = step(ctestJob, 'Report CTest coverage');
+  const cliReset = step(cliJob, 'Reset native CLI CTest coverage counters');
+  const cliCtest = step(cliJob, 'Native CLI CTest');
+  const cliReport = step(cliJob, 'Report native CLI CTest coverage');
+  const resetLab = step(labJob, 'Reset Feature Lab coverage counters');
+  const lab = step(labJob, 'Feature Lab authored Tests');
+  const labReport = step(labJob, 'Report Feature Lab coverage');
+  const combined = step(mergeJob, 'Report combined native coverage');
   assert.match(step(native, 'Configure'), /NOVELTEA_BUILD_HOST_TOOLS=ON/);
   assert.match(step(native, 'Build Node coverage driver'), /vp pack/);
   assert.match(lab, /NOVELTEA_NATIVE_TOOL_BRIDGE: .*build\/linux-debug\/tools\/editor_tool\/noveltea-tooling-bridge/);
@@ -677,14 +683,12 @@ test('CI publishes distinct informational coverage summaries and detailed artifa
   assert.match(lab, /export GCOV_PREFIX=/);
   assert.match(lab, /export GCOV_PREFIX_STRIP=0/);
   assert.match(lab, /cp -a .*gcov_build.*build\/linux-debug/);
-  assert.ok(native.indexOf(step(native, 'Reset CTest coverage counters')) < native.indexOf(ctest));
-  assert.ok(native.indexOf(ctest) < native.indexOf(ctestReport));
-  assert.ok(native.indexOf(ctestReport) < native.indexOf(cliReset));
-  assert.ok(native.indexOf(cliReset) < native.indexOf(cliCtest));
-  assert.ok(native.indexOf(cliCtest) < native.indexOf(cliReport));
-  assert.ok(native.indexOf(cliReport) < native.indexOf(resetLab));
-  assert.match(ctest, /-E '\^\(native_cli_\|native_authoring_cli_commands\$\)'/);
-  assert.match(cliCtest, /-R '\^\(native_cli_\|native_authoring_cli_commands\$\)'/);
+  assert.ok(ctestJob.indexOf(step(ctestJob, 'Reset CTest coverage counters')) < ctestJob.indexOf(ctest));
+  assert.ok(ctestJob.indexOf(ctest) < ctestJob.indexOf(ctestReport));
+  assert.ok(cliJob.indexOf(cliReset) < cliJob.indexOf(cliCtest));
+  assert.ok(cliJob.indexOf(cliCtest) < cliJob.indexOf(cliReport));
+  assert.match(ctest, /-E '\^\(native_cli_\|native_authoring_cli_\)'/);
+  assert.match(cliCtest, /-R '\^\(native_cli_\|native_authoring_cli_\)'/);
   // Detached daemon processes may outlive their CTest. CLI coverage is
   // isolated by CMake per test, then merged offline, not copied from a
   // suite-wide GCOV_PREFIX shared by processes with different lifetimes.
@@ -710,9 +714,8 @@ test('CI publishes distinct informational coverage summaries and detailed artifa
   assert.match(terminate, /terminated-process-pids\.txt/);
   assert.ok(terminate.indexOf('terminated-process-pids.txt') < terminate.indexOf('::kill(process.pid, SIGTERM)'));
   assert.match(step(native, 'Build excluded native CLI certification target'), /--target noveltea-cli-native-certify/);
-  assert.ok(native.indexOf(resetLab) < native.indexOf(lab));
-  assert.ok(native.indexOf(lab) < native.indexOf(labReport));
-  assert.ok(native.indexOf(labReport) < native.indexOf(combined));
+  assert.ok(labJob.indexOf(resetLab) < labJob.indexOf(lab));
+  assert.ok(labJob.indexOf(lab) < labJob.indexOf(labReport));
   assert.match(ctestReport, /native-coverage\.mjs report .*\/ctest/);
   assert.match(cliReport, /native-coverage\.mjs report .*\/ctest-cli/);
   assert.match(labReport, /native-coverage\.mjs report .*\/feature-lab/);
@@ -720,33 +723,29 @@ test('CI publishes distinct informational coverage summaries and detailed artifa
   for (const report of [ctestReport, cliReport, labReport, combined])
     assert.match(report, /coverage-summary\.mjs cpp .*GITHUB_STEP_SUMMARY/);
   assert.equal(field(step(native, 'Build'), 'id'), 'native_build');
-  // Reporting partial test coverage remains allowed, but a failed compile
-  // must never launch CTest/Feature Lab against missing executables.
-  for (const label of [
-    'Report CTest coverage',
-    'Reset native CLI CTest coverage counters',
-    'Native CLI CTest',
-    'Report native CLI CTest coverage',
-    'Stage pinned FFmpeg for Feature Lab',
-    'Reset Feature Lab coverage counters',
-    'Feature Lab authored Tests',
-    'Report Feature Lab coverage',
-    'Report combined native coverage',
-    'Upload C++ coverage',
-  ])
-    assert.equal(
-      field(step(native, label), 'if'),
-      "${{ !cancelled() && steps.native_build.outcome == 'success' }}",
-    );
+  // Consumers use the exact output of one successful build. They can run
+  // independently, but must not report or publish if restoration failed.
+  for (const [suite, report] of [[ctestJob, ctestReport], [cliJob, cliReport], [labJob, labReport]]) {
+    assert.equal(field(suite, 'needs'), 'native');
+    assert.match(step(suite, 'Restore native test build'), /artifact-id: .*needs\.native\.outputs\.test-build-id/);
+    assert.equal(field(report, 'if'), "${{ !cancelled() && steps.restore.outcome == 'success' }}");
+    assert.equal(field(step(suite, 'Upload suite coverage'), 'if'), "${{ !cancelled() && steps.restore.outcome == 'success' }}");
+    assert.doesNotMatch(suite, /cmake --build|setup-ccache/);
+  }
+  assert.equal(field(editor, 'needs'), 'native');
+  assert.equal(field(mergeJob, 'needs'), '[native-ctest, native-cli, native-feature-lab]');
+  assert.match(step(mergeJob, 'Download exact suite reports'), /artifact-ids: .*needs\.native-ctest\.outputs\.report-id.*needs\.native-cli\.outputs\.report-id.*needs\.native-feature-lab\.outputs\.report-id/);
+  assert.match(field(step(mergeJob, 'Publish combined native coverage to Codecov'), 'if'), /needs\.native-ctest\.result == 'success'.*needs\.native-cli\.result == 'success'.*needs\.native-feature-lab\.result == 'success'/);
+  assert.match(step(native, 'Package exact instrumented test build'), /coverage-build-artifact\.sh pack/);
   assert.match(step(editor, 'Test and instrument editor'), /test:coverage/);
   assert.equal(field(step(editor, 'Test and instrument editor'), 'id'), 'editor-tests');
   for (const label of ['Summarize editor coverage', 'Publish editor coverage to Codecov'])
     assert.match(field(step(editor, label), 'if'), /steps\.editor-tests\.outcome == 'success'/);
   assert.equal(field(step(editor, 'Upload editor coverage'), 'if'), '${{ !cancelled() }}');
   assert.match(step(editor, 'Summarize editor coverage'), /coverage-summary\.mjs editor .*GITHUB_STEP_SUMMARY/);
-  assert.match(step(native, 'Upload C++ coverage'), /name: noveltea-coverage-cpp/);
+  assert.match(step(mergeJob, 'Upload C++ coverage'), /name: noveltea-coverage-cpp/);
   assert.match(step(editor, 'Upload editor coverage'), /name: noveltea-coverage-editor/);
-  assert.doesNotMatch(native, /--fail-under/);
+  assert.doesNotMatch(coverageWorkflow, /--fail-under/);
 });
 
 test('desktop player and authoring presets keep compatibility floors separate', () => {
@@ -810,7 +809,7 @@ test('shader tool consumers use the pinned bgfx-matched nt-tools bundle', () => 
   assert.match(hostCliDownload, /gh release download "\$NOVELTEA_SHADERC_TOOLCHAIN_TAG"/);
 });
 
-test('C++ formatting runs as an early pinned-tool gate before shader assets', () => {
+test('C++ formatting remains a required independent pinned-tool check, not a shader dependency', () => {
   const format = job('cxx-format');
   assert.match(format, /name: C\+\+ formatting/);
   assert.match(
@@ -820,7 +819,7 @@ test('C++ formatting runs as an early pinned-tool gate before shader assets', ()
   assert.match(format, /enable-cache: false/);
   assert.match(step(format, 'Check C++ formatting'), /cmake\/RunClangFormat\.cmake/);
   assert.match(step(format, 'Check C++ formatting'), /-DMODE=check/);
-  assert.equal(field(job('shader-assets'), 'needs'), 'cxx-format');
+  assert.doesNotMatch(job('shader-assets'), /^    needs:/m);
 });
 
 test('Web editor preview verifies the actual devtools-off and devtools-on Emscripten export surfaces', () => {
@@ -855,12 +854,12 @@ test('Build qualifies native devtools and Release restores the exact two Linux p
 });
 
 test('native coverage stages verified FFmpeg for Feature Lab video preparation', () => {
-  const linux = coverageJob('native');
+  const linux = coverageJob('native-feature-lab');
   const stage = step(linux, 'Stage pinned FFmpeg for Feature Lab');
   const tests = step(linux, 'Feature Lab authored Tests');
   // A failed policy or CTest still permits independent Feature Lab coverage,
   // but a failed native build cannot run any test using missing executables.
-  assert.equal(field(stage, 'if'), "${{ !cancelled() && steps.native_build.outcome == 'success' }}");
+  assert.equal(field(linux, 'needs'), 'native');
   assert.match(stage, /node editor\/scripts\/private-media-tools\.mjs build\/coverage-media/);
   assert.match(tests, /NOVELTEA_FFMPEG: .*build\/coverage-media\/tools\/ffmpeg\/bin\/ffmpeg/);
   assert.ok(linux.indexOf(stage) < linux.indexOf(tests));
