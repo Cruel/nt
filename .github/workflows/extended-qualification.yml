@@ -146,9 +146,7 @@ jobs:
           ref: ${{ needs.source.outputs.source_sha }}
 
       - name: Install system packages
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake curl tar
+        run: bash scripts/ci/install-apt-packages.sh cmake curl tar
 
       - name: Download standalone shaderc
         run: |
