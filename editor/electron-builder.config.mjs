@@ -211,7 +211,9 @@ export default {
     afterRemove: path.join(linuxMaintainerScriptsRoot, 'after-remove.sh'),
   },
   win: {
-    icon: path.join(buildResourcesRoot, 'icon.svg'),
+    // Use the native ICO directly: the upstream SVG converter can crash
+    // during shutdown on Windows after successfully writing its output.
+    icon: path.join(buildResourcesRoot, 'windows', 'icon.ico'),
     target: [{ target: 'nsis', arch: ['x64'] }],
   },
   nsis: {

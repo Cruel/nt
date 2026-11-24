@@ -231,8 +231,11 @@ Application identity is defined in authoritative metadata rather than main-proce
   `desktopName`;
 - `editor/electron-builder.config.mjs` owns the reverse-domain application ID, executable name,
   artifact naming, and native target settings;
-- `editor/build-resources/icon.svg` is the scalable master icon converted by electron-builder for
-  Linux, Windows, and macOS;
+- `editor/branding/icon.svg` is the scalable master icon for Linux and macOS.
+  Windows consumes the checked-in multi-resolution `branding/windows/icon.ico`
+  directly, avoiding electron-builder's Windows SVG converter shutdown crash.
+  Regenerate the ICO after changing the SVG with
+  `node editor/scripts/generate-windows-icon.mjs` (installed editor dependencies required);
 - `editor/src/main.ts` only overrides the runtime user-data directory to the stable lowercase
   `noveltea-editor` namespace.
 
