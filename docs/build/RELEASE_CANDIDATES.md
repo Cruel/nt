@@ -216,6 +216,14 @@ summary. The `scripts/ci/time-command.mjs` wrapper records elapsed
 build-and-link phases and propagates failures without retrying or suppressing
 them.
 
+Host Linux prerequisites use `scripts/ci/install-apt-packages.sh`: installed
+packages require no network access. Hosted Ubuntu 24.04 x64 uses an explicit
+HTTPS Ubuntu archive and an independent mirror on failure, with the normal
+Ubuntu archive signature and freshness checks. Each bounded attempt refreshes
+indexes and downloads missing packages before the single offline package
+installation. Source selection is invocation-local; the runner's source
+configuration is not edited. No compilation or test failure is retried.
+
 Linux vcpkg binary cache writers rotate weekly per configuration rather than
 saving a large immutable entry per commit. Cache the compiled vcpkg binary
 packages and compatible installed trees, not the vcpkg Git SDK/source checkout.

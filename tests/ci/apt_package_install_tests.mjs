@@ -9,7 +9,7 @@ import { test } from 'node:test';
 const installer = fileURLToPath(new URL('../../scripts/ci/install-apt-packages.sh', import.meta.url));
 const linux = { skip: process.platform !== 'linux' };
 
-function run(packages, scenario) {
+function run(packages, scenario, { hosted = false } = {}) {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'noveltea-apt-test-'));
   const log = path.join(dir, 'log');
   try {
@@ -17,6 +17,7 @@ function run(packages, scenario) {
     const fake = (name, content) => writeFileSync(path.join(dir, name),
       '#!/bin/bash\nset -eu\n' + content + '\n', { mode: 0o755 });
     fake('id', 'echo 0');
+    fake('dpkg', 'echo amd64');
     fake('sleep', 'exit 0');
     fake('dpkg-query', 'if [[ "$SCENARIO" == installed || "${@: -1}" == present ]]; then echo installed; else exit 1; fi');
     fake('timeout', [
@@ -26,11 +27,21 @@ function run(packages, scenario) {
     ].join('\n'));
     fake('apt-get', [
       'printf "apt %s\\n" "$*" >> "$APT_LOG"',
+      'mirror=default',
+      'for arg in "$@"; do',
+      '  if [[ "$arg" == Dir::Etc::sourcelist=* ]]; then',
+      '    mirror="$(sed -n "s/^URIs: //p" "${arg#*=}")"',
+      '    grep -q "^Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg$" "${arg#*=}"',
+      '    grep -q "^Suites: noble noble-updates noble-backports noble-security$" "${arg#*=}"',
+      '  fi',
+      'done',
+      'printf "mirror %s\\n" "$mirror" >> "$APT_LOG"',
       'case " $* " in',
       '  *" update "*)',
       '    if [[ "$SCENARIO" == index-fail ]]; then exit 124; fi',
       '    if [[ "$SCENARIO" == index-retry ]] && [[ $(grep -c " update$" "$APT_LOG") == 1 ]]; then exit 124; fi ;;',
       '  *" --download-only "*)',
+      '    if [[ "$SCENARIO" == mirror-stall && "$mirror" != https://mirrors.mit.edu/ubuntu ]]; then exit 124; fi',
       '    if [[ "$SCENARIO" == download-fail ]]; then exit 124; fi',
       '    if [[ "$SCENARIO" == download-retry ]] && [[ $(grep -c " --download-only " "$APT_LOG") == 1 ]]; then exit 124; fi ;;',
       '  *" --no-download "*) if [[ "$SCENARIO" == install-fail ]]; then exit 42; fi ;;',
@@ -38,7 +49,8 @@ function run(packages, scenario) {
       'esac',
     ].join('\n'));
     const result = spawnSync('bash', [installer, ...packages], {
-      env: { ...process.env, PATH: dir + ':' + process.env.PATH, APT_LOG: log, SCENARIO: scenario },
+      env: { ...process.env, PATH: dir + ':' + process.env.PATH, APT_LOG: log, SCENARIO: scenario,
+        GITHUB_ACTIONS: hosted ? 'true' : 'false', RUNNER_OS: 'Linux', RUNNER_ARCH: 'X64' },
       encoding: 'utf8', timeout: 5000,
     });
     return { result, log: readFileSync(log, 'utf8') };
@@ -61,6 +73,7 @@ test('only missing packages are downloaded and installed with network and wall d
   assert.match(log, /Acquire::https::Timeout=15/);
   assert.match(log, /APT::Update::Error-Mode=any update/);
   assert.match(log, /deadline --kill-after=10s 120s/);
+  assert.match(log, /deadline --kill-after=10s 360s/);
   assert.match(log, /deadline --kill-after=10s 180s/);
   assert.match(log, /install -y --download-only missing/);
   assert.match(log, /install -y --no-download missing/);
@@ -79,7 +92,7 @@ test('transient index and download failures recover without restarting installat
   for (const scenario of ['index-retry', 'download-retry']) {
     const { result, log } = run(['missing'], scenario);
     assert.equal(result.status, 0, result.stderr);
-    assert.equal((log.match(/ update\n/g) || []).length, scenario === 'index-retry' ? 2 : 1);
+    assert.equal((log.match(/ update\n/g) || []).length, 2);
     assert.equal((log.match(/ --download-only /g) || []).length, scenario === 'download-retry' ? 2 : 1);
     assert.equal((log.match(/ --no-download /g) || []).length, 1);
   }
@@ -93,6 +106,20 @@ test('persistent download failure never invokes dpkg; installation failure is no
   const failed = run(['missing'], 'install-fail');
   assert.equal(failed.result.status, 42);
   assert.equal((failed.log.match(/ --no-download /g) || []).length, 1);
+});
+
+test('hosted Noble package download stall switches to an independent signed mirror', {
+  skip: process.platform !== 'linux' ||
+    !readFileSync('/etc/os-release', 'utf8').includes('VERSION_CODENAME=noble'),
+}, () => {
+  const { result, log } = run(['missing'], 'mirror-stall', { hosted: true });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(log, /mirror https:\/\/archive\.ubuntu\.com\/ubuntu/);
+  assert.match(log, /mirror https:\/\/mirrors\.mit\.edu\/ubuntu/);
+  assert.equal((log.match(/ update\n/g) || []).length, 2);
+  assert.equal((log.match(/ --download-only /g) || []).length, 2);
+  assert.equal((log.match(/ --no-download /g) || []).length, 1);
+  assert.match(log.trim(), /mirror https:\/\/mirrors\.mit\.edu\/ubuntu$/);
 });
 
 test('invalid package options cannot be injected', linux, () => {
