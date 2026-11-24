@@ -1868,8 +1868,7 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
       expect(incumbent.isAdmitted(oldId)).toBe(true);
       expect((await incumbent.currentWorkingProject(oldId)).project.id).toBe('feature-lab');
     } finally {
-      pending.dispose();
-      incumbent.dispose();
+      await Promise.all([pending.disposeAndWait(), incumbent.disposeAndWait()]);
       sessions.dispose();
       await Promise.all(
         [original, candidate].map((root) => rm(root, { recursive: true, force: true })),
