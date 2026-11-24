@@ -50,4 +50,7 @@ for (const [index, size] of sizes.entries()) {
   directory.writeUInt32LE(offset, entry + 12);
   offset += images[index].length;
 }
-await writeFile(new URL('../branding/windows/icon.ico', import.meta.url), Buffer.concat([directory, ...images]));
+await writeFile(
+  new URL('../branding/windows/icon.ico', import.meta.url),
+  Buffer.concat([directory, ...images]),
+);
