@@ -25,197 +25,102 @@ on:
 
 permissions:
   contents: read
-
 concurrency:
-  group: windows-cli-diagnostics-${{ github.ref }}
+  group: windows-owner-lifecycle-diagnostics-${{ github.ref }}
   cancel-in-progress: false
-
 env:
   VCPKG_ROOT: ${{ github.workspace }}/.cache/vcpkg
   VCPKG_BINARY_SOURCES: clear;files,${{ github.workspace }}/.cache/vcpkg-binary,readwrite
-  CMAKE_BUILD_PARALLEL_LEVEL: 4
-  VCPKG_MAX_CONCURRENCY: 4
-  CCACHE_DIR: ${{ github.workspace }}/.cache/ccache/windows-cli-diagnostics
-  CCACHE_MAXSIZE: 1G
+  CCACHE_DIR: ${{ github.workspace }}/.cache/ccache
+  CCACHE_MAXSIZE: 512M
   CCACHE_BASEDIR: ${{ github.workspace }}
-  NT_DIAGNOSTIC_ROOT: ${{ github.workspace }}/build/cli-diagnostics
-  NT_DIAGNOSTIC_SCENARIO: ${{ inputs.scenario }}
-  NT_DIAGNOSTIC_ITERATIONS: ${{ inputs.iterations }}
-  NT_DIAGNOSTIC_PAGE_HEAP: ${{ inputs.page_heap }}
-  NOVELTEA_CLI_PATH: ${{ github.workspace }}/build/cli/windows/noveltea.exe
+  NOVELTEA_SHADERC_TOOLCHAIN_TAG: r6
   NOVELTEA_BUILD_IDENTITY: git:${{ github.sha }}
-
 jobs:
-  diagnose:
+  owner-lifecycle:
+    name: Windows optimized CLI owner lifecycle stress (diagnostic only)
     runs-on: windows-2025
-    timeout-minutes: 120
-    defaults:
-      run:
-        shell: pwsh
+    timeout-minutes: 45
     steps:
-      - name: Checkout selected workflow revision
+      - name: Checkout
         uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-
-      - name: Initialize evidence directory
-        run: |
-          New-Item -ItemType Directory -Force "$env:NT_DIAGNOSTIC_ROOT/setup" | Out-Null
-          @{
-            commit = (git rev-parse HEAD)
-            workflowCommit = '${{ github.workflow_sha }}'
-            run = '${{ github.run_id }}'
-            attempt = '${{ github.run_attempt }}'
-            image = $env:ImageOS
-            imageVersion = $env:ImageVersion
-            scenario = $env:NT_DIAGNOSTIC_SCENARIO
-            iterations = $env:NT_DIAGNOSTIC_ITERATIONS
-            pageHeap = $env:NT_DIAGNOSTIC_PAGE_HEAP
-          } | ConvertTo-Json | Set-Content "$env:NT_DIAGNOSTIC_ROOT/environment.json"
-
       - name: Install pnpm
         uses: pnpm/action-setup@v6
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
-      - name: Validate diagnostic inputs
-        run: node --input-type=module -e "import { diagnosticOptions } from './scripts/diagnostics/run-cli-diagnostics.mjs'; console.log(diagnosticOptions());"
-      - name: Install dependencies
-        run: |
-          pnpm install --frozen-lockfile *> "$env:NT_DIAGNOSTIC_ROOT/setup/pnpm-install.log"
-          if ($LASTEXITCODE -ne 0) { throw 'Dependency installation failed; see artifact.' }
-
-      - name: Install and self-test diagnostic capture tools
-        timeout-minutes: 15
-        run: ./scripts/diagnostics/setup-windows-cli-diagnostics.ps1 -PageHeap $env:NT_DIAGNOSTIC_PAGE_HEAP -OutputRoot $env:NT_DIAGNOSTIC_ROOT
-
-      - name: Install compiler cache
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install Windows compiler cache
+        shell: pwsh
         run: choco install ccache --yes --no-progress
-      - name: Restore GNU vcpkg SDK and binary packages
-        id: vcpkg-cache
+      - name: Cache compiled Windows GNU CLI dependencies
         uses: actions/cache/restore@v5
         with:
-          path: |
-            .cache/vcpkg
-            .cache/vcpkg-binary
-          key: windows-x64-cli-diagnostics-vcpkg-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/**') }}
-          restore-keys: |
-            windows-x64-cli-diagnostics-vcpkg-
-            windows-x64-cli-vcpkg-
-      - name: Restore GNU vcpkg installed tree
-        id: vcpkg-installed-cache
-        uses: actions/cache/restore@v5
-        with:
-          path: build/windows-cli-gnu/vcpkg_installed
-          key: windows-x64-cli-diagnostics-vcpkg-installed-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/**') }}
-          restore-keys: windows-x64-cli-diagnostics-vcpkg-installed-
-      - name: Restore GNU compiler outputs
+          path: .cache/vcpkg-binary
+          key: windows-2025-x64-gnu-vcpkg-compiled-v1-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/**') }}
+      - name: Bootstrap verified vcpkg revision
+        shell: pwsh
+        run: |
+          node scripts/ci/pin-vcpkg.mjs
+          & "$env:VCPKG_ROOT/bootstrap-vcpkg.bat"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify MinGW GNU release compilers (not MSVC)
+        shell: pwsh
+        run: |
+          gcc --version
+          g++ --version
+          llvm-strip --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Prefetch checksum-verified Windows Lua
+        shell: pwsh
+        run: ./scripts/ci/prefetch-lua-source.ps1
+      - name: Restore production CLI compiler objects
         id: ccache
-        uses: actions/cache/restore@v5
+        uses: ./.github/actions/setup-ccache
         with:
-          path: ${{ env.CCACHE_DIR }}
-          key: windows-x64-cli-diagnostics-ccache-r1-${{ github.sha }}
-          restore-keys: windows-x64-cli-diagnostics-ccache-r1-
-      - name: Bootstrap vcpkg
+          scope: windows-gnu-cli-release
+          compiler: g++
+      - name: Compile actual GNU/AppleClang production CLI
+        env:
+          NOVELTEA_CLI_USE_CCACHE: "1"
+        run: node scripts/ci/time-command.mjs windows-cli-gnu-build-and-link pnpm -C editor run noveltea:build
+      - name: Certify Windows GNU CLI has no unshipped dynamic runtime DLLs
+        shell: pwsh
         run: |
-          if (!(Test-Path "$env:VCPKG_ROOT/.git")) { git clone https://github.com/microsoft/vcpkg "$env:VCPKG_ROOT" }
-          & "$env:VCPKG_ROOT/bootstrap-vcpkg.bat" *> "$env:NT_DIAGNOSTIC_ROOT/setup/vcpkg-bootstrap.log"
-          if ($LASTEXITCODE -ne 0) { throw 'vcpkg bootstrap failed; see artifact.' }
-
-      - name: Configure release GNU build with debug information
-        run: |
-          gcc --version | Set-Content "$env:NT_DIAGNOSTIC_ROOT/setup/gcc-version.txt"
-          g++ -dumpmachine | Set-Content "$env:NT_DIAGNOSTIC_ROOT/setup/gcc-target.txt"
-          cmake --version | Set-Content "$env:NT_DIAGNOSTIC_ROOT/setup/cmake-version.txt"
-          cmake --preset windows-cli-gnu -G Ninja `
-            '-DCMAKE_C_FLAGS_RELEASE=-O3 -DNDEBUG -g' `
-            '-DCMAKE_CXX_FLAGS_RELEASE=-O3 -DNDEBUG -g' `
-            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON `
-            -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache `
-            -DBUILD_TESTING=OFF -DNOVELTEA_BUILD_HOST_TOOLS=ON `
-            -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_CMAKE_STAGE_RUNTIME_ASSETS=OFF `
-            *> "$env:NT_DIAGNOSTIC_ROOT/setup/configure.log"
-          if ($LASTEXITCODE -ne 0) { throw 'GNU configuration failed; see artifact.' }
-      - name: Build release CLI and retain unstripped runner
-        run: |
-          Write-Output 'Building the release GNU CLI; detailed build output goes to the artifact.'
-          pnpm -C editor run noveltea:build *> "$env:NT_DIAGNOSTIC_ROOT/setup/build.log"
-          if ($LASTEXITCODE -ne 0) { throw 'CLI build failed; see artifact.' }
-          $runner = 'build/windows-cli-gnu/tools/editor_tool/noveltea-ui-test-runner.exe'
-          objdump -h $runner | Set-Content "$env:NT_DIAGNOSTIC_ROOT/setup/runner-sections.txt"
-          if ($LASTEXITCODE -ne 0 -or !(Select-String -Path "$env:NT_DIAGNOSTIC_ROOT/setup/runner-sections.txt" -SimpleMatch '.debug_info')) {
-            throw 'The unstripped runner is missing DWARF debug information.'
+          foreach ($exe in @('build/cli/windows/noveltea.exe', 'build/cli/windows/noveltea-ui-test-runner.exe')) {
+            $imports = & objdump -p $exe
+            if ($LASTEXITCODE -ne 0) { throw "Cannot inspect Windows PE imports: $exe" }
+            $unsafe = @($imports | Select-String -Pattern 'DLL Name: (libgcc_s_.*|libstdc\+\+-6|libwinpthread-1)\.dll')
+            if ($unsafe.Count) { throw "Unshipped GNU runtime DLL imports in $exe" }
           }
-          objdump -p $runner | Set-Content "$env:NT_DIAGNOSTIC_ROOT/setup/runner-pe.txt"
-          # Execute the debug-info copy so debugger stacks resolve; the artifact keeps this exact binary.
-          Copy-Item $runner 'build/cli/windows/noveltea-ui-test-runner.exe' -Force
-          ccache --show-stats | Set-Content "$env:NT_DIAGNOSTIC_ROOT/setup/ccache-stats.txt"
-
-      # Diagnostic reproduction is expected to fail. Save build acceleration now instead of
-      # relying on post-job cache hooks, which do not persist after that expected failure.
-      - name: Save GNU vcpkg SDK and binary packages
-        if: steps.vcpkg-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v5
-        with:
-          path: |
-            .cache/vcpkg
-            .cache/vcpkg-binary
-          key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
-      - name: Save GNU vcpkg installed tree
-        if: steps.vcpkg-installed-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v5
-        with:
-          path: build/windows-cli-gnu/vcpkg_installed
-          key: ${{ steps.vcpkg-installed-cache.outputs.cache-primary-key }}
-      - name: Save GNU compiler outputs
-        if: steps.ccache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v5
-        with:
-          path: ${{ env.CCACHE_DIR }}
-          key: ${{ steps.ccache.outputs.cache-primary-key }}
-
-      - name: Set up PE inspection for full certification
-        if: inputs.scenario == 'certification'
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
-      - name: Run selected reproduction
-        timeout-minutes: 40
-        run: node scripts/diagnostics/run-cli-diagnostics.mjs
-
-      - name: Disable page heap
-        if: always()
+      - name: Repeat independent resident restart and pinned-worker cancellation
+        shell: pwsh
+        env:
+          ITERATIONS: ${{ inputs.iterations }}
         run: |
-          $gflags = "${env:ProgramFiles(x86)}/Windows Kits/10/Debuggers/x64/gflags.exe"
-          if (Test-Path $gflags) {
-            & $gflags /p /disable noveltea-ui-test-runner.exe *> "$env:NT_DIAGNOSTIC_ROOT/setup/pageheap-cleanup.log"
-            & $gflags /p /disable nt-debugger-probe.exe >> "$env:NT_DIAGNOSTIC_ROOT/setup/pageheap-cleanup.log"
+          $count = [int]$env:ITERATIONS
+          if ($count -lt 1 -or $count -gt 50) { throw 'Iterations must be 1–50' }
+          New-Item -ItemType Directory -Force build/owner-lifecycle-evidence | Out-Null
+          for ($i = 1; $i -le $count; $i++) {
+            Write-Host "=== Windows owner lifecycle $i of $count ==="
+            $log = "build/owner-lifecycle-evidence/iteration-$i.log"
+            node editor/scripts/certify-native-cli-owner-lifecycle.mjs build/cli/windows/noveltea.exe tests/projects/feature-lab --candidate *> $log
+            $result = $LASTEXITCODE
+            Get-Content $log
+            if ($result -ne 0) { exit $result }
           }
-
-      - name: Collect matching binaries and build metadata
-        if: always()
-        run: |
-          $root = $env:NT_DIAGNOSTIC_ROOT
-          New-Item -ItemType Directory -Force "$root/symbols", "$root/build-metadata" | Out-Null
-          if (Test-Path 'build/cli/windows') { Copy-Item 'build/cli/windows' "$root/bundle" -Recurse -Force }
-          $runner = 'build/windows-cli-gnu/tools/editor_tool/noveltea-ui-test-runner.exe'
-          if (Test-Path $runner) { Copy-Item $runner "$root/symbols/noveltea-ui-test-runner.exe" }
-          foreach ($name in @('CMakeCache.txt', 'compile_commands.json', 'build.ninja')) {
-            if (Test-Path "build/windows-cli-gnu/$name") { Copy-Item "build/windows-cli-gnu/$name" "$root/build-metadata/" }
-          }
-          Get-ChildItem "$root/bundle", "$root/symbols" -Recurse -File -ErrorAction SilentlyContinue |
-            Get-FileHash -Algorithm SHA256 | Select-Object Path, Hash |
-            ConvertTo-Json -Depth 3 | Set-Content "$root/binary-hashes.json"
-          git status --short | Set-Content "$root/build-metadata/git-status.txt"
-
-      - name: Upload diagnostic evidence even on failure
+      - name: Upload diagnostic executable and lifecycle evidence
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: windows-cli-diagnostics-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: build/cli-diagnostics
-          include-hidden-files: true
-          if-no-files-found: error
+          name: windows-owner-lifecycle-diagnostics
+          path: |
+            build/owner-lifecycle-evidence
+            build/cli/windows
           retention-days: 7
-          compression-level: 6
+          if-no-files-found: error
+      - name: Report compiler cache statistics
+        if: always()
+        run: ccache --show-stats
