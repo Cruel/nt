@@ -918,6 +918,35 @@ TEST_CASE("daemon endpoint identity separates build and protocol")
     CHECK(first != endpoint_identity("build-a", 2));
 }
 
+TEST_CASE("daemon runtime roots isolate status and stop for the same build", "[daemon-duplex]")
+{
+    auto first_root = temp_runtime_root("namespace-first");
+    auto second_root = temp_runtime_root("namespace-second");
+    auto request = context(unique_build("runtime-root-isolation"));
+    request["runtimeRoot"] = first_root.path.generic_string();
+    request["action"] = "serve-start";
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+    request["action"] = "serve-ready";
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+
+    auto other = request;
+    other["runtimeRoot"] = second_root.path.generic_string();
+    CHECK(daemon_status(request)["running"] == true);
+    CHECK(daemon_status(other)["running"] == false);
+    // The unoverridden production endpoint must also be independent.
+    auto production = request;
+    production.erase("runtimeRoot");
+    CHECK(daemon_status(production)["running"] == false);
+    other["action"] = "stop";
+    CHECK(invoke_daemon(other)["ok"] == true);
+    CHECK(daemon_status(request)["running"] == true);
+
+    request["action"] = "stop";
+    CHECK(invoke_daemon(request)["ok"] == true);
+    request["action"] = "serve-wait";
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+}
+
 TEST_CASE("portable Project snapshots retain current and pinned historical generations")
 {
     using namespace noveltea::tooling::daemon;

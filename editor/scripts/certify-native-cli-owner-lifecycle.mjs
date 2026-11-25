@@ -38,7 +38,12 @@ function execute(args, env = baseline) {
   const response = spawnSync(
     executable,
     ['--json', ...(args[0] === 'daemon' ? [] : ['--project', project]), ...args],
-    { env, encoding: 'utf8', timeout: 180_000, maxBuffer: 16 * 1024 * 1024 },
+    {
+      env,
+      encoding: 'utf8',
+      timeout: args[0] === 'daemon' && args[1] === 'status' ? 5000 : 180_000,
+      maxBuffer: 16 * 1024 * 1024,
+    },
   );
   assert.ifError(response.error);
   assert.ok(response.stdout.trim().startsWith('{'), `${args.join(' ')}: ${response.stderr}`);
@@ -47,28 +52,53 @@ function execute(args, env = baseline) {
   return data;
 }
 
+function residentStatus(env = baseline) {
+  const status = execute(['daemon', 'status'], env);
+  assert.equal(status.success, true, JSON.stringify(status.diagnostics));
+  assert.equal(status.daemon.running, true, 'Project read did not start a resident daemon.');
+  assert.equal(status.daemon.state, 'ready');
+  assert.ok(status.daemon.projectSessions >= 1, 'Project read did not admit a resident owner.');
+  return status.daemon;
+}
+
 try {
   if (independentMode)
     await import('node:fs/promises').then(({ mkdir }) =>
       mkdir(path.join(root, 'home/runtime'), { recursive: true, mode: 0o700 }),
     );
   await cp(fixture, project, { recursive: true });
-  const initial = execute(['platform', 'profiles']);
+  // platform profiles is a local read, not a resident owner command.
+  const initial = execute(['validate']);
   assert.equal(initial.success, true, JSON.stringify(initial.diagnostics));
-  const warm = execute(['platform', 'profiles']);
+  const firstOwner = residentStatus();
+  const warm = execute(['validate']);
   assert.deepEqual(warm, initial);
+  assert.equal(residentStatus().pid, firstOwner.pid);
   const stopped = execute(['daemon', 'stop']);
   assert.equal(stopped.success, true, JSON.stringify(stopped.diagnostics));
-  const restarted = execute(['platform', 'profiles']);
+  assert.equal(execute(['daemon', 'status']).daemon.running, false);
+  const restarted = execute(['validate']);
   assert.deepEqual(restarted, initial, 'Restarted daemon did not reopen the native Project.');
+  const restartedOwner = residentStatus();
   console.log('Native-only installed daemon restart and warm scoped Project read PASSED.');
 
   // The cancellation exercise intentionally uses its own isolated broker root.
   // Establish that broker's Project owner before starting the pinned-worker
   // timer. Warming only the baseline broker leaves this one cold on Windows
   // and confounds broker/owner startup time with worker pinning.
-  const pinnedWarm = execute(['platform', 'profiles'], pinnedEnvironment);
+  assert.equal(
+    execute(['daemon', 'status'], pinnedEnvironment).daemon.running,
+    false,
+    'Certification runtime root is not isolated from the resident daemon.',
+  );
+  const pinnedWarm = execute(['validate'], pinnedEnvironment);
   assert.deepEqual(pinnedWarm, initial, 'Pinned broker failed its own warm Project admission.');
+  const pinnedOwner = residentStatus(pinnedEnvironment);
+  assert.notEqual(
+    pinnedOwner.pid,
+    restartedOwner.pid,
+    'Pinned broker reused the baseline endpoint.',
+  );
 
   // Force a real pinned worker; the marker belongs to the disposable, not the
   // resident daemon. Interrupt the public CLI, release the worker and reject
@@ -98,12 +128,28 @@ try {
   });
   try {
     let pinned = false;
-    for (let attempt = 0; attempt < 300; attempt++) {
+    const started = performance.now();
+    const transitions = [];
+    let nextStatus = 5000;
+    while (performance.now() - started < 30_000) {
       if (existsSync(`${marker}.ready`)) {
         pinned = true;
         break;
       }
-      if (command.exitCode !== null) break;
+      if (command.exitCode !== null || command.signalCode !== null) break;
+      const elapsed = performance.now() - started;
+      if (elapsed >= nextStatus) {
+        const sample = spawnSync(executable, ['--json', 'daemon', 'status'], {
+          env: pinnedEnvironment,
+          encoding: 'utf8',
+          timeout: 1000,
+        });
+        transitions.push({
+          elapsedMs: Math.round(elapsed),
+          status: sample.stdout?.trim() || sample.stderr?.trim() || sample.error?.message,
+        });
+        nextStatus = elapsed + 5000;
+      }
       await delay(100);
     }
     if (!pinned) {
@@ -115,9 +161,20 @@ try {
       throw new Error(
         `Disposable worker did not pin a Project (exit ${command.exitCode}, signal ${command.signalCode}).` +
           `\nCLI stdout: ${stdout}\nCLI stderr: ${stderr}` +
+          `\nDaemon transitions: ${JSON.stringify(transitions)}` +
           `\nDaemon status: ${status.stdout || status.stderr || status.error?.message || '(no response)'}`,
       );
     }
+    const pinnedStatus = residentStatus(pinnedEnvironment);
+    assert.ok(
+      pinnedStatus.engineeringCounters.snapshotPublications >
+        pinnedOwner.engineeringCounters.snapshotPublications &&
+        pinnedStatus.engineeringCounters.snapshotHandoffs >
+          pinnedOwner.engineeringCounters.snapshotHandoffs,
+      'Barrier was not reached through a published and handed-off Project snapshot.',
+    );
+    assert.ok(pinnedStatus.disposableBusyWorkers >= 1, 'Pinned worker is not busy.');
+    console.log(`Pinned disposable worker ready in ${Math.round(performance.now() - started)} ms.`);
     assert.equal(command.kill('SIGINT'), true, 'Could not signal the public CLI.');
     await delay(200);
   } finally {

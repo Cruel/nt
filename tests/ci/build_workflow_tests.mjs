@@ -249,9 +249,12 @@ test('native-only pinned cancellation warms its own broker before measuring the 
     new URL('../../editor/scripts/certify-native-cli-owner-lifecycle.mjs', import.meta.url),
     'utf8',
   );
-  const warm = lifecycle.indexOf("execute(['platform', 'profiles'], pinnedEnvironment)");
+  const warm = lifecycle.indexOf("execute(['validate'], pinnedEnvironment)");
   const launch = lifecycle.indexOf("const command = spawn(");
   assert.ok(warm > 0 && launch > warm);
+  assert.match(lifecycle, /residentStatus\(pinnedEnvironment\)/);
+  assert.match(lifecycle, /Certification runtime root is not isolated/);
+  assert.match(lifecycle, /snapshotHandoffs/);
   assert.match(lifecycle, /NOVELTEA_CLI_CERTIFICATION_PINNED_BARRIER: marker/);
   assert.match(lifecycle, /Daemon status:/);
 });

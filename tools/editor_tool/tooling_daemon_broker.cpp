@@ -231,8 +231,21 @@ std::optional<BrokerContext> parse_context(const Json& request, std::string& err
             error = "runtimeRoot must be a non-empty path";
             return std::nullopt;
         }
-        context.runtime_root_override =
-            std::filesystem::path(request["runtimeRoot"].get<std::string>());
+        const auto& root = request["runtimeRoot"].get_ref<const std::string&>();
+#if defined(_WIN32)
+        // Resolve relative paths before spawning a broker in the installed
+        // executable's directory. Preserve UTF-8 instead of the ANSI codepage.
+        std::error_code path_error;
+        auto absolute = std::filesystem::absolute(
+            std::filesystem::path(std::u8string(root.begin(), root.end())), path_error);
+        if (path_error || absolute.empty()) {
+            error = "failed to resolve daemon runtimeRoot";
+            return std::nullopt;
+        }
+        context.runtime_root_override = absolute.lexically_normal().make_preferred();
+#else
+        context.runtime_root_override = std::filesystem::path(root);
+#endif
     }
     if (request.contains("validationPublicationTestGate")) {
         if (!request["validationPublicationTestGate"].is_string() ||
@@ -470,7 +483,14 @@ Endpoint make_endpoint(const BrokerContext& context)
     const auto sid = current_user_sid_text();
     const auto sid_utf8 = wide_to_utf8(sid);
     const auto user_identity = sha256_text(sid_utf8).substr(0, 16);
-    const auto suffix = utf8_to_wide(endpoint.identity + "-" + user_identity);
+    // Explicit certification roots must isolate every IPC object, just as
+    // they isolate the Unix socket and lock paths. Leave the normal per-user,
+    // per-build production endpoint unchanged when no override is supplied.
+    auto identity = endpoint.identity + "-" + user_identity;
+    if (context.runtime_root_override)
+        identity += "-" + sha256_text(wide_to_utf8(context.runtime_root_override->wstring()))
+                              .substr(0, 32);
+    const auto suffix = utf8_to_wide(identity);
     endpoint.pipe_name = L"\\\\.\\pipe\\NovelTea-" + suffix;
     endpoint.startup_mutex_name = L"Local\\NovelTea-Daemon-Start-" + suffix;
     endpoint.lifetime_mutex_name = L"Local\\NovelTea-Daemon-Live-" + suffix;

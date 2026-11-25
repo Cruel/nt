@@ -458,6 +458,13 @@ Compiler outputs remain disposable content-addressed build/cache products, not a
 when the final proof fails. The daemon shader path deliberately remains on the established pinned
 snapshot transport: native shader preparation must be carried in that immutable owner generation
 before that transport can be staged, rather than reopening newer live disk in a disposable worker.
+The installed owner-lifecycle certification proves resident admission with a daemon-routed
+`validate` command, checks that the broker stops and reopens the Project, then proves that
+the cancellation broker is independent and actually publishes/hands off a snapshot before
+signalling the CLI. The explicit certification runtime-root override namespaces the Windows
+named pipe and both startup/lifetime mutexes as well as Unix socket and lock paths.
+The ordinary per-user, build/protocol production endpoint is unchanged. A local
+`platform profiles` read does not establish a resident owner.
 The adapter regression seam is `editor/src/renderer/test/native-cli-shaders.test.ts`; the installed
 routing differential compares blank-Project and Feature Lab local shader results and invalid options.
 
