@@ -43,6 +43,52 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-cli-') as temporary:
     assert envelope('--help')['help'] == help_text
     assert run('--version').stdout == version + '\n'
     assert envelope('--version')['version'] == version
+
+    help_header = help_text.split('\nCommands:\n', 1)[0] + '\nCommands:\n'
+    help_global = '\nGlobal options:\n' + help_text.split('\nGlobal options:\n', 1)[1].split('\n\n', 1)[0] + '\n'
+    commands_body = help_text.split('\nCommands:\n', 1)[1].split('\nGlobal options:\n', 1)[0]
+
+    def expected_scoped_help(*prefix):
+        matched = []
+        include = False
+        for line in commands_body.splitlines():
+            if len(line) >= 3 and line.startswith('  ') and 'a' <= line[2] <= 'z':
+                words = []
+                for token in line.split():
+                    if not ('a' <= token[0] <= 'z'):
+                        break
+                    words.append(token)
+                include = len(prefix) <= len(words) and words[:len(prefix)] == list(prefix)
+                if include:
+                    matched.append(line)
+            elif include and line.startswith('   '):
+                matched.append(line)
+            else:
+                include = False
+        return help_header + '\n'.join(matched) + '\n' + help_global
+
+    for prefix, variants in [
+        (('narrative',), [('narrative', '--help'), ('--help', 'narrative')]),
+        (('platform', 'template'), [('platform', 'template', '--help'),
+                                    ('--help', 'platform', 'template')]),
+        (('narrative', 'validate'), [('narrative', 'validate', '--help'),
+                                     ('--help', 'narrative', 'validate')]),
+        (('validate',), [('validate', '--help'), ('--help', 'validate')]),
+        (('comfyui', 'workflows'), [('comfyui', 'workflows', '--help')]),
+    ]:
+        expected = expected_scoped_help(*prefix)
+        for cli_args in variants:
+            plain = run(*cli_args)
+            assert (plain.returncode, plain.stdout, plain.stderr) == (0, expected, ''), (cli_args, plain)
+            assert envelope(*cli_args)['help'] == expected
+    trailing_json_help = run('narrative', '--help', '--json')
+    assert trailing_json_help.returncode == 0 and trailing_json_help.stderr == ''
+    assert json.loads(trailing_json_help.stdout)['help'] == expected_scoped_help('narrative')
+    narrative_help = expected_scoped_help('narrative')
+    assert len(re.findall(r'^  narrative [a-z]', narrative_help, re.MULTILINE)) == 5
+    assert '[--readiness [--stage' in expected_scoped_help('narrative', 'validate')
+    assert 'Normal project editing policy:' not in narrative_help
+    assert 'validate [--working]' not in narrative_help
     print('Native CLI relocated help/version contracts passed.')
 
     for args, message in [
@@ -52,7 +98,15 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-cli-') as temporary:
         (['--json'], "Global option '--json' may be supplied only once."),
         (['--no-daemon', '--no-daemon'], "Global option '--no-daemon' may be supplied only once."),
         (['--help', '--version'], '--help and --version cannot be combined.'),
-        (['--help', 'validate'], '--help and --version do not accept a command path.'),
+        (['--help', '--version', 'validate'], '--help and --version cannot be combined.'),
+        (['--version', 'validate'], '--version does not accept a command path.'),
+        (['validate', '--version'], '--version does not accept a command path.'),
+        (['bogus', '--help'], "Unknown command path 'bogus'."),
+        (['--help', 'bogus'], "Unknown command path 'bogus'."),
+        (['narrative', 'bogus', '--help'], "Unknown command path 'narrative bogus'."),
+        (['narrative', 'validate', 'extra', '--help'],
+         "Unknown command path 'narrative validate extra'."),
+        (['narrative', '--wat', '--help'], "Unknown command path 'narrative --wat'."),
         (['bogus'], "Unknown command path 'bogus'."),
         (['entity', 'inspect', 'rooms'], 'Usage: noveltea entity inspect <collection> <id> [--provenance]'),
         (['entity', 'inspect', 'bogus', 'room'], "Unknown collection 'bogus'."),

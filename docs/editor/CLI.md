@@ -12,7 +12,13 @@ compiled C++ binary including Project authoring, daemon, shader, package,
 platform, Agent Kit, ComfyUI and Test command families. Global options such as
 `--json`, `--no-daemon`, and `--project <directory>` are accepted before,
 between, or after the command arguments (for example,
-`noveltea narrative validate story --json`). The editor invokes
+`noveltea narrative validate story --json`). `--help` also accepts a group or
+command prefix in any non-raw position (for example, `noveltea narrative --help`,
+`noveltea platform template --help`, or `noveltea --help narrative validate`) to
+print scoped usage, matching commands, and global options in plain text or
+`--json` mode; `--version` still rejects command paths, and raw
+`shaderc`/`texturec` continue forwarding trailing `--help` directly to the
+embedded tool. The editor invokes
 this installed binary for headless operations. The old
 `noveltea-editor-tool`, ScriptC host and separately distributed bgfx
 `shaderc` executable are retired.

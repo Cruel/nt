@@ -36,6 +36,7 @@
 #include <iterator>
 #include <iostream>
 #include <map>
+#include <optional>
 #include <random>
 #include <regex>
 #include <set>
@@ -142,10 +143,10 @@ Arguments parse(const std::vector<std::string>& args)
             result.command.push_back(arg);
         }
     }
-    if ((result.help || result.version) && !result.command.empty())
-        throw std::invalid_argument("--help and --version do not accept a command path.");
     if (result.help && result.version)
         throw std::invalid_argument("--help and --version cannot be combined.");
+    if (result.version && !result.command.empty())
+        throw std::invalid_argument("--version does not accept a command path.");
     return result;
 }
 
@@ -269,6 +270,58 @@ bool known_command(const std::vector<std::string>& command)
             return true;
     }
     return false;
+}
+
+// Filter the Commands: section by exact leading command-word prefix, preserving wrapped lines.
+std::optional<std::string> scoped_help(const std::vector<std::string>& command)
+{
+    if (command.empty())
+        return std::string(help);
+    constexpr std::string_view commands_header = "\nCommands:\n";
+    const auto start = help.find(commands_header);
+    const auto end = help.find("\nGlobal options:\n");
+    if (start == std::string_view::npos || end == std::string_view::npos || end <= start)
+        return std::nullopt;
+    const auto commands_body_start = start + commands_header.size();
+    std::istringstream lines(
+        std::string(help.substr(commands_body_start, end - commands_body_start)));
+    std::string matched;
+    std::string line;
+    bool current_matches = false;
+    while (std::getline(lines, line)) {
+        if (line.size() >= 3 && line.substr(0, 2) == "  " && line[2] >= 'a' && line[2] <= 'z') {
+            std::istringstream words(line);
+            std::string word;
+            std::vector<std::string> entry_words;
+            while (words >> word) {
+                if (word[0] < 'a' || word[0] > 'z')
+                    break;
+                entry_words.push_back(word);
+            }
+            current_matches = command.size() <= entry_words.size() &&
+                              std::equal(command.begin(), command.end(), entry_words.begin());
+            if (current_matches) {
+                matched += line;
+                matched += '\n';
+            }
+        } else if (current_matches && line.size() >= 3 && line.substr(0, 3) == "   ") {
+            matched += line;
+            matched += '\n';
+        } else {
+            current_matches = false;
+        }
+    }
+    if (matched.empty())
+        return std::nullopt;
+    const auto global_end = help.find("\n\n", end + 1);
+    const auto global_section = global_end == std::string_view::npos
+                                    ? help.substr(end)
+                                    : help.substr(end, global_end - end + 1);
+    std::string result;
+    result.append(help.substr(0, commands_body_start));
+    result.append(matched);
+    result.append(global_section);
+    return result;
 }
 
 Json normalize_project_diagnostics(Json diagnostics)
@@ -2676,12 +2729,19 @@ int run(const std::vector<std::string>& argv)
         return usage(std::find(argv.begin(), argv.end(), "--json") != argv.end(), error.what());
     }
     if (args.help) {
+        const auto text = scoped_help(args.command);
+        if (!text) {
+            std::string command;
+            for (const auto& word : args.command)
+                command += (command.empty() ? "" : " ") + word;
+            return usage(args.json, "Unknown command path '" + command + "'.");
+        }
         if (!args.json) {
-            std::cout << help;
+            std::cout << *text;
             return 0;
         }
         return emit(
-            {{"success", true}, {"exitCode", 0}, {"diagnostics", Json::array()}, {"help", help}},
+            {{"success", true}, {"exitCode", 0}, {"diagnostics", Json::array()}, {"help", *text}},
             true);
     }
     if (args.version)

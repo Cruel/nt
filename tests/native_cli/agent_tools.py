@@ -135,6 +135,7 @@ with tempfile.TemporaryDirectory(prefix='noveltea-agent-native-') as temporary:
         raw = run(name, '--help')
         assert raw.returncode == 1 and raw.stderr == '', (name, raw)
         assert f'Usage: {name}' in raw.stdout
+        assert 'NovelTea headless CLI' not in raw.stdout
         # Raw tool arguments remain opaque to NovelTea, including switches
         # that would otherwise be interpreted as position-independent globals.
         for raw_options in [('--version',), ('--json',), ('--no-daemon',),
