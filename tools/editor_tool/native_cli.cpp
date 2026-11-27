@@ -5,6 +5,7 @@
 #include "native_cli_daemon.hpp"
 #include "native_cli_agent.hpp"
 #include "native_cli_narrative_coverage.hpp"
+#include "native_cli_narrative_report.hpp"
 #include "native_cli_comfyui.hpp"
 #include "native_cli_media.hpp"
 #include "native_cli_platform.hpp"
@@ -194,6 +195,14 @@ int emit(Json envelope, bool json, const std::string& message = {})
             (envelope.at("success").get<bool>() ? std::cout : std::cerr) << message << '\n';
     }
     return envelope.at("exitCode").get<int>();
+}
+
+int emit_narrative(Json result, bool json, bool summary)
+{
+    const auto message = json ? std::string{} : narrative_result_message(result);
+    if (json && summary)
+        compact_narrative_result(result);
+    return emit(std::move(result), json, message);
 }
 
 int failure(bool json, int code, const std::string& category, const std::string& path,
@@ -3224,13 +3233,18 @@ int run(const std::vector<std::string>& argv)
                 args.command[2].starts_with("--"))
                 return usage(args.json, "Expected narrative readiness <catalog-root> "
                                         "[--stage <stage>] [--view <design|approved>] "
-                                        "[--milestone <milestone-id>]...; "
+                                        "[--milestone <milestone-id>]... [--summary]; "
                                         "--project is not supported.");
             std::string stage = "interactive", view = "design";
+            bool summary = false;
             bool selected_stage = false, selected_view = false;
             std::vector<std::string> milestones;
             for (std::size_t i = 3; i < args.command.size();) {
                 const auto& option = args.command[i++];
+                if (option == "--summary" && !summary) {
+                    summary = true;
+                    continue;
+                }
                 if (i == args.command.size() || args.command[i].starts_with("--"))
                     return usage(args.json,
                                  "Narrative readiness option '" + option + "' requires a value.");
@@ -3266,14 +3280,11 @@ int run(const std::vector<std::string>& argv)
                     item["sourceUrl"] = item.at("path");
             report.erase("diagnostics");
             const bool valid = diagnostics.empty();
-            return emit({{"success", valid},
-                         {"exitCode", valid ? 0 : 1},
-                         {"diagnostics", diagnostics},
-                         {"readiness", report}},
-                        args.json,
-                        valid ? "Narrative readiness analyzed; inspect the declared minimum "
-                                "and unverified editorial/production obligations."
-                              : "Narrative readiness has invalid catalog input or target IDs.");
+            return emit_narrative({{"success", valid},
+                                   {"exitCode", valid ? 0 : 1},
+                                   {"diagnostics", diagnostics},
+                                   {"readiness", std::move(report)}},
+                                  args.json, summary);
         }
         if (family == "narrative" && operation == "context") {
             if (!args.project.empty() || args.command.size() < 5 || args.command[2].empty() ||
@@ -3287,7 +3298,8 @@ int run(const std::vector<std::string>& argv)
             std::vector<std::string> ids;
             for (std::size_t i = 3; i < args.command.size();) {
                 const auto& option = args.command[i++];
-                if (i == args.command.size() || args.command[i].starts_with("--"))
+                if (i == args.command.size() || args.command[i].empty() ||
+                    args.command[i].starts_with("--"))
                     return usage(args.json, "Context option '" + option + "' requires a value.");
                 const auto value = args.command[i++];
                 if (option == "--kind" && kind.empty())
@@ -3305,11 +3317,16 @@ int run(const std::vector<std::string>& argv)
                     return usage(args.json,
                                  "Unknown or repeated narrative context option '" + option + "'.");
             }
-            if ((kind != "dialogue" && kind != "event" && kind != "character" && kind != "puzzle" &&
-                 kind != "milestone" && kind != "review") ||
-                (scope != "focused" && scope != "related") || (ids.empty() && position.empty()))
-                return usage(args.json, "Context requires a declared task kind, one or more "
-                                        "typed IDs or a Narrative Position, and a valid scope.");
+            if (kind != "dialogue" && kind != "event" && kind != "character" && kind != "puzzle" &&
+                kind != "milestone" && kind != "review")
+                return usage(args.json,
+                             "Expected --kind dialogue|event|character|puzzle|milestone|review.");
+            if (scope != "focused" && scope != "related")
+                return usage(args.json, "Expected --scope focused|related (default focused).");
+            if (kind != "review" && ids.empty() && position.empty())
+                return usage(
+                    args.json,
+                    "Supply --id or --position; only --kind review accepts a whole Story.");
             auto manifest = narrative::context_manifest(native_path_from_utf8(args.command[2]),
                                                         kind, ids, position, scope);
             auto diagnostics = manifest.at("catalogDiagnostics");
@@ -3338,16 +3355,21 @@ int run(const std::vector<std::string>& argv)
         if (family == "narrative" && operation == "validate") {
             if (!args.project.empty() || args.command.size() < 3 || args.command[2].empty() ||
                 args.command[2].starts_with("--"))
-                return usage(args.json,
-                             "Expected narrative validate <catalog-root> [--base <commit>] "
-                             "[--readiness [--stage <stage>] [--view <design|approved>] "
-                             "[--milestone <milestone-id>]...]; --project is not supported.");
+                return usage(
+                    args.json,
+                    "Expected narrative validate <catalog-root> [--summary] [--base <commit>] "
+                    "[--readiness [--stage <stage>] [--view <design|approved>] "
+                    "[--milestone <milestone-id>]...]; --project is not supported.");
             std::string base;
-            bool selected_base = false, with_readiness = false;
+            bool selected_base = false, with_readiness = false, summary = false;
             bool selected_stage = false, selected_view = false;
             narrative::ReadinessRequest options;
             for (std::size_t i = 3; i < args.command.size();) {
                 const auto option = args.command[i++];
+                if (option == "--summary" && !summary) {
+                    summary = true;
+                    continue;
+                }
                 if (option == "--readiness" && !with_readiness) {
                     with_readiness = true;
                     continue;
@@ -3413,13 +3435,10 @@ int run(const std::vector<std::string>& argv)
             Json result = {{"success", valid},
                            {"exitCode", valid ? 0 : 1},
                            {"diagnostics", diagnostics},
-                           {"catalog", catalog}};
+                           {"catalog", std::move(catalog)}};
             if (with_readiness)
-                result["readiness"] = combined_readiness;
-            return emit(result, args.json,
-                        valid ? "Narrative catalog analyzed; inspect coverage and Git protection "
-                                "if a baseline was requested."
-                              : "Narrative catalog has structural or protected-decision findings.");
+                result["readiness"] = std::move(combined_readiness);
+            return emit_narrative(std::move(result), args.json, summary);
         }
         if (family == "media-tool" && operation == "check") {
             if (args.command.size() != 2)

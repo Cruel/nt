@@ -188,8 +188,10 @@ Json context_manifest(const std::filesystem::path& root, const std::string& kind
                     {{"code", code}, {"sourceId", from}, {"targetId", to}, {"pointer", pointer}});
         }
     };
-    expand(first, false);
-    if (scope == "related") {
+    const bool whole_story = kind == "review" && ids.empty() && position.empty();
+    if (!whole_story)
+        expand(first, false);
+    if (scope == "related" && !whole_story) {
         std::set<std::string> second;
         for (const auto& [id, entry] : selected)
             if (!first.contains(id) && entry.record->metadata["type"] != "arc" &&
@@ -201,6 +203,9 @@ Json context_manifest(const std::filesystem::path& root, const std::string& kind
                 record->metadata["status"] != "superseded")
                 include(id, 2, {{"code", "story-direction"}, {"sourceId", id}, {"targetId", id}});
     }
+    if (whole_story)
+        for (const auto& [id, record] : records)
+            include(id, 0, {{"code", "whole-story-review"}, {"sourceId", id}, {"targetId", id}});
     constexpr std::size_t limit = 128;
     std::vector<std::pair<std::string, Inclusion>> items(selected.begin(), selected.end());
     std::sort(items.begin(), items.end(), [](const auto& a, const auto& b) {
@@ -247,18 +252,21 @@ Json context_manifest(const std::filesystem::path& root, const std::string& kind
     }
     std::sort(unresolved.begin(), unresolved.end(),
               [](const Json& a, const Json& b) { return a.dump() < b.dump(); });
-    return {
-        {"contractRevision", contract["revision"]},
-        {"taskKind", kind},
-        {"scope", scope},
-        {"position", position.empty() ? Json(nullptr) : Json(position)},
-        {"files", files},
-        {"unresolved", unresolved},
-        {"bounded",
-         {{"maxDepth", scope == "related" ? 2 : 1}, {"maxFiles", limit}, {"truncated", truncated}}},
-        {"catalogDiagnostics", catalog.diagnostics},
-        {"coverageStatus", coverage["search"]["truncated"] ? "unverified"
-                           : catalog.diagnostics.empty()   ? "structurally-assessed"
-                                                           : "indeterminate"}};
+    return {{"contractRevision", contract["revision"]},
+            {"taskKind", kind},
+            {"scope", scope},
+            {"position", position.empty() ? Json(nullptr) : Json(position)},
+            {"files", files},
+            {"unresolved", unresolved},
+            {"bounded",
+             {{"maxDepth", whole_story          ? 0
+                           : scope == "related" ? 2
+                                                : 1},
+              {"maxFiles", limit},
+              {"truncated", truncated}}},
+            {"catalogDiagnostics", catalog.diagnostics},
+            {"coverageStatus", coverage["search"]["truncated"] ? "unverified"
+                               : catalog.diagnostics.empty()   ? "structurally-assessed"
+                                                               : "indeterminate"}};
 }
 } // namespace noveltea::narrative

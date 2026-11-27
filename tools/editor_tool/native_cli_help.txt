@@ -16,16 +16,23 @@ Commands:
   comfyui verify [<id>] [--server <url>]
   comfyui run [<workflow-id> | --type <classification>] [--input <name=value>]... [--output <routing>]... [--server <url>] [--force]
   validate [--working]
-  narrative validate <catalog-root> [--base <verified-commit>]
+  narrative validate <catalog-root> [--base <verified-commit>] [--summary]
                      [--readiness [--stage <foundation|architecture|interactive|composition|review>]
                      [--view <design|approved>] [--milestone <milestone-id>]...]
+                     --summary: compact JSON; omit for records, witnesses and full findings.
+                     Both whole-Story views are returned. One --view and --stage select
+                     whole-Story focus and requested Milestone cluster minima (default design/review).
   narrative metrics <catalog-root>
   narrative coverage <catalog-root> --project <project-directory> [--test-report <suite.json>]...
   narrative readiness <catalog-root> [--stage <foundation|architecture|interactive|composition|review>]
-                      [--view <design|approved>] [--milestone <milestone-id>]...
+                      [--view <design|approved>] [--milestone <milestone-id>]... [--summary]
+                      Both whole-Story views are returned. One --view and --stage select
+                      whole-Story focus and cluster minima (default design/interactive).
+                      Omit --summary for full findings and witnesses.
   narrative context <catalog-root> --kind <dialogue|event|character|puzzle|milestone|review>
                     [--id <typed-id>]... (up to 32 IDs) [--position <narrative-position-id>]
-                    [--scope <focused|related>]
+                    [--scope <focused|related>] (default focused)
+                    Without --id or --position, only --kind review is valid (whole Story).
   fmt [<tracked-yaml-path>] [--check] [--strip-defaults]
   localization sync [--dry-run]
   localization reconcile [--apply]

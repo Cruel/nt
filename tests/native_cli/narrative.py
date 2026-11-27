@@ -173,7 +173,7 @@ Independent fictional occurrence.
 
     # Context Manifest reuses native catalog parsing but never exports narrative text.
     def context(path, *options, code=0):
-        run = subprocess.run([str(binary), '--json', 'narrative', 'context', str(path),
+        run = subprocess.run([str(binary), '--no-daemon', '--json', 'narrative', 'context', str(path),
                               *options], cwd=root, env=env, capture_output=True, encoding='utf-8')
         assert run.returncode == code, (run.returncode, run.stdout, run.stderr)
         assert not run.stderr, run.stderr
@@ -232,6 +232,12 @@ Independent fictional occurrence.
     # deterministic Context Manifest, but must reject the 33rd explicitly.
     targets = [record['metadata']['id'] for record in report['catalog']['records']]
     assert len(targets) >= 33 and len(set(targets)) == len(targets)
+    review = context(story, '--kind', 'review')['manifest']
+    assert review['scope'] == 'focused' and not review['bounded']['truncated']
+    assert {item['id'] for item in review['files']} == set(targets)
+    assert review == context(story, '--kind', 'review', '--scope', 'focused')['manifest']
+    help_text = subprocess.check_output([binary, 'narrative', 'context', '--help'], text=True)
+    assert 'default focused' in help_text and 'only --kind review' in help_text
     for count in (16, 32):
         bounded_options = ('--kind', 'review', '--scope', 'focused',
                            *(argument for target in targets[:count]
@@ -357,6 +363,7 @@ Independent fictional occurrence.
     private_reports = (validate(), readiness(story, '--stage', 'composition'),
                        context(story, *task))
     assert private_reports == original_reports
+    assert context(story, '--kind', 'review')['manifest'] == review
     assert all('.story-inbox' not in json.dumps(report) for report in private_reports)
 
     # The exclusion must not silence malformed Markdown in canonical folders.
@@ -389,6 +396,60 @@ Independent fictional occurrence.
                 'blocked', 'unverified') for f in gate['findings'])
             assert all('path' in f and 'line' in f and 'column' in f
                        for f in gate['findings'])
+
+    # Phase 0 handoff: two composed Milestones, two deliberately unfinished ones.
+    # Grow the same Story with independent planning records (no extra solver branches).
+    planning = source / 'tests/fixtures/narrative/planning-stages'
+    scaled = root / 'summary-story'
+    shutil.copytree(planning / '04-composition', scaled)
+    finished = (scaled / 'milestones/warning.md').read_text()
+    partial_plan = (planning / '02-architecture/milestones/warning.md').read_text()
+    def add_milestone(name, template):
+        (scaled / f'milestones/{name}.md').write_text(template.replace(
+            'id: milestone.warning', f'id: milestone.{name}'))
+    add_milestone('second', finished)
+    add_milestone('later', partial_plan)
+    add_milestone('last', partial_plan)
+    selectors = ('--stage', 'composition', '--view', 'design', '--milestone', 'milestone.warning',
+                 '--milestone', 'milestone.second')
+    argv = [str(binary), '--no-daemon', '--json', 'narrative', 'validate', str(scaled),
+            '--readiness', *selectors]
+    for extra in (0, 128):
+        for i in range(extra):
+            add_milestone(f'future-{i:03}', partial_plan)
+        full_bytes = subprocess.check_output(argv, env=env)
+        compact_bytes = subprocess.check_output([*argv, '--summary'], env=env)
+        print(f'{8 + extra} records: full {len(full_bytes)}, summary {len(compact_bytes)} bytes')
+        assert len(compact_bytes) < len(full_bytes) / 3 and len(compact_bytes) < 16000
+        compact = json.loads(compact_bytes)
+        assert compact['exitCode'] == 0 and compact['success'] and compact['protocolVersion'] == 1
+        summary = compact['summary']
+        assert summary['recordCount'] == 8 + extra and '--summary' in summary['fullDetail']
+        assert summary['coverage']['statusCounts']['eventProgress'] == {'reachable': 1}
+        assert summary['coverage']['search'] == {'limit': 4096, 'truncated': False}
+        assert summary['coverage']['unverified']
+        gates = summary['readiness']
+        assert gates['wholeStoryMinima']['design']['composition'] == 'needs-work'
+        assert gates['wholeStoryMinima']['approved']['foundation'] == 'needs-work'
+        assert gates['wholeStoryFocus']['blockingGaps']['items'][0]['path']
+        assert [c['minimum'] for c in gates['clusters']] == ['passed', 'passed']
+        assert gates['outstanding']['truncated'] == bool(extra)
+        assert gates == readiness(scaled, *selectors, '--summary')['summary']['readiness']
+    human = subprocess.check_output([binary, 'narrative', 'validate', scaled, '--readiness',
+                                     *selectors], text=True)
+    assert 'Diagnostics: 0' in human and 'whole Story: needs-work' in human
+    assert 'milestone.second: passed' in human
+    whole = context(scaled, '--kind', 'review')['manifest']
+    assert whole['bounded']['truncated'] and len(whole['files']) == 128
+    assert [f['path'] for f in whole['files']] == sorted(
+        str(p.relative_to(scaled)) for p in scaled.rglob('*.md'))[:128]
+    add_milestone('second', partial_plan)
+    blocked = combined(scaled, *selectors, '--summary')['summary']['readiness']['clusters'][1]
+    assert blocked['minimum'] == 'needs-work' and any(
+        f['subjectId'] == 'milestone.second' for f in blocked['blockingGaps']['items'])
+    (scaled / 'bad.md').write_text('not a Story record')
+    invalid = combined(scaled, *selectors, '--summary', code=1)
+    assert any(d['path'] == 'bad.md' and d['line'] == 1 for d in invalid['diagnostics'])
 
     # All-status structural success is not approved-canon readiness.
     full = readiness(story, '--stage', 'composition')['readiness']
@@ -486,6 +547,9 @@ A declared predecessor.
     assert bound['bounded']['truncated'] is True
     assert bound['minimum'] == 'unverified'
     assert len(bound['recordIds']) <= 128
+    compact_bound = readiness(bounded, '--summary', '--milestone',
+                              'milestone.accept-investigation')['summary']['readiness']['clusters'][0]
+    assert compact_bound['bounded']['truncated'] and compact_bound['minimum'] == 'unverified'
 
     # Approved scope excludes unrelated draft/superseded records. Status is
     # not inferred from draft structural reachability.

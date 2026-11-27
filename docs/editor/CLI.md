@@ -61,14 +61,17 @@ It emits source-located structural diagnostics and bounded narrative coverage;
 structural success does not prove completeness, engine behavior, or revision
 authorization. With an explicit verified `--base`, the native CLI additionally reports
 Git-backed protected-decision changes and conservative relationship impact;
-these findings cannot certify human permission. See [Narrative CLI](NARRATIVE_CLI.md) for the command, report,
+these findings cannot certify human permission. Add `--readiness --summary` for a compact
+report with both whole-Story views and any requested Milestone cluster minima. Omit
+`--summary` for full records and witnesses. See [Narrative CLI](NARRATIVE_CLI.md) for the command, report,
 upstream contract ownership, partial/unverified semantics and refresh procedure.
 
 `noveltea [--json] narrative context <catalog-root> --kind <task-kind>
---id <typed-id> [--position <narrative-position-id>] [--scope focused|related]`
+[--id <typed-id>]... [--position <narrative-position-id>] [--scope focused|related]`
 returns a deterministic, status-aware Context Manifest containing prioritized
 Markdown paths, source fingerprints and typed relationship evidence, not narrative
-prose. See [Narrative CLI](NARRATIVE_CLI.md#task-scoped-context-manifest).
+prose. Only `--kind review` may omit both ID and position for a bounded whole-Story manifest.
+See [Narrative CLI](NARRATIVE_CLI.md#task-scoped-context-manifest).
 
 The read-only `narrative readiness` CLI reports status-scoped minimum requirements
 and bounded Milestone handoff clusters. A `passed` minimum does not establish

@@ -67,6 +67,67 @@ accept a permission acknowledgement as proof of human approval.
 Narrative Events and predicates are not engine Scene Events or gameplay Conditions.
 No engine linkage, project schema, compiler or runtime behavior is changed.
 
+## Compact validation and readiness (`--summary`)
+
+For a handoff, start with:
+
+```sh
+noveltea --no-daemon --json narrative validate story --base HEAD --readiness \
+  --stage composition --view design --milestone milestone.warning --summary
+```
+
+`--summary` is a presentation option for `validate` (with or without `--readiness`) and
+standalone `readiness`. The protocol-1 envelope keeps the same `success`, `exitCode`, and
+**all** top-level diagnostics, including their locations. Instead of `catalog` or `readiness`
+at the top level it returns `summary`, a projection of the same analysis. Read the process
+exit status even when piping JSON to another tool (e.g. `set -o pipefail` in Bash).
+
+- `summary.contractRevision` and `authorization` identify the contract and authorization
+  assessment. Validation adds `recordCount` and `coverage`: `minimumProgress`, `search`
+  (including solver truncation), `unverified`, `unverifiedBranches`, and `statusCounts`
+  for `eventProgress`, `branchProgress`, `routes`, `solutions`, `clueAccess`, `narrativeState`
+  (position reachability), and `predicates` (state classifications). Counts describe the
+  declared evidence; an empty group does not mean the Story is complete.
+- With `--base`, `summary.protection` retains the baseline check and every protected decision
+  finding, including before/after evidence. Its `impact` samples `changed` and `moved` and
+  reports `affectedCount`, analysis bounds and unverified categories. Exit 1 with no diagnostics
+  can mean approval is required. A summary does not verify consent.
+- `summary.readiness.wholeStoryMinima[view][stage]` gives minima for **both** views and all
+  stages. `wholeStoryFocus` describes just the selected whole-Story gate. Inspect
+  `clusters[].minimum` for each requested Milestone **at the selected view and stage**;
+  a scoped pass and a whole-Story gap can coexist. Only one `--view` may be supplied;
+  it does not filter out the other view's whole-Story minima. `wholeStoryFocus.blockingGaps`
+  and each valid cluster's `blockingGaps` include cumulative, source-located obligations;
+  `outstanding` is the separate whole-Story planning queue. Retain `qualitative` uncertainty
+  and each cluster's `bounded` flag. Exit 0 does not imply a passed minimum.
+- Sampled lists (`blockingGaps`, `outstanding`, `unverifiedBranches`, `impact.changed`,
+  `impact.moved`) have `{total, truncated, items}`. They return the first eight entries at
+  most, without witness arrays. This display truncation is independent of analysis bounds.
+  Diagnostics and protection findings are intentionally uncapped, even for large broken Stories.
+- `summary.fullDetail` gives the drill-down: repeat the identical command **without** `--summary`.
+  Use `catalog.records`, `catalog.coverage.narrativeState[].state[]` (`predicate` and `status`),
+  `catalog.protection.impact.affected[].witnesses`, and the full stage/cluster findings there.
+  Human output prints the diagnostic count, protection verdict if requested, and separate
+  whole-Story and Milestone minima when readiness is requested.
+
+### Reproducing the payload comparison
+
+`python3 tests/native_cli/narrative.py /path/to/noveltea "$PWD"` generates a Story from
+`planning-stages/04-composition` with two composed Milestones and two future partial ones,
+then adds 128 partial Milestones. It measures stdout bytes (including newline) from
+`noveltea --no-daemon --json narrative validate <root> --readiness --stage composition
+--view design --milestone milestone.warning --milestone milestone.second`, changing only
+`--summary` within each pair:
+
+| Records | Full bytes | Summary bytes |
+| ---: | ---: | ---: |
+| 8 | 39,327 | 3,745 |
+| 136 | 669,855 | 6,943 |
+
+At both scales the whole Story needs work and both selected clusters pass. At the larger
+scale the summary explicitly truncates its planning queue. These are payload measurements,
+not solver performance or a bound on diagnostics or authored string lengths.
+
 ## Git-baseline protection and change impact
 
 Use `noveltea --json narrative validate story --base <verified-commit>` to compare the
@@ -272,7 +333,7 @@ proposed/draft/approved records excluding superseded, and
 five stages contains `minimum` (`passed`, `needs-work`, `unverified`),
 `requirements`, current-stage `findings`, cumulative `blockingGaps`, and
 qualitative `unverified` categories. The selected stage/view appears again
-as `readiness.focus`.
+as `readiness.focus`: this is always a **whole-Story** gate, not the selected cluster.
 
 Each finding carries stable `requirementId`, `code`, `status` (`satisfied`, `missing`,
 `blocked`, `unverified`), `subjectId`, `requiredBy`, `message`,
@@ -344,7 +405,13 @@ accepts one or more `--id <typed-id>` options and/or a
 `--position <narrative-position-id>` option, plus optional
 `--scope focused|related` (default: `focused`). The supported kinds are
 `dialogue`, `event`, `character`, `puzzle`, `milestone`, and `review`.
-At most 32 explicitly resolved IDs may be supplied per request. Both commands
+Only `review` permits omitting both IDs and position. For example,
+`noveltea --no-daemon --json narrative context "$PWD/story" --kind review` selects
+unique admitted records from the Story root in path order (including superseded records),
+with inclusion code `whole-story-review`, no graph expansion and the same 128-file cap.
+Check `manifest.bounded.truncated`; to request a particular record use `--id`. Explicit
+`--scope related` does not widen a whole-Story selection. All other kinds require an
+ID or position. At most 32 explicit `--id` options may be supplied per request. Both commands
 use the same pinned upstream contract, native Markdown parser, relationship
 index and structural analysis. Neither requires a Project, Git, daemon,
 compilation, network access or any source mutation.
@@ -372,7 +439,7 @@ relationship edges. Codes include `requested-id`, `requested-position`,
 These describe **declared structural links**, not an LLM judgment of
 creative importance.
 
-Selection always includes explicitly requested records and the positioned
+Targeted selection always includes explicitly requested records and the positioned
 Event, then one neighborhood of typed source/reference edges. The
 `related` scope permits only one additional hop from non-Arc sources,
 selectively avoiding broad transitive expansion from Characters, Arcs or

@@ -129,6 +129,10 @@ with tempfile.TemporaryDirectory(prefix='nt-narrative-git-') as temporary:
     assert changed['diagnostics'] == []  # Authorization is distinct from structural failure.
     assert changed['catalog']['authorization']['status'] == 'approval-required'
     finding = changed['catalog']['protection']['findings'][0]
+    compact = invoke(repo, story, '--summary', '--base', base, '--readiness', code=1)
+    assert compact['exitCode'] == 1 and not compact['diagnostics']
+    assert compact['summary']['authorization']['status'] == 'approval-required'
+    assert compact['summary']['protection']['findings'] == [finding]
     assert finding['code'] == 'protected-decision-change'
     assert finding['decisionId'] == 'milestone.accept-investigation#permission-threshold'
     assert finding['category'] == 'changed'
