@@ -7,6 +7,8 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -67,6 +69,15 @@ constexpr std::string_view kRelative = ".noveltea/cache/authoring/native-clean-c
 // Discriminate cached source generations from pre-cutover SHA-256 evidence.
 constexpr std::string_view kSourceRevisionAlgorithm = "xxh3-128";
 constexpr std::string_view kAssetProofAlgorithm = "xxh3-128";
+
+// Source-owned opt-in diagnostic checkpoints for cold import failures. No
+// filenames, user data or cache contents are emitted; runtime admission is
+// unchanged. The cross-system certification enables this on its cold worker.
+void trace_clean_cache_read(const char* checkpoint) noexcept
+{
+    if (std::getenv("NOVELTEA_NATIVE_CACHE_TRACE"))
+        std::fprintf(stderr, "[native-clean-cache] %s\n", checkpoint);
+}
 
 std::string cache_project_root(const fs::path& root)
 {
@@ -225,6 +236,7 @@ std::optional<CachedValidation>
 read_clean_cache(const fs::path& root, const std::map<std::string, std::string>& revisions,
                  const RoomSessionSnapshot& source)
 {
+    trace_clean_cache_read("reader-enter");
     try {
         if (!safe_cache_path(root))
             return std::nullopt;
@@ -238,8 +250,20 @@ read_clean_cache(const fs::path& root, const std::map<std::string, std::string>&
             value.at("semanticFingerprint") != kSemanticFingerprint ||
             value.at("sourceRevisionAlgorithm") != kSourceRevisionAlgorithm ||
             value.at("assetProofAlgorithm") != kAssetProofAlgorithm ||
-            value.at("projectRoot") != cache_project_root(root) || !value.at("sources").is_object())
+            !value.at("projectRoot").is_string() || !value.at("sources").is_object())
             return std::nullopt;
+#ifdef _WIN32
+        // An NTFS directory has one physical identity but can have different
+        // 8.3, case, or volume spelling in the CLI and the Electron worker.
+        // Verify the same actual directory, not a byte-for-byte path spelling.
+        // A ledger from a different Project remains inadmissible.
+        if (!fs::equivalent(fs::path(value.at("projectRoot").as<std::string>()), root))
+            return std::nullopt;
+#else
+        if (value.at("projectRoot") != cache_project_root(root))
+            return std::nullopt;
+#endif
+        trace_clean_cache_read("reader-root-proved");
         std::map<std::string, std::string> saved_revisions;
         for (const auto& entry : value.at("sources").object_range()) {
             const auto& metadata = entry.value();
@@ -250,11 +274,15 @@ read_clean_cache(const fs::path& root, const std::map<std::string, std::string>&
             saved_revisions.emplace(std::string(entry.key()),
                                     metadata.at("revision").as<std::string>());
         }
-        const auto current_metadata = source_metadata(root, revisions);
+        // Admission already proved the current physical source bytes. Treat
+        // metadata-only changes as the same generation, but reject a content
+        // change even when size and mtime were restored to their cached values.
+        // Comparing timestamps here can make an otherwise valid cold
+        // Windows Editor/CLI import miss after a metadata-only update.
         std::map<std::string, std::string> changed_revisions;
         for (const auto& entry : value.at("sources").object_range()) {
             const std::string path(entry.key());
-            if (!current_metadata.contains(path) || current_metadata.at(path) != entry.value())
+            if (!revisions.contains(path) || saved_revisions.at(path) != revisions.at(path))
                 changed_revisions.emplace(path,
                                           revisions.contains(path) ? revisions.at(path) : "absent");
         }
@@ -265,6 +293,7 @@ read_clean_cache(const fs::path& root, const std::map<std::string, std::string>&
         // There is no defensible partial graph under a different root contract.
         if (changed_revisions.contains("project.yaml"))
             return std::nullopt;
+        trace_clean_cache_read("reader-revisions-proved");
         // A matching physical source generation alone does not establish that
         // the persisted *derived* diagnostics and normalized records survived
         // intact. Bind the semantic payload without coupling it to optional
@@ -279,6 +308,7 @@ read_clean_cache(const fs::path& root, const std::map<std::string, std::string>&
         payload.erase("stages");
         if (value.at("payloadRevision") != noveltea::core::xxh3_128_revision(payload.to_string()))
             return std::nullopt;
+        trace_clean_cache_read("reader-payload-proved");
         const auto& result = value.at("result");
         if (!result.is_object() || result.size() != 2 || !result.at("valid").is_bool() ||
             !result.at("diagnostics").is_array() || result.at("diagnostics").size() > 10000)
@@ -405,9 +435,11 @@ read_clean_cache(const fs::path& root, const std::map<std::string, std::string>&
             value.at("stageRevision") ==
                 noveltea::core::xxh3_128_revision(stored_stages.to_string()))
             stages = stored_stages;
+        trace_clean_cache_read("reader-accepted");
         return CachedValidation{std::move(snapshot), resident, stages, std::move(saved_revisions),
                                 std::move(changed_revisions)};
     } catch (...) {
+        trace_clean_cache_read("reader-exception");
         return std::nullopt; // Optional acceleration; malformed or old formats always miss.
     }
 }
@@ -1059,7 +1091,9 @@ ProjectSession::CleanValidation ProjectSession::validate_clean_project(bool init
     std::string offline_stage_evidence;
     if (clean() && !validation_pending_uncertain_ && !validation_snapshot_ &&
         validation_pending_source_revisions_.empty()) {
+        trace_clean_cache_read("admission-eligible");
         if (const auto revisions = proof(initially_observed)) {
+            trace_clean_cache_read("admission-proof");
             // This is the same pre-validation source boundary. Cache lookup
             // itself cannot change tracked sources, and the independent
             // post-preparation proof must still match these exact digests.
@@ -1168,6 +1202,9 @@ ProjectSession::CleanValidation ProjectSession::validate_clean_project(bool init
             }
         }
     }
+    // A failure before the reader is an observation/eligibility miss, not a
+    // malformed disk cache. Do not conflate these independent failure modes.
+    trace_clean_cache_read("admission-fallback");
     // Cache publication must match the exact generation observed before
     // validation, not merely two identical post-validation manifests.
     const auto validated_input =
@@ -1238,13 +1275,21 @@ bool ProjectSession::publish_deferred_clean_validation(
     }
     if (resident_cache_maintenance_) {
         cache_maintenance_pending_ = true;
-        cache_stage_revisions_ = post_revisions;
-        cache_stage_builder_ = std::move(deferred_stages);
-        // A semantic-only repeat must not discard independently proved font
-        // and shader stage evidence from a previously admitted cache hit.
-        cache_stage_json_ = stages_json != "null" ? std::string(stages_json)
-                            : validated.cache_hit ? validated.stages_json
-                                                  : std::string{};
+        // A semantic-only repeat may lack external stage inputs even when an
+        // earlier validation certified those stages for these exact source
+        // revisions. Do not erase that deferred builder merely because the
+        // newer request has no replacement evidence. Different revisions must
+        // never inherit an old builder (including after watcher recovery).
+        const std::string incoming_stages = stages_json != "null" ? std::string(stages_json)
+                                            : validated.cache_hit && validated.stages_json != "null"
+                                                ? validated.stages_json
+                                                : std::string{};
+        if (deferred_stages || !incoming_stages.empty() ||
+            cache_stage_revisions_ != post_revisions) {
+            cache_stage_revisions_ = post_revisions;
+            cache_stage_builder_ = std::move(deferred_stages);
+            cache_stage_json_ = incoming_stages;
+        }
     } else if (owns_clean_cache_lease() &&
                (!validated.cache_hit || stages_json != "null" || deferred_stages)) {
         try {

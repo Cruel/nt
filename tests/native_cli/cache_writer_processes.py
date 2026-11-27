@@ -94,6 +94,9 @@ with tempfile.TemporaryDirectory(prefix="noveltea-cache-election-") as directory
         assert not ledger.exists(), "Nonowner direct validation cannot publish"
         assert a.send("validate-deferred")["stageBuilds"] == 0, (
             "Foreground validation must not construct pending stage evidence")
+        # An unchanged semantic-only request has no external stage builder.
+        # It must not replace the already certified, still-deferred stages.
+        assert a.send("validate-deferred-without-stages")["stageBuilds"] == 0
         # Force loss/recovery of the source watcher before its first idle
         # publication. Windows USN journal errors used to revoke the deferred
         # stage builder even when the complete rescan proved unchanged bytes,

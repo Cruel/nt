@@ -465,12 +465,99 @@ runners; Linux cannot establish their ABI or linker correctness.
 
 ## Main CI Scheduling and Caches
 
-The Build workflow runs Linux desktop, host CLI production, host CLI certification, and native
-cooperative compilation as separate jobs. Web editor-preview production runs independently from the
+The Build workflow runs Linux desktop correctness, host CLI production, host CLI certification,
+and platform candidate producers as separate jobs. Extended Qualification and Coverage
+remain separate workflows. Web editor-preview production runs independently from the
 canonical Web player, and Android cooperative compilation runs independently from APK/export coverage.
 Electron waits only for the CLI and preview producers; Android APK/export waits only for shaders and
 the CLI producer. CLI certification remains a required part of a successful workflow, but does not
 block these consumers. Development snapshot publication still requires the entire Build to succeed.
+
+### Linux desktop native correctness
+
+The Build workflow compiles the non-instrumented `linux-debug` configuration once in
+`linux-native-build`, including the excluded native CLI certification target, Clang Narrative
+check, native devtools symbol checks, and C++ runtime/dependency policy. This is the sole Linux
+Debug compiler/vcpkg cache writer in Build. It exports a short-lived **test input**, not a
+Release candidate or persistent cache. No consumer recompiles the configured native targets.
+
+`scripts/ci/linux-native-shards.py plan` uses CTest's full JSON registration inventory and
+the original native/representative-CLI selectors. The six independently scheduled CTest
+shards (four native, two CLI) keep the original per-runner parallelism (two native workers, one CLI worker). Registration
+indices preserve duplicate test names; dependency, fixture, and resource-lock groups stay
+together, and CTest retains its own RUN_SERIAL scheduling. Historical costs from
+`scripts/ci/linux-native-test-costs.json` only balance the partition; missing weights cannot
+remove tests. Planning checks the exact union against both original CTest selections and
+each actual CTest shard selection, failing on an empty shard or inconsistent grouping.
+Each consumer verifies the restored inventory and its CTest selection before executing it.
+
+The producer uploads the compressed executable and generated-input tree (excluding compiler
+objects, static archives, coverage counters, and stale CTest results). The same-run consumers
+download its exact artifact ID, verify SHA-256 and the checkout path, repository, workflow,
+source SHA, run ID, architecture and producer attempt, and reject overlays. A successful
+producer from an earlier attempt of the same run remains valid for a failed-job rerun while
+its artifact is retained. All consumers run on Ubuntu 24.04; the archive preserves executable
+modes and symlinks and does not strip Debug symbols. The separate Feature Lab authored Tests
+consumer stages the pinned FFmpeg and downloads a narrower, independently
+identified archive of the exact staged native CLI, UI Test runner, runtime assets
+and prebuilt shader inputs, rather than the full CTest closure. The CTest archive
+stores the duplicate UI Test runner only once: packing checks both binaries are
+byte-identical, and restoration recreates the staged sibling as a separate file.
+Neither profile strips debug information or compiles replacements.
+
+The unchanged **Linux desktop native correctness** check is a fail-closed aggregate of the
+producer, all six CTest shards, and Feature Lab. A failed, skipped, or cancelled dependency
+cannot authorize success. Platform qualification is independent of this gate; Coverage continues to build and
+use its separate instrumented configuration.
+
+### Windows MSVC native correctness
+
+The `windows-native-build` job builds the same Windows Release MSVC targets
+and packages the actual player template. Four independent certification
+consumers restore its exact artifact ID and verify the producer's source/run,
+checkout path, archive hash and selected CTest registration inventories. They
+run lightweight native and Project transaction tests, incremental validation
+and recovery, platform export/repair/launch, and CLI/editor cache-writer handoff.
+The latter still builds the real native Node addon independently. The
+`windows-native-policy` job uses the identical configure and toolchain setup
+and runs the complete `cxx-policy` target including public-header probes,
+independently of runtime tests. The native build and policy lanes publish
+separate bounded compiler-object scopes after successful compilation; only the
+native build publishes compiled vcpkg packages. The original
+**Windows C++ policy** job fails closed unless all lanes succeed. The runtime
+closure is not a Release candidate; it preserves test executables, generated
+CTest metadata and runtime assets while omitting compiler objects, static
+archives, debug symbol files and unused dependency examples/documentation.
+Source-only dependency symlinks are pruned before filesystem traversal;
+unexpected missing runtime inputs still fail the producer. The player template is created before that
+exclusion. Hosted measurements must establish the archive transfer cost.
+
+### Android diagnostic build and export
+
+The x86_64 diagnostic APK/template producer starts after shader assets rather
+than waiting for the Linux host CLI. The original **Android** job waits for
+the successful diagnostic producer and Linux host CLI, restores their exact
+artifact IDs and verifies candidate manifests against the producing attempts.
+It exports both existing fixture revisions using the original immutable
+template archive; the existing debug-template and fixture artifact names
+remain unchanged. The consumer needs Java and Android SDK build tools, but
+does not build native code or install NDK/CMake. ARM64 production candidate
+builds and Extended emulator acceptance remain separate and unchanged.
+
+For targeted contract verification:
+
+```sh
+node --test tests/ci/linux_native_shard_tests.mjs tests/ci/build_workflow_tests.mjs
+```
+
+The integration fixture builds and restores real executables with CTest metadata, exercises the
+partition, and tests rejection of cross-suite dependencies and invalid artifact identities.
+It is not a substitute for the full hosted Build. Record the new producer pack/upload and
+consumer setup/download/extract durations and archive sizes alongside end-to-end timings before
+claiming a performance improvement (#646). The archive intentionally retains broad runtime
+and generated dependency metadata until a narrower closure can be qualified.
+
+### Shared scheduling and cache contracts
 
 CLI certification downloads both the executable and its bgfx shader headers from same-run artifacts.
 The headers come from the CLI producer's installed dependency tree; certification must not depend on
@@ -496,11 +583,10 @@ cooperative job deliberately shares the `linux-debug` installed tree path while 
 `linux-no-threads` binary writer. All jobs must regenerate dependencies on cache misses; caches are
 acceleration, not required job-to-job inputs.
 
-CI build and vcpkg concurrency is four. The sanitizer's bounded, non-GPU smoke set uses two CTest
-workers; the GPU and comprehensive CTest lanes remain serial because some captures share an Xvfb
-display and lack serialization properties. Local builds continue to honor the inherited limit
-described above. Linux desktop,
-CLI, and cooperative builds retain 120-minute timeout headroom; sanitizer, Web, and Android builds
+CI build and vcpkg concurrency is four. The Linux desktop CTest shards use the independent-display scheduling described above;
+other lanes retain their own CTest settings. Local builds continue to honor the inherited limit
+described above. Linux desktop producer and consumers retain 150-minute timeout headroom;
+CLI and cooperative builds retain their existing limits; sanitizer, Web, and Android builds
 retain 90 minutes, pending cold-cache measurements rather than assuming a warm cache.
 
 When evaluating scheduling/cache changes, compare successful cold-cache and warm-cache runs at the

@@ -10,6 +10,8 @@ struct AgentSyncResult {
     bool bootstrap_changed = false;
     std::string bootstrap_status;
     std::string gitignore_status;
+    // Expected unsafe-path or mutation rejection, returned without C++ unwinding.
+    std::string failure;
     std::filesystem::path guide;
     std::filesystem::path manifest;
 };

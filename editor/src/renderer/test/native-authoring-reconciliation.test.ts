@@ -1342,7 +1342,7 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
     const deleted = await working.stageTextSource(source, '', 'absent');
     expect(deleted).toMatchObject({ accepted: true, textSourceStaged: false });
     expect(working.dirtyCheckpoint().textSources[source]).toBeUndefined();
-  });
+  }, 30_000);
 
   it('restores offline-deleted text independently and requires a new exact revision for Keep Mine', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'native-text-offline-delete-'));

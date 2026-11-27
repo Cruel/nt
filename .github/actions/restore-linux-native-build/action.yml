@@ -1,0 +1,46 @@
+name: Restore Linux Debug native test build
+description: Restore the exact-run noninstrumented build for an independent correctness consumer.
+inputs:
+  artifact-id:
+    description: Exact artifact ID from the successful Linux Debug producer.
+    required: true
+  profile:
+    description: Full CTest registration closure or narrow Feature Lab runtime closure.
+    required: false
+    default: ctest
+runs:
+  using: composite
+  steps:
+    - uses: pnpm/action-setup@v6
+    - uses: actions/setup-node@v6
+      with:
+        node-version-file: .node-version
+    - name: Install workspace dependencies
+      shell: bash
+      run: pnpm install --frozen-lockfile
+    - name: Set up native test dependencies
+      uses: ./.github/actions/setup-linux-native
+      with:
+        pkg-config: "true"
+        autotools: "true"
+        graphics: "true"
+        xvfb: "true"
+        extra-packages: libgl1-mesa-dri zstd
+    - name: Require producer artifact identity
+      shell: bash
+      env:
+        ARTIFACT_ID: ${{ inputs.artifact-id }}
+      run: |
+        [[ "$ARTIFACT_ID" =~ ^[1-9][0-9]*$ ]]
+    - name: Download exact-run Linux Debug test build
+      uses: actions/download-artifact@v7
+      with:
+        artifact-ids: ${{ inputs.artifact-id }}
+        path: ${{ runner.temp }}/noveltea-linux-native-test-build
+    - name: Authenticate and restore Linux Debug test build
+      shell: bash
+      env:
+        TEST_PROFILE: ${{ inputs.profile }}
+      run: |
+        bash scripts/ci/linux-native-build-artifact.sh restore "$RUNNER_TEMP/noveltea-linux-native-test-build" "$TEST_PROFILE"
+        rm -rf "$RUNNER_TEMP/noveltea-linux-native-test-build"

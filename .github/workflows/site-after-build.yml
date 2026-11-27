@@ -1,0 +1,76 @@
+name: Site after Build
+
+# Site is deliberately not a required Build job. A failed Cloudflare build,
+# validation, upload or deploy cannot retroactively mark a successful Build red.
+on:
+  workflow_run:
+    workflows: [Build]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: site-after-build-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: true
+
+jobs:
+  prepare-examples:
+    name: Bind site to successful exact-run Build examples
+    if: >-
+      ${{ github.event.workflow_run.conclusion == 'success' &&
+          github.event.workflow_run.head_repository.full_name == 'Cruel/nt' &&
+          ((github.event.workflow_run.event == 'push' &&
+            github.event.workflow_run.head_branch == 'master') ||
+           github.event.workflow_run.event == 'pull_request') }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Authenticate completed Build run and download its exact development examples
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_RUN_ID: ${{ github.event.workflow_run.id }}
+          BUILD_SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+          BUILD_EVENT: ${{ github.event.workflow_run.event }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$BUILD_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN_ID" \
+            --jq '[.name, .path, .head_sha, .status, .conclusion, .event, .head_repository.full_name] | @tsv' |
+          awk -F '\t' -v sha="$BUILD_SOURCE_SHA" -v event="$BUILD_EVENT" -v repo="$GITHUB_REPOSITORY" '
+            $1 == "Build" && $2 == ".github/workflows/build.yml" &&
+            $3 == sha && $4 == "completed" && $5 == "success" &&
+            $6 == event && $7 == repo { ok=1 }
+            END { if (!ok) exit 1 }
+          '
+          gh run download "$BUILD_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name noveltea-development-examples --dir build/site-examples
+          test -f build/site-examples/catalog.json
+          node -e '
+            const catalog = require("./build/site-examples/catalog.json");
+            const sha = process.env.BUILD_SOURCE_SHA;
+            if (catalog?.toolchain?.player?.engineVersion !== "dev-"+sha) {
+              throw new Error("Site examples toolchain SHA differs from Build producer");
+            }
+          '
+      - name: Re-upload exact independently qualified examples into Site workflow run
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-development-examples
+          path: build/site-examples
+          if-no-files-found: error
+
+  site:
+    name: Verify and publish Site independently of Build
+    needs: prepare-examples
+    uses: ./.github/workflows/site.yml
+    with:
+      deploy: true
+      production: ${{ github.event.workflow_run.event == 'push' }}
+      source_sha: ${{ github.event.workflow_run.head_sha }}
+      pr_number: ${{ github.event.workflow_run.pull_requests[0].number || '' }}
+    permissions:
+      actions: read
+      contents: read
+    secrets: inherit

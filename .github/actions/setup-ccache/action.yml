@@ -1,33 +1,156 @@
 name: Setup ccache
-description: Restore compiler outputs for a NovelTea CI build configuration.
+description: Restore bounded compiler objects for exactly one compatible target, compiler, and build mode.
 inputs:
   scope:
-    description: Cache scope for this compiler configuration.
+    description: Compiler/target/ABI/flags scope, which must not be shared by incompatible variants.
     required: true
+  compiler:
+    description: Optional actual C++ compiler executable for the compatibility key (e.g. g++ or cl.exe).
+    required: false
+    default: ""
   fallback-scope:
-    description: Optional compatible cache scope to use as a fallback.
+    description: Deprecated. Incompatible scopes are never restored.
     required: false
     default: ""
-  suffix:
-    description: Optional key suffix. Defaults to the current commit SHA.
+  storage:
+    description: Shared Actions cache or trusted Coverage compiler snapshot artifact.
     required: false
-    default: ""
+    default: cache
 outputs:
+  snapshot-name:
+    description: Stable compatible Coverage artifact name (within a producer run).
+    value: ${{ steps.identity.outputs.snapshot-name }}
+  snapshot-renew:
+    description: Whether Coverage needs to publish a new snapshot.
+    value: ${{ steps.timings.outputs.snapshot-renew }}
   cache-hit:
-    description: Whether the exact primary cache key was restored.
+    description: Whether this run's primary key existed.
     value: ${{ steps.restore.outputs.cache-hit }}
   primary-key:
-    description: Primary cache key to save after successful compilation.
-    value: ${{ steps.restore.outputs.cache-primary-key }}
+    description: Exact primary key for a later explicit trusted save.
+    value: ${{ steps.identity.outputs.key }}
+  restore-seconds:
+    description: Elapsed cache restore time, including setup.
+    value: ${{ steps.timings.outputs.restore-seconds }}
 runs:
   using: composite
   steps:
-    - name: Restore compiler outputs
+    - name: Resolve rolling compiler compatibility identity
+      id: identity
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo "start=$(date +%s)" >> "$GITHUB_OUTPUT"
+        generation="$(node scripts/ci/cache-budget.mjs generation)"
+        if [[ -n "${{ inputs.compiler }}" ]]; then
+          compiler="${{ inputs.compiler }}"
+        elif [[ "${{ inputs.scope }}" == emscripten* ]] && command -v em++ >/dev/null; then
+          compiler=em++
+        elif [[ "${{ inputs.scope }}" == android* ]] && [[ -n "${ANDROID_NDK_HOME:-}" ]] && [[ -x "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++" ]]; then
+          compiler="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++"
+        elif command -v cl.exe >/dev/null; then
+          compiler=cl.exe
+        else
+          compiler=c++
+        fi
+        if [[ "$compiler" == cl.exe ]]; then
+          compiler_identity="$(cl.exe /Bv 2>&1 | head -n 1 || true)"
+          # Keep the existing compatible storage prefix, but let ccache
+          # verify actual compiler bytes instead of volatile image mtimes.
+          # The digest also covers the compiler's separate backend DLLs.
+          msvc_path="$(cygpath -w "$(command -v cl.exe)")"
+          msvc_digest="$(node scripts/ci/msvc-cache-identity.mjs "$msvc_path")"
+          [[ "$msvc_digest" =~ ^[a-f0-9]{64}$ ]]
+          digest_file="$RUNNER_TEMP/noveltea-msvc-compiler-identity.txt"
+          printf '%s\n' "$msvc_digest" > "$digest_file"
+          echo "CCACHE_COMPILERCHECK=content" >> "$GITHUB_ENV"
+          echo "CCACHE_EXTRAFILES=$(cygpath -w "$digest_file")" >> "$GITHUB_ENV"
+          echo "MSVC binary identity: $msvc_digest; runner image: ${ImageVersion:-unknown}; compiler: $compiler_identity"
+          stat -c 'MSVC executable size: %s; mtime: %y' "$(command -v cl.exe)"
+        else
+          compiler_identity="$("$compiler" --version 2>&1 | head -n 1 || true)"
+        fi
+        test -n "$compiler_identity" || { echo "Cannot identify compiler: $compiler" >&2; exit 1; }
+        compiler_hash="$(COMPILER_IDENTITY="$compiler_identity" node -p "require('node:crypto').createHash('sha256').update(process.env.COMPILER_IDENTITY).digest('hex').slice(0, 16)")"
+        prefix="${{ runner.os }}-${{ runner.arch }}-ccache-v2-${{ inputs.scope }}-$compiler_hash-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/**', 'cmake/NovelTeaLua.cmake', 'cmake/NovelTeaSanitizers.cmake') }}-"
+        echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
+        echo "key=$prefix$generation" >> "$GITHUB_OUTPUT"
+        if [[ "${{ inputs.storage }}" == coverage-artifact ]]; then
+          echo "snapshot-name=noveltea-coverage-ccache-${prefix%-}" >> "$GITHUB_OUTPUT"
+        fi
+    - name: Locate trusted Coverage compiler snapshot
+      id: snapshot
+      if: inputs.storage == 'coverage-artifact'
+      shell: bash
+      continue-on-error: true
+      env:
+        GH_TOKEN: ${{ github.token }}
+        COMPATIBILITY_PREFIX: ${{ steps.identity.outputs.prefix }}
+      run: node scripts/ci/coverage-cache.mjs "$COMPATIBILITY_PREFIX"
+    - name: Download trusted Coverage compiler snapshot
+      id: snapshot-download
+      if: inputs.storage == 'coverage-artifact' && steps.snapshot.outputs.artifact-id != ''
+      continue-on-error: true
+      uses: actions/download-artifact@v7
+      with:
+        github-token: ${{ github.token }}
+        repository: Cruel/nt
+        run-id: ${{ steps.snapshot.outputs.run-id }}
+        artifact-ids: ${{ steps.snapshot.outputs.artifact-id }}
+        path: ${{ runner.temp }}/noveltea-coverage-ccache
+    - name: Restore Coverage compiler snapshot
+      id: snapshot-restore
+      if: steps.snapshot-download.outcome == 'success'
+      continue-on-error: true
+      shell: bash
+      run: |
+        set -euo pipefail
+        dir="$RUNNER_TEMP/noveltea-coverage-ccache"
+        (cd "$dir" && sha256sum -c SHA256SUMS)
+        mkdir -p "$CCACHE_DIR"
+        tar -xf "$dir/ccache.tar" -C "$CCACHE_DIR"
+        rm -rf "$dir"
+    - name: Discard failed Coverage snapshot restore
+      if: inputs.storage == 'coverage-artifact' && steps.snapshot-restore.outcome != 'success'
+      shell: bash
+      run: |
+        rm -rf "$CCACHE_DIR" "$RUNNER_TEMP/noveltea-coverage-ccache"
+        mkdir -p "$CCACHE_DIR"
+    - name: Restore compiler outputs without publishing
+      if: inputs.storage != 'coverage-artifact' || steps.snapshot-restore.outcome != 'success'
       id: restore
       uses: actions/cache/restore@v5
       with:
         path: ${{ env.CCACHE_DIR }}
-        key: ${{ runner.os }}-ccache-${{ inputs.scope }}-${{ inputs.suffix != '' && inputs.suffix || github.sha }}
-        restore-keys: |
-          ${{ runner.os }}-ccache-${{ inputs.scope }}-
-          ${{ inputs['fallback-scope'] != '' && format('{0}-ccache-{1}-', runner.os, inputs['fallback-scope']) || '' }}
+        key: ${{ steps.identity.outputs.key }}
+        restore-keys: ${{ steps.identity.outputs.prefix }}
+    - name: Bound restored size and report cache observation
+      id: timings
+      shell: bash
+      run: |
+        set -euo pipefail
+        ccache --max-size="${CCACHE_MAXSIZE:-256M}"
+        echo "Compiler check: $(ccache --get-config compiler_check)"
+        ccache --cleanup
+        # Restored ccache counters belong to prior runs. Measure this job only.
+        ccache --zero-stats
+        if [[ "${{ steps.snapshot-restore.outcome }}" == success || -n "${{ steps.restore.outputs.cache-matched-key }}" || "${{ steps.restore.outputs.cache-hit }}" == true ]]; then
+          echo "NOVELTEA_CCACHE_RESTORED=true" >> "$GITHUB_ENV"
+        else
+          echo "NOVELTEA_CCACHE_RESTORED=false" >> "$GITHUB_ENV"
+        fi
+        if [[ "${{ steps.snapshot-restore.outcome }}" != success || "${{ steps.snapshot.outputs.renew }}" == true ]]; then
+          echo "snapshot-renew=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "snapshot-renew=false" >> "$GITHUB_OUTPUT"
+        fi
+        elapsed="$(($(date +%s) - ${{ steps.identity.outputs.start }}))"
+        echo "restore-seconds=$elapsed" >> "$GITHUB_OUTPUT"
+        {
+          echo "Compiler cache scope: \`${{ inputs.scope }}\`"
+          echo "Exact hit: \`${{ steps.restore.outputs.cache-hit }}\`"
+          echo "Matched key: \`${{ steps.restore.outputs.cache-matched-key }}\`"
+          echo "Coverage snapshot: \`${{ steps.snapshot.outputs.artifact-id }}\`; restore: \`${{ steps.snapshot-restore.outcome }}\`."
+          echo "Restore/setup: ${elapsed}s"
+          du -sh "${CCACHE_DIR}" 2>/dev/null || true
+        } >> "$GITHUB_STEP_SUMMARY"

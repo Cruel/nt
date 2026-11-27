@@ -17,7 +17,14 @@ concurrency:
 jobs:
   prepare-examples:
     name: Reuse qualified development examples
-    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    # A successful manually dispatched integration-branch Release is expressly
+    # nonpublishing; its workflow_run must never promote Site inputs.
+    if: >-
+      ${{ (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master') ||
+          (github.event_name == 'workflow_run' &&
+           github.event.workflow_run.conclusion == 'success' &&
+           github.event.workflow_run.event == 'push' &&
+           github.event.workflow_run.head_repository.full_name == 'Cruel/nt') }}
     runs-on: ubuntu-24.04
     steps:
       - name: Download qualified examples from successful Build
@@ -27,11 +34,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          run_id="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow build.yml --commit "$SOURCE_SHA" --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')"
+          run_id="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow build.yml --commit "$SOURCE_SHA" --branch master --event push --status success --limit 20 --json databaseId --jq '.[0].databaseId // empty')"
           if [ -z "$run_id" ]; then
             echo "No successful Build workflow exists for $SOURCE_SHA; refusing to publish the site without qualified development examples." >&2
             exit 1
           fi
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" \
+            --jq '[.name, .path, .head_sha, .head_branch, .event, .status, .conclusion, .head_repository.full_name] | @tsv' |
+          awk -F '\t' -v sha="$SOURCE_SHA" -v repo="$GITHUB_REPOSITORY" '
+            $1 == "Build" && $2 == ".github/workflows/build.yml" &&
+            $3 == sha && $4 == "master" && $5 == "push" &&
+            $6 == "completed" && $7 == "success" && $8 == repo {ok=1}
+            END {if (!ok) exit 1}
+          '
           gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name noveltea-development-examples --dir build/site-examples
           test -f build/site-examples/catalog.json
 
@@ -49,6 +64,7 @@ jobs:
     with:
       deploy: true
       production: true
+      source_sha: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
     permissions:
       actions: read
       contents: read

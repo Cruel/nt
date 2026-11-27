@@ -18,13 +18,13 @@ conflict=/tmp/noveltea-existing
 printf '#!/bin/sh\nexit 0\n' > "$conflict"
 chmod 0755 "$conflict"
 sudo ln -s "$conflict" /usr/bin/noveltea
-sudo apt-get install -y "$deb"
+bash scripts/ci/install-apt-packages.sh --local-deb "$deb"
 test "$(readlink /usr/bin/noveltea)" = "$conflict"
 sudo apt-get remove -y "$package"
 test "$(readlink /usr/bin/noveltea)" = "$conflict"
 sudo rm -f /usr/bin/noveltea "$conflict"
 
-sudo apt-get install -y "$deb"
+bash scripts/ci/install-apt-packages.sh --local-deb "$deb"
 noveltea --json --version | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const p=JSON.parse(s);if(!p.success||p.exitCode!==0)process.exit(1)})"
 sudo apt-get remove -y "$package"
 test ! -e /usr/bin/noveltea

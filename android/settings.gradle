@@ -1,6 +1,12 @@
+// GitHub-hosted runners can share a rate-limited Maven Central egress IP.
+// Prefer Google's publicly documented Central mirror in CI, while retaining
+// direct Central and the Plugin Portal as explicit fallback repositories.
 pluginManagement {
     repositories {
         google()
+        if (System.getenv("GITHUB_ACTIONS") == "true") {
+            maven { url = uri("https://maven-central.storage-download.googleapis.com/maven2/") }
+        }
         mavenCentral()
         gradlePluginPortal()
     }
@@ -10,6 +16,9 @@ dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
         google()
+        if (System.getenv("GITHUB_ACTIONS") == "true") {
+            maven { url = uri("https://maven-central.storage-download.googleapis.com/maven2/") }
+        }
         mavenCentral()
     }
 }

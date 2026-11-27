@@ -792,7 +792,22 @@ public:
                     busy_error_ = "WORKSPACE_BUSY: writer lock owner is changing.";
                     return;
                 }
-                throw;
+                if (missing)
+                    throw;
+                // A concurrent writer can finish publishing owner.json between
+                // read_source's failed open and the existence check. Retry the
+                // owner proof, never the mutation. Malformed persistent owners
+                // still fail rather than silently becoming a reclaimable lock.
+                try {
+                    prior = read_owner(lock);
+                } catch (const std::runtime_error&) {
+                    missing.clear();
+                    if (!fs::exists(lock / "owner.json", missing) && !missing) {
+                        busy_error_ = "WORKSPACE_BUSY: writer lock owner is changing.";
+                        return;
+                    }
+                    throw;
+                }
             }
             const auto& [prior_owner, prior_pid] = prior;
             if (!proven_dead(prior_pid)) {

@@ -8,6 +8,9 @@
 #include <nlohmann/json.hpp>
 #if defined(_WIN32)
 #include <jsoncons/json.hpp>
+#if defined(NOVELTEA_DAEMON_TEST_SUPPORT)
+#include <future>
+#endif
 #endif
 
 #include <algorithm>
@@ -64,6 +67,10 @@ namespace {
 using Json = nlohmann::json;
 using Clock = std::chrono::steady_clock;
 using IoDeadline = std::optional<Clock::time_point>;
+#if defined(_WIN32) && defined(NOVELTEA_DAEMON_TEST_SUPPORT)
+std::atomic<bool> test_named_pipe_write_pending{false};
+std::atomic<bool> test_named_pipe_read_pending{false};
+#endif
 constexpr std::string_view completion_frame_limit_error =
     "daemon completion exceeds the transport frame limit";
 
@@ -225,8 +232,21 @@ std::optional<BrokerContext> parse_context(const Json& request, std::string& err
             error = "runtimeRoot must be a non-empty path";
             return std::nullopt;
         }
-        context.runtime_root_override =
-            std::filesystem::path(request["runtimeRoot"].get<std::string>());
+        const auto& root = request["runtimeRoot"].get_ref<const std::string&>();
+#if defined(_WIN32)
+        // Resolve relative paths before spawning a broker in the installed
+        // executable's directory. Preserve UTF-8 instead of the ANSI codepage.
+        std::error_code path_error;
+        auto absolute = std::filesystem::absolute(
+            std::filesystem::path(std::u8string(root.begin(), root.end())), path_error);
+        if (path_error || absolute.empty()) {
+            error = "failed to resolve daemon runtimeRoot";
+            return std::nullopt;
+        }
+        context.runtime_root_override = absolute.lexically_normal().make_preferred();
+#else
+        context.runtime_root_override = std::filesystem::path(root);
+#endif
     }
     if (request.contains("validationPublicationTestGate")) {
         if (!request["validationPublicationTestGate"].is_string() ||
@@ -374,7 +394,13 @@ void ensure_private_runtime_directory(const std::filesystem::path& directory)
 {
     struct stat info {};
     if (::lstat(directory.c_str(), &info) != 0) {
-        if (errno != ENOENT || ::mkdir(directory.c_str(), 0700) != 0)
+        if (errno != ENOENT)
+            throw std::runtime_error("failed to inspect private daemon runtime directory");
+        // Multiple broker identities can start in parallel against the same
+        // per-user runtime root. Another process creating it after ENOENT is
+        // normal, not a startup failure. Always re-inspect the final path,
+        // including after EEXIST: it still must be a private owned directory.
+        if (::mkdir(directory.c_str(), 0700) != 0 && errno != EEXIST)
             throw std::runtime_error("failed to create private daemon runtime directory");
         if (::lstat(directory.c_str(), &info) != 0)
             throw std::runtime_error("failed to inspect private daemon runtime directory");
@@ -458,7 +484,14 @@ Endpoint make_endpoint(const BrokerContext& context)
     const auto sid = current_user_sid_text();
     const auto sid_utf8 = wide_to_utf8(sid);
     const auto user_identity = sha256_text(sid_utf8).substr(0, 16);
-    const auto suffix = utf8_to_wide(endpoint.identity + "-" + user_identity);
+    // Explicit certification roots must isolate every IPC object, just as
+    // they isolate the Unix socket and lock paths. Leave the normal per-user,
+    // per-build production endpoint unchanged when no override is supplied.
+    auto identity = endpoint.identity + "-" + user_identity;
+    if (context.runtime_root_override)
+        identity += "-" + sha256_text(wide_to_utf8(context.runtime_root_override->wstring()))
+                              .substr(0, 32);
+    const auto suffix = utf8_to_wide(identity);
     endpoint.pipe_name = L"\\\\.\\pipe\\NovelTea-" + suffix;
     endpoint.startup_mutex_name = L"Local\\NovelTea-Daemon-Start-" + suffix;
     endpoint.lifetime_mutex_name = L"Local\\NovelTea-Daemon-Live-" + suffix;
@@ -478,9 +511,11 @@ Endpoint make_endpoint(const BrokerContext& context)
 
 #if defined(_WIN32)
 using ConnectionHandle = HANDLE;
+using ConnectionCancellation = HANDLE;
 const ConnectionHandle invalid_connection = INVALID_HANDLE_VALUE;
 #else
 using ConnectionHandle = int;
+using ConnectionCancellation = std::nullptr_t;
 constexpr ConnectionHandle invalid_connection = -1;
 #endif
 
@@ -537,9 +572,11 @@ DWORD remaining_windows_timeout(Clock::time_point deadline)
 
 bool overlapped_transfer(ConnectionHandle connection, bool reading, std::uint8_t* bytes,
                          std::size_t size, std::size_t& transferred,
-                         IoDeadline deadline = std::nullopt)
+                         IoDeadline deadline = std::nullopt, HANDLE closing_event = nullptr)
 {
     transferred = 0;
+    if (closing_event != nullptr && WaitForSingleObject(closing_event, 0) == WAIT_OBJECT_0)
+        return false;
     if (deadline && remaining_millis(*deadline) == 0)
         return false;
     OVERLAPPED operation{};
@@ -559,8 +596,15 @@ bool overlapped_transfer(ConnectionHandle connection, bool reading, std::uint8_t
         CloseHandle(operation.hEvent);
         return false;
     }
-    const auto wait = WaitForSingleObject(
-        operation.hEvent, deadline ? remaining_windows_timeout(*deadline) : INFINITE);
+#if defined(NOVELTEA_DAEMON_TEST_SUPPORT)
+    (reading ? test_named_pipe_read_pending : test_named_pipe_write_pending)
+        .store(true, std::memory_order_release);
+#endif
+    const HANDLE events[] = {operation.hEvent, closing_event};
+    const auto timeout = deadline ? remaining_windows_timeout(*deadline) : INFINITE;
+    const auto wait = closing_event != nullptr
+                          ? WaitForMultipleObjects(2, events, FALSE, timeout)
+                          : WaitForSingleObject(operation.hEvent, timeout);
     if (wait != WAIT_OBJECT_0) {
         CancelIoEx(connection, &operation);
         WaitForSingleObject(operation.hEvent, INFINITE);
@@ -594,13 +638,15 @@ bool wait_for_socket(ConnectionHandle connection, short events, Clock::time_poin
 #endif
 
 bool read_exact(ConnectionHandle connection, std::uint8_t* target, std::size_t size,
-                IoDeadline deadline = std::nullopt)
+                IoDeadline deadline = std::nullopt,
+               [[maybe_unused]] ConnectionCancellation closing_event = nullptr)
 {
     std::size_t offset = 0;
     while (offset < size) {
 #if defined(_WIN32)
         std::size_t read = 0;
-        if (!overlapped_transfer(connection, true, target + offset, size - offset, read, deadline))
+        if (!overlapped_transfer(connection, true, target + offset, size - offset, read,
+                                 deadline, closing_event))
             return false;
         offset += read;
 #else
@@ -622,7 +668,8 @@ bool read_exact(ConnectionHandle connection, std::uint8_t* target, std::size_t s
 }
 
 bool write_all(ConnectionHandle connection, std::span<const std::uint8_t> bytes,
-               IoDeadline deadline = std::nullopt)
+               IoDeadline deadline = std::nullopt,
+               [[maybe_unused]] ConnectionCancellation closing_event = nullptr)
 {
     std::size_t offset = 0;
     while (offset < bytes.size()) {
@@ -630,7 +677,7 @@ bool write_all(ConnectionHandle connection, std::span<const std::uint8_t> bytes,
         std::size_t written = 0;
         if (!overlapped_transfer(connection, false,
                                  const_cast<std::uint8_t*>(bytes.data()) + offset,
-                                 bytes.size() - offset, written, deadline))
+                                 bytes.size() - offset, written, deadline, closing_event))
             return false;
         offset += written;
 #else
@@ -652,17 +699,19 @@ bool write_all(ConnectionHandle connection, std::span<const std::uint8_t> bytes,
 }
 
 bool send_payload(ConnectionHandle connection, std::string_view payload,
-                  IoDeadline deadline = std::nullopt)
+                  IoDeadline deadline = std::nullopt,
+               [[maybe_unused]] ConnectionCancellation closing_event = nullptr)
 {
     const auto frame = encode_frame(payload);
-    return !frame.empty() && write_all(connection, frame, deadline);
+    return !frame.empty() && write_all(connection, frame, deadline, closing_event);
 }
 
 std::optional<std::string> receive_payload(ConnectionHandle connection,
-                                           IoDeadline deadline = std::nullopt)
+                                           IoDeadline deadline = std::nullopt,
+               [[maybe_unused]] ConnectionCancellation closing_event = nullptr)
 {
     std::array<std::uint8_t, 4> header{};
-    if (!read_exact(connection, header.data(), header.size(), deadline))
+    if (!read_exact(connection, header.data(), header.size(), deadline, closing_event))
         return std::nullopt;
     const std::uint32_t length = (static_cast<std::uint32_t>(header[0]) << 24U) |
                                  (static_cast<std::uint32_t>(header[1]) << 16U) |
@@ -672,39 +721,90 @@ std::optional<std::string> receive_payload(ConnectionHandle connection,
         return std::nullopt;
     std::string payload(length, '\0');
     if (!read_exact(connection, reinterpret_cast<std::uint8_t*>(payload.data()), payload.size(),
-                    deadline))
+                    deadline, closing_event))
         return std::nullopt;
     return payload;
 }
 
 struct ClientConnection {
-    explicit ClientConnection(ConnectionHandle value) : handle(value) {}
-    ~ClientConnection() { close(); }
+    explicit ClientConnection(ConnectionHandle value) : handle(value)
+    {
+#if defined(_WIN32)
+        closing_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        if (closing_event == nullptr) {
+            close_connection(value);
+            throw std::runtime_error("failed to create daemon connection close event");
+        }
+#endif
+    }
+    ~ClientConnection()
+    {
+        close();
+#if defined(_WIN32)
+        CloseHandle(closing_event);
+#endif
+    }
 
     bool send(std::string_view payload)
     {
         std::scoped_lock lock(write_mutex);
-        return handle != invalid_connection && send_payload(handle, payload);
+        const auto connection = current();
+#if defined(_WIN32)
+        return connection != invalid_connection &&
+               send_payload(connection, payload, std::nullopt, closing_event);
+#else
+        return connection != invalid_connection && send_payload(connection, payload);
+#endif
+    }
+
+    std::optional<std::string> receive()
+    {
+#if defined(_WIN32)
+        std::scoped_lock lock(read_mutex);
+        const auto connection = current();
+        return connection == invalid_connection
+                   ? std::nullopt
+                   : receive_payload(connection, std::nullopt, closing_event);
+#else
+        const auto connection = current();
+        return connection == invalid_connection ? std::nullopt : receive_payload(connection);
+#endif
     }
 
     void close(bool drain_response = false)
     {
-        std::scoped_lock lock(write_mutex);
-        if (handle == invalid_connection)
+#if defined(_WIN32)
+        // Persistent cancellation covers I/O submitted after close begins,
+        // including a subsequent chunk of a partially transferred frame.
+        // Keep the pipe valid until both OVERLAPPED operations have completed.
+        if (closing.exchange(true, std::memory_order_acq_rel))
             return;
-        const auto previous = handle;
-        handle = invalid_connection;
-        close_connection(previous, drain_response);
+        SetEvent(closing_event);
+        std::scoped_lock lock(read_mutex, write_mutex);
+#else
+        std::scoped_lock lock(write_mutex);
+#endif
+        const auto previous = handle.exchange(invalid_connection, std::memory_order_acq_rel);
+        if (previous != invalid_connection)
+            close_connection(previous, drain_response);
     }
 
     ConnectionHandle current() const
     {
-        std::scoped_lock lock(write_mutex);
-        return handle;
+#if defined(_WIN32)
+        if (closing.load(std::memory_order_acquire))
+            return invalid_connection;
+#endif
+        return handle.load(std::memory_order_acquire);
     }
 
     mutable std::mutex write_mutex;
-    ConnectionHandle handle = invalid_connection;
+    std::atomic<ConnectionHandle> handle{invalid_connection};
+#if defined(_WIN32)
+    std::mutex read_mutex;
+    std::atomic<bool> closing{false};
+    HANDLE closing_event = nullptr;
+#endif
 };
 
 struct QueuedRequest {
@@ -2051,7 +2151,10 @@ public:
 #endif
         release_lifetime_ownership();
         close_clients();
-        state_cv_.notify_all();
+        {
+            std::scoped_lock lock(state_mutex_);
+            state_cv_.notify_all();
+        }
         active_cv_.notify_all();
         critical_cv_.notify_all();
         join_threads();
@@ -2901,35 +3004,41 @@ private:
             else
                 release_child_process(process);
         }
-        const auto retained_snapshot = project_snapshots_.latest(canonical_root, now_millis());
-        const auto exact_validation = exact_validation_results_.find(canonical_root, now_millis());
-        const auto exact_validation_checkpoint =
-            exact_validation
-                ? std::optional<ProjectAuthorityCheckpoint>(exact_validation->authority)
-                : std::nullopt;
-        bool retained_for_rehydration = false;
-        if (exact_validation_checkpoint) {
-            // Exact validation survives owner eviction independently of portable semantic bytes.
-            // Install its native physical baseline dormant so the next validation can prove disk
-            // equality without starting QuickJS. A later owner admission restores its own retained
-            // snapshot checkpoint before rehydration.
-            retained_for_rehydration =
-                project_authority_.restore_checkpoint_for_rehydration(*exact_validation_checkpoint);
-        } else if (retained_snapshot) {
-            // Snapshot serialization is allowed to lag the live owner. Always restore the exact
-            // native baseline captured with the retained bytes before making the Project dormant;
-            // otherwise a replacement could rehydrate generation N-1 against generation N's
-            // already-advanced manifest and incorrectly observe no delta. The same rule recovers
-            // changes a crashed owner consumed after its last snapshot.
-            const auto checkpoint = project_snapshots_.authority_checkpoint(
-                canonical_root, retained_snapshot->identity, now_millis());
-            retained_for_rehydration =
-                checkpoint && project_authority_.restore_checkpoint_for_rehydration(*checkpoint);
-        }
-        if (!retained_for_rehydration) {
-            if (retained_snapshot)
-                project_snapshots_.invalidate_current(canonical_root);
-            (void)project_authority_.release(root);
+        // A terminal broker has no next Project admission. Rebuilding a dormant
+        // physical baseline from a large owner checkpoint here is wasted work
+        // and can hold the exiting Windows broker alive after stop is acknowledged.
+        // The owner has already flushed its disk ledger before the process exit.
+        if (state_.load() != State::stopped) {
+            const auto retained_snapshot = project_snapshots_.latest(canonical_root, now_millis());
+            const auto exact_validation = exact_validation_results_.find(canonical_root, now_millis());
+            const auto exact_validation_checkpoint =
+                exact_validation
+                    ? std::optional<ProjectAuthorityCheckpoint>(exact_validation->authority)
+                    : std::nullopt;
+            bool retained_for_rehydration = false;
+            if (exact_validation_checkpoint) {
+                // Exact validation survives owner eviction independently of portable semantic bytes.
+                // Install its native physical baseline dormant so the next validation can prove disk
+                // equality without starting QuickJS. A later owner admission restores its own retained
+                // snapshot checkpoint before rehydration.
+                retained_for_rehydration =
+                    project_authority_.restore_checkpoint_for_rehydration(*exact_validation_checkpoint);
+            } else if (retained_snapshot) {
+                // Snapshot serialization is allowed to lag the live owner. Always restore the exact
+                // native baseline captured with the retained bytes before making the Project dormant;
+                // otherwise a replacement could rehydrate generation N-1 against generation N's
+                // already-advanced manifest and incorrectly observe no delta. The same rule recovers
+                // changes a crashed owner consumed after its last snapshot.
+                const auto checkpoint = project_snapshots_.authority_checkpoint(
+                    canonical_root, retained_snapshot->identity, now_millis());
+                retained_for_rehydration =
+                    checkpoint && project_authority_.restore_checkpoint_for_rehydration(*checkpoint);
+            }
+            if (!retained_for_rehydration) {
+                if (retained_snapshot)
+                    project_snapshots_.invalidate_current(canonical_root);
+                (void)project_authority_.release(root);
+            }
         }
         {
             std::scoped_lock lock(queue_mutex_);
@@ -3490,37 +3599,42 @@ private:
                 listener_ready_cv_.notify_all();
                 break;
             }
-            {
-                std::scoped_lock lock(listener_mutex_);
-                pending_pipe_ = connection;
-                listener_ready_ = true;
-            }
-            listener_ready_cv_.notify_all();
             OVERLAPPED connect_operation{};
             connect_operation.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
             BOOL connected = FALSE;
-            if (connect_operation.hEvent != nullptr) {
-                if (ConnectNamedPipe(connection, &connect_operation)) {
-                    connected = TRUE;
-                } else {
-                    const auto error = GetLastError();
-                    if (error == ERROR_PIPE_CONNECTED) {
+            bool pending = false;
+            {
+                std::scoped_lock lock(listener_mutex_);
+                // Stop may have won while CreateNamedPipeW was allocating.
+                // Never register or submit a new accept after draining begins.
+                const auto state = state_.load();
+                if (state != State::draining && state != State::stopped &&
+                    connect_operation.hEvent != nullptr) {
+                    pending_pipe_ = connection;
+                    if (ConnectNamedPipe(connection, &connect_operation)) {
                         connected = TRUE;
-                    } else if (error == ERROR_IO_PENDING &&
-                               WaitForSingleObject(connect_operation.hEvent, INFINITE) ==
-                                   WAIT_OBJECT_0) {
-                        DWORD transferred = 0;
-                        connected = GetOverlappedResult(connection, &connect_operation,
-                                                        &transferred, FALSE);
+                    } else {
+                        const auto error = GetLastError();
+                        connected = error == ERROR_PIPE_CONNECTED;
+                        pending = error == ERROR_IO_PENDING;
                     }
                 }
-                CloseHandle(connect_operation.hEvent);
+                listener_ready_ = true;
+            }
+            listener_ready_cv_.notify_all();
+            if (pending) {
+                DWORD transferred = 0;
+                // stop_accepting cancels the registered operation; only this
+                // listener owns the handle and waits for completion before close.
+                connected = GetOverlappedResult(connection, &connect_operation,
+                                                &transferred, TRUE);
             }
             {
                 std::scoped_lock lock(listener_mutex_);
-                if (pending_pipe_ == connection)
-                    pending_pipe_ = invalid_connection;
+                pending_pipe_ = invalid_connection;
             }
+            if (connect_operation.hEvent != nullptr)
+                CloseHandle(connect_operation.hEvent);
             if (!connected) {
                 CloseHandle(connection);
                 if (state_.load() == State::draining || state_.load() == State::stopped)
@@ -3549,6 +3663,12 @@ private:
             auto client = std::make_shared<ClientConnection>(connection);
             {
                 std::scoped_lock lock(clients_mutex_);
+                // A connection accepted immediately before stop must not
+                // escape the shutdown client's registry snapshot.
+#if defined(_WIN32)
+                if (state_.load() == State::draining || state_.load() == State::stopped)
+                    break;
+#endif
                 clients_.insert(client);
                 client_threads_.emplace_back([self = shared_from_this(), client] {
                     self->client_loop(client);
@@ -3563,10 +3683,7 @@ private:
     void client_loop(const std::shared_ptr<ClientConnection>& client)
     {
         while (state_.load() != State::stopped) {
-            const auto handle = client->current();
-            if (handle == invalid_connection)
-                break;
-            const auto payload = receive_payload(handle);
+            const auto payload = client->receive();
             if (!payload)
                 break;
             const auto message = Json::parse(*payload, nullptr, false);
@@ -4528,11 +4645,13 @@ private:
 
     void begin_drain()
     {
-        const auto prior = state_.exchange(State::draining);
-        if (prior == State::stopped)
-            return;
-        cancel_queued("daemon is draining");
+        auto prior = state_.load();
+        do {
+            if (prior == State::stopped || prior == State::draining)
+                return;
+        } while (!state_.compare_exchange_weak(prior, State::draining));
         stop_accepting();
+        cancel_queued("daemon is draining");
     }
 
     void wait_for_drain()
@@ -4589,18 +4708,18 @@ private:
         std::filesystem::remove(endpoint_.socket_path, error);
 #endif
         release_lifetime_ownership();
-        state_cv_.notify_all();
+        {
+            std::scoped_lock lock(state_mutex_);
+            state_cv_.notify_all();
+        }
     }
 
     void stop_accepting()
     {
         std::scoped_lock lock(listener_mutex_);
 #if defined(_WIN32)
-        if (pending_pipe_ != invalid_connection) {
-            CancelIoEx(pending_pipe_, nullptr);
-            CloseHandle(pending_pipe_);
-            pending_pipe_ = invalid_connection;
-        }
+        if (pending_pipe_ != invalid_connection)
+            (void)CancelIoEx(pending_pipe_, nullptr);
 #else
         if (listener_ >= 0) {
             ::shutdown(listener_, SHUT_RDWR);
@@ -4652,10 +4771,22 @@ private:
     {
         const auto sleep_interval = std::chrono::milliseconds(
             std::max<std::uint64_t>(10, std::min<std::uint64_t>(250, context_.daemon_idle_ms / 4)));
-        while (state_.load() != State::stopped && state_.load() != State::draining) {
+        const auto draining = [this] {
+            const auto state = state_.load();
+            return state == State::draining || state == State::stopped;
+        };
+        while (!draining()) {
             std::this_thread::sleep_for(sleep_interval);
+            // A stop can arrive during the sleep; do not initiate more costly
+            // owner/cache maintenance after terminal drain has begun.
+            if (draining())
+                break;
             maintain_project_owners();
+            if (draining())
+                break;
             maintain_disposable_workers();
+            if (draining())
+                break;
             if (critical_sections_.load() != 0 || exact_validation_probes_.load() != 0)
                 continue;
             {
@@ -5541,8 +5672,41 @@ void terminate_child_process(ChildProcess& process)
     }
     if (process.pid <= 0)
         return;
-    if (child_process_alive(process))
+    if (child_process_alive(process)) {
+        // Coverage's per-process gcda writer may be interrupted by SIGTERM
+        // or the subsequent SIGKILL while flushing a large profile. This
+        // broker-initiated termination is not visible to Python CTest, so
+        // record the exact PID before signalling it. The offline merger skips
+        // only positively identified terminated writers and still rejects
+        // unexplained malformed profiles.
+#if defined(__linux__)
+        if (const char* root = std::getenv("NOVELTEA_NATIVE_CLI_GCOV_ROOT"); root && *root) {
+            std::error_code ec;
+            std::filesystem::create_directories(root, ec);
+            const auto manifest = std::filesystem::path(root) / "terminated-process-pids.txt";
+            const int fd =
+                ec ? -1 : ::open(manifest.c_str(), O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0600);
+            if (fd >= 0) {
+                const auto line = std::to_string(process.pid) + "\n";
+                if (::flock(fd, LOCK_EX) == 0) {
+                    std::size_t offset = 0;
+                    while (offset < line.size()) {
+                        const auto written =
+                            ::write(fd, line.data() + offset, line.size() - offset);
+                        if (written < 0 && errno == EINTR)
+                            continue;
+                        if (written <= 0)
+                            break;
+                        offset += static_cast<std::size_t>(written);
+                    }
+                    (void)::flock(fd, LOCK_UN);
+                }
+                (void)::close(fd);
+            }
+        }
+#endif
         (void)::kill(process.pid, SIGTERM);
+    }
     for (int attempt = 0; attempt < 20; ++attempt) {
         int status = 0;
         const auto result = ::waitpid(process.pid, &status, WNOHANG);
@@ -6051,6 +6215,79 @@ std::uint64_t write_response(const Json& result, std::uint8_t* response,
 }
 
 } // namespace
+
+#if defined(_WIN32) && defined(NOVELTEA_DAEMON_TEST_SUPPORT)
+// Exercise the production duplex ClientConnection with both directions
+// pending. A tiny pipe quota and a silent client force overlapped backpressure.
+// Close must cancel both operations without a retry or process-kill fallback.
+bool test_close_cancels_blocked_named_pipe_write()
+{
+    const auto name = std::wstring(L"\\\\.\\pipe\\NovelTea-close-test-") +
+                      std::to_wstring(GetCurrentProcessId()) + L"-" +
+                      std::to_wstring(GetTickCount64());
+    const auto pipe = CreateNamedPipeW(
+        name.c_str(), PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
+        PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS, 1,
+        4096, 4096, 0, nullptr);
+    if (pipe == INVALID_HANDLE_VALUE)
+        return false;
+    const auto reader = CreateFileW(name.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr,
+                                    OPEN_EXISTING, FILE_FLAG_OVERLAPPED, nullptr);
+    if (reader == INVALID_HANDLE_VALUE) {
+        CloseHandle(pipe);
+        return false;
+    }
+    OVERLAPPED connect{};
+    connect.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (connect.hEvent == nullptr) {
+        CloseHandle(reader);
+        CloseHandle(pipe);
+        return false;
+    }
+    const auto connected = ConnectNamedPipe(pipe, &connect);
+    const auto connect_error = connected ? ERROR_SUCCESS : GetLastError();
+    CloseHandle(connect.hEvent);
+    if (!connected && connect_error != ERROR_PIPE_CONNECTED) {
+        CloseHandle(reader);
+        CloseHandle(pipe);
+        return false;
+    }
+
+    ClientConnection writer(pipe);
+    const std::string payload(2 * 1024 * 1024, 'x');
+    test_named_pipe_write_pending.store(false, std::memory_order_release);
+    test_named_pipe_read_pending.store(false, std::memory_order_release);
+    auto receive = std::async(std::launch::async, [&] { return writer.receive(); });
+    auto send = std::async(std::launch::async, [&] { return writer.send(payload); });
+    const auto deadline = Clock::now() + std::chrono::seconds(3);
+    while ((!test_named_pipe_write_pending.load(std::memory_order_acquire) ||
+            !test_named_pipe_read_pending.load(std::memory_order_acquire)) &&
+           send.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready &&
+           receive.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready &&
+           Clock::now() < deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    // Observe the actual WriteFile(ERROR_IO_PENDING) transition; a scheduler
+    // delay before the writer starts is not sufficient evidence of backpressure.
+    const auto pending = test_named_pipe_write_pending.load(std::memory_order_acquire) &&
+                         test_named_pipe_read_pending.load(std::memory_order_acquire) &&
+                         receive.wait_for(std::chrono::milliseconds(0)) ==
+                             std::future_status::timeout &&
+                         send.wait_for(std::chrono::milliseconds(0)) ==
+                             std::future_status::timeout;
+    auto close = std::async(std::launch::async, [&] { writer.close(); });
+    const auto cancelled = close.wait_for(std::chrono::seconds(3)) ==
+                           std::future_status::ready;
+    if (!cancelled)
+        CloseHandle(reader); // Ensure a broken implementation can unwind, not hang the suite.
+    close.wait();
+    const auto succeeded = send.get();
+    const auto received = receive.get();
+    if (cancelled)
+        CloseHandle(reader);
+    return pending && cancelled && !succeeded && !received &&
+           !writer.send("late frame") && !writer.receive();
+}
+#endif
 
 struct ProjectSnapshotStore::Impl {
     struct StoredSnapshot {
@@ -6929,6 +7166,7 @@ extern "C" std::uint64_t noveltea_tooling_daemon_json(const std::uint8_t* reques
         const bool was_running = before_stop.value("running", false);
 #if defined(_WIN32)
         HANDLE daemon_handle = nullptr;
+        DWORD daemon_process_id = 0;
         if (was_running) {
             if (!before_stop.contains("pid") || !before_stop["pid"].is_number_unsigned() ||
                 before_stop["pid"].get<std::uint64_t>() == 0 ||
@@ -6938,6 +7176,7 @@ extern "C" std::uint64_t noveltea_tooling_daemon_json(const std::uint8_t* reques
             // Acquire the process handle before requesting stop: a named pipe can disappear
             // before the broker exits, and a later PID lookup could refer to another process.
             const auto daemon_pid = static_cast<DWORD>(before_stop["pid"].get<std::uint64_t>());
+            daemon_process_id = daemon_pid;
             // Native broker tests run the server inside this process. Waiting for
             // our own process to exit would deadlock every in-process stop.
             if (daemon_pid != GetCurrentProcessId())
@@ -6957,9 +7196,14 @@ extern "C" std::uint64_t noveltea_tooling_daemon_json(const std::uint8_t* reques
             // Give the bounded shutdown its own budget rather than declaring
             // a healthy owner exit hung under a loaded hosted runner.
             const auto terminated = WaitForSingleObject(daemon_handle, 30'000);
+            const auto wait_error = terminated == WAIT_FAILED ? GetLastError() : ERROR_SUCCESS;
             CloseHandle(daemon_handle);
             if (terminated != WAIT_OBJECT_0)
-                result = {{"ok", false}, {"error", "daemon process did not exit after stop"}};
+                result = {{"ok", false},
+                          {"error", "daemon process did not exit after stop (pid=" +
+                                        std::to_string(daemon_process_id) + ", wait=" +
+                                        std::to_string(terminated) + ", win32=" +
+                                        std::to_string(wait_error) + ")"}};
             else {
                 const auto status = client_request(*context, "status", "stop-status");
                 if (status.value("ok", false) && !status.value("running", false))

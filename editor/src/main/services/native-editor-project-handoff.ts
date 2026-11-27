@@ -13,7 +13,13 @@ type NativeController = Pick<
   | 'dispose'
 > & {
   waitForPublicationDrain?(): Promise<void>;
+  waitForShutdown?(): Promise<void>;
 };
+
+async function awaitControllerShutdown(controller: NativeController): Promise<void> {
+  if (controller.waitForShutdown) await controller.waitForShutdown();
+  else await controller.waitForPublicationDrain?.();
+}
 
 /**
  * The incumbent's native worker must not be reopened to admit the next
@@ -55,7 +61,7 @@ export class NativeEditorProjectHandoff<T extends NativeController> {
         // disposed. No callback can rescue an old session after the switch.
         if (incumbent) {
           incumbent.dispose();
-          await incumbent.waitForPublicationDrain?.();
+          await awaitControllerShutdown(incumbent);
         }
       }
       return result;
@@ -63,7 +69,7 @@ export class NativeEditorProjectHandoff<T extends NativeController> {
       this.candidates.delete(candidate);
       if (this.active !== candidate) {
         candidate.dispose();
-        await candidate.waitForPublicationDrain?.();
+        await awaitControllerShutdown(candidate);
       }
     }
   }
@@ -76,8 +82,6 @@ export class NativeEditorProjectHandoff<T extends NativeController> {
     this.candidates.clear();
     const remaining = [old, ...controllers].filter((item): item is T => item !== null);
     for (const controller of remaining) controller.dispose();
-    await Promise.all(
-      remaining.map((controller) => controller.waitForPublicationDrain?.() ?? Promise.resolve()),
-    );
+    await Promise.all(remaining.map((controller) => awaitControllerShutdown(controller)));
   }
 }

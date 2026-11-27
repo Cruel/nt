@@ -81,6 +81,22 @@ with private_daemon_fixture() as root:
     def work(response, name):
         return response["validationWork"].get(name, 0)
 
+    def assert_changed_notice_success(response):
+        # A valid notice can be certified by either the foreground request
+        # or the resident quiet-window validator. On slow Windows runners the
+        # latter can finish first even without a sleep between edit and read.
+        # Invalid/missing/escaping notices below must still fail, and failed
+        # notice checks must execute again rather than cache a false success.
+        assert response["diagnostics"] == diagnostics
+        runs = work(response, "noticeValidationRuns")
+        reuses = work(response, "noticeValidationReuses")
+        if sys.platform == "win32":
+            assert (runs, reuses) in ((1, 0), (0, 1)), response["validationWork"]
+            if reuses:
+                assert_public_parity(response, validate(direct=True))
+        else:
+            assert (runs, reuses) == (1, 0), response["validationWork"]
+
     def export(name, success=True):
         destination = root / name
         process = subprocess.run(
@@ -320,7 +336,43 @@ with private_daemon_fixture() as root:
     asset_record.write_text(asset_yaml)
     restored_reference = validate()
     assert restored_reference["diagnostics"] == diagnostics
-    assert work(restored_reference, "portableSourceReuses") == 0
+    if sys.platform == "win32" and work(restored_reference, "portableSourceReuses") == 1:
+        # The resident quiet-window validator may have already re-certified
+        # this valid-to-valid edit before a slow foreground request arrived.
+        # Require the actual restored Asset projection, not just a warm hit
+        # counter or the identical diagnostics of two valid Projects. Stop
+        # flushes the elected writer's certified generation to disk.
+        stopped = subprocess.run([str(cli), "--json", "daemon", "stop"], env=env,
+                                 capture_output=True, text=True, timeout=30)
+        assert stopped.returncode == 0, (stopped.stdout, stopped.stderr)
+        ledger = json.loads(cache_file.read_text(encoding="utf-8"))
+        portable = ledger["stages"]["portable"]
+        assert portable["inputs"]["assets"]["pilot-cue-audio"]["source"]["path"] == (
+            "assets/audio/notification.mp3"), portable["inputs"]["assets"]["pilot-cue-audio"]
+        assert "assets/audio/notification.mp3" in portable["revisions"], portable
+        assert validate()["diagnostics"] == diagnostics
+    else:
+        assert work(restored_reference, "portableSourceReuses") == 0, restored_reference["validationWork"]
+    assert_public_parity(restored_reference, validate(direct=True))
+
+    # Unlike the valid-to-valid edits above, this reference change has an
+    # observable correctness result even if the idle owner ran first. Both
+    # previously certified files remain unchanged and present. A stale
+    # portable projection must not hide the newly referenced missing file.
+    missing_reference = "assets/audio/notification-missing.mp3"
+    assert not (project / missing_reference).exists()
+    asset_record.write_text(asset_yaml.replace("assets/audio/notification.mp3", missing_reference))
+    invalid_reference = validate(False)
+    assert_public_parity(invalid_reference, validate(False, direct=True))
+    assert any(diagnostic["code"] == "asset.source.missing" and
+               diagnostic["path"] == "/assets/pilot-cue-audio/data/source/path" and
+               diagnostic["severity"] == "error"
+               for diagnostic in invalid_reference["diagnostics"]), invalid_reference["diagnostics"]
+    export("missing-reference.ntproject", success=False)
+    asset_record.write_text(asset_yaml)
+    recovered_reference = validate()
+    assert recovered_reference["diagnostics"] == diagnostics
+    assert_public_parity(recovered_reference, validate(direct=True))
     alternative.unlink()
     assert validate()["diagnostics"] == diagnostics
 
@@ -348,7 +400,7 @@ with private_daemon_fixture() as root:
         "    - path: assets/notices/legal.txt\n"
         "      displayName: Legal notice"))
     configured = validate()
-    assert work(configured, "noticeValidationRuns") == 1
+    assert_changed_notice_success(configured)
     assert work(validate(), "noticeValidationReuses") == 1
 
     # An invalid UTF-8/control-bearing notice cannot yield a trustworthy
@@ -361,20 +413,33 @@ with private_daemon_fixture() as root:
     assert work(validate(False), "noticeValidationRuns") == 1
     notice.write_text("Repaired notice.\n")
     repaired = validate()
-    assert repaired["diagnostics"] == diagnostics
-    assert work(repaired, "noticeValidationRuns") == 1
+    assert_changed_notice_success(repaired)
     assert work(validate(), "noticeValidationReuses") == 1
     assert validate(direct=True)["diagnostics"] == diagnostics
 
-    # A valid, same-size write with restored mtime must not reuse the old
-    # notice content proof merely because metadata happened to match.
+    # A valid, same-size write with restored mtime must not borrow an
+    # obsolete notice proof. The resident idle validator may already have
+    # rechecked the new bytes before the public call, in which case the
+    # public work counter correctly reports reuse rather than execution.
+    # The invalid same-metadata mutation below is the strict correctness
+    # gate: stale successful evidence must never mask invalid notice bytes.
     previous = notice.stat()
     notice.write_bytes(notice.read_bytes().replace(b".", b"!"))
     os.utime(notice, ns=(previous.st_atime_ns, previous.st_mtime_ns))
     same_metadata = validate()
-    assert same_metadata["diagnostics"] == diagnostics
-    assert work(same_metadata, "noticeValidationRuns") == 1, same_metadata["validationWork"]
+    assert_changed_notice_success(same_metadata)
     assert work(validate(), "noticeValidationReuses") == 1
+
+    # Two immediate same-size rewrites without any sleeps must each revoke
+    # the prior proof. On hosted Windows the timestamp and basic change-time
+    # token can both be insufficient; a synchronous USN or exact hash is needed.
+    for old, new in ((b"!", b"?"), (b"?", b"!")):
+        previous = notice.stat()
+        notice.write_bytes(notice.read_bytes().replace(old, new))
+        os.utime(notice, ns=(previous.st_atime_ns, previous.st_mtime_ns))
+        rewritten = validate()
+        assert_changed_notice_success(rewritten)
+        assert work(validate(), "noticeValidationReuses") == 1
 
     # The same restored-metadata write must revoke a previously valid stage
     # even when resident maintenance observed it before public validation.
@@ -384,12 +449,15 @@ with private_daemon_fixture() as root:
     os.utime(notice, ns=(before_invalid.st_atime_ns, before_invalid.st_mtime_ns))
     invalid_same_metadata = validate(False)
     assert work(invalid_same_metadata, "noticeValidationRuns") == 1, invalid_same_metadata["validationWork"]
+    assert work(invalid_same_metadata, "noticeValidationReuses") == 0, invalid_same_metadata["validationWork"]
+    assert any(item["code"] == "authoring.distribution-notice.invalid"
+               and item["severity"] == "error"
+               for item in invalid_same_metadata["diagnostics"]), invalid_same_metadata["diagnostics"]
     assert_public_parity(invalid_same_metadata, validate(False, direct=True))
     notice.write_bytes(last_valid)
     os.utime(notice, ns=(before_invalid.st_atime_ns, before_invalid.st_mtime_ns))
     restored_notice = validate()
-    assert restored_notice["diagnostics"] == diagnostics
-    assert work(restored_notice, "noticeValidationRuns") == 1, restored_notice["validationWork"]
+    assert_changed_notice_success(restored_notice)
     assert work(validate(), "noticeValidationReuses") == 1
 
     # A missing notice is not a deterministic clean result. No retry may

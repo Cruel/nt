@@ -106,9 +106,9 @@ async function runCliConcurrent(root, project, args) {
   return response;
 }
 
-function editorSession(root, name) {
+function editorSession(root, name, pollIntervalMs = 80) {
   const worker = new Worker(workerScript, {
-    workerData: { addonPath: addon, root, sessionId: name, generation: 1, pollIntervalMs: 80 },
+    workerData: { addonPath: addon, root, sessionId: name, generation: 1, pollIntervalMs },
   });
   const messages = [];
   let counter = 0;
@@ -263,6 +263,15 @@ async function main() {
       true,
     );
 
+    // The transaction recovery exercise above starts a resident CLI owner.
+    // It may still hold the exclusive clean-cache writer lease, or publish
+    // its saved generation during the later dirty-Editor witness. Elect the
+    // Editor first for this independent phase, rather than racing the
+    // earlier daemon's maintenance. Keep the lock file itself intact.
+    runCli(scratch, null, ['daemon', 'stop'], true);
+    assert.equal(runCli(scratch, null, ['daemon', 'status'], true).daemon.running, false);
+    await rm(cacheFile(project), { force: true });
+
     const editor = editorSession(project, 'editor-dirty');
     sessions.push(editor);
     const opened = await editor.open();
@@ -315,7 +324,11 @@ async function main() {
     assert.equal(changed.snapshot.dirty, true);
     assert.equal((await readFile(manifestPath, 'utf8')).includes('Unsaved editor draft'), false);
     runCli(scratch, project, ['validate']);
-    assert.equal((await stat(cacheFile(project))).mtimeMs, oldMtime);
+    assert.equal(
+      (await stat(cacheFile(project))).mtimeMs,
+      oldMtime,
+      "A direct CLI read republished the elected dirty Editor's cache",
+    );
     assert.equal(
       (await editor.request('validateClean')).cacheHit,
       false,
@@ -366,10 +379,52 @@ async function main() {
     const newCache = await checkCache(project, ['project.yaml', addedPath]);
     assert.equal(newCache.semanticFingerprint, cliCache.semanticFingerprint);
     assert.notEqual(newCache.revisions['project.yaml'], originalCache.revisions['project.yaml']);
+    // Prove disk-cache admission in an independent *cold* worker before its
+    // background maintenance can import that cache itself. With an 80ms poller,
+    // the poller sometimes wins this race on Windows, and the following
+    // validateClean rightly reports an already-warm session (cacheHit=false).
+    // Polling is disabled ONLY for this one cold-read witness; the separate
+    // interactive Editor used for concurrent mutation still has live polling.
+    // Diagnostic checkpoints identify a rejected physical-root, generation,
+    // payload, or resident proof without weakening the exact cache contract.
+    // No CLI is spawned while the opt-in trace is enabled.
+    process.env.NOVELTEA_NATIVE_CACHE_TRACE = '1';
+    const coldReader = editorSession(project, 'after-save-cold-cache-witness', 0);
+    sessions.push(coldReader);
+    let importedDiskCache;
+    try {
+      await coldReader.open();
+      importedDiskCache = await coldReader.request('validateClean');
+    } finally {
+      delete process.env.NOVELTEA_NATIVE_CACHE_TRACE;
+    }
+    assert.equal(importedDiskCache.valid, true, JSON.stringify(importedDiskCache.diagnostics));
+    const postReadCache = await checkCache(project, ['project.yaml', addedPath]);
+    assert.equal(
+      importedDiskCache.cacheHit,
+      true,
+      `Fresh worker failed to import exact Editor/CLI cache: ${JSON.stringify({
+        valid: importedDiskCache.valid,
+        work: importedDiskCache.work,
+        cacheRevisionsStillExact:
+          JSON.stringify(postReadCache.revisions) === JSON.stringify(newCache.revisions),
+        cacheSemanticStillExact: postReadCache.semanticFingerprint === newCache.semanticFingerprint,
+        cacheResultValid: postReadCache.result?.valid,
+        cacheResidentPresent: Boolean(postReadCache.resident),
+        cacheFile: cacheFile(project),
+      })}`,
+    );
+    assert.deepEqual(
+      postReadCache.revisions,
+      newCache.revisions,
+      'The cold cache witness changed the persisted source revisions',
+    );
+
     const reopened = editorSession(project, 'after-editor-save');
     sessions.push(reopened);
     const reopenedInitial = await reopened.open();
-    assert.equal((await reopened.request('validateClean')).cacheHit, true);
+    const warmed = await reopened.request('validateClean');
+    assert.equal(warmed.valid, true, JSON.stringify(warmed.diagnostics));
 
     // A separate resident CLI daemon may mutate another physical owner while
     // the native editor publishes its own dirty record. No process shares

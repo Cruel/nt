@@ -205,13 +205,13 @@ describe('InteractableEditor', () => {
     const user = userEvent.setup();
     const selector = screen.getByRole('combobox', { name: 'Animation motion' });
     await user.click(selector);
-    await user.click(screen.getByRole('option', { name: 'rest' }));
+    await user.click(await screen.findByRole('option', { name: 'rest' }));
     await waitFor(() => expect(held.isHeld()).toBe(true));
     const rate = screen.getByRole('spinbutton', { name: /rate/iu });
     fireEvent.change(rate, { target: { value: '1.5' } });
     const cursor = within(screen.getByText('Cursor').parentElement!).getByRole('combobox');
     await user.click(cursor);
-    await user.click(screen.getByRole('option', { name: 'pointer' }));
+    await user.click(await screen.findByRole('option', { name: 'pointer' }));
     expect(selector).toHaveTextContent('rest');
     expect(rate).toHaveValue(1.5);
     expect(cursor).toHaveTextContent('pointer');

@@ -458,6 +458,22 @@ Compiler outputs remain disposable content-addressed build/cache products, not a
 when the final proof fails. The daemon shader path deliberately remains on the established pinned
 snapshot transport: native shader preparation must be carried in that immutable owner generation
 before that transport can be staged, rather than reopening newer live disk in a disposable worker.
+The installed owner-lifecycle certification proves resident admission with a daemon-routed
+`validate` command, checks that the broker stops and reopens the Project, then proves that
+the cancellation broker is independent and actually publishes/hands off a snapshot before
+signalling the CLI. The explicit certification runtime-root override namespaces the Windows
+named pipe and both startup/lifetime mutexes as well as Unix socket and lock paths.
+Windows broker shutdown serializes accept submission with cancellation and
+leaves handle release to the listener after its overlapped operation completes.
+Client connections signal a persistent close event observed by every read and
+write chunk, then join their I/O before releasing the pipe. This prevents late
+submissions and recycled handles from stranding shutdown. Stopped is terminal;
+a competing stop cannot return the broker to draining. The stop response still
+drains, and external Windows callers require actual process exit, not just a
+logical stopped status. The native broker suite exercises simultaneous pending
+pipe reads/writes and repeated concurrent client shutdown.
+The ordinary per-user, build/protocol production endpoint is unchanged. A local
+`platform profiles` read does not establish a resident owner.
 The adapter regression seam is `editor/src/renderer/test/native-cli-shaders.test.ts`; the installed
 routing differential compares blank-Project and Feature Lab local shader results and invalid options.
 
