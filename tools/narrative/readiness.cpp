@@ -14,7 +14,7 @@ namespace {
 constexpr std::array<const char*, 5> stage_names{"foundation", "architecture", "interactive",
                                                  "composition", "review"};
 constexpr std::size_t cluster_limit = 128;
-constexpr int cluster_depth = 6;
+constexpr int no_depth_limit = 0;
 bool partial(const Record& r) { return r.metadata.value("completeness", "complete") == "partial"; }
 std::string id(const Record& r) { return r.metadata["id"].get<std::string>(); }
 std::string type(const Record& r) { return r.metadata["type"].get<std::string>(); }
@@ -451,23 +451,23 @@ Cluster cluster(const Catalog& source, const std::string& milestone)
                 for (const auto& branch : step["branches"])
                     for (const auto& effect : branch["effects"])
                         producers[slot(effect)].insert(id(record));
-    std::vector<std::pair<std::string, int>> queue;
-    auto enqueue = [&](const std::string& key, int depth) {
-        if (result.ids.contains(key))
+    std::vector<std::string> queue;
+    auto enqueue = [&](const std::string& key) {
+        if (!records.contains(key) || result.ids.contains(key))
             return;
-        if (!records.contains(key) || result.ids.size() >= cluster_limit || depth > cluster_depth) {
+        if (result.ids.size() >= cluster_limit) {
             result.truncated = true;
             return;
         }
         result.ids.insert(key);
-        queue.emplace_back(key, depth);
+        queue.push_back(key);
     };
-    enqueue(milestone, 0);
+    enqueue(milestone);
     for (const auto& r : source.records)
         if (type(r) == "creative-direction" && r.metadata["status"] != "superseded")
-            enqueue(id(r), 0);
+            enqueue(id(r));
     for (std::size_t i = 0; i < queue.size(); ++i) {
-        const auto [current, depth] = queue[i];
+        const auto current = queue[i];
         const auto* record = records.at(current);
         if (type(*record) == "event") {
             // Typed state requirements depend on writers, not just on the Fact
@@ -475,7 +475,7 @@ Cluster cluster(const Catalog& source, const std::string& milestone)
             const auto include_producers = [&](const Json& conditions) {
                 for (const auto& condition : conditions)
                     for (const auto& producer : producers[slot(condition)])
-                        enqueue(producer, depth + 1);
+                        enqueue(producer);
             };
             for (const auto& route : record->metadata["prerequisites"]["any_of"])
                 include_producers(route.value("conditions", Json::array()));
@@ -485,7 +485,7 @@ Cluster cluster(const Catalog& source, const std::string& milestone)
         }
         for (const auto& ref : source.references)
             if (ref["source"] == current)
-                enqueue(ref["target"].get<std::string>(), depth + 1);
+                enqueue(ref["target"].get<std::string>());
         // Content and Puzzle are reverse links, but other reverse edges (e.g.
         // all Events sharing an Arc) would pull unrelated future Story branches.
         if (type(*record) == "event")
@@ -494,9 +494,30 @@ Cluster cluster(const Catalog& source, const std::string& milestone)
                     (records.contains(ref["source"].get<std::string>()) &&
                      (type(*records.at(ref["source"].get<std::string>())) == "authored-content" ||
                       type(*records.at(ref["source"].get<std::string>())) == "puzzle")))
-                    enqueue(ref["source"].get<std::string>(), depth + 1);
+                    enqueue(ref["source"].get<std::string>());
     }
     return result;
+}
+
+Json project_truncated_stages(Json stages, const Catalog& source, const Cluster& bounds)
+{
+    std::set<std::string> omitted_paths;
+    for (const auto& record : source.records)
+        if (!bounds.ids.contains(id(record)))
+            omitted_paths.insert(record.path);
+    for (auto& stage : stages) {
+        for (const auto* key : {"findings", "blockingGaps"}) {
+            auto& items = stage[key];
+            items.erase(std::remove_if(items.begin(), items.end(),
+                                       [&](const Json& item) {
+                                           return omitted_paths.contains(
+                                               item.at("path").get<std::string>());
+                                       }),
+                        items.end());
+        }
+        stage["minimum"] = "unverified";
+    }
+    return stages;
 }
 } // namespace
 
@@ -506,6 +527,7 @@ Json readiness_from_catalog(const Catalog& source, const std::string& stage,
     const auto contract = Json::parse(contract_source);
     auto design = assess(source, false);
     auto approved = assess(source, true);
+    const auto& focus = view == "approved" ? approved : design;
     Json results = Json::array();
     std::set<std::string> selected;
     for (const auto& target : milestones) {
@@ -520,37 +542,42 @@ Json readiness_from_catalog(const Catalog& source, const std::string& stage,
             continue;
         }
         auto bounds = cluster(source, target);
-        Catalog scoped;
-        for (const auto& r : source.records)
-            if (bounds.ids.contains(id(r)))
-                scoped.records.push_back(r);
-        for (const auto& ref : source.references)
-            if (bounds.ids.contains(ref["source"].get<std::string>()))
-                scoped.references.push_back(ref);
-        for (const auto& d : source.diagnostics)
-            if (d["path"] == "." ||
-                std::none_of(
-                    source.records.begin(), source.records.end(),
-                    [&](const Record& r) { return r.path == d["path"].get<std::string>(); }) ||
-                std::any_of(scoped.records.begin(), scoped.records.end(), [&](const Record& r) {
-                    return r.path == d["path"].get<std::string>();
-                }))
-                scoped.diagnostics.push_back(d);
-        auto candidate = assess(scoped, view == "approved");
-        const auto minimum =
-            bounds.truncated ? "unverified" : candidate.stages[stage]["minimum"].get<std::string>();
+        Json stages;
+        if (bounds.truncated) {
+            // A capped record list is not a closed graph. Report evidence from the
+            // full status view instead of treating omitted records as missing.
+            stages = project_truncated_stages(focus.stages, source, bounds);
+        } else {
+            Catalog scoped;
+            for (const auto& r : source.records)
+                if (bounds.ids.contains(id(r)))
+                    scoped.records.push_back(r);
+            for (const auto& ref : source.references)
+                if (bounds.ids.contains(ref["source"].get<std::string>()))
+                    scoped.references.push_back(ref);
+            for (const auto& d : source.diagnostics)
+                if (d["path"] == "." ||
+                    std::none_of(
+                        source.records.begin(), source.records.end(),
+                        [&](const Record& r) { return r.path == d["path"].get<std::string>(); }) ||
+                    std::any_of(scoped.records.begin(), scoped.records.end(), [&](const Record& r) {
+                        return r.path == d["path"].get<std::string>();
+                    }))
+                    scoped.diagnostics.push_back(d);
+            stages = assess(scoped, view == "approved").stages;
+        }
         Json ids = Json::array();
         for (const auto& value : bounds.ids)
             ids.push_back(value);
         results.push_back({{"id", target},
-                           {"minimum", minimum},
+                           {"minimum", stages[stage]["minimum"]},
                            {"recordIds", ids},
                            {"bounded",
-                            {{"maxDepth", cluster_depth},
+                            {{"maxDepth", no_depth_limit},
                              {"maxRecords", cluster_limit},
                              {"truncated", bounds.truncated}}},
-                           {"findings", candidate.stages[stage]["blockingGaps"]},
-                           {"stages", candidate.stages}});
+                           {"findings", stages[stage]["blockingGaps"]},
+                           {"stages", std::move(stages)}});
     }
     return {{"contractRevision", contract["revision"]},
             {"stage", stage},
@@ -558,7 +585,7 @@ Json readiness_from_catalog(const Catalog& source, const std::string& stage,
             {"enrichmentAllowed", true},
             {"design", {{"stages", design.stages}}},
             {"approved", {{"stages", approved.stages}}},
-            {"focus", (view == "approved" ? approved.stages : design.stages)[stage]},
+            {"focus", focus.stages[stage]},
             {"clusters", results},
             {"outstanding", outstanding(source)},
             {"diagnostics", source.diagnostics},

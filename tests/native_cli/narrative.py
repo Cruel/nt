@@ -511,45 +511,74 @@ The later work is intentionally unfinished.
     assert any(f['id'] == 'milestone.accept-investigation' and
                f['code'] == 'supply-relationship' for f in changed['outstanding'])
 
-    # Bounded dependency expansion must be explicit rather than silently
-    # declaring a truncated implementation handoff ready.
-    bounded = root / 'bounded-readiness'
-    shutil.copytree(source / 'tests/fixtures/narrative/reference-story', bounded)
-    target = bounded / 'milestones/accept-investigation.md'
-    text = target.read_text()
-    start = text.index('fulfillment:\n')
-    end = text.index('---\n', start)
-    target.write_text(text[:start] + 'fulfillment:\n  any_of:\n'
-                      '    - [event.chain-0]\n' + text[end:])
-    for idx in range(7):
-        after = f'[event.chain-{idx + 1}]' if idx < 6 else '[]'
-        (bounded / f'events/chain-{idx}.md').write_text(f"""---
+    # A composed Story can have a chain longer than six reference hops.
+    deep = root / 'deep-readiness'
+    shutil.copytree(planning / '04-composition', deep)
+    event_template = (deep / 'events/restore-bell.md').read_text()
+    content_template = (deep / 'authored-content/bell.md').read_text()
+    for idx in range(1, 9):
+        predecessor = 'event.restore-bell' if idx == 1 else f'event.chain-{idx - 1}'
+        (deep / f'events/chain-{idx}.md').write_text(event_template.replace(
+            'event.restore-bell', f'event.chain-{idx}').replace(
+            'completed: []\n      not_completed:', f'completed: [{predecessor}]\n      not_completed:'))
+        (deep / f'authored-content/chain-{idx}.md').write_text(content_template.replace(
+            'authored-content.bell', f'authored-content.chain-{idx}').replace(
+            'event.restore-bell', f'event.chain-{idx}'))
+    for idx in (3, 6, 8):
+        (deep / f'milestones/chain-{idx}.md').write_text(finished.replace(
+            'milestone.warning', f'milestone.chain-{idx}').replace(
+            'event.restore-bell', f'event.chain-{idx}'))
+    (deep / 'puzzles').mkdir()
+    (deep / 'puzzles/repair.md').write_text('''---
 schema: '0.1'
-type: event
-id: event.chain-{idx}
-title: Linked earlier requirement
+type: puzzle
+id: puzzle.repair
+title: Repair the signal
 status: draft
 decisions: []
-participants: []
-arcs: [arc.stolen-warning]
-after: {after}
-consequences: [Advance the chain]
-prerequisites:
-  any_of:
-    - completed: []
-      not_completed: []
-steps: []
+objective: Find and fit the replacement part.
+clues: [authored-content.bell]
+solutions: [event.chain-1]
 ---
-A declared predecessor.
-""")
-    bound = readiness(bounded, '--stage', 'interactive',
-                      '--milestone', 'milestone.accept-investigation')['readiness']['clusters'][0]
-    assert bound['bounded']['truncated'] is True
-    assert bound['minimum'] == 'unverified'
-    assert len(bound['recordIds']) <= 128
-    compact_bound = readiness(bounded, '--summary', '--milestone',
-                              'milestone.accept-investigation')['summary']['readiness']['clusters'][0]
+The first repair points to the replacement part.
+''')
+    final_selector = ('--view', 'design', '--milestone', 'milestone.chain-8')
+    for stage in ('architecture', 'interactive', 'composition'):
+        report = readiness(deep, '--stage', stage, *final_selector)['readiness']
+        assert report['focus']['minimum'] == 'passed', report['focus']['blockingGaps']
+        late = report['clusters'][0]
+        gaps = late['stages'][stage]['blockingGaps']
+        assert late['minimum'] == 'passed' and not gaps, (late['minimum'], gaps[:2])
+        assert late['findings'] == [] and not late['bounded']['truncated']
+        assert {'event.restore-bell', 'authored-content.bell', 'puzzle.repair'} <= set(late['recordIds'])
+    options = ('--stage', 'composition', *final_selector)
+    compact_late = combined(deep, *options, '--summary')['summary']['readiness']['clusters'][0]
+    assert compact_late['minimum'] == 'passed'
+    assert compact_late['blockingGaps'] == {'total': 0, 'truncated': False, 'items': []}
+
+    # A genuinely absent attachment remains a gap, even deep in the chain.
+    missing_content = deep / 'authored-content/chain-2.md'
+    content = missing_content.read_text()
+    missing_content.unlink()
+    late = readiness(deep, *options)['readiness']['clusters'][0]
+    assert late['minimum'] == 'needs-work'
+    assert any(f['code'] == 'event-authored-content' and f['status'] == 'missing'
+               and f['subjectId'] == 'event.chain-2' for f in late['findings'])
+    missing_content.write_text(content)
+
+    # The record cap can still cut a real predecessor out of the display.
+    for idx in range(128):
+        (deep / f'authored-content/extra-{idx:03}.md').write_text(content_template.replace(
+            'authored-content.bell', f'authored-content.extra-{idx:03}').replace(
+            'event.restore-bell', 'event.chain-8'))
+    bound = readiness(deep, *options)['readiness']['clusters'][0]
+    assert bound['bounded']['truncated'] and bound['minimum'] == 'unverified'
+    assert len(bound['recordIds']) == 128 and 'event.restore-bell' not in bound['recordIds']
+    assert bound['findings'] == []
+    assert bound['stages']['composition']['minimum'] == 'unverified'
+    compact_bound = combined(deep, *options, '--summary')['summary']['readiness']['clusters'][0]
     assert compact_bound['bounded']['truncated'] and compact_bound['minimum'] == 'unverified'
+    assert compact_bound['blockingGaps']['total'] == 0
 
     # Approved scope excludes unrelated draft/superseded records. Status is
     # not inferred from draft structural reachability.
@@ -560,6 +589,13 @@ A declared predecessor.
     only = readiness(canon, '--view', 'approved', '--stage', 'foundation')['readiness']
     assert only['focus']['minimum'] == 'passed'
     assert only['approved']['stages']['architecture']['minimum'] == 'needs-work'
+    approved_target = canon / 'milestones/accept-investigation.md'
+    approved_target.write_text(approved_target.read_text().replace('status: draft', 'status: approved'))
+    approved_cluster = readiness(canon, '--view', 'approved', '--stage', 'composition',
+                                 '--milestone', 'milestone.accept-investigation')['readiness']['clusters'][0]
+    assert approved_cluster['minimum'] == 'needs-work' and not approved_cluster['bounded']['truncated']
+    assert any(f['code'] == 'scope-reference-missing' and f['status'] == 'blocked'
+               and f['path'] == 'milestones/accept-investigation.md' for f in approved_cluster['findings'])
     bad_draft = canon / 'events/horn-warning.md'
     bad_draft.write_text(bad_draft.read_text().replace(
         'event.question-ivo', 'event.does-not-exist'))
@@ -639,7 +675,9 @@ The repair supplies are ready.
     setter_source = setter.read_text()
     setter.write_text(setter_source.replace('value: true', 'value: false'))
     value = readiness(producers, '--milestone', 'milestone.warning', code=1)['readiness']
-    assert value['clusters'][0]['minimum'] != 'passed'
+    assert value['clusters'][0]['minimum'] == 'needs-work'
+    assert any(f['code'] == 'milestone-fulfillment' and f['status'] == 'blocked'
+               for f in value['clusters'][0]['findings'])
     setter.write_text(setter_source)
     event.write_text(original.replace('conditions: []',
         'conditions:\n          - kind: truth\n            fact: fact.ready\n            value: true'))
@@ -647,8 +685,7 @@ The repair supplies are ready.
     assert value['clusters'][0]['minimum'] == 'passed'
     assert 'event.get-ready' in value['clusters'][0]['recordIds']
 
-    # Recursively discovered state writers obey the same depth budget. A
-    # truncated producer chain must not be reported as an impossible route.
+    # Long chains of recursively discovered state writers stay in scope.
     fact_source = (producers / 'facts/ready.md').read_text()
     for idx in range(6):
         (producers / f'facts/supply-{idx}.md').write_text(fact_source.replace(
@@ -661,8 +698,9 @@ The repair supplies are ready.
             'event.get-ready', f'event.supply-{idx}').replace('fact.ready', f'fact.supply-{idx}'))
     value = readiness(producers, '--milestone', 'milestone.warning')['readiness']
     assert value['focus']['minimum'] == 'passed'
-    assert value['clusters'][0]['bounded']['truncated']
-    assert value['clusters'][0]['minimum'] == 'unverified'
+    assert not value['clusters'][0]['bounded']['truncated']
+    assert value['clusters'][0]['minimum'] == 'passed'
+    assert 'event.supply-5' in value['clusters'][0]['recordIds']
 
     # Different Puzzles may share solution Events without sharing requirement IDs.
     shared = root / 'shared-puzzle-readiness'

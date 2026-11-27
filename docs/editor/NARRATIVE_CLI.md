@@ -375,19 +375,20 @@ remains a readiness blocker, including for requested clusters, rather than silen
 disappearing from the gate. Unresolved typed dependencies, partial records and
 search-budget exhaustion never become affirmative proof.
 
-Requested `readiness.clusters` select each target Milestone plus bounded
-declarative Event prerequisites, references, linked Authored Content and
-related Puzzle dependencies. Typed prerequisite and branch conditions also select
-Events declaring effects on the same state slots, recursively within the same bounds.
-This conservative dependency selection includes potential state writers, not just
-initial Fact/Relationship declarations; unmodeled prose effects remain unverified.
-Cluster selection deliberately excludes arbitrary
-future Arc siblings; it exposes sorted `recordIds`, the selected stage
-minimum, findings and `bounded` parameters (at most 128 records and 6
-reference hops). Truncation is `unverified`, never `passed`. A later
-unfinished Milestone can block whole-Story interactive readiness without
-invalidating an earlier independent cluster; changing the earlier Milestone's
-own fulfillment requirement invalidates its handoff.
+Requested `readiness.clusters` select each target Milestone plus declarative
+Event prerequisites, references, linked Authored Content and related Puzzle
+dependencies. Typed prerequisite and branch conditions also select Events that
+write to the same state slots, recursively; unmodeled prose effects remain
+unverified. Selection excludes arbitrary future Arc siblings. A later unfinished
+Milestone can block whole-Story interactive readiness without invalidating an
+independent earlier cluster.
+
+Clusters expose sorted `recordIds`, stage minima and findings. Traversal has no
+hop limit (`bounded.maxDepth: 0`) but reports at most 128 records. If the record
+cap is reached and dependencies are omitted, cluster minima are `unverified`.
+Findings then come from the whole-Story assessment for the requested status view,
+filtered to selected records and catalog-level findings (including rejected
+files). A dependency omitted from `recordIds` by the cap is not itself a gap.
 
 Structural diagnostics and invalid target IDs produce exit code 1 while
 retaining available readiness evidence; CLI option errors produce 2. An
