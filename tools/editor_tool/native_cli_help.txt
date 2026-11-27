@@ -16,13 +16,17 @@ Commands:
   comfyui verify [<id>] [--server <url>]
   comfyui run [<workflow-id> | --type <classification>] [--input <name=value>]... [--output <routing>]... [--server <url>] [--force]
   validate [--working]
-  narrative validate <catalog-root> [--base <verified-commit>] [--summary]
+  narrative validate <catalog-root> [--base <verified-commit>]
+                     [--summary [--position <narrative-position-id>]...]
                      [--readiness [--stage <foundation|architecture|interactive|composition|review>]
                      [--view <design|approved>] [--milestone <milestone-id>]...]
                      --summary: compact JSON; omit for records, witnesses and full findings.
+                     --position: include predicate state for up to 16 unique positions in the summary.
                      Both whole-Story views are returned. One --view and --stage select
                      whole-Story focus and requested Milestone cluster minima (default design/review).
   narrative metrics <catalog-root>
+                    Reports planning estimates and raw Markdown body word counts by record and route,
+                    with Story totals and observed route bounds (not measured playtime).
   narrative coverage <catalog-root> --project <project-directory> [--test-report <suite.json>]...
   narrative readiness <catalog-root> [--stage <foundation|architecture|interactive|composition|review>]
                       [--view <design|approved>] [--milestone <milestone-id>]... [--summary]

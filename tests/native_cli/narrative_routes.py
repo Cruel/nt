@@ -93,6 +93,7 @@ route_estimates:
 
     for ending, event in [('bell', 'event.bell-restored'),
                           ('horn', 'event.horn-warning')]:
+        extra_prose = '\nTwo\tmore.' if ending == 'horn' else ''
         (story / 'authored-content' / f'{ending}-exclusive.md').write_text(f'''---
 schema: '0.1'
 type: authored-content
@@ -103,7 +104,7 @@ decisions: []
 events: [{event}]
 revelations: []
 ---
-Unique ending prose only present on the {ending} route.
+Unique ending prose only present on the {ending} route.{extra_prose}
 ''', encoding='utf-8')
 
     # Both endings reconverge through one shared Event without erasing the
@@ -193,6 +194,18 @@ One reusable ending scene after both branches converge.
 
     footprint = data['contentFootprint']
     assert footprint['distinctAuthoredContentCount'] == 6
+    assert {row['id']: row['wordCount'] for row in footprint['authoredContent']} == {
+        'authored-content.quay': 224, 'authored-content.tower': 219,
+        'authored-content.well': 225, 'authored-content.epilogue': 8,
+        'authored-content.bell-exclusive': 9, 'authored-content.horn-exclusive': 11,
+    }
+    assert footprint['totalWordCount'] == 696
+    assert footprint['sharedWordCount'] == 676
+    assert footprint['routeExclusiveWordCount'] == 20
+    assert data['routeBounds']['observedWordCount'] == {'min': 685, 'max': 687}
+    for route in routes:
+        assert route['wordCount'] == (685 if 'event.bell-restored' in route['completedEvents']
+                                      else 687)
     assert footprint['illustrationConceptCount'] == 2
     assert footprint['illustrationVariantCount'] == 2
     assert footprint['routeIllustrationAssignment'] == 'unverified'
@@ -316,6 +329,10 @@ The shared event is one physical story segment, not two separate scenes.
     assert incomplete['routeCoverage']['status'] == 'unverified'
     assert incomplete['routes'] and any(r['totalMinutes'] is not None
                                          for r in incomplete['routes'])
+    assert incomplete['contentFootprint']['totalWordCount'] == 696
+    assert incomplete['contentFootprint']['sharedWordCount'] is None
+    assert incomplete['contentFootprint']['routeExclusiveWordCount'] is None
+    assert incomplete['routeBounds']['observedWordCount'] == {'min': 685, 'max': 685}
     assert incomplete['route']['totalMinutes'] is None
     assert incomplete['coverage']['routeTotalAvailable'] is False
     epilogue_event.write_text(original_event)

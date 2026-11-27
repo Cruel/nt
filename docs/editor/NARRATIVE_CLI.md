@@ -88,6 +88,11 @@ exit status even when piping JSON to another tool (e.g. `set -o pipefail` in Bas
   for `eventProgress`, `branchProgress`, `routes`, `solutions`, `clueAccess`, `narrativeState`
   (position reachability), and `predicates` (state classifications). Counts describe the
   declared evidence; an empty group does not mean the Story is complete.
+- With `validate --summary`, pass `--position <narrative-position-id>` up to 16 times
+  with distinct IDs to add `summary.coverage.positions`. In request order, each selected
+  entry contains `id`, reachability `status`, and its full `state[]` predicate classifications.
+  The counts still describe the whole Story. Unknown, malformed, or ambiguous IDs produce
+  `invalid-position-id` diagnostics and exit 1; valid selections are still returned.
 - With `--base`, `summary.protection` retains the baseline check and every protected decision
   finding, including before/after evidence. Its `impact` samples `changed` and `moved` and
   reports `affectedCount`, analysis bounds and unverified categories. Exit 1 with no diagnostics
@@ -104,7 +109,7 @@ exit status even when piping JSON to another tool (e.g. `set -o pipefail` in Bas
   `impact.moved`) have `{total, truncated, items}`. They return the first eight entries at
   most, without witness arrays. This display truncation is independent of analysis bounds.
   Diagnostics and protection findings are intentionally uncapped, even for large broken Stories.
-- `summary.fullDetail` gives the drill-down: repeat the identical command **without** `--summary`.
+- `summary.fullDetail` gives the drill-down: remove `--summary` and any `--position` selectors.
   Use `catalog.records`, `catalog.coverage.narrativeState[].state[]` (`predicate` and `status`),
   `catalog.protection.impact.affected[].witnesses`, and the full stage/cluster findings there.
   Human output prints the diagnostic count, protection verdict if requested, and separate
@@ -262,7 +267,19 @@ duration. Per-route `authoredContentIds` are included once when the route
 contains any Event declared by that Content record. With complete declared
 coverage, Content records are labeled `shared`, `route-exclusive` or
 `unassigned`; otherwise classification is `unverified`, and the complete
-shared/exclusive lists are withheld. Illustration concepts and their
+shared/exclusive lists are withheld.
+
+Each `authoredContent[]` entry includes `wordCount`: the number of nonempty tokens in the raw
+Markdown body, split on ASCII whitespace (space, tab, line endings, form feed, vertical tab).
+This excludes YAML frontmatter but counts Markdown markers, headings, speaker labels and all
+branch-local sections. `totalWordCount` sums the distinct non-superseded records, including
+unassigned records. `sharedWordCount` and `routeExclusiveWordCount` sum only their respective
+classifications and are `null` if classification coverage is unverified. Each witnessed route's
+`wordCount` sums its distinct `authoredContentIds` once. `routeBounds.observedWordCount` reports
+`{min, max}` across those routes, even if no duration estimate is available; it is `null` if no
+routes were witnessed. These are pacing inputs, not measurements of reading speed or playtime.
+
+Illustration concepts and their
 meaningful variants have separate global IDs/counts; they are not physical
 Assets or engine Rooms. Character `artwork_tier` counts are reported by
 `main`, `supporting`, `extra`, `none`, and `unclassified`. There is no canonical

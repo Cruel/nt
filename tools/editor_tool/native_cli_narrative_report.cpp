@@ -1,5 +1,7 @@
 #include "native_cli_narrative_report.hpp"
 
+#include <algorithm>
+#include <iterator>
 #include <sstream>
 
 namespace noveltea::cli {
@@ -84,16 +86,32 @@ Json readiness_summary(const Json& report)
 }
 } // namespace
 
-void compact_narrative_result(Json& result)
+Json summarize_narrative_position(const Json& coverage, const std::string& id)
 {
-    Json summary = {{"fullDetail", "Repeat the same command without --summary for records, "
-                                   "witnesses, position state, impact and all findings."}};
+    const auto& positions = coverage.at("narrativeState");
+    const auto matches = [&](const Json& row) { return row.at("id") == id; };
+    const auto row = std::find_if(positions.begin(), positions.end(), matches);
+    if (row == positions.end() || std::any_of(std::next(row), positions.end(), matches))
+        return nullptr;
+    return {{"id", row->at("id")}, {"status", row->at("status")}, {"state", row->at("state")}};
+}
+
+void compact_narrative_result(Json& result, Json positions)
+{
+    Json summary = {{"fullDetail", positions.is_null()
+                                       ? "Repeat the same command without --summary for records, "
+                                         "witnesses, position state, impact and all findings."
+                                       : "Remove --summary and all --position selectors for "
+                                         "records, witnesses, position state, impact and all "
+                                         "findings."}};
     if (result.contains("catalog")) {
         const auto& catalog = result.at("catalog");
         summary["contractRevision"] = catalog.at("contractRevision");
         summary["recordCount"] = catalog.at("records").size();
         summary["authorization"] = catalog.at("authorization");
         summary["coverage"] = coverage_summary(catalog.at("coverage"));
+        if (!positions.is_null())
+            summary["coverage"]["positions"] = std::move(positions);
         if (catalog.contains("protection")) {
             const auto& protection = catalog.at("protection");
             auto& compact = summary["protection"];

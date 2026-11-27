@@ -8,6 +8,7 @@
 #include <set>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace noveltea::narrative {
@@ -57,6 +58,21 @@ Json minutes(const Json& source, const char* category)
 }
 
 std::set<std::string> ids(const Json& values) { return values.get<std::set<std::string>>(); }
+
+std::size_t body_word_count(std::string_view body)
+{
+    constexpr std::string_view whitespace = " \t\r\n\f\v";
+    std::size_t count = 0;
+    auto start = body.find_first_not_of(whitespace);
+    while (start != std::string_view::npos) {
+        ++count;
+        const auto end = body.find_first_of(whitespace, start);
+        if (end == std::string_view::npos)
+            break;
+        start = body.find_first_not_of(whitespace, end);
+    }
+    return count;
+}
 } // namespace
 
 Json route_metrics(const Catalog& catalog, const Json& coverage)
@@ -64,7 +80,7 @@ Json route_metrics(const Catalog& catalog, const Json& coverage)
     const auto traced = trace_story_routes(catalog);
     const Record* direction = nullptr;
     std::vector<const Record*> milestones;
-    std::vector<const Record*> content;
+    std::vector<std::pair<const Record*, std::size_t>> content;
     std::map<std::string, std::vector<std::string>> character_tiers;
     for (const auto& tier : {"main", "supporting", "extra", "none", "unclassified"})
         character_tiers[tier] = {};
@@ -78,7 +94,7 @@ Json route_metrics(const Catalog& catalog, const Json& coverage)
         else if (type == "milestone")
             milestones.push_back(&record);
         else if (type == "authored-content")
-            content.push_back(&record);
+            content.emplace_back(&record, body_word_count(record.body));
         else if (type == "character") {
             const auto tier = metadata.value("artwork_tier", "unclassified");
             character_tiers[tier].push_back(metadata["id"].get<std::string>());
@@ -167,12 +183,15 @@ Json route_metrics(const Catalog& catalog, const Json& coverage)
         if (!signatures.insert(signature).second)
             continue;
         Json content_ids = Json::array();
-        for (const auto* record : content) {
+        std::size_t route_words = 0;
+        for (const auto& [record, words] : content) {
             const auto& linked = record->metadata["events"];
             if (std::any_of(linked.begin(), linked.end(), [&](const Json& id) {
                     return completed.contains(id.get<std::string>());
-                }))
+                })) {
                 content_ids.push_back(record->metadata["id"]);
+                route_words += words;
+            }
         }
         routes.push_back({{"id", core::xxh3_128_revision(signature)},
                           {"status", "structurally-reachable"},
@@ -181,6 +200,7 @@ Json route_metrics(const Catalog& catalog, const Json& coverage)
                           {"state", history["state"]},
                           {"milestones", selections},
                           {"authoredContentIds", content_ids},
+                          {"wordCount", route_words},
                           {"narrativeMinutes", narrative},
                           {"explorationMinutes", exploration},
                           {"totalMinutes", range_sum(narrative, exploration)}});
@@ -205,8 +225,13 @@ Json route_metrics(const Catalog& catalog, const Json& coverage)
     const bool complete_search = !incomplete && !routes.empty();
 
     Json observed_bounds = nullptr;
+    std::size_t min_words = routes.empty() ? 0 : routes.front()["wordCount"].get<std::size_t>();
+    std::size_t max_words = min_words;
     bool all_measured = !routes.empty();
     for (const auto& route : routes) {
+        const auto words = route["wordCount"].get<std::size_t>();
+        min_words = std::min(min_words, words);
+        max_words = std::max(max_words, words);
         const auto& duration = route["totalMinutes"];
         if (duration.is_null()) {
             all_measured = false;
@@ -224,7 +249,9 @@ Json route_metrics(const Catalog& catalog, const Json& coverage)
 
     Json content_records = Json::array();
     Json shared = Json::array(), exclusive = Json::array(), unassigned = Json::array();
-    for (const auto* record : content) {
+    std::size_t total_words = 0, shared_words = 0, exclusive_words = 0;
+    for (const auto& [record, words] : content) {
+        total_words += words;
         const auto id = record->metadata["id"].get<std::string>();
         std::size_t present = 0;
         for (const auto& route : routes)
@@ -239,14 +266,18 @@ Json route_metrics(const Catalog& catalog, const Json& coverage)
                                    {"path", record->path},
                                    {"events", record->metadata["events"]},
                                    {"witnessedRoutes", present},
-                                   {"classification", classification}});
+                                   {"classification", classification},
+                                   {"wordCount", words}});
         if (complete_search) {
-            if (present == routes.size())
+            if (present == routes.size()) {
                 shared.push_back(id);
-            else if (present == 0)
+                shared_words += words;
+            } else if (present == 0) {
                 unassigned.push_back(id);
-            else
+            } else {
                 exclusive.push_back(id);
+                exclusive_words += words;
+            }
         }
     }
 
@@ -364,6 +395,8 @@ Json route_metrics(const Catalog& catalog, const Json& coverage)
         {"routeBounds",
          {{"status", !complete_search || !all_measured ? "unverified" : "declared-exhaustive"},
           {"observedMinutes", observed_bounds},
+          {"observedWordCount",
+           routes.empty() ? Json(nullptr) : Json{{"min", min_words}, {"max", max_words}}},
           {"guaranteedMinutes",
            complete_search && all_measured ? observed_bounds : Json(nullptr)}}},
         {"routeCoverage",
@@ -374,10 +407,15 @@ Json route_metrics(const Catalog& catalog, const Json& coverage)
           {"unsupportedHistories", ambiguous_histories},
           {"supportedRoutes", routes.size()},
           {"unverified", "Undeclared endings, optional Events, prose "
-                         "conditions and actual player routes are not measured."}}},
+                         "conditions and actual player routes are not measured. Raw Markdown "
+                         "body word counts include branch-local sections and do not measure "
+                         "reading speed or playtime."}}},
         {"contentFootprint",
          {{"distinctAuthoredContentCount", content.size()},
           {"authoredContent", content_records},
+          {"totalWordCount", total_words},
+          {"sharedWordCount", complete_search ? Json(shared_words) : Json(nullptr)},
+          {"routeExclusiveWordCount", complete_search ? Json(exclusive_words) : Json(nullptr)},
           {"sharedContentIds", shared},
           {"routeExclusiveContentIds", exclusive},
           {"unassignedContentIds", unassigned},

@@ -131,6 +131,7 @@ noveltea project export --output <bundle.ntproject>
 noveltea project import <bundle.ntproject> <destination-directory>
 noveltea validate
 noveltea narrative validate <catalog-root> [--base <verified-commit>]
+                           [--summary [--position <narrative-position-id>]...]
 noveltea narrative metrics <catalog-root>
 noveltea narrative context <catalog-root> --kind dialogue --id <event-id> [--position <position-id>]
 noveltea narrative readiness <catalog-root> [--stage interactive] [--view design|approved]

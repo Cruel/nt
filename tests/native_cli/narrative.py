@@ -29,7 +29,7 @@ with tempfile.TemporaryDirectory(prefix='nt-narrative-') as temporary:
     env = dict(os.environ, NOVELTEA_USER_CONFIG_ROOT=str(root / 'no-config'))
 
     def validate(path=story, code=0, *extra):
-        result = subprocess.run([str(binary), '--json', *extra, 'narrative', 'validate', str(path)],
+        result = subprocess.run([str(binary), '--json', 'narrative', 'validate', str(path), *extra],
                                 cwd=root, env=env, capture_output=True, encoding='utf-8')
         assert result.returncode == code, (result.returncode, result.stdout, result.stderr)
         assert not result.stderr, result.stderr
@@ -349,6 +349,31 @@ Independent fictional occurrence.
         assert run.returncode == 2, (options, run.stdout, run.stderr)
         assert json.loads(run.stdout)['diagnostics'][0]['code'] == 'CLI_USAGE'
     print('Combined native validation/readiness matches independent reports and rejects malformed options.')
+
+    coverage = report['catalog']['coverage']
+    position_ids = ('narrative-position.horn-ending', 'narrative-position.after-question')
+    compact_coverage = validate(story, 0, '--summary')['summary']['coverage']
+    assert 'positions' not in compact_coverage
+    for requested in (position_ids[:1], position_ids):
+        selectors = [part for id in requested for part in ('--position', id)]
+        scoped = validate(story, 0, '--summary', *selectors)
+        assert 'catalog' not in scoped
+        expected = []
+        for id in requested:
+            row = next(p for p in coverage['narrativeState'] if p['id'] == id)
+            expected.append({key: row[key] for key in ('id', 'status', 'state')})
+        assert scoped['summary']['coverage'] == dict(compact_coverage, positions=expected)
+    for invalid in ('narrative-position.missing', 'event.question-ivo', 'not an ID'):
+        scoped = validate(story, 1, '--summary', '--position', invalid, '--position', position_ids[0])
+        assert scoped['diagnostics'][0]['code'] == 'invalid-position-id'
+        assert [p['id'] for p in scoped['summary']['coverage']['positions']] == [position_ids[0]]
+    for options in (('--position', position_ids[0]), ('--summary', '--position'),
+                    ('--summary', '--position', position_ids[0], '--position', position_ids[0])):
+        assert validate(story, 2, *options)['diagnostics'][0]['code'] == 'CLI_USAGE'
+    for command, expected in (('validate', '--position'), ('metrics', 'word counts')):
+        help_text = subprocess.check_output([str(binary), 'narrative', command, '--help'],
+                                            cwd=root, env=env, encoding='utf-8')
+        assert expected in help_text
 
     # Private idea files are not canonical Story records, even when they use
     # the Markdown extension and contain invalid Story frontmatter.

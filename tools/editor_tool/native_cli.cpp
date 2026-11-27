@@ -197,11 +197,11 @@ int emit(Json envelope, bool json, const std::string& message = {})
     return envelope.at("exitCode").get<int>();
 }
 
-int emit_narrative(Json result, bool json, bool summary)
+int emit_narrative(Json result, bool json, bool summary, Json positions = nullptr)
 {
     const auto message = json ? std::string{} : narrative_result_message(result);
     if (json && summary)
-        compact_narrative_result(result);
+        compact_narrative_result(result, std::move(positions));
     return emit(std::move(result), json, message);
 }
 
@@ -3357,13 +3357,15 @@ int run(const std::vector<std::string>& argv)
                 args.command[2].starts_with("--"))
                 return usage(
                     args.json,
-                    "Expected narrative validate <catalog-root> [--summary] [--base <commit>] "
+                    "Expected narrative validate <catalog-root> "
+                    "[--summary [--position <narrative-position-id>]...] [--base <commit>] "
                     "[--readiness [--stage <stage>] [--view <design|approved>] "
                     "[--milestone <milestone-id>]...]; --project is not supported.");
             std::string base;
             bool selected_base = false, with_readiness = false, summary = false;
             bool selected_stage = false, selected_view = false;
             narrative::ReadinessRequest options;
+            std::vector<std::string> position_ids;
             for (std::size_t i = 3; i < args.command.size();) {
                 const auto option = args.command[i++];
                 if (option == "--summary" && !summary) {
@@ -3391,6 +3393,10 @@ int run(const std::vector<std::string>& argv)
                            std::find(options.milestones.begin(), options.milestones.end(), value) ==
                                options.milestones.end()) {
                     options.milestones.push_back(value);
+                } else if (option == "--position" && position_ids.size() < 16 &&
+                           std::find(position_ids.begin(), position_ids.end(), value) ==
+                               position_ids.end()) {
+                    position_ids.push_back(value);
                 } else {
                     return usage(args.json,
                                  "Unknown or repeated narrative validate option '" + option + "'.");
@@ -3404,11 +3410,27 @@ int run(const std::vector<std::string>& argv)
                 (options.view != "design" && options.view != "approved"))
                 return usage(args.json, "Narrative validate readiness requires --readiness "
                                         "and a declared stage/status view.");
+            if (!summary && !position_ids.empty())
+                return usage(args.json, "Narrative validate --position requires --summary.");
             auto catalog = narrative::validate(native_path_from_utf8(args.command[2]), base,
                                                with_readiness ? &options : nullptr);
             auto diagnostics = catalog.at("diagnostics");
             for (auto& item : diagnostics)
                 item["sourceUrl"] = item.at("path");
+            Json positions = nullptr;
+            if (!position_ids.empty()) {
+                positions = Json::array();
+                for (const auto& id : position_ids) {
+                    auto row = summarize_narrative_position(catalog.at("coverage"), id);
+                    if (row.is_null())
+                        diagnostics.push_back(diagnostic("invalid-position-id", "/",
+                                                         "Expected an existing unique Narrative "
+                                                         "Position ID: " +
+                                                             id));
+                    else
+                        positions.push_back(std::move(row));
+                }
+            }
             Json combined_readiness = nullptr;
             if (with_readiness) {
                 combined_readiness = catalog.at("readiness");
@@ -3438,7 +3460,7 @@ int run(const std::vector<std::string>& argv)
                            {"catalog", std::move(catalog)}};
             if (with_readiness)
                 result["readiness"] = std::move(combined_readiness);
-            return emit_narrative(std::move(result), args.json, summary);
+            return emit_narrative(std::move(result), args.json, summary, std::move(positions));
         }
         if (family == "media-tool" && operation == "check") {
             if (args.command.size() != 2)
