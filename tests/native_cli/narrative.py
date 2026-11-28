@@ -467,7 +467,7 @@ Independent fictional occurrence.
     whole = context(scaled, '--kind', 'review')['manifest']
     assert whole['bounded']['truncated'] and len(whole['files']) == 128
     assert [f['path'] for f in whole['files']] == sorted(
-        str(p.relative_to(scaled)) for p in scaled.rglob('*.md'))[:128]
+        p.relative_to(scaled).as_posix() for p in scaled.rglob('*.md'))[:128]
     add_milestone('second', partial_plan)
     blocked = combined(scaled, *selectors, '--summary')['summary']['readiness']['clusters'][1]
     assert blocked['minimum'] == 'needs-work' and any(
