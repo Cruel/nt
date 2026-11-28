@@ -148,7 +148,9 @@ checkpoint before the projection is refreshed. No editor connection, socket,
 headless editor, provider-specific protocol, or CLI daemon is necessary.
 If the checkpoint is corrupt, missing, quarantined or belongs to another Project,
 retain working artifacts for explicit recovery and do **not** promote them to
-trusted native state without verified attribution. Invalid working manifest,
+trusted native state without verified attribution. A warning-only inspection
+does not advertise recovered content: the saved Project opens with diagnostics
+and retained evidence, not a synthetic recovered Project. Invalid working manifest,
 missing artifact, changed/invalid baseline, malformed pending JSON, agent edit
 during a publication, and simultaneous file/deletion marker must be reported
 without deleting or clobbering any evidence. Re-read and CAS before committing.

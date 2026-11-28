@@ -1222,6 +1222,14 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
         { op: 'replace', path: '/project/name', value: 'Recovered partial journal edit' },
       ]);
       expect(patched.accepted, patched.error).toBe(true);
+      // Retain real projected evidence to reproduce the warning-only cold-open
+      // path even when the asynchronous publisher would otherwise prune it.
+      await controller.flushWorkingSources(first.id);
+      const workingRoot = path.join(root, '.noveltea/editor/working');
+      const retainedWorking = path.join(parent, 'retained-working');
+      await copyDirectory(workingRoot, retainedWorking, { recursive: true });
+      const retainedManifest = await readFile(path.join(retainedWorking, 'manifest.json'));
+      const retainedSource = await readFile(path.join(retainedWorking, 'files/project.yaml'));
       await controller.disposeAndWait();
       sessions.closeActiveProject();
       const location = path.join(root, '.noveltea/editor/native-dirty-state.json');
@@ -1292,6 +1300,8 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
         }),
       );
       await writeFile(location, unsafeReplay);
+      await rm(workingRoot, { recursive: true, force: true });
+      await copyDirectory(retainedWorking, workingRoot, { recursive: true });
       controller = makeController();
       const fallback = await openNativeEditorProject(
         root,
@@ -1308,7 +1318,21 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
           }),
         ]),
       );
+      expect(fallback.diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            code: 'native.working_source.conflict',
+            message: expect.stringContaining('No trusted native recovery checkpoint'),
+          }),
+        ]),
+      );
       expect(controller.recoveredContentProject()).toBeNull();
+      expect(fallback.nativeRecoveredContentProject).toBeUndefined();
+      expect(fallback.contentProject).toMatchObject({
+        project: { name: 'Recovered partial journal edit' },
+      });
+      expect(await readFile(path.join(workingRoot, 'manifest.json'))).toEqual(retainedManifest);
+      expect(await readFile(path.join(workingRoot, 'files/project.yaml'))).toEqual(retainedSource);
       const revised = await controller.applyRevisionedPatches(
         fallback.projectSessionId!,
         fallback.nativeWorkingRevision!,

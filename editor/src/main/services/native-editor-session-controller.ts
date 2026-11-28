@@ -597,7 +597,11 @@ export class NativeEditorSessionController {
             `Offline working-source recovery cannot prepare Project: ${refreshed.error}`,
           );
         finalRevision = refreshed.workingRevision;
-        this.recoveredProject = projectFromNativeCompletePreparation(refreshed);
+        // Warning-only inspection retains evidence without restoring content.
+        // Refresh an existing recovered projection or an acknowledged import,
+        // but do not present the saved Project as recovered on a warning alone.
+        if (imported.changed || this.recoveredProject)
+          this.recoveredProject = projectFromNativeCompletePreparation(refreshed);
         recoveryDiagnostics = refreshed.diagnostics;
       }
       this.projectIdentity = native.project.id;
